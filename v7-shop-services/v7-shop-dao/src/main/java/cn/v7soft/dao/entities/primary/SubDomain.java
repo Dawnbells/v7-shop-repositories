@@ -113,15 +113,4 @@ public class SubDomain extends BaseTenantEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "language_id")
     private Language language;
-
-    /**
-     * 绑定的SPU列表
-     */
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(
-            name = "t_sub_domain_spus",
-            joinColumns = @JoinColumn(name = "sub_domain_id"),
-            inverseJoinColumns = @JoinColumn(name = "spu_id")
-    )
-    private List<Spu> spuList;
 }

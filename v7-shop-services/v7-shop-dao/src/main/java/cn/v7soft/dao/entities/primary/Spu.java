@@ -119,19 +119,4 @@ public class Spu extends BaseDataRangeEntity {
     @Builder.Default
     @ManyToMany(mappedBy = "spuList", fetch = FetchType.LAZY)
     private List<PixelAccount> pixelList = new ArrayList<>();
-
-    /**
-     * 绑定的子域名列表
-     */
-    @Builder.Default
-    @ManyToMany(mappedBy = "spuList", fetch = FetchType.LAZY)
-    private List<SubDomain> subDomainList = new ArrayList<>();
-//    /**
-//     * 归属产品库
-//     */
-//    @ManyToMany(fetch = FetchType.LAZY)
-//    @JoinTable(name = "product_libraries",
-//            joinColumns = @JoinColumn(name = "product_id"),
-//            inverseJoinColumns = @JoinColumn(name = "product_library_id"))
-//    private List<ProductLibrary> productLibraries;
 }

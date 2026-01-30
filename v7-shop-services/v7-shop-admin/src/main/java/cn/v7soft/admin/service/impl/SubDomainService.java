@@ -1,7 +1,6 @@
 package cn.v7soft.admin.service.impl;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -268,37 +267,41 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     @Override
     @Transactional
     public void bindSpu(Long subDomainId, Long spuId) {
-        SubDomain subDomain = getById(subDomainId);
-        List<Spu> spuList = subDomain.getSpuList();
-        if (spuList == null) {
-            spuList = new ArrayList<>();
-            subDomain.setSpuList(spuList);
-        }
-        // 检查是否已经绑定
-        boolean alreadyBound = spuList.stream().anyMatch(spu -> spu.getId().equals(spuId));
+        // 检查是否已经绑定（通过 LAND 类型判断）
+        boolean alreadyBound = subDomainSpuLandingPageRepository
+                .existsBySubDomainIdAndSpuIdAndLandingPageType(subDomainId, spuId, LandingPageType.LAND);
+
         if (!alreadyBound) {
-            spuList.add(Spu.builder().id(spuId).build());
+            LocalDateTime now = LocalDateTime.now();
+            // 为每种 LandingPageType 创建记录
+            for (LandingPageType type : LandingPageType.values()) {
+                SubDomainSpuLandingPage binding = SubDomainSpuLandingPage.builder()
+                        .subDomainId(subDomainId)
+                        .spuId(spuId)
+                        .landingPageType(type)
+                        .landingPageSpuId(null)  // 所有类型 landingPageSpuId 初始为 NULL
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build();
+                subDomainSpuLandingPageRepository.save(binding);
+            }
         }
-        save(subDomain);
     }
 
     @Override
     @Transactional
     public void unbindSpu(Long subDomainId, Long spuId) {
-        SubDomain subDomain = getById(subDomainId);
-        List<Spu> spuList = subDomain.getSpuList();
-        if (spuList != null) {
-            spuList.removeIf(spu -> spu.getId().equals(spuId));
-        }
-        save(subDomain);
+        // 删除所有落地页类型的配置记录
+        subDomainSpuLandingPageRepository.deleteBySubDomainIdAndSpuId(subDomainId, spuId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<Spu> getBoundSpus(Long subDomainId, String keyword) {
+        // 通过 LAND 类型查询绑定的 SPU
         // 数据库层面限制100条，避免大数据量时全量加载到内存
         // 预加载productList和country，用于判断SPU是否支持子域名绑定的国家
-        return repository.findSpusBySubDomainIdAndKeywordWithProducts(subDomainId, keyword, PageRequest.of(0, 100));
+        return subDomainSpuLandingPageRepository.findBoundSpusBySubDomainIdWithKeyword(subDomainId, keyword, PageRequest.of(0, 100));
     }
 
     @Override
@@ -309,9 +312,12 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         Long countryId = subDomain.getCountry() != null ? subDomain.getCountry().getId() : null;
 
         // 查询个性化落地页配置，转换为 Map<LandingPageType, Long>
+        // 使用 HashMap 收集，因为 landingPageSpuId 可能为 null（Collectors.toMap 不允许 null 值）
         List<SubDomainSpuLandingPage> landingPageBindings = subDomainSpuLandingPageRepository.findBySubDomainIdAndSpuId(subDomainId, spuId);
-        java.util.Map<LandingPageType, Long> customLandingPageMap = landingPageBindings.stream()
-                .collect(Collectors.toMap(SubDomainSpuLandingPage::getLandingPageType, SubDomainSpuLandingPage::getLandingPageSpuId));
+        java.util.Map<LandingPageType, Long> customLandingPageMap = new java.util.HashMap<>();
+        for (SubDomainSpuLandingPage lp : landingPageBindings) {
+            customLandingPageMap.put(lp.getLandingPageType(), lp.getLandingPageSpuId());
+        }
 
         // 检查SPU是否支持当前国家
         boolean spuSupportsCountry = checkSpuSupportsCountry(spu, countryId);
