@@ -37,4 +37,30 @@ public class EditCountryRequest extends IdRequest {
     @NotBlank(message = "前端服务器ID")
     @Schema(title = "前端服务器ID", example = "1", requiredMode = Schema.RequiredMode.REQUIRED)
     private String frontServerId;
+
+    // ========== CountryMeta 字段 ==========
+
+    @Schema(title = "电话前缀", example = "+86")
+    private String phonePrefix;
+
+    @Schema(title = "电话验证规则", example = "^1[3-9]\\d{9}$")
+    private String phoneRule;
+
+    @Schema(title = "地址验证规则", example = "^.{5,200}$")
+    private String addressRule;
+
+    @Schema(title = "地址包含字段", example = "province,city,district,postal_code")
+    private String addressFields;
+
+    @Schema(title = "是否使用全名", example = "true", description = "true-只输入一个名字，false-分开first name和last name")
+    private Boolean useFullName;
+
+    @Schema(title = "底部版权信息", example = "© 2024 V7Shop. All rights reserved.")
+    private String footerCopyrightInfo;
+
+    @Schema(title = "是否必填电话", example = "true")
+    private Boolean requiredPhone;
+
+    @Schema(title = "是否必填邮箱", example = "false")
+    private Boolean requiredEmail;
 }

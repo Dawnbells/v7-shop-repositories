@@ -74,7 +74,18 @@ public class CountryController extends BaseController<Country, ICountryService, 
         BeanUtil.copyProperties(request, country);
         country.setContinentCode(request.getContinentCode());
         country.setCode(country.getCode().toUpperCase());
-        country.setCountryMeta(CountryMeta.builder().build());
+        // 构建 CountryMeta，包含所有元数据字段
+        CountryMeta countryMeta = CountryMeta.builder()
+                .phonePrefix(request.getPhonePrefix())
+                .phoneRule(request.getPhoneRule())
+                .addressRule(request.getAddressRule())
+                .addressFields(request.getAddressFields())
+                .useFullName(request.getUseFullName())
+                .footerCopyrightInfo(request.getFooterCopyrightInfo())
+                .requiredPhone(request.getRequiredPhone() != null ? request.getRequiredPhone() : false)
+                .requiredEmail(request.getRequiredEmail() != null ? request.getRequiredEmail() : false)
+                .build();
+        country.setCountryMeta(countryMeta);
         country.setLanguages(request.getLanguageIds().stream().map((Function<String, Language>) s -> Language.builder().id(Long.parseLong(s)).build()).collect(Collectors.toList()));
         country.setCurrency(Currency.builder().id(Long.parseLong(request.getCurrencyId())).build());
         country.setFrontServer(FrontServer.builder().id(Long.parseLong(request.getFrontServerId())).build());

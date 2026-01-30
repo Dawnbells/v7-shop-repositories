@@ -76,15 +76,57 @@
         <el-table-column align="center" label="货币符号" prop="currency.symbol" />
         <el-table-column align="center" label="汇率" prop="currency.exchangeRate" />
       </el-table-column>
-      <el-table-column align="center" label="配置" type="expand">
-        <template #default="props">
-          <div m="4">
-            <p m="t-0 b-2">State: {{ props.row.state }}</p>
-            <p m="t-0 b-2">City: {{ props.row.city }}</p>
-            <p m="t-0 b-2">Address: {{ props.row.address }}</p>
-            <p m="t-0 b-2">Zip: {{ props.row.zip }}</p>
-            <p m="t-0 b-2">server: {{ props.row.frontServer.name }}</p>
-            <h3>Family</h3>
+      <el-table-column align="center" label="配置" type="expand" width="80">
+        <template #default="{ row }">
+          <div class="expand-content">
+            <el-descriptions :column="3" border size="small" title="收货配置">
+              <el-descriptions-item label="服务器">
+                {{ row.frontServer?.name || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="电话前缀">
+                {{ row.phonePrefix || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="电话规则">
+                <el-tooltip v-if="row.phoneRule" :content="row.phoneRule" placement="top">
+                  <el-tag size="small">{{ row.phoneRule?.substring(0, 20) }}{{ row.phoneRule?.length > 20 ? '...' : '' }}</el-tag>
+                </el-tooltip>
+                <span v-else>-</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="必填电话">
+                <el-tag :type="row.requiredPhone ? 'success' : 'info'" size="small">
+                  {{ row.requiredPhone ? '是' : '否' }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="必填邮箱">
+                <el-tag :type="row.requiredEmail ? 'success' : 'info'" size="small">
+                  {{ row.requiredEmail ? '是' : '否' }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="使用全名">
+                <el-tag :type="row.useFullName ? 'success' : 'info'" size="small">
+                  {{ row.useFullName ? '是' : '否' }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="地址字段" :span="2">
+                <el-space v-if="row.addressFields" wrap size="small">
+                  <el-tag v-for="field in row.addressFields?.split(',')" :key="field" size="small" type="info">
+                    {{ field }}
+                  </el-tag>
+                </el-space>
+                <span v-else>-</span>
+              </el-descriptions-item>
+              <el-descriptions-item label="地址规则">
+                <el-tooltip v-if="row.addressRule" :content="row.addressRule" placement="top">
+                  <el-tag size="small">{{ row.addressRule?.substring(0, 20) }}{{ row.addressRule?.length > 20 ? '...' : '' }}</el-tag>
+                </el-tooltip>
+                <span v-else>-</span>
+              </el-descriptions-item>
+            </el-descriptions>
+            <el-descriptions :column="1" border size="small" style="margin-top: 12px" title="其他配置">
+              <el-descriptions-item label="底部版权信息">
+                {{ row.footerCopyrightInfo || '-' }}
+              </el-descriptions-item>
+            </el-descriptions>
           </div>
         </template>
       </el-table-column>
@@ -236,3 +278,17 @@ onBeforeMount(() => {
   fetchData()
 })
 </script>
+
+<style lang="scss" scoped>
+.country-container {
+  .expand-content {
+    padding: 16px 24px;
+    background-color: var(--el-fill-color-lighter);
+
+    :deep(.el-descriptions__title) {
+      font-size: 14px;
+      font-weight: 500;
+    }
+  }
+}
+</style>
