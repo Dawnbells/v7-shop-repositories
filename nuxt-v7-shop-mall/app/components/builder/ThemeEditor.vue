@@ -326,8 +326,7 @@ async function handleSave() {
     if ((response as any).success) {
       markAsSaved();
       saveMessage.value = { type: "success", text: "保存成功" };
-      // 通知父窗口保存成功
-      window.parent.postMessage({ type: "themeEditor", action: "save" }, "*");
+      // 保存成功后不关闭编辑器，继续编辑
     } else {
       saveMessage.value = { type: "error", text: "保存失败" };
     }
