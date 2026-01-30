@@ -6,21 +6,15 @@
  * - 必须通过 admin iframe 打开并接收认证信息才能使用
  * - 直接访问会显示等待认证，超时后显示错误
  * 
- * 支持参数方式：
- * 1. iframe postMessage：父窗口通过 postMessage 传递认证信息和参数（推荐）
- * 2. URL 参数：/builder?subDomainId=xxx&spuId=xxx&landingType=LAND（仅开发调试）
- * 
  * 当嵌入 admin iframe 时，通过 postMessage 接收：
  * - token：用于 API 鉴权
  * - imageBaseUrl：图片基础 URL
  * - apiBaseUrl：API 基础 URL
- * - query：subDomainId, spuId, landingType
+ * - query：subDomainId, spuId, landingType, subDomainName, spuName
  */
 
 import type { ThemeSchema, CustomVariable } from "~/types/builder";
 import { useIframeAuth } from "~/composables/useIframeAuth";
-
-const route = useRoute();
 
 // iframe 认证（初始化 postMessage 监听）
 const { isReady: iframeReady, query: iframeQuery, token, stopReadyRetry } = useIframeAuth();
@@ -28,7 +22,7 @@ const { isReady: iframeReady, query: iframeQuery, token, stopReadyRetry } = useI
 // ==================== 认证检查 ====================
 
 // 认证超时时间（秒）
-const AUTH_TIMEOUT = 30;
+const AUTH_TIMEOUT = 10;
 const authTimeout = ref(false);
 const authCountdown = ref(AUTH_TIMEOUT);
 
@@ -42,13 +36,8 @@ const isInIframe = computed(() => {
 
 // 是否已认证
 const isAuthenticated = computed(() => {
-  // 如果通过 postMessage 收到了 token，已认证
-  if (token.value) return true;
-  // 如果不在 iframe 中且有完整 URL 参数，允许（仅开发调试用）
-  if (!isInIframe.value && route.query.subDomainId && route.query.spuId) {
-    return true;
-  }
-  return false;
+  // 只有通过 postMessage 收到了 token 才算已认证
+  return !!token.value;
 });
 
 // 认证超时倒计时
@@ -110,16 +99,10 @@ onUnmounted(() => {
 
 // ==================== 查询参数 ====================
 
-// 获取查询参数（优先使用 iframe 传递的参数，其次使用 URL 参数）
-const subDomainId = computed(() => {
-  return iframeQuery.value?.subDomainId || (route.query.subDomainId as string);
-});
-const spuId = computed(() => {
-  return iframeQuery.value?.spuId || (route.query.spuId as string);
-});
-const landingType = computed(() => {
-  return iframeQuery.value?.landingType || (route.query.landingType as string) || "LAND";
-});
+// 从 iframe postMessage 获取查询参数
+const subDomainId = computed(() => iframeQuery.value?.subDomainId);
+const spuId = computed(() => iframeQuery.value?.spuId);
+const landingType = computed(() => iframeQuery.value?.landingType || "LAND");
 
 definePageMeta({
   layout: false, // 编辑器使用自定义布局
@@ -197,6 +180,12 @@ async function loadThemeFromServer() {
   }
 
   isLoading.value = false;
+
+  // 通知父窗口认证和加载完成
+  if (import.meta.client && window.parent !== window) {
+    window.parent.postMessage({ type: 'BUILDER_AUTHENTICATED' }, '*');
+    console.log("[Builder] 已通知父窗口认证完成");
+  }
 }
 
 // 暴露刷新方法供外部调用（如工具栏刷新按钮）

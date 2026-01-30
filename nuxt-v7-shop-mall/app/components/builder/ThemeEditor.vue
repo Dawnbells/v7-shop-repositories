@@ -11,8 +11,6 @@ import {
 } from "~/composables/useDataContext";
 import { useIframeAuth } from "~/composables/useIframeAuth";
 
-const route = useRoute();
-
 // 获取 iframe 认证信息
 const { query: iframeQuery } = useIframeAuth();
 
@@ -32,10 +30,10 @@ const contextInfo = computed(() => {
   return `${q.subDomainName} - ${typeLabel} - ${q.spuName || 'SPU'}`;
 });
 
-// 获取查询参数（从路由获取保存所需参数）
-const subDomainId = computed(() => route.query.subDomainId as string | undefined);
-const spuId = computed(() => route.query.spuId as string | undefined);
-const landingType = computed(() => (route.query.landingType as string) || "LAND");
+// 从 iframe postMessage 获取查询参数
+const subDomainId = computed(() => iframeQuery.value?.subDomainId);
+const spuId = computed(() => iframeQuery.value?.spuId);
+const landingType = computed(() => iframeQuery.value?.landingType || "LAND");
 
 // 主题状态
 const {

@@ -465,7 +465,13 @@
     :show-close="false"
     @close="closeThemeEditorDialog"
   >
+    <!-- Loading 状态 -->
+    <div v-if="themeEditorLoading" class="theme-editor-loading">
+      <el-icon class="loading-icon"><Loading /></el-icon>
+      <span>加载主题编辑器...</span>
+    </div>
     <iframe
+      v-show="!themeEditorLoading"
       v-if="themeEditorDialogVisible && themeEditorUrlWithLandingType"
       :src="themeEditorUrlWithLandingType"
       class="theme-editor-iframe"
@@ -492,6 +498,7 @@ import {
   Document,
   Flag,
   Link,
+  Loading,
   Monitor,
   Plus,
   Refresh,
@@ -592,6 +599,7 @@ const landingPageSpuOptions = ref<any[]>([])
 
 // 主题编辑器弹窗相关
 const themeEditorDialogVisible = ref<boolean>(false)
+const themeEditorLoading = ref<boolean>(true)
 
 // 站点配置弹窗相关
 const siteConfigDialogRef = ref<InstanceType<typeof SchemaFormDialog> | null>(null)
@@ -867,6 +875,7 @@ const currentEditingLandingType = ref<'LAND' | 'CLOAK' | 'BLACKLISTED'>('LAND')
 // 编辑落地页主题 - 打开 iframe 弹窗
 const handleEditLandingTheme = (landingType: 'LAND' | 'CLOAK' | 'BLACKLISTED') => {
   currentEditingLandingType.value = landingType
+  themeEditorLoading.value = true
   themeEditorDialogVisible.value = true
   window.addEventListener('message', handleThemeEditorMessage)
 }
@@ -908,6 +917,7 @@ const sendAuthToBuilder = () => {
 
 // iframe 加载完成后主动发送认证信息
 const handleIframeLoad = () => {
+  // 不在这里关闭 loading，等待 BUILDER_AUTHENTICATED 消息
   // 延迟一小段时间确保 builder 的监听器已初始化
   setTimeout(() => {
     sendAuthToBuilder()
@@ -920,6 +930,13 @@ const handleThemeEditorMessage = (event: MessageEvent) => {
   if (event.data?.type === 'BUILDER_READY') {
     console.log('[Admin] 收到 BUILDER_READY，发送认证信息')
     sendAuthToBuilder()
+    return
+  }
+
+  // 处理 BUILDER_AUTHENTICATED - 认证成功，关闭 loading
+  if (event.data?.type === 'BUILDER_AUTHENTICATED') {
+    console.log('[Admin] 收到 BUILDER_AUTHENTICATED，关闭 loading')
+    themeEditorLoading.value = false
     return
   }
 
@@ -1603,6 +1620,37 @@ const handleUseDefaultConfig = () => {
 .theme-editor-iframe {
   width: 100% !important;
   height: calc(100vh - 3px) !important;
+}
+
+.theme-editor-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: #909399;
+  font-size: 14px;
+  gap: 12px;
+  background-color: #1e293b;
+
+  .loading-icon {
+    font-size: 32px;
+    color: #3b82f6;
+    animation: rotate 1s linear infinite;
+  }
+
+  span {
+    color: #94a3b8;
+  }
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
 <style lang="scss">

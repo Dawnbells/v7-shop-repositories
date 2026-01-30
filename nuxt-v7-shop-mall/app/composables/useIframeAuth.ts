@@ -117,7 +117,8 @@ const handleMessage = (event: MessageEvent) => {
 let isListenerInitialized = false;
 
 // BUILDER_READY 重试定时器
-let readyRetryTimer: ReturnType<typeof setInterval> | null = null;
+let readyRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryCount = 0;
 
 // 发送 BUILDER_READY 消息
 const sendBuilderReady = () => {
@@ -130,9 +131,29 @@ const sendBuilderReady = () => {
 // 停止重试
 const stopReadyRetry = () => {
   if (readyRetryTimer) {
-    clearInterval(readyRetryTimer);
+    clearTimeout(readyRetryTimer);
     readyRetryTimer = null;
   }
+  retryCount = 0;
+};
+
+// 递归重试发送 BUILDER_READY（前几次快速重试，之后慢速重试）
+const scheduleRetry = () => {
+  if (authState.isReady) {
+    stopReadyRetry();
+    return;
+  }
+  
+  retryCount++;
+  // 前 5 次快速重试（每 200ms），之后每 1 秒重试一次
+  const delay = retryCount <= 5 ? 200 : 1000;
+  
+  readyRetryTimer = setTimeout(() => {
+    if (!authState.isReady) {
+      sendBuilderReady();
+      scheduleRetry();
+    }
+  }, delay);
 };
 
 /**
@@ -148,14 +169,8 @@ export function useIframeAuth() {
     // 通知父窗口 builder 已准备好接收消息
     sendBuilderReady();
 
-    // 设置重试机制，每 2 秒重试一次，直到收到认证信息
-    readyRetryTimer = setInterval(() => {
-      if (!authState.isReady) {
-        sendBuilderReady();
-      } else {
-        stopReadyRetry();
-      }
-    }, 2000);
+    // 启动重试机制（前几次快速重试，之后慢速重试）
+    scheduleRetry();
   }
 
   // 计算属性：是否已就绪
