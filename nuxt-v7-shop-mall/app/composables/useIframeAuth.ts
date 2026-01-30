@@ -53,8 +53,12 @@ const getAllowedOrigins = (): string[] => {
     window.location.origin,
     'http://localhost:3000',
     'http://localhost:5173',
+    'http://localhost:5200',
+    'http://localhost:9999',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
+    'http://127.0.0.1:5200',
+    'http://127.0.0.1:9999',
   ];
 };
 
@@ -110,6 +114,25 @@ const handleMessage = (event: MessageEvent) => {
 // 是否已初始化监听
 let isListenerInitialized = false;
 
+// BUILDER_READY 重试定时器
+let readyRetryTimer: ReturnType<typeof setInterval> | null = null;
+
+// 发送 BUILDER_READY 消息
+const sendBuilderReady = () => {
+  if (typeof window !== 'undefined' && window.parent !== window) {
+    window.parent.postMessage({ type: 'BUILDER_READY' }, '*');
+    console.log('[IframeAuth] 发送 BUILDER_READY');
+  }
+};
+
+// 停止重试
+const stopReadyRetry = () => {
+  if (readyRetryTimer) {
+    clearInterval(readyRetryTimer);
+    readyRetryTimer = null;
+  }
+};
+
 /**
  * useIframeAuth composable
  * 提供 iframe 通信的认证状态和工具方法
@@ -121,9 +144,16 @@ export function useIframeAuth() {
     isListenerInitialized = true;
 
     // 通知父窗口 builder 已准备好接收消息
-    if (window.parent !== window) {
-      window.parent.postMessage({ type: 'BUILDER_READY' }, '*');
-    }
+    sendBuilderReady();
+
+    // 设置重试机制，每 2 秒重试一次，直到收到认证信息
+    readyRetryTimer = setInterval(() => {
+      if (!authState.isReady) {
+        sendBuilderReady();
+      } else {
+        stopReadyRetry();
+      }
+    }, 2000);
   }
 
   // 计算属性：是否已就绪
@@ -233,5 +263,6 @@ export function useIframeAuth() {
     authFetch,
     setAuth,
     clearAuth,
+    stopReadyRetry,
   };
 }

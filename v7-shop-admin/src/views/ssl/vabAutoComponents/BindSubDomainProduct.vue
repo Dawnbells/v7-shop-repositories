@@ -469,6 +469,7 @@
       v-if="themeEditorDialogVisible && themeEditorUrlWithLandingType"
       :src="themeEditorUrlWithLandingType"
       class="theme-editor-iframe"
+      @load="handleIframeLoad"
     />
   </vab-dialog>
 
@@ -511,6 +512,7 @@ import {
   unbindSpuPixel,
 } from '/@/api/subDomain'
 import { getTicket } from '/@/api/user'
+import { getToken } from '/@/utils/token'
 
 defineOptions({
   name: 'BindSubDomainProduct',
@@ -862,29 +864,60 @@ const handleCopyAdLink = async (spuId: number) => {
 // 当前编辑的落地页类型
 const currentEditingLandingType = ref<'LAND' | 'CLOAK' | 'BLACKLISTED'>('LAND')
 
-// 编辑落地页主题 - 跳转到主题编辑器页面
-const router = useRouter()
+// 编辑落地页主题 - 打开 iframe 弹窗
 const handleEditLandingTheme = (landingType: 'LAND' | 'CLOAK' | 'BLACKLISTED') => {
-  router.push({
-    path: '/goods/themeBuilder',
-    query: {
-      subDomainId: String(subDomainId.value),
-      spuId: activeSpuTab.value,
-      landingType: landingType,
-    },
-  })
+  currentEditingLandingType.value = landingType
+  themeEditorDialogVisible.value = true
+  window.addEventListener('message', handleThemeEditorMessage)
 }
 
-// 获取带 landingType 参数的主题编辑器 URL
+// 获取主题编辑器 URL（使用环境变量配置或默认地址）
 const themeEditorUrlWithLandingType = computed(() => {
-  const baseUrl = spuDetail.value.themeEditorUrl
-  if (!baseUrl) return ''
-  const separator = baseUrl.includes('?') ? '&' : '?'
-  return `${baseUrl}${separator}landingType=${currentEditingLandingType.value}`
+  // 使用环境变量配置的 nuxt builder URL，参数通过 postMessage 传递
+  const baseUrl = import.meta.env.VITE_NUXT_BUILDER_URL || 'http://localhost:3000/builder'
+  return baseUrl
 })
+
+// 发送认证信息给 builder iframe
+const sendAuthToBuilder = () => {
+  const iframe = document.querySelector('.theme-editor-iframe') as HTMLIFrameElement
+  if (iframe?.contentWindow) {
+    const token = getToken()
+    iframe.contentWindow.postMessage({
+      type: 'BUILDER_INIT',
+      payload: {
+        token: token,
+        imageBaseUrl: import.meta.env.VITE_IMAGE_BASE_URL || '',
+        apiBaseUrl: import.meta.env.VITE_API_BASE_URL || window.location.origin,
+        query: {
+          subDomainId: String(subDomainId.value),
+          spuId: activeSpuTab.value,
+          landingType: currentEditingLandingType.value,
+        }
+      }
+    }, '*')
+    console.log('[Admin] 已发送认证信息给 builder')
+  }
+}
+
+// iframe 加载完成后主动发送认证信息
+const handleIframeLoad = () => {
+  // 延迟一小段时间确保 builder 的监听器已初始化
+  setTimeout(() => {
+    sendAuthToBuilder()
+  }, 100)
+}
 
 // 处理主题编辑器 postMessage 消息
 const handleThemeEditorMessage = (event: MessageEvent) => {
+  // 处理 BUILDER_READY - builder 已准备好接收认证信息
+  if (event.data?.type === 'BUILDER_READY') {
+    console.log('[Admin] 收到 BUILDER_READY，发送认证信息')
+    sendAuthToBuilder()
+    return
+  }
+
+  // 处理保存/关闭/认证失败
   if (event.data?.type === 'themeEditor') {
     if (event.data.action === 'close' || event.data.action === 'save') {
       themeEditorDialogVisible.value = false
@@ -893,6 +926,12 @@ const handleThemeEditorMessage = (event: MessageEvent) => {
       if (event.data.action === 'save') {
         loadSpuDetail(activeSpuTab.value)
       }
+    }
+    // 处理认证失败
+    if (event.data.action === 'authFailed') {
+      themeEditorDialogVisible.value = false
+      window.removeEventListener('message', handleThemeEditorMessage)
+      $baseMessage(event.data.message || '认证失败，请重试', 'error', 'hey')
     }
   }
 }

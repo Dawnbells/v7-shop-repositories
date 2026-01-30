@@ -2,9 +2,13 @@
 /**
  * 主题编辑器页面 - CSR 渲染
  *
+ * 认证机制：
+ * - 必须通过 admin iframe 打开并接收认证信息才能使用
+ * - 直接访问会显示等待认证，超时后显示错误
+ * 
  * 支持参数方式：
- * 1. URL 参数：/builder?subDomainId=xxx&spuId=xxx&landingType=LAND
- * 2. iframe postMessage：父窗口通过 postMessage 传递认证信息和参数
+ * 1. iframe postMessage：父窗口通过 postMessage 传递认证信息和参数（推荐）
+ * 2. URL 参数：/builder?subDomainId=xxx&spuId=xxx&landingType=LAND（仅开发调试）
  * 
  * 当嵌入 admin iframe 时，通过 postMessage 接收：
  * - token：用于 API 鉴权
@@ -19,24 +23,110 @@ import { useIframeAuth } from "~/composables/useIframeAuth";
 const route = useRoute();
 
 // iframe 认证（初始化 postMessage 监听）
-const { isReady: iframeReady, query: iframeQuery } = useIframeAuth();
+const { isReady: iframeReady, query: iframeQuery, token, stopReadyRetry } = useIframeAuth();
 
-// 获取查询参数（优先使用 URL 参数，其次使用 iframe 传递的参数）
+// ==================== 认证检查 ====================
+
+// 认证超时时间（秒）
+const AUTH_TIMEOUT = 30;
+const authTimeout = ref(false);
+const authCountdown = ref(AUTH_TIMEOUT);
+
+// 检查是否在 iframe 中
+const isInIframe = computed(() => {
+  if (import.meta.client) {
+    return window.parent !== window;
+  }
+  return false;
+});
+
+// 是否已认证
+const isAuthenticated = computed(() => {
+  // 如果通过 postMessage 收到了 token，已认证
+  if (token.value) return true;
+  // 如果不在 iframe 中且有完整 URL 参数，允许（仅开发调试用）
+  if (!isInIframe.value && route.query.subDomainId && route.query.spuId) {
+    return true;
+  }
+  return false;
+});
+
+// 认证超时倒计时
+let timeoutTimer: ReturnType<typeof setInterval> | null = null;
+
+onMounted(() => {
+  // 如果在 iframe 中且未认证，启动倒计时
+  if (isInIframe.value && !isAuthenticated.value) {
+    timeoutTimer = setInterval(() => {
+      authCountdown.value--;
+      if (authCountdown.value <= 0) {
+        authTimeout.value = true;
+        if (timeoutTimer) {
+          clearInterval(timeoutTimer);
+          timeoutTimer = null;
+        }
+        // 停止 BUILDER_READY 重试
+        stopReadyRetry();
+        // 通知父窗口认证失败
+        if (window.parent !== window) {
+          window.parent.postMessage({ 
+            type: 'themeEditor', 
+            action: 'authFailed',
+            message: '认证超时，请重试'
+          }, '*');
+        }
+      }
+    }, 1000);
+  }
+  
+  // 如果已认证，直接加载主题
+  if (isAuthenticated.value) {
+    loadThemeFromServer();
+  }
+});
+
+// 认证成功后清除计时器并加载主题
+watch(isAuthenticated, (val) => {
+  if (val) {
+    if (timeoutTimer) {
+      clearInterval(timeoutTimer);
+      timeoutTimer = null;
+    }
+    // 停止 BUILDER_READY 重试
+    stopReadyRetry();
+    // 认证成功后加载主题
+    loadThemeFromServer();
+  }
+});
+
+onUnmounted(() => {
+  if (timeoutTimer) {
+    clearInterval(timeoutTimer);
+    timeoutTimer = null;
+  }
+  // 清理重试定时器
+  stopReadyRetry();
+});
+
+// ==================== 查询参数 ====================
+
+// 获取查询参数（优先使用 iframe 传递的参数，其次使用 URL 参数）
 const subDomainId = computed(() => {
-  return (route.query.subDomainId as string) || iframeQuery.value?.subDomainId;
+  return iframeQuery.value?.subDomainId || (route.query.subDomainId as string);
 });
 const spuId = computed(() => {
-  return (route.query.spuId as string) || iframeQuery.value?.spuId;
+  return iframeQuery.value?.spuId || (route.query.spuId as string);
 });
 const landingType = computed(() => {
-  return (route.query.landingType as string) || iframeQuery.value?.landingType || "LAND";
+  return iframeQuery.value?.landingType || (route.query.landingType as string) || "LAND";
 });
 
 definePageMeta({
   layout: false, // 编辑器使用自定义布局
 });
 
-// 主题状态
+// ==================== 主题状态 ====================
+
 const { theme, initTheme, loadFullData, clearTheme, hasUnsavedChanges } = useThemeSchema();
 
 // API 响应类型
@@ -109,11 +199,6 @@ async function loadThemeFromServer() {
   isLoading.value = false;
 }
 
-// 初始化时加载
-onMounted(() => {
-  loadThemeFromServer();
-});
-
 // 暴露刷新方法供外部调用（如工具栏刷新按钮）
 defineExpose({
   reload: loadThemeFromServer,
@@ -134,24 +219,53 @@ onBeforeRouteLeave((to, from, next) => {
 
 <template>
   <div class="builder-page">
-    <!-- 加载错误提示 -->
-    <Transition name="fade">
-      <div v-if="loadError" class="load-error-toast">
-        <span class="i-carbon-warning mr-2"></span>
-        {{ loadError }}
-        <button class="close-toast" @click="loadError = null">
-          <span class="i-carbon-close"></span>
-        </button>
-      </div>
-    </Transition>
-
-    <ThemeEditor v-if="theme && !isLoading" />
-
-    <!-- 加载中 -->
-    <div v-else class="loading-container">
-      <div class="loading-spinner"></div>
-      <p class="loading-text">加载主题配置中...</p>
+    <!-- 未认证时显示等待或错误 -->
+    <div v-if="!isAuthenticated" class="auth-container">
+      <!-- 认证超时 -->
+      <template v-if="authTimeout">
+        <div class="auth-error">
+          <div class="auth-icon error">
+            <span class="i-carbon-warning-alt"></span>
+          </div>
+          <h2 class="auth-title">认证失败</h2>
+          <p class="auth-desc">未收到认证信息，请从管理后台打开此页面</p>
+          <p class="auth-hint">主题编辑器需要通过管理后台的"站点配置 → 落地页配置 → 主题"入口打开</p>
+        </div>
+      </template>
+      <!-- 等待认证 -->
+      <template v-else>
+        <div class="auth-waiting">
+          <div class="auth-icon waiting">
+            <div class="loading-spinner"></div>
+          </div>
+          <h2 class="auth-title">等待认证</h2>
+          <p class="auth-desc">正在等待管理后台发送认证信息...</p>
+          <p class="auth-countdown">{{ authCountdown }} 秒后超时</p>
+        </div>
+      </template>
     </div>
+
+    <!-- 已认证显示编辑器 -->
+    <template v-else>
+      <!-- 加载错误提示 -->
+      <Transition name="fade">
+        <div v-if="loadError" class="load-error-toast">
+          <span class="i-carbon-warning mr-2"></span>
+          {{ loadError }}
+          <button class="close-toast" @click="loadError = null">
+            <span class="i-carbon-close"></span>
+          </button>
+        </div>
+      </Transition>
+
+      <ThemeEditor v-if="theme && !isLoading" />
+
+      <!-- 加载中 -->
+      <div v-else class="loading-container">
+        <div class="loading-spinner"></div>
+        <p class="loading-text">加载主题配置中...</p>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -261,5 +375,76 @@ html, body {
 .fade-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(-10px);
+}
+
+/* 认证容器 */
+.auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+}
+
+.auth-waiting,
+.auth-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 400px;
+}
+
+.auth-icon {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-bottom: 24px;
+}
+
+.auth-icon.waiting {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+.auth-icon.error {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.auth-icon.error span {
+  font-size: 40px;
+  color: #ef4444;
+}
+
+.auth-title {
+  margin: 0 0 12px;
+  font-size: 24px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.auth-desc {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #94a3b8;
+  line-height: 1.6;
+}
+
+.auth-hint {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: #64748b;
+  background-color: rgba(51, 65, 85, 0.5);
+  border-radius: 8px;
+  line-height: 1.5;
+}
+
+.auth-countdown {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: #64748b;
 }
 </style>
