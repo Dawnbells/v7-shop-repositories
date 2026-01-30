@@ -222,14 +222,29 @@ watch(
         }
       }
 
+      // 修复 el-switch 对齐
+      .el-switch {
+        vertical-align: middle;
+      }
+
+      // 修复 el-color-picker 对齐
+      .el-color-picker {
+        vertical-align: middle;
+
+        .el-color-picker__trigger {
+          vertical-align: middle;
+        }
+      }
+
       // 统一所有工具组件的对齐
       .vab-dark,
       .vab-color-picker,
-      .el-badge {
-        display: flex;
+      .el-badge,
+      .vab-language,
+      .el-dropdown {
+        display: inline-flex;
         align-items: center;
-        height: 32px;
-        line-height: 32px;
+        vertical-align: middle;
       }
     }
   }

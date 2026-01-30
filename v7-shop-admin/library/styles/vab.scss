@@ -56,39 +56,39 @@ html {
 
       .vue-shop-vite-box {
         div:not(
-            .el-drawer,
-            .el-drawer *,
-            .el-dialog,
-            .el-dialog *,
-            .el-message-box,
-            .el-message-box *,
-            .el-table,
-            .el-table *,
-            .el-carousel,
-            .el-carousel *,
-            .el-pagination,
-            .el-pagination *,
-            .el-slider,
-            .el-slider *,
-            .el-card,
-            .el-card *,
-            .el-menu,
-            .el-menu *,
-            .el-form,
-            .el-form *,
-            .el-row,
-            .el-row *,
-            .el-tree,
-            .el-tree *,
-            .split,
-            .split *,
-            .card-drag,
-            .card-drag *,
-            .global-animation-disabled *,
-            .no-transition-container *,
-            .vab-magnifier,
-            .vab-magnifier *
-          ) {
+          .el-drawer,
+          .el-drawer *,
+          .el-dialog,
+          .el-dialog *,
+          .el-message-box,
+          .el-message-box *,
+          .el-table,
+          .el-table *,
+          .el-carousel,
+          .el-carousel *,
+          .el-pagination,
+          .el-pagination *,
+          .el-slider,
+          .el-slider *,
+          .el-card,
+          .el-card *,
+          .el-menu,
+          .el-menu *,
+          .el-form,
+          .el-form *,
+          .el-row,
+          .el-row *,
+          .el-tree,
+          .el-tree *,
+          .split,
+          .split *,
+          .card-drag,
+          .card-drag *,
+          .global-animation-disabled *,
+          .no-transition-container *,
+          .vab-magnifier,
+          .vab-magnifier *
+        ) {
           text-shadow: none;
           transition: var(--el-transition);
           -webkit-font-smoothing: antialiased;
@@ -816,9 +816,12 @@ html {
 
     /* el-color-picker */
     .el-color-picker {
+      width: 18px;
+      height: 18px;
+
       &__trigger {
-        width: 20px;
-        height: 20px;
+        width: 18px;
+        height: 18px;
         padding: 0;
         border-radius: 0;
       }
