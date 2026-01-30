@@ -1,0 +1,168 @@
+/**
+ * 主题渲染 composable
+ * 用于前端页面渲染主题配置
+ * 
+ * 数据来源：
+ * - themeConfig: 页面布局、组件、样式
+ * - siteConfig: 站点配置值（全局固定配置）
+ * - variableValues: 变量实际值（用户自定义变量）
+ */
+
+import type { ThemeSchema, GlobalStyle, PageSchema, LayoutSchema } from "~/types/builder";
+import type { SiteConfig, VariableValues } from "~/types/data-context";
+
+/**
+ * 获取主题渲染所需的数据和方法
+ */
+export function useThemeRender() {
+  // 从页面上下文获取产品信息（包含 themeConfig、siteConfig、variableValues）
+  const pageContext = usePageContext(["landingProduct"]);
+
+  // 调试日志：打印 landingProduct 信息
+  if (import.meta.dev) {
+    console.log("[useThemeRender] landingProduct:", {
+      hasLandingProduct: !!pageContext.value.landingProduct,
+      hasThemeConfig: !!pageContext.value.landingProduct?.themeConfig,
+      hasSiteConfig: !!pageContext.value.landingProduct?.siteConfig,
+      hasVariableValues: !!pageContext.value.landingProduct?.variableValues,
+      themeConfigKeys: pageContext.value.landingProduct?.themeConfig
+        ? Object.keys(pageContext.value.landingProduct.themeConfig)
+        : [],
+    });
+  }
+
+  // 主题配置
+  const themeConfig = computed<ThemeSchema | null>(() => {
+    const config = pageContext.value.landingProduct?.themeConfig || null;
+    // 调试日志：打印主题配置信息
+    if (import.meta.dev && config) {
+      console.log("[useThemeRender] themeConfig computed:", {
+        hasGlobalStyle: !!config.globalStyle,
+        pagesKeys: config.pages ? Object.keys(config.pages) : [],
+        layoutsCount: config.pages?.layouts?.length || 0,
+      });
+    }
+    return config;
+  });
+
+  // 站点配置值
+  const siteConfig = computed<SiteConfig>(() => {
+    return pageContext.value.landingProduct?.siteConfig || {};
+  });
+
+  // 变量实际值
+  const variableValues = computed<VariableValues>(() => {
+    return pageContext.value.landingProduct?.variableValues || {};
+  });
+
+  // 合并的数据上下文（供组件绑定使用）
+  const dataContext = computed(() => {
+    return {
+      // 站点配置（以 site. 前缀访问）
+      site: siteConfig.value,
+      // 变量值（以 var. 前缀访问）
+      var: variableValues.value,
+      // 产品数据（以 product. 前缀访问）
+      product: pageContext.value.landingProduct
+        ? {
+            id: pageContext.value.landingProduct.id,
+            spuId: pageContext.value.landingProduct.spuId,
+            title: pageContext.value.landingProduct.title,
+            merchandise: pageContext.value.landingProduct.merchandise,
+            introduction: pageContext.value.landingProduct.introduction,
+            summary: pageContext.value.landingProduct.summary,
+            sellPrice: pageContext.value.landingProduct.sellPrice,
+            originPrice: pageContext.value.landingProduct.originPrice,
+            isMultiSpecs: pageContext.value.landingProduct.isMultiSpecs,
+            images: pageContext.value.landingProduct.images,
+            specifications: pageContext.value.landingProduct.specifications,
+          }
+        : null,
+    };
+  });
+
+  // 全局样式
+  const globalStyle = computed<GlobalStyle | null>(() => {
+    return themeConfig.value?.globalStyle || null;
+  });
+
+  // 生成全局样式 CSS 变量
+  const globalStyleVars = computed(() => {
+    const style = globalStyle.value;
+    if (!style) return {};
+
+    return {
+      "--color-primary": style.primaryColor,
+      "--color-secondary": style.secondaryColor,
+      "--color-success": style.successColor,
+      "--color-warning": style.warningColor,
+      "--color-error": style.errorColor,
+      "--color-background": style.backgroundColor,
+      "--color-surface": style.surfaceColor,
+      "--color-text": style.textColor,
+      "--color-text-secondary": style.textSecondaryColor,
+      "--color-border": style.borderColor,
+      "--font-family": style.fontFamily,
+      "--font-size-base": style.fontSizeBase,
+      "--line-height": style.lineHeight,
+      "--border-radius-small": style.borderRadiusSmall,
+      "--border-radius-medium": style.borderRadiusMedium,
+      "--border-radius-large": style.borderRadiusLarge,
+      "--spacing-unit": style.spacingUnit,
+    };
+  });
+
+  // 获取指定页面类型的页面配置
+  function getPageSchema(pageType: "home" | "product" | "orderResult" | "article" | "checkout"): PageSchema | null {
+    if (!themeConfig.value) return null;
+    return themeConfig.value.pages[pageType] || null;
+  }
+
+  // 获取自定义页面配置
+  function getCustomPageSchema(slug: string): PageSchema | null {
+    if (!themeConfig.value) return null;
+    return themeConfig.value.pages.custom.find((p) => p.slug === slug) || null;
+  }
+
+  // 获取布局配置
+  function getLayout(layoutId: string | undefined): LayoutSchema | null {
+    if (!themeConfig.value || !layoutId) return null;
+    return themeConfig.value.pages.layouts.find((l) => l.id === layoutId) || null;
+  }
+
+  // 获取页面使用的布局
+  function getPageLayout(pageType: "home" | "product" | "orderResult" | "article" | "checkout"): LayoutSchema | null {
+    const page = getPageSchema(pageType);
+    if (!page) return null;
+    return getLayout(page.layoutId);
+  }
+
+  // 获取默认布局
+  const defaultLayout = computed<LayoutSchema | null>(() => {
+    if (!themeConfig.value) return null;
+    return themeConfig.value.pages.layouts.find((l) => l.name === "default") || themeConfig.value.pages.layouts[0] || null;
+  });
+
+  // 是否有主题配置
+  const hasTheme = computed(() => !!themeConfig.value);
+
+  return {
+    // 数据
+    themeConfig,
+    globalStyle,
+    globalStyleVars,
+    defaultLayout,
+    hasTheme,
+    
+    // 分离的配置数据
+    siteConfig,
+    variableValues,
+    dataContext,
+
+    // 方法
+    getPageSchema,
+    getCustomPageSchema,
+    getLayout,
+    getPageLayout,
+  };
+}

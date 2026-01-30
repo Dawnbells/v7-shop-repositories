@@ -1,0 +1,29 @@
+{
+  "name": "simple",
+  "cname": "单页-简单",
+  "version": "v0.0.1",
+  "base-schema": {
+    "favicon": {
+      "type": "image",
+      "label": "网站图标",
+      "description": "网站图标",
+      "required": true
+    }
+  },
+  "template-schema": {
+  },
+  "i18n-schema": {
+  },
+  "theme-schema": {
+  },
+  "default-values": {
+    "base": {
+    },
+    "template": {
+    },
+    "i18n": {
+    },
+    "theme": {
+    }
+  }
+}

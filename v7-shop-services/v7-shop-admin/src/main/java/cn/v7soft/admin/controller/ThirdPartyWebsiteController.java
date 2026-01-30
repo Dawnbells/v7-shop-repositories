@@ -1,0 +1,65 @@
+package cn.v7soft.admin.controller;
+
+import cn.v7soft.admin.controller.req.CountThirdPartyOrdersRequest;
+import cn.v7soft.admin.controller.req.EditThirdPartyWebsiteRequest;
+import cn.v7soft.admin.controller.req.QueryThirdPartyWebsiteRequest;
+import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
+import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
+import cn.v7soft.admin.controller.resp.ThirdPartyWebsiteResponse;
+import cn.v7soft.admin.service.IThirdPartyWebsiteService;
+import cn.v7soft.common.controller.BaseDataRangeController;
+import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import org.jetbrains.annotations.Nullable;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
+@Validated
+@RestController
+@RequestMapping("/third-party-website")
+@Tag(name = "第三方网站管理")
+public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPartyWebsite, IThirdPartyWebsiteService, ThirdPartyWebsiteResponse, QueryThirdPartyWebsiteRequest, EditThirdPartyWebsiteRequest> {
+
+    protected ThirdPartyWebsiteController(IThirdPartyWebsiteService service) {
+        super(service);
+    }
+
+    @Override
+    protected ThirdPartyWebsiteResponse convertEntity(ThirdPartyWebsite entity) {
+        return ThirdPartyWebsiteResponse.convertEntity(entity);
+    }
+
+    @Override
+    protected ThirdPartyWebsite convertRequest(@Nullable ThirdPartyWebsite dbEntity, EditThirdPartyWebsiteRequest request) {
+        ThirdPartyWebsite website = Optional.ofNullable(dbEntity).orElse(ThirdPartyWebsite.builder().build());
+        website.setNickName(request.getNickName());
+        website.setHandle(request.getHandle());
+        website.setToken(request.getToken());
+        website.setAppKey(request.getAppKey());
+        website.setAppSecret(request.getAppSecret());
+        website.setAuthType(request.getAuthType());
+        website.setWebsiteType(request.getWebsiteType());
+        website.setAuthStatus(ThirdPartyAuthStatusEnum.INIT);
+        return website;
+    }
+
+    @PostMapping("/count-orders")
+    public CountThirdPartyOrderResponse countOrders(@Valid @RequestBody CountThirdPartyOrdersRequest request) {
+        return service.countOrders(request);
+    }
+
+    @PostMapping("/submit-sync-orders")
+    public Long submitSyncOrders(@Valid @RequestBody SyncThirdPartyOrdersRequest request) {
+        return service.submitSyncOrders(request);
+    }
+
+
+    @Override
+    protected String getPermissionPrefix() {
+        return "third-party-website";
+    }
+}

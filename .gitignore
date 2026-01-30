@@ -1,0 +1,115 @@
+# ==================== 通用忽略 ====================
+
+# History (Local History plugin)
+.history
+
+# IDE
+.idea
+.vscode
+*.iws
+*.iml
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+logging/
+
+# ==================== Node.js (前端项目) ====================
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.output/
+.nuxt/
+.nitro/
+.cache/
+.data/
+dev-dist/
+
+# Lock files (建议保留 pnpm-lock.yaml)
+yarn.lock
+package-lock.json
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Misc
+*.zip
+*.7z
+*.rar
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ==================== Java/Gradle (后端项目) ====================
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# IDE - Java
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/nbdist/
+/.nb-gradle/
+
+# Temp files
+transfer/
+transfer.jpg
+transfer.txt
+orders/
+
+# ==================== 敏感文件 ====================
+
+# 后端配置文件 (包含密码、密钥等敏感信息)
+**/application.yml
+**/application-dev.yml
+**/application-prod.yml
+!**/application.yml.example
+
+# 前端环境配置
+v7-shop-admin/.env
+v7-shop-admin/.env.local
+v7-shop-admin/environments/.env.*

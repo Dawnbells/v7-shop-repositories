@@ -1,0 +1,537 @@
+{
+  "name": "spa-classic",
+  "cname": "单页-经典",
+  "version": "v0.0.1",
+  "base-schema": {
+    "favicon": {
+      "type": "image",
+      "label": "网站图标",
+      "description": "网站 Favicon 图标，支持相对路径或绝对路径",
+      "required": true
+    },
+    "websiteName": {
+      "type": "string",
+      "label": "网站名称",
+      "description": "网站的名称，用于页面标题和品牌展示",
+      "required": true
+    },
+    "googleVerify": {
+      "type": "string",
+      "label": "Google 验证码",
+      "description": "Google Search Console 验证码",
+      "required": false
+    },
+    "bingVerify": {
+      "type": "string",
+      "label": "Bing 验证码",
+      "description": "Bing Webmaster Tools 验证码",
+      "required": false
+    },
+    "facebookVerify": {
+      "type": "string",
+      "label": "Facebook 验证码",
+      "description": "Facebook Domain Verification 验证码",
+      "required": false
+    },
+    "pinterestVerify": {
+      "type": "string",
+      "label": "Pinterest 验证码",
+      "description": "Pinterest 验证码",
+      "required": false
+    }
+  },
+  "template-schema": {
+    "logoUrl": {
+      "type": "image",
+      "label": "Logo 图片",
+      "description": "网站 Logo 的图片，支持相对路径或绝对路径",
+      "required": true
+    },
+    "bannerImageUrl": {
+      "type": "image",
+      "label": "首页 Banner 图片",
+      "description": "首页 Banner 区域的图片",
+      "required": true
+    },
+    "enableQuantitySelector": {
+      "type": "boolean",
+      "label": "启用数量选择器",
+      "description": "是否显示产品页面的订购数量选择器",
+      "required": true
+    },
+    "enableCart": {
+      "type": "boolean",
+      "label": "启用购物车功能",
+      "description": "是否启用购物车功能。如果为 false，将隐藏购物车图标和添加购物车按钮，只能直接购买",
+      "required": true
+    },
+    "footerContactAddress": {
+      "type": "string",
+      "label": "联系地址",
+      "description": "Footer 中显示的联系地址",
+      "required": false
+    },
+    "footerContactPhone": {
+      "type": "string",
+      "label": "联系电话",
+      "description": "Footer 中显示的联系电话",
+      "required": false
+    },
+    "footerContactEmail": {
+      "type": "string",
+      "label": "联系邮箱",
+      "description": "Footer 中显示的联系邮箱",
+      "required": false
+    },
+    "footerSocialLinks": {
+      "type": "array",
+      "label": "社交媒体链接",
+      "description": "Footer 中显示的社交媒体链接列表",
+      "required": false,
+      "items": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "label": "平台名称",
+            "description": "社交媒体平台名称",
+            "required": true,
+            "enum": [
+              "Facebook",
+              "Twitter",
+              "Instagram",
+              "YouTube",
+              "LinkedIn",
+              "Pinterest",
+              "TikTok"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "label": "链接地址",
+            "description": "社交媒体页面的 URL",
+            "required": true
+          },
+          "ariaLabel": {
+            "type": "string",
+            "label": "无障碍标签",
+            "description": "用于屏幕阅读器的标签文本",
+            "required": false
+          }
+        }
+      }
+    }
+  },
+  "i18n-schema": {
+    "headerPromoText": {
+      "type": "string",
+      "label": "顶部促销文案",
+      "description": "显示在网站顶部横幅的促销信息",
+      "required": true
+    },
+    "footerAboutUsDescription": {
+      "type": "string",
+      "label": "Footer 关于我们介绍",
+      "description": "Footer 中\"关于我们\"部分的介绍文本",
+      "required": true
+    },
+    "copyright": {
+      "type": "string",
+      "label": "版权信息",
+      "description": "Footer 底部显示的版权信息文本",
+      "required": true
+    }
+  },
+  "theme-schema": {
+    "pages-product-titleColor": {
+      "type": "color",
+      "label": "产品页标题颜色",
+      "description": "产品详情页面标题文字的颜色",
+      "required": true
+    },
+    "pages-checkout-titleColor": {
+      "type": "color",
+      "label": "结算页标题颜色",
+      "description": "结算页面标题文字的颜色",
+      "required": true
+    },
+    "pages-product-salePriceColor": {
+      "type": "color",
+      "label": "产品页售价颜色",
+      "description": "产品详情页面售价文字的颜色",
+      "required": true
+    },
+    "pages-product-regularPriceColor": {
+      "type": "color",
+      "label": "产品页原价颜色",
+      "description": "产品详情页面原价文字的颜色",
+      "required": true
+    },
+    "pages-product-regularPriceStrikethroughColor": {
+      "type": "color",
+      "label": "产品页原价删除线颜色",
+      "description": "产品详情页面有折扣时原价删除线的颜色",
+      "required": true
+    },
+    "pages-button-primaryBackground": {
+      "type": "color",
+      "label": "主按钮背景色",
+      "description": "主按钮（加入购物车、确认订单）的背景颜色，产品页和结算页同步",
+      "required": true
+    },
+    "pages-button-primaryBackgroundHover": {
+      "type": "color",
+      "label": "主按钮悬停背景色",
+      "description": "主按钮悬停时的背景颜色，产品页和结算页同步",
+      "required": true
+    },
+    "pages-button-primaryTextColor": {
+      "type": "color",
+      "label": "主按钮文字颜色",
+      "description": "主按钮文字的颜色，产品页和结算页同步",
+      "required": true
+    },
+    "pages-button-secondaryBackground": {
+      "type": "color",
+      "label": "次按钮背景色",
+      "description": "次按钮（立即购买、返回购物车）的背景颜色，产品页和结算页同步",
+      "required": true
+    },
+    "pages-button-secondaryBackgroundHover": {
+      "type": "color",
+      "label": "次按钮悬停背景色",
+      "description": "次按钮悬停时的背景颜色，产品页和结算页同步",
+      "required": true
+    },
+    "pages-button-secondaryTextColor": {
+      "type": "color",
+      "label": "次按钮文字颜色",
+      "description": "次按钮文字的颜色，产品页和结算页同步",
+      "required": true
+    },
+    "pages-button-secondaryBorderColor": {
+      "type": "color",
+      "label": "次按钮边框颜色",
+      "description": "次按钮边框的颜色，产品页和结算页同步",
+      "required": true
+    },
+    "color-background": {
+      "type": "color",
+      "label": "背景色",
+      "description": "页面基础背景颜色",
+      "required": true
+    },
+    "color-gradient-background": {
+      "type": "color",
+      "label": "渐变背景色",
+      "description": "界面渐变背景底色",
+      "required": true
+    },
+    "color-gradient-foreground": {
+      "type": "color",
+      "label": "渐变前景色",
+      "description": "界面渐变前景显示颜色",
+      "required": true
+    },
+    "header-text-color": {
+      "type": "color",
+      "label": "标题文本颜色",
+      "description": "网站头部文字的颜色",
+      "required": true
+    },
+    "color-shadow": {
+      "type": "color",
+      "label": "阴影颜色",
+      "description": "界面组件投影颜色",
+      "required": true
+    },
+    "pages-checkout-pageBackground": {
+      "type": "color",
+      "label": "结算页背景色",
+      "description": "结算页面的背景颜色",
+      "required": true
+    },
+    "pages-checkout-cardBackground": {
+      "type": "color",
+      "label": "结算页卡片背景色",
+      "description": "结算页面卡片的背景颜色",
+      "required": true
+    },
+    "pages-checkout-borderColor": {
+      "type": "color",
+      "label": "结算页边框颜色",
+      "description": "结算页面边框的颜色",
+      "required": true
+    },
+    "pages-checkout-textPrimary": {
+      "type": "color",
+      "label": "结算页主文本颜色",
+      "description": "结算页面主要文本的颜色",
+      "required": true
+    },
+    "pages-checkout-textMuted": {
+      "type": "color",
+      "label": "结算页次要文本颜色",
+      "description": "结算页面次要文本的颜色",
+      "required": true
+    },
+    "pages-checkout-primary": {
+      "type": "color",
+      "label": "结算页主色调",
+      "description": "结算页面主要按钮和强调元素的颜色",
+      "required": true
+    },
+    "pages-checkout-primaryHover": {
+      "type": "color",
+      "label": "结算页主色调悬停色",
+      "description": "结算页面主要按钮悬停时的颜色",
+      "required": true
+    },
+    "pages-checkout-accentDanger": {
+      "type": "color",
+      "label": "结算页危险强调色",
+      "description": "结算页面危险操作的强调颜色",
+      "required": true
+    },
+    "pages-checkout-accentSuccess": {
+      "type": "color",
+      "label": "结算页成功强调色",
+      "description": "结算页面成功状态的强调颜色",
+      "required": true
+    },
+    "pages-checkout-accentError": {
+      "type": "color",
+      "label": "结算页错误强调色",
+      "description": "结算页面错误状态的强调颜色",
+      "required": true
+    },
+    "pages-checkout-accentWarning": {
+      "type": "color",
+      "label": "结算页警告强调色",
+      "description": "结算页面警告状态的强调颜色",
+      "required": true
+    },
+    "pages-checkout-secondaryHover": {
+      "type": "color",
+      "label": "结算页次要悬停色",
+      "description": "结算页面次要按钮悬停时的背景颜色",
+      "required": true
+    },
+    "pages-checkout-iconMuted": {
+      "type": "color",
+      "label": "结算页图标次要色",
+      "description": "结算页面次要图标的颜色",
+      "required": true
+    },
+    "pages-checkout-primaryFocus": {
+      "type": "color",
+      "label": "结算页主色调焦点色",
+      "description": "结算页面主要元素获得焦点时的颜色）",
+      "required": true
+    },
+    "pages-checkout-dangerFocus": {
+      "type": "color",
+      "label": "结算页危险焦点色",
+      "description": "结算页面危险元素获得焦点时的颜色",
+      "required": true
+    },
+    "pages-protocol-pageBackground": {
+      "type": "color",
+      "label": "协议页背景色",
+      "description": "协议页面的背景颜色",
+      "required": true
+    },
+    "pages-protocol-cardBackground": {
+      "type": "color",
+      "label": "协议页卡片背景色",
+      "description": "协议页面卡片的背景颜色",
+      "required": true
+    },
+    "pages-protocol-titleColor": {
+      "type": "color",
+      "label": "协议页标题颜色",
+      "description": "协议页面标题文字的颜色",
+      "required": true
+    }
+  },
+  "default-values": {
+    "base": {
+      "favicon": "https://img-va.myshopline.com/image/store/1742979617808/-xiao.png?w=32&amp;h=32",
+      "websiteName": "Rivon",
+      "googleVerify": "",
+      "bingVerify": "",
+      "facebookVerify": "",
+      "pinterestVerify": ""
+    },
+    "template": {
+      "logoUrl": "https://rivon-demo.myshopify.com/cdn/shop/files/logo-2.png?v=1734254597&width=130 130w",
+      "bannerImageUrl": "https://img.myshopline.com/image/store/1741599093141/--7_1920x.png?w=1920&h=950",
+      "enableQuantitySelector": true,
+      "enableCart": true,
+      "footerContactAddress": "123 Shopping Street, City, Country",
+      "footerContactPhone": "+1 (555) 123-4567",
+      "footerContactEmail": "support@example.com",
+      "footerSocialLinks": [
+        {
+          "platform": "Facebook",
+          "url": "javascript:void(0);",
+          "ariaLabel": "Facebook"
+        },
+        {
+          "platform": "Twitter",
+          "url": "javascript:void(0);",
+          "ariaLabel": "Twitter"
+        },
+        {
+          "platform": "Instagram",
+          "url": "javascript:void(0);",
+          "ariaLabel": "Instagram"
+        },
+        {
+          "platform": "YouTube",
+          "url": "javascript:void(0);",
+          "ariaLabel": "YouTube"
+        }
+      ]
+    },
+    "theme": {
+      "color-background": "#ffffff",
+      "color-gradient-background": "#090a0a",
+      "color-gradient-foreground": "#ffffff",
+      "header-text-color": "#1f2937",
+      "color-shadow": "18, 18, 18",
+      "pages-checkout-pageBackground": "#f9fafb",
+      "pages-checkout-cardBackground": "#ffffff",
+      "pages-checkout-borderColor": "#e5e7eb",
+      "pages-checkout-textPrimary": "#1f2937",
+      "pages-checkout-textMuted": "#6b7280",
+      "pages-checkout-primary": "#1368fd",
+      "pages-checkout-primaryHover": "#0d5bd8",
+      "pages-checkout-accentDanger": "#dc2626",
+      "pages-checkout-accentSuccess": "#10b981",
+      "pages-checkout-accentError": "#ef4444",
+      "pages-checkout-accentWarning": "#f59e0b",
+      "pages-checkout-secondaryHover": "#eff6ff",
+      "pages-checkout-iconMuted": "#d1d5db",
+      "pages-checkout-primaryFocus": "rgba(19, 104, 253, 0.1)",
+      "pages-checkout-dangerFocus": "rgba(220, 38, 38, 0.1)",
+      "pages-protocol-pageBackground": "#f8fafc",
+      "pages-protocol-cardBackground": "#ffffff",
+      "pages-protocol-titleColor": "#0f172a",
+      "pages-product-titleColor": "black",
+      "pages-checkout-titleColor": "#1f2937",
+      "pages-product-salePriceColor": "#dc2626",
+      "pages-product-regularPriceColor": "#4b5563",
+      "pages-product-regularPriceStrikethroughColor": "#9ca3af",
+      "pages-button-primaryBackground": "#1368fd",
+      "pages-button-primaryBackgroundHover": "#0d5bd8",
+      "pages-button-primaryTextColor": "white",
+      "pages-button-secondaryBackground": "white",
+      "pages-button-secondaryBackgroundHover": "#eff6ff",
+      "pages-button-secondaryTextColor": "#1368fd",
+      "pages-button-secondaryBorderColor": "#1368fd"
+    },
+    "i18n": {
+      "ES": {
+        "headerPromoText": "Envío gratis en pedidos superiores a 60 $",
+        "footerAboutUsDescription": "Su destino de compras en línea de confianza. Ofrecemos productos de calidad con excelente servicio al cliente y entrega rápida.",
+        "copyright": "Copyright reservado. Todos los derechos reservados."
+      },
+      "CN": {
+        "headerPromoText": "满 60 美元订单享受免费配送",
+        "footerAboutUsDescription": "您值得信赖的在线购物目的地。我们提供优质产品，提供卓越的客户服务和快速配送。",
+        "copyright": "版权所有。保留所有权利。"
+      },
+      "PL": {
+        "headerPromoText": "Darmowa dostawa przy zamówieniach powyżej 60 $",
+        "footerAboutUsDescription": "Twoje zaufane miejsce zakupów online. Oferujemy produkty wysokiej jakości z doskonałą obsługą klienta i szybką dostawą.",
+        "copyright": "Prawa autorskie zastrzeżone. Wszelkie prawa zastrzeżone."
+      },
+      "RO": {
+        "headerPromoText": "Livrare gratuită pentru comenzi de peste 60 $",
+        "footerAboutUsDescription": "Destinația dvs. de încredere pentru cumpărături online. Oferim produse de calitate cu servicii excelente pentru clienți și livrare rapidă.",
+        "copyright": "Drepturi de autor rezervate. Toate drepturile rezervate."
+      },
+      "EL": {
+        "headerPromoText": "Δωρεάν αποστολή για παραγγελίες άνω των 60 $",
+        "footerAboutUsDescription": "Ο αξιόπιστος προορισμός σας για online αγορές. Προσφέρουμε ποιοτικά προϊόντα με εξαιρετική εξυπηρέτηση πελατών και γρήγορη παράδοση.",
+        "copyright": "Πνευματικά δικαιώματα. Με επιφύλαξη παντός δικαιώματος."
+      },
+      "CS": {
+        "headerPromoText": "Doprava zdarma u objednávek nad 60 $",
+        "footerAboutUsDescription": "Vaše důvěryhodná destinace pro online nakupování. Nabízíme kvalitní produkty s vynikajícím zákaznickým servisem a rychlým doručením.",
+        "copyright": "Autorská práva vyhrazena. Všechna práva vyhrazena."
+      },
+      "BG": {
+        "headerPromoText": "Безплатна доставка за поръчки над 60 $",
+        "footerAboutUsDescription": "Вашата надеждна дестинация за онлайн пазаруване. Предлагаме качествени продукти с отлично обслужване на клиенти и бърза доставка.",
+        "copyright": "Авторски права запазени. Всички права запазени."
+      },
+      "DE": {
+        "headerPromoText": "Kostenloser Versand bei Bestellungen über 60 $",
+        "footerAboutUsDescription": "Ihr vertrauenswürdiges Online-Shopping-Ziel. Wir bieten Qualitätsprodukte mit ausgezeichnetem Kundenservice und schneller Lieferung.",
+        "copyright": "Urheberrecht vorbehalten. Alle Rechte vorbehalten."
+      },
+      "HU": {
+        "headerPromoText": "Ingyenes szállítás 60 $ feletti rendelések esetén",
+        "footerAboutUsDescription": "Az Ön megbízható online vásárlási célpontja. Minőségi termékeket kínálunk kiváló ügyfélszolgálattal és gyors szállítással.",
+        "copyright": "Minden jog fenntartva. Minden jog fenntartva."
+      },
+      "SL": {
+        "headerPromoText": "Brezplačna dostava za naročila nad 60 $",
+        "footerAboutUsDescription": "Vaša zaupanja vredna destinacija za spletno nakupovanje. Ponujamo kakovostne izdelke z odlično storitvijo za stranke in hitro dostavo.",
+        "copyright": "Avtorske pravice pridržane. Vse pravice pridržane."
+      },
+      "SK": {
+        "headerPromoText": "Doprava zadarmo pri objednávkach nad 60 $",
+        "footerAboutUsDescription": "Vaša dôveryhodná destinácia pre online nakupovanie. Ponúkame kvalitné produkty s vynikajúcim zákazníckym servisom a rýchlym doručením.",
+        "copyright": "Autorské práva vyhradené. Všetky práva vyhradené."
+      },
+      "HR": {
+        "headerPromoText": "Besplatna dostava za narudžbe iznad 60 $",
+        "footerAboutUsDescription": "Vaše pouzdano odredište za online kupovinu. Nudimo kvalitetne proizvode s izvrsnom korisničkom uslugom i brzom dostavom.",
+        "copyright": "Autorska prava pridržana. Sva prava pridržana."
+      },
+      "PT": {
+        "headerPromoText": "Frete grátis em pedidos acima de 60 $",
+        "footerAboutUsDescription": "Seu destino de compras online de confiança. Oferecemos produtos de qualidade com excelente atendimento ao cliente e entrega rápida.",
+        "copyright": "Direitos autorais reservados. Todos os direitos reservados."
+      },
+      "IT": {
+        "headerPromoText": "Spedizione gratuita per ordini superiori a 60 $",
+        "footerAboutUsDescription": "La vostra destinazione di shopping online di fiducia. Offriamo prodotti di qualità con un eccellente servizio clienti e consegna rapida.",
+        "copyright": "Copyright riservato. Tutti i diritti riservati."
+      },
+      "LV": {
+        "headerPromoText": "Bezmaksas piegāde pasūtījumiem virs 60 $",
+        "footerAboutUsDescription": "Jūsu uzticamais tiešsaistes iepirkšanās galamērķis. Mēs piedāvājam kvalitatīvus produktus ar izcilu klientu apkalpošanu un ātru piegādi.",
+        "copyright": "Autortiesības aizsargātas. Visas tiesības aizsargātas."
+      },
+      "LT": {
+        "headerPromoText": "Nemokamas pristatymas užsakymams virš 60 $",
+        "footerAboutUsDescription": "Jūsų patikima internetinių pirkinių vieta. Siūlome kokybiškus produktus su puikiu klientų aptarnavimu ir greitu pristatymu.",
+        "copyright": "Autorių teisės saugomos. Visos teisės saugomos."
+      },
+      "ET": {
+        "headerPromoText": "Tasuta kohaletoimetamine tellimustele üle 60 $",
+        "footerAboutUsDescription": "Teie usaldusväärne veebipoe sihtkoht. Pakume kvaliteetseid tooteid suurepärase klienditeeninduse ja kiire kohaletoimetamisega.",
+        "copyright": "Autoriõigused kaitstud. Kõik õigused kaitstud."
+      },
+      "JA": {
+        "headerPromoText": "60ドル以上のご注文で送料無料",
+        "footerAboutUsDescription": "信頼できるオンラインショッピングの目的地。優れたカスタマーサービスと迅速な配送で、高品質な商品をお届けします。",
+        "copyright": "著作権保護。全著作権所有。"
+      },
+      "AR": {
+        "headerPromoText": "شحن مجاني للطلبات التي تزيد عن 60 $",
+        "footerAboutUsDescription": "وجهتك الموثوقة للتسوق عبر الإنترنت. نقدم منتجات عالية الجودة مع خدمة عملاء ممتازة وتوصيل سريع.",
+        "copyright": "حقوق الطبع والنشر محفوظة. جميع الحقوق محفوظة."
+      },
+      "TH": {
+        "headerPromoText": "จัดส่งฟรีสำหรับคำสั่งซื้อที่มากกว่า 60 $",
+        "footerAboutUsDescription": "จุดหมายปลายทางการช้อปปิ้งออนไลน์ที่คุณไว้วางใจ เรานำเสนอสินค้าคุณภาพพร้อมบริการลูกค้าที่ยอดเยี่ยมและจัดส่งรวดเร็ว",
+        "copyright": "สงวนลิขสิทธิ์ สงวนสิทธิ์ทั้งหมด"
+      }
+    }
+  }
+}

@@ -1,0 +1,784 @@
+<script lang="ts">
+import type { ComponentMeta } from "~/types/component-meta";
+
+/**
+ * HeaderBar 组件元数据
+ * 用于编辑器中的组件注册和属性配置
+ */
+export const meta: ComponentMeta = {
+  type: "header-bar",
+  name: "页头导航",
+  icon: "i-carbon-application-web",
+  category: "layout",
+  description: "页头组件，支持 Logo、导航菜单、搜索框、用户操作区",
+  propsSchema: [
+    {
+      key: "logo",
+      label: "Logo 图片",
+      type: "image",
+      defaultValue: "",
+      placeholder: "输入图片 URL",
+    },
+    {
+      key: "logoText",
+      label: "Logo 文字",
+      type: "text",
+      defaultValue: "商城",
+      placeholder: "品牌名称",
+    },
+    {
+      key: "showSearch",
+      label: "显示搜索框",
+      type: "switch",
+      defaultValue: true,
+    },
+    {
+      key: "searchPlaceholder",
+      label: "搜索占位符",
+      type: "text",
+      defaultValue: "搜索商品",
+    },
+    {
+      key: "showCart",
+      label: "显示购物车",
+      type: "switch",
+      defaultValue: true,
+    },
+    {
+      key: "showUser",
+      label: "显示用户",
+      type: "switch",
+      defaultValue: true,
+    },
+    {
+      key: "showLocale",
+      label: "显示语言切换",
+      type: "switch",
+      defaultValue: false,
+    },
+    {
+      key: "navItems",
+      label: "导航菜单",
+      type: "json",
+      defaultValue: [],
+      description: '格式: [{ "text": "首页", "url": "/" }]',
+    },
+  ],
+  styleSchema: [
+    {
+      key: "backgroundColor",
+      label: "背景色",
+      type: "color",
+      defaultValue: "#ffffff",
+    },
+    {
+      key: "borderColor",
+      label: "边框色",
+      type: "color",
+      defaultValue: "#e2e8f0",
+    },
+    {
+      key: "padding",
+      label: "内边距",
+      type: "size",
+      defaultValue: "12px",
+      unit: "px",
+    },
+  ],
+  supportEvents: ["click"],
+  defaultProps: {
+    logo: "",
+    logoText: "商城",
+    navItems: [],
+    showSearch: true,
+    searchPlaceholder: "搜索商品",
+    showCart: true,
+    showUser: true,
+    showLocale: false,
+  },
+  defaultStyle: {
+    base: {
+      width: "100%",
+    },
+  },
+  isContainer: false,
+  layoutOnly: true,
+};
+
+export default {
+  __meta: meta,
+};
+</script>
+
+<script setup lang="ts">
+/**
+ * HeaderBar 页头组件
+ * 支持 Logo、导航菜单、搜索框、用户操作区
+ * 响应式设计：手机端显示抽屉式导航菜单
+ */
+
+interface NavItem {
+  text: string;
+  url?: string;
+  icon?: string;
+}
+
+interface Props {
+  logo?: string;
+  logoText?: string;
+  navItems?: NavItem[];
+  showSearch?: boolean;
+  searchPlaceholder?: string;
+  showCart?: boolean;
+  showUser?: boolean;
+  showLocale?: boolean;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  logo: "",
+  logoText: "商城",
+  navItems: () => [],
+  showSearch: true,
+  searchPlaceholder: "搜索商品",
+  showCart: true,
+  showUser: true,
+  showLocale: false,
+});
+
+// 是否显示操作区
+const showActions = computed(
+  () => props.showCart || props.showUser || props.showLocale
+);
+
+// 抽屉菜单状态
+const isDrawerOpen = ref(false);
+
+// 搜索关键词
+const searchQuery = ref("");
+
+function handleSearch() {
+  if (searchQuery.value.trim()) {
+    console.log("Search:", searchQuery.value);
+  }
+}
+
+function handleNavClick(item: NavItem) {
+  if (item.url) {
+    navigateTo(item.url);
+  }
+  isDrawerOpen.value = false;
+}
+
+function toggleDrawer() {
+  isDrawerOpen.value = !isDrawerOpen.value;
+}
+
+function closeDrawer() {
+  isDrawerOpen.value = false;
+}
+
+// 监听 ESC 键关闭抽屉
+onMounted(() => {
+  const handleEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && isDrawerOpen.value) {
+      closeDrawer();
+    }
+  };
+  window.addEventListener("keydown", handleEsc);
+  onUnmounted(() => {
+    window.removeEventListener("keydown", handleEsc);
+  });
+});
+</script>
+
+<template>
+  <header class="header-bar">
+    <div class="header-content">
+      <!-- 移动端菜单按钮 -->
+      <button
+        v-if="navItems.length > 0"
+        class="menu-toggle"
+        :class="{ 'is-open': isDrawerOpen }"
+        aria-label="菜单"
+        @click="toggleDrawer"
+      >
+        <span class="menu-icon">
+          <span class="menu-line"></span>
+          <span class="menu-line"></span>
+          <span class="menu-line"></span>
+        </span>
+      </button>
+
+      <!-- Logo 区域 -->
+      <div class="header-logo">
+        <img v-if="logo" :src="logo" :alt="logoText" class="logo-image" />
+        <span v-else class="logo-text">{{ logoText }}</span>
+      </div>
+
+      <!-- 导航菜单 - 桌面端 -->
+      <nav v-if="navItems.length > 0" class="header-nav desktop-nav">
+        <a
+          v-for="(item, index) in navItems"
+          :key="index"
+          class="nav-item"
+          :href="item.url || '#'"
+          @click.prevent="handleNavClick(item)"
+        >
+          <span v-if="item.icon" :class="item.icon" class="nav-icon"></span>
+          <span class="nav-text">{{ item.text }}</span>
+        </a>
+      </nav>
+
+      <!-- 搜索框 / 占位区 -->
+      <div class="header-spacer" :class="{ 'has-search': showSearch }">
+        <template v-if="showSearch">
+          <span class="i-carbon-search search-icon"></span>
+          <input
+            v-model="searchQuery"
+            type="text"
+            class="search-input"
+            :placeholder="searchPlaceholder"
+            @keyup.enter="handleSearch"
+          />
+        </template>
+      </div>
+
+      <!-- 用户操作区 -->
+      <div v-if="showActions" class="header-actions">
+        <button v-if="showLocale" class="action-btn" title="语言切换">
+          <span class="i-carbon-language"></span>
+        </button>
+        <button v-if="showCart" class="action-btn" title="购物车">
+          <span class="i-carbon-shopping-cart"></span>
+        </button>
+        <button v-if="showUser" class="action-btn" title="用户">
+          <span class="i-carbon-user"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 抽屉式导航菜单 - 移动端 -->
+    <Teleport to="body">
+      <Transition name="drawer">
+        <div
+          v-if="isDrawerOpen && navItems.length > 0"
+          class="drawer-overlay"
+          @click="closeDrawer"
+        >
+          <nav class="drawer-menu" @click.stop>
+            <div class="drawer-header">
+              <span class="drawer-title">导航菜单</span>
+              <button class="drawer-close" @click="closeDrawer">
+                <span class="i-carbon-close"></span>
+              </button>
+            </div>
+            <div class="drawer-content">
+              <a
+                v-for="(item, index) in navItems"
+                :key="index"
+                class="drawer-item"
+                :href="item.url || '#'"
+                @click.prevent="handleNavClick(item)"
+              >
+                <span
+                  v-if="item.icon"
+                  :class="item.icon"
+                  class="drawer-icon"
+                ></span>
+                <span class="drawer-text">{{ item.text }}</span>
+                <span class="i-carbon-chevron-right drawer-arrow"></span>
+              </a>
+            </div>
+          </nav>
+        </div>
+      </Transition>
+    </Teleport>
+  </header>
+</template>
+
+<style scoped>
+/**
+ * 响应式设计说明：
+ * 使用 CSS Container Queries 实现基于容器宽度的响应式布局
+ * 这样在编辑器画布中预览时，组件会根据画布宽度而非视口宽度响应
+ */
+
+.header-bar {
+  width: 100%;
+  background-color: var(--color-surface, #ffffff);
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  /* 定义容器查询上下文 */
+  container-type: inline-size;
+  container-name: header;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-width: 320px;
+  max-width: 100%;
+  padding: 12px 16px;
+}
+
+/* 移动端菜单按钮 - 默认隐藏 */
+.menu-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.menu-icon {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 20px;
+  height: 16px;
+  position: relative;
+}
+
+.menu-line {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background-color: var(--color-text, #1e293b);
+  border-radius: 1px;
+  transition: all 0.3s ease;
+  position: absolute;
+}
+
+.menu-line:nth-child(1) {
+  top: 0;
+}
+
+.menu-line:nth-child(2) {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.menu-line:nth-child(3) {
+  bottom: 0;
+}
+
+/* 菜单按钮打开状态动画 */
+.menu-toggle.is-open .menu-line:nth-child(1) {
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.menu-toggle.is-open .menu-line:nth-child(2) {
+  opacity: 0;
+}
+
+.menu-toggle.is-open .menu-line:nth-child(3) {
+  bottom: 50%;
+  transform: translateY(50%) rotate(-45deg);
+}
+
+.header-logo {
+  flex-shrink: 0;
+}
+
+.logo-image {
+  height: 32px;
+  width: auto;
+}
+
+.logo-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-primary, #3b82f6);
+}
+
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--color-text, #1e293b);
+  text-decoration: none;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.nav-item:hover {
+  color: var(--color-primary, #3b82f6);
+  background-color: var(--color-background, #f8fafc);
+}
+
+.nav-icon {
+  font-size: 16px;
+}
+
+/* 搜索框 / 占位区 */
+.header-spacer {
+  flex: 1;
+  min-width: 40px;
+  position: relative;
+}
+
+.header-spacer.has-search {
+  min-width: 120px;
+  max-width: 400px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-secondary, #64748b);
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  font-size: 14px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 20px;
+  background-color: var(--color-background, #f8fafc);
+  color: var(--color-text, #1e293b);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.search-input:focus {
+  border-color: var(--color-primary, #3b82f6);
+  background-color: var(--color-surface, #ffffff);
+}
+
+.search-input::placeholder {
+  color: var(--color-text-secondary, #64748b);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  color: var(--color-text, #1e293b);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn:hover {
+  color: var(--color-primary, #3b82f6);
+  background-color: var(--color-background, #f8fafc);
+}
+
+/* 抽屉菜单样式 */
+.drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.drawer-menu {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 280px;
+  max-width: 80vw;
+  height: 100%;
+  background-color: var(--color-surface, #ffffff);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text, #1e293b);
+}
+
+.drawer-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+  color: var(--color-text-secondary, #64748b);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.drawer-close:hover {
+  color: var(--color-text, #1e293b);
+  background-color: var(--color-background, #f8fafc);
+}
+
+.drawer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  font-size: 15px;
+  color: var(--color-text, #1e293b);
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.drawer-item:hover,
+.drawer-item:active {
+  background-color: var(--color-background, #f8fafc);
+  color: var(--color-primary, #3b82f6);
+}
+
+.drawer-icon {
+  font-size: 18px;
+  color: var(--color-text-secondary, #64748b);
+}
+
+.drawer-item:hover .drawer-icon {
+  color: var(--color-primary, #3b82f6);
+}
+
+.drawer-text {
+  flex: 1;
+}
+
+.drawer-arrow {
+  font-size: 16px;
+  color: var(--color-text-secondary, #94a3b8);
+}
+
+/* 抽屉动画 */
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.drawer-enter-active .drawer-menu,
+.drawer-leave-active .drawer-menu {
+  transition: transform 0.3s ease;
+}
+
+.drawer-enter-from,
+.drawer-leave-to {
+  opacity: 0;
+}
+
+.drawer-enter-from .drawer-menu,
+.drawer-leave-to .drawer-menu {
+  transform: translateX(-100%);
+}
+
+/* ============================================
+ * 响应式样式 - 使用 Container Queries
+ * 基于容器宽度而非视口宽度
+ * ============================================ */
+
+/* 平板样式 (容器宽度 <= 768px) */
+@container header (max-width: 768px) {
+  .header-content {
+    gap: 16px;
+    padding: 10px 12px;
+  }
+
+  .desktop-nav {
+    display: none;
+  }
+
+  .menu-toggle {
+    display: flex;
+  }
+
+  .header-spacer.has-search {
+    max-width: none;
+  }
+
+  .action-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+}
+
+/* 手机样式 (容器宽度 <= 480px) */
+@container header (max-width: 480px) {
+  .header-content {
+    gap: 12px;
+    padding: 8px 12px;
+  }
+
+  .logo-text {
+    font-size: 18px;
+  }
+
+  .logo-image {
+    height: 28px;
+  }
+
+  .header-spacer {
+    min-width: 32px;
+  }
+
+  .header-spacer.has-search {
+    min-width: 80px;
+  }
+
+  .search-input {
+    padding: 6px 10px 6px 32px;
+    font-size: 13px;
+  }
+
+  .search-icon {
+    left: 10px;
+    font-size: 14px;
+  }
+
+  .header-actions {
+    gap: 4px;
+  }
+
+  .action-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+
+  .menu-toggle {
+    width: 32px;
+    height: 32px;
+  }
+
+  .menu-icon {
+    width: 18px;
+    height: 14px;
+  }
+}
+
+/* ============================================
+ * 回退：同时保留媒体查询用于实际页面渲染
+ * 当组件不在容器查询上下文中时使用
+ * ============================================ */
+
+@media (max-width: 768px) {
+  .header-content {
+    gap: 16px;
+    padding: 10px 12px;
+  }
+
+  .desktop-nav {
+    display: none;
+  }
+
+  .menu-toggle {
+    display: flex;
+  }
+
+  .header-spacer.has-search {
+    max-width: none;
+  }
+
+  .action-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-content {
+    gap: 12px;
+    padding: 8px 12px;
+  }
+
+  .logo-text {
+    font-size: 18px;
+  }
+
+  .logo-image {
+    height: 28px;
+  }
+
+  .header-spacer {
+    min-width: 32px;
+  }
+
+  .header-spacer.has-search {
+    min-width: 80px;
+  }
+
+  .search-input {
+    padding: 6px 10px 6px 32px;
+    font-size: 13px;
+  }
+
+  .search-icon {
+    left: 10px;
+    font-size: 14px;
+  }
+
+  .header-actions {
+    gap: 4px;
+  }
+
+  .action-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+
+  .menu-toggle {
+    width: 32px;
+    height: 32px;
+  }
+
+  .menu-icon {
+    width: 18px;
+    height: 14px;
+  }
+}
+</style>
