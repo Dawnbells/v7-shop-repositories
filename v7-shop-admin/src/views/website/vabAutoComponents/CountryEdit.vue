@@ -331,3 +331,22 @@ const remoteQueryCurrency = async (query: string) => {
   }
 }
 </script>
+
+<style lang="scss" scoped>
+.el-divider {
+  margin: 24px 0 16px;
+
+  &:first-child {
+    margin-top: 0;
+  }
+}
+
+.el-row {
+  margin-bottom: 4px;
+}
+
+// 最后一个 form-item 不需要底部间距
+.el-form-item:last-child {
+  margin-bottom: 0;
+}
+</style>
