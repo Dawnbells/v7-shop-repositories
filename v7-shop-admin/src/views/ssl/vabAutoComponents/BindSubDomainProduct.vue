@@ -883,6 +883,10 @@ const sendAuthToBuilder = () => {
   const iframe = document.querySelector('.theme-editor-iframe') as HTMLIFrameElement
   if (iframe?.contentWindow) {
     const token = getToken()
+    // 获取当前 SPU 名称
+    const currentSpu = boundSpuList.value.find(
+      (spu) => String(spu.id) === activeSpuTab.value
+    )
     iframe.contentWindow.postMessage({
       type: 'BUILDER_INIT',
       payload: {
@@ -893,6 +897,8 @@ const sendAuthToBuilder = () => {
           subDomainId: String(subDomainId.value),
           spuId: activeSpuTab.value,
           landingType: currentEditingLandingType.value,
+          subDomainName: subDomainFullName.value,
+          spuName: currentSpu?.name || '',
         }
       }
     }, '*')

@@ -16,6 +16,8 @@ export interface IframeAuthPayload {
     subDomainId: string;
     spuId: string;
     landingType: string;
+    subDomainName?: string;
+    spuName?: string;
   };
 }
 
