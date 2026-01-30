@@ -9,8 +9,28 @@ import {
   generatePageContextFields,
   generateVariableFields,
 } from "~/composables/useDataContext";
+import { useIframeAuth } from "~/composables/useIframeAuth";
 
 const route = useRoute();
+
+// 获取 iframe 认证信息
+const { query: iframeQuery } = useIframeAuth();
+
+// 落地页类型显示名称
+const landingTypeLabels: Record<string, string> = {
+  'LAND': '落地页',
+  'CLOAK': '风险页',
+  'BLACKLISTED': '黑名单页',
+};
+
+// 上下文显示文本
+const contextInfo = computed(() => {
+  const q = iframeQuery.value;
+  if (!q?.subDomainName) return null;
+  
+  const typeLabel = landingTypeLabels[q.landingType] || q.landingType;
+  return `${q.subDomainName} - ${typeLabel} - ${q.spuName || 'SPU'}`;
+});
 
 // 获取查询参数（从路由获取保存所需参数）
 const subDomainId = computed(() => route.query.subDomainId as string | undefined);
@@ -463,6 +483,7 @@ function getLayoutName(layoutId: string | undefined): string {
           <span class="i-carbon-close"></span>
         </button>
         <h1 class="theme-name">{{ theme?.name || "主题编辑器" }}</h1>
+        <span v-if="contextInfo" class="context-info">{{ contextInfo }}</span>
         <span v-if="hasUnsavedChanges" class="unsaved-badge">未保存</span>
       </div>
 
@@ -797,6 +818,14 @@ function getLayoutName(layoutId: string | undefined): string {
   font-size: 12px;
   background-color: #f59e0b;
   color: #1e293b;
+  border-radius: 4px;
+}
+
+.context-info {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: #94a3b8;
+  background-color: #334155;
   border-radius: 4px;
 }
 
