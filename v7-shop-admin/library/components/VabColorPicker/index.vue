@@ -53,6 +53,11 @@ onBeforeMount(() => {
 </script>
 
 <style lang="scss">
+.vab-color-picker {
+  display: flex;
+  align-items: center;
+}
+
 .vab-color-picker-popper {
   box-sizing: content-box !important;
   padding: calc(var(--el-padding) / 2);

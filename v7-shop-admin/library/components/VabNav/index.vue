@@ -221,6 +221,16 @@ watch(
           cursor: pointer;
         }
       }
+
+      // 统一所有工具组件的对齐
+      .vab-dark,
+      .vab-color-picker,
+      .el-badge {
+        display: flex;
+        align-items: center;
+        height: 32px;
+        line-height: 32px;
+      }
     }
   }
 

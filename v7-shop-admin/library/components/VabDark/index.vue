@@ -119,6 +119,8 @@ onBeforeMount(() => {
 }
 
 .vab-dark {
+  display: flex;
+  align-items: center;
   margin-left: var(--el-margin);
 }
 </style>

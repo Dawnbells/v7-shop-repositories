@@ -199,7 +199,7 @@ onBeforeRouteLeave((to, from, next) => {
 .login-container {
   position: relative;
   height: 100vh;
-  background: linear-gradient(to top, var(--el-color-primary), var(--el-color-primary-light-3));
+  background: linear-gradient(135deg, #5b73b5 0%, #8b9dc5 50%, #a8b5c8 100%);
 
   .login-right-tools {
     position: fixed;

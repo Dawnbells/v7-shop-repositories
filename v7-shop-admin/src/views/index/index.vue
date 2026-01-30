@@ -332,7 +332,7 @@ const navigateTo = (path: string) => {
 .index-container {
   // 欢迎横幅
   .welcome-banner {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #5b73b5 0%, #8b7db5 100%);
     border-radius: 16px;
     padding: 32px;
     margin-bottom: 20px;
@@ -434,7 +434,7 @@ const navigateTo = (path: string) => {
 
   // 统计卡片
   .stat-card {
-    background: #fff;
+    background: #fafafa;
     border-radius: 12px;
     padding: 20px;
     display: flex;
@@ -443,10 +443,11 @@ const navigateTo = (path: string) => {
     margin-bottom: 20px;
     transition: all 0.3s ease;
     cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 
     &:hover {
       transform: translateY(-4px);
-      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
     }
 
     .stat-icon {
@@ -473,7 +474,7 @@ const navigateTo = (path: string) => {
       .stat-value {
         font-size: 22px;
         font-weight: 600;
-        color: #303133;
+        color: #4a4a4a;
       }
 
       .stat-change {
@@ -516,7 +517,7 @@ const navigateTo = (path: string) => {
 
     :deep(.el-card__header) {
       padding: 16px 20px;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid #e8e8e8;
     }
 
     .card-header {
@@ -530,10 +531,10 @@ const navigateTo = (path: string) => {
         gap: 8px;
         font-size: 16px;
         font-weight: 500;
-        color: #303133;
+        color: #4a4a4a;
 
         .el-icon {
-          color: #409eff;
+          color: #5b73b5;
         }
       }
     }
@@ -561,7 +562,7 @@ const navigateTo = (path: string) => {
 
       &:hover {
         transform: translateX(4px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 
         .link-arrow {
           opacity: 1;
@@ -573,12 +574,12 @@ const navigateTo = (path: string) => {
         width: 44px;
         height: 44px;
         border-radius: 10px;
-        background: #fff;
+        background: #fafafa;
         display: flex;
         align-items: center;
         justify-content: center;
         color: var(--link-color);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
       }
 
       .link-info {
@@ -590,7 +591,7 @@ const navigateTo = (path: string) => {
         .link-name {
           font-size: 14px;
           font-weight: 500;
-          color: #303133;
+          color: #4a4a4a;
         }
 
         .link-desc {
@@ -616,7 +617,7 @@ const navigateTo = (path: string) => {
         align-items: center;
         justify-content: space-between;
         padding: 12px 0;
-        border-bottom: 1px dashed #f0f0f0;
+        border-bottom: 1px dashed #e8e8e8;
 
         &:last-child {
           border-bottom: none;
@@ -624,12 +625,12 @@ const navigateTo = (path: string) => {
 
         .info-label {
           font-size: 14px;
-          color: #606266;
+          color: #6b6b6b;
         }
 
         .info-value {
           font-size: 14px;
-          color: #303133;
+          color: #4a4a4a;
           font-weight: 500;
         }
       }
@@ -643,7 +644,7 @@ const navigateTo = (path: string) => {
       align-items: center;
       justify-content: space-between;
       padding: 14px 0;
-      border-bottom: 1px solid #f5f5f5;
+      border-bottom: 1px solid #e8e8e8;
 
       &:last-child {
         border-bottom: none;
@@ -661,7 +662,7 @@ const navigateTo = (path: string) => {
 
         .order-product {
           font-size: 14px;
-          color: #303133;
+          color: #4a4a4a;
           font-weight: 500;
         }
       }
@@ -687,7 +688,7 @@ const navigateTo = (path: string) => {
       align-items: center;
       gap: 12px;
       padding: 12px 0;
-      border-bottom: 1px solid #f5f5f5;
+      border-bottom: 1px solid #e8e8e8;
 
       &:last-child {
         border-bottom: none;
@@ -703,7 +704,7 @@ const navigateTo = (path: string) => {
       .todo-content {
         flex: 1;
         font-size: 14px;
-        color: #303133;
+        color: #4a4a4a;
       }
     }
   }

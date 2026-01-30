@@ -86,11 +86,18 @@ watch(
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  height: var(--el-nav-height);
 
   &-draggable {
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    height: 100%;
+
+    > * {
+      display: flex;
+      align-items: center;
+    }
   }
 }
 </style>

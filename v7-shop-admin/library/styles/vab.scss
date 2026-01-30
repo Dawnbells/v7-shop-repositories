@@ -426,6 +426,8 @@ html {
     /* el-table表格 */
     .el-table {
       font-size: var(--el-font-size-base);
+      --el-table-header-bg-color: #f5f7fa;
+      --el-table-row-hover-bg-color: #f5f7fa;
 
       td {
         .cell {
@@ -717,7 +719,12 @@ html {
       margin-bottom: var(--el-margin);
       border: 1px solid var(--el-border-color);
       border-radius: var(--el-border-radius-base);
+      box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
       transition: var(--el-transition) !important;
+
+      &:hover {
+        box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.08);
+      }
 
       &__header {
         position: relative;

@@ -1,11 +1,11 @@
 @use './variables' as *;
 
 :root {
-  --el-color-white: #fcfcff;
-  --el-bg-color: #fcfcff;
-  --el-border-color-lighter: #e9eaf5;
-  --el-text-color-regular: #505256; //背景色
-  --el-background-color: #f6f8f9;
+  --el-color-white: #fafafa;
+  --el-bg-color: #fafafa;
+  --el-border-color-lighter: #e4e7ed;
+  --el-text-color-regular: #606266; //文字颜色
+  --el-background-color: #f0f2f5;
   //菜单背景色
   --el-menu-background-color: #282c34;
   //分栏布局右侧菜单背景色
@@ -16,10 +16,10 @@
   --el-menu-item-height: 50px;
   //横向菜单sub-item高度
   --el-menu-horizontal-sub-item-height: calc(var(--el-menu-item-height) - 8px);
-  // 浅黑色
-  --el-color-grey: rgba(0, 0, 0, 0.65);
-  //黑色
-  --el-color-black: rgba(0, 0, 0, 0.75);
+  // 浅黑色（柔和）
+  --el-color-grey: rgba(0, 0, 0, 0.55);
+  //黑色（柔和）
+  --el-color-black: rgba(0, 0, 0, 0.65);
   // primary颜色
   --el-color-primary: #4e88f3;
   --el-color-primary-light-1: #{$vab-color-primary-light-1};
