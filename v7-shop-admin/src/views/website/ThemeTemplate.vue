@@ -160,26 +160,13 @@
     </el-dialog>
 
     <!-- 主题设计器弹窗 -->
-    <vab-dialog
-      v-model="themeEditorDialogVisible"
-      append-to-body
-      class="theme-editor-dialog"
-      fullscreen
-      :show-close="false"
+    <BuilderEditorDialog
+      v-model:visible="themeEditorDialogVisible"
+      :template-id="currentTemplate?.id"
+      :context-name="currentTemplate?.name"
       @close="handleThemeEditorClose"
-    >
-      <div v-if="themeEditorLoading" class="theme-editor-loading">
-        <el-icon class="loading-icon"><Loading /></el-icon>
-        <span>加载主题编辑器...</span>
-      </div>
-      <iframe
-        v-show="!themeEditorLoading"
-        v-if="themeEditorDialogVisible && themeEditorUrl"
-        :src="themeEditorUrl"
-        class="theme-editor-iframe"
-        @load="handleIframeLoad"
-      />
-    </vab-dialog>
+      @save="handleThemeEditorClose"
+    />
   </div>
 </template>
 
@@ -190,14 +177,13 @@ import {
   DocumentCopy,
   Edit,
   Link,
-  Loading,
   Picture,
   Plus,
   Search,
   User,
 } from '@element-plus/icons-vue'
 import { copyFromTemplate, doDelete, page, remoteQuery } from '/@/api/themeTemplate'
-import { getToken } from '/@/utils/token'
+import BuilderEditorDialog from '/@/components/BuilderEditorDialog.vue'
 
 defineOptions({
   name: 'ThemeTemplate',
@@ -234,8 +220,6 @@ const copyRules = {
 
 // 主题编辑器相关
 const themeEditorDialogVisible = ref<boolean>(false)
-const themeEditorLoading = ref<boolean>(true)
-const themeEditorUrl = ref<string>('')
 const currentTemplate = ref<any>(null)
 
 const fetchData = async () => {
@@ -335,70 +319,11 @@ const handleCopyConfirm = async () => {
 // 主题设计器相关
 const handleDesign = (row: any) => {
   currentTemplate.value = row
-  themeEditorLoading.value = true
-  // 构建 Builder URL，使用 TEMPLATE 模式
-  const builderBaseUrl = import.meta.env.VITE_BUILDER_URL || 'http://localhost:3000'
-  themeEditorUrl.value = `${builderBaseUrl}/builder`
   themeEditorDialogVisible.value = true
-  window.addEventListener('message', handleThemeEditorMessage)
-}
-
-const handleIframeLoad = () => {
-  setTimeout(() => {
-    sendAuthToBuilder()
-  }, 100)
-}
-
-const sendAuthToBuilder = () => {
-  const iframe = document.querySelector('.theme-editor-iframe') as HTMLIFrameElement
-  if (iframe?.contentWindow) {
-    const token = getToken()
-    iframe.contentWindow.postMessage(
-      {
-        type: 'BUILDER_INIT',
-        payload: {
-          token: token,
-          imageBaseUrl: import.meta.env.VITE_IMAGE_BASE_URL || '',
-          apiBaseUrl: import.meta.env.VITE_API_BASE_URL || window.location.origin,
-          mode: 'TEMPLATE',
-          templateId: currentTemplate.value?.id,
-          contextName: currentTemplate.value?.name || '主题模板',
-        },
-      },
-      '*'
-    )
-    console.log('[Admin] 已发送认证信息给 builder (TEMPLATE 模式)')
-  }
-}
-
-const handleThemeEditorMessage = (event: MessageEvent) => {
-  if (event.data?.type === 'BUILDER_READY') {
-    console.log('[Admin] 收到 BUILDER_READY，发送认证信息')
-    sendAuthToBuilder()
-    return
-  }
-  if (event.data?.type === 'BUILDER_AUTHENTICATED') {
-    console.log('[Admin] 收到 BUILDER_AUTHENTICATED，关闭 loading')
-    themeEditorLoading.value = false
-    return
-  }
-  if (event.data?.type === 'themeEditor') {
-    if (event.data.action === 'close') {
-      themeEditorDialogVisible.value = false
-      window.removeEventListener('message', handleThemeEditorMessage)
-      fetchData()
-    }
-    if (event.data.action === 'authFailed') {
-      themeEditorDialogVisible.value = false
-      window.removeEventListener('message', handleThemeEditorMessage)
-      $baseMessage(event.data.message || '认证失败，请重试', 'error', 'hey')
-    }
-  }
 }
 
 const handleThemeEditorClose = () => {
-  window.removeEventListener('message', handleThemeEditorMessage)
-  themeEditorDialogVisible.value = false
+  fetchData()
 }
 
 const handleImageError = (e: Event) => {
@@ -528,59 +453,6 @@ onBeforeMount(() => {
         padding: 4px 8px;
       }
     }
-  }
-}
-
-.theme-editor-iframe {
-  width: 100% !important;
-  height: calc(100vh - 3px) !important;
-  border: none;
-}
-
-.theme-editor-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  color: #909399;
-  font-size: 14px;
-  gap: 12px;
-  background-color: #1e293b;
-
-  .loading-icon {
-    font-size: 32px;
-    color: #3b82f6;
-    animation: rotate 1s linear infinite;
-  }
-
-  span {
-    color: #94a3b8;
-  }
-}
-
-@keyframes rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-</style>
-<style lang="scss">
-.theme-editor-dialog {
-  .el-dialog__header {
-    display: none !important;
-  }
-  .el-dialog__body {
-    padding: 0 !important;
-    margin: 0 !important;
-    width: 100% !important;
-    height: 100vh !important;
-  }
-  .el-dialog__footer {
-    display: none !important;
   }
 }
 </style>

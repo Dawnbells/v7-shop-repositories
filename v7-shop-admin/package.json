@@ -4,7 +4,7 @@
   "private": true,
   "author": "github.com/zxwk1998",
   "scripts": {
-    "dev": "cross-env VITE_CJS_IGNORE_WARNING=true vite --mode dev",
+    "dev": "cross-env VITE_CJS_IGNORE_WARNING=true vite --mode development",
     "dev:vue-tsc": "vue-tsc --noEmit && cross-env VITE_CJS_IGNORE_WARNING=true vite",
     "dev:https": "cross-env VITE_CJS_IGNORE_WARNING=true vite --config ./vite.config.dev.ts",
     "vue-tsc": "vue-tsc --noEmit",

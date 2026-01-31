@@ -477,31 +477,17 @@
     </template>
   </vab-dialog>
 
-  <!-- 主题编辑器全屏弹窗 -->
-  <vab-dialog
-    v-model="themeEditorDialogVisible"
-    append-to-body
-    class="theme-editor-dialog"
-    fullscreen
-    header-class="theme-editor-dialog-header"
-    body-class="theme-editor-dialog-body"
-    footer-class="theme-editor-dialog-footer"
-    :show-close="false"
-    @close="closeThemeEditorDialog"
-  >
-    <!-- Loading 状态 -->
-    <div v-if="themeEditorLoading" class="theme-editor-loading">
-      <el-icon class="loading-icon"><Loading /></el-icon>
-      <span>加载主题编辑器...</span>
-    </div>
-    <iframe
-      v-show="!themeEditorLoading"
-      v-if="themeEditorDialogVisible && themeEditorUrlWithLandingType"
-      :src="themeEditorUrlWithLandingType"
-      class="theme-editor-iframe"
-      @load="handleIframeLoad"
-    />
-  </vab-dialog>
+  <!-- 主题编辑器弹窗 -->
+  <BuilderEditorDialog
+    v-model:visible="themeEditorDialogVisible"
+    :sub-domain-id="subDomainId"
+    :spu-id="activeSpuTab"
+    :landing-type="currentEditingLandingType"
+    :sub-domain-name="subDomainFullName"
+    :spu-name="currentSpuName"
+    @close="handleThemeEditorClose"
+    @save="handleThemeEditorSave"
+  />
 
   <!-- 站点配置弹窗 -->
   <schema-form-dialog
@@ -585,6 +571,7 @@ import {
   Setting
 } from '@element-plus/icons-vue'
 import SchemaFormDialog from './SchemaFormDialog.vue'
+import BuilderEditorDialog from '/@/components/BuilderEditorDialog.vue'
 import { getRemoteQuery as getRemoteQueryPixel } from '/@/api/pixelAccount'
 import { getRemoteQuery } from '/@/api/spu'
 import { remoteQuery as remoteQueryTemplates } from '/@/api/themeTemplate'
@@ -679,7 +666,14 @@ const landingPageSpuOptions = ref<any[]>([])
 
 // 主题编辑器弹窗相关
 const themeEditorDialogVisible = ref<boolean>(false)
-const themeEditorLoading = ref<boolean>(true)
+
+// 当前 SPU 名称（用于传递给 BuilderEditorDialog）
+const currentSpuName = computed(() => {
+  const currentSpu = boundSpuList.value.find(
+    (spu) => String(spu.id) === activeSpuTab.value
+  )
+  return currentSpu?.name || ''
+})
 
 // 应用模板弹窗相关
 const applyTemplateDialogVisible = ref<boolean>(false)
@@ -960,96 +954,19 @@ const handleCopyAdLink = async (spuId: number) => {
 // 当前编辑的落地页类型
 const currentEditingLandingType = ref<'LAND' | 'CLOAK' | 'BLACKLISTED'>('LAND')
 
-// 编辑落地页主题 - 打开 iframe 弹窗
+// 编辑落地页主题 - 打开 BuilderEditorDialog
 const handleEditLandingTheme = (landingType: 'LAND' | 'CLOAK' | 'BLACKLISTED') => {
   currentEditingLandingType.value = landingType
-  themeEditorLoading.value = true
   themeEditorDialogVisible.value = true
-  window.addEventListener('message', handleThemeEditorMessage)
 }
 
-// 获取主题编辑器 URL（使用环境变量配置或默认地址）
-const themeEditorUrlWithLandingType = computed(() => {
-  // 使用环境变量配置的 nuxt builder URL，参数通过 postMessage 传递
-  const baseUrl = import.meta.env.VITE_NUXT_BUILDER_URL || 'http://localhost:3000/builder'
-  return baseUrl
-})
-
-// 发送认证信息给 builder iframe
-const sendAuthToBuilder = () => {
-  const iframe = document.querySelector('.theme-editor-iframe') as HTMLIFrameElement
-  if (iframe?.contentWindow) {
-    const token = getToken()
-    // 获取当前 SPU 名称
-    const currentSpu = boundSpuList.value.find(
-      (spu) => String(spu.id) === activeSpuTab.value
-    )
-    iframe.contentWindow.postMessage({
-      type: 'BUILDER_INIT',
-      payload: {
-        token: token,
-        imageBaseUrl: import.meta.env.VITE_IMAGE_BASE_URL || '',
-        apiBaseUrl: import.meta.env.VITE_API_BASE_URL || window.location.origin,
-        query: {
-          subDomainId: String(subDomainId.value),
-          spuId: activeSpuTab.value,
-          landingType: currentEditingLandingType.value,
-          subDomainName: subDomainFullName.value,
-          spuName: currentSpu?.name || '',
-        }
-      }
-    }, '*')
-    console.log('[Admin] 已发送认证信息给 builder')
-  }
+// 主题编辑器关闭
+const handleThemeEditorClose = () => {
+  loadSpuDetail(activeSpuTab.value)
 }
 
-// iframe 加载完成后主动发送认证信息
-const handleIframeLoad = () => {
-  // 不在这里关闭 loading，等待 BUILDER_AUTHENTICATED 消息
-  // 延迟一小段时间确保 builder 的监听器已初始化
-  setTimeout(() => {
-    sendAuthToBuilder()
-  }, 100)
-}
-
-// 处理主题编辑器 postMessage 消息
-const handleThemeEditorMessage = (event: MessageEvent) => {
-  // 处理 BUILDER_READY - builder 已准备好接收认证信息
-  if (event.data?.type === 'BUILDER_READY') {
-    console.log('[Admin] 收到 BUILDER_READY，发送认证信息')
-    sendAuthToBuilder()
-    return
-  }
-
-  // 处理 BUILDER_AUTHENTICATED - 认证成功，关闭 loading
-  if (event.data?.type === 'BUILDER_AUTHENTICATED') {
-    console.log('[Admin] 收到 BUILDER_AUTHENTICATED，关闭 loading')
-    themeEditorLoading.value = false
-    return
-  }
-
-  // 处理保存/关闭/认证失败
-  if (event.data?.type === 'themeEditor') {
-    if (event.data.action === 'close' || event.data.action === 'save') {
-      themeEditorDialogVisible.value = false
-      window.removeEventListener('message', handleThemeEditorMessage)
-      // 如果是保存，刷新详情
-      if (event.data.action === 'save') {
-        loadSpuDetail(activeSpuTab.value)
-      }
-    }
-    // 处理认证失败
-    if (event.data.action === 'authFailed') {
-      themeEditorDialogVisible.value = false
-      window.removeEventListener('message', handleThemeEditorMessage)
-      $baseMessage(event.data.message || '认证失败，请重试', 'error', 'hey')
-    }
-  }
-}
-
-// 关闭主题编辑器弹窗
-const closeThemeEditorDialog = () => {
-  window.removeEventListener('message', handleThemeEditorMessage)
+// 主题编辑器保存
+const handleThemeEditorSave = () => {
   loadSpuDetail(activeSpuTab.value)
 }
 
@@ -1784,57 +1701,5 @@ const handleUseDefaultConfig = () => {
   flex-shrink: 0;
   font-size: 12px;
   color: var(--el-text-color-secondary);
-}
-
-.theme-editor-iframe {
-  width: 100% !important;
-  height: calc(100vh - 3px) !important;
-}
-
-.theme-editor-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  color: #909399;
-  font-size: 14px;
-  gap: 12px;
-  background-color: #1e293b;
-
-  .loading-icon {
-    font-size: 32px;
-    color: #3b82f6;
-    animation: rotate 1s linear infinite;
-  }
-
-  span {
-    color: #94a3b8;
-  }
-}
-
-@keyframes rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-</style>
-<style lang="scss">
-.theme-editor-dialog {
-  .el-dialog__header {
-    display: none !important;
-  }
-  .el-dialog__body {
-    padding: 0 !important;
-    margin: 0 !important;
-    width: 100% !important;
-    height: 100vh !important;
-  }
-  .el-dialog__footer {
-    display: none !important;
-  }
 }
 </style>
