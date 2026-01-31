@@ -44,8 +44,11 @@ const componentRegistry = ref<Map<string, ComponentMeta>>(new Map());
  * 组件实例注册表
  * Map<组件类型, Vue组件>
  * 例如: Map { "notice-bar" => NoticeBar (Vue Component) }
+ * 
+ * 注意：使用 shallowRef 而非 ref，避免 Vue 将组件实例代理为响应式对象
+ * Vue 组件不应该被设为响应式，否则会导致性能问题和警告
  */
-const componentInstanceRegistry = ref<Map<string, Component>>(new Map());
+const componentInstanceRegistry = shallowRef<Map<string, Component>>(new Map());
 
 /**
  * 组件注册表 Composable
@@ -116,7 +119,9 @@ export function useComponentRegistry() {
    * registerComponentInstance("notice-bar", NoticeBar);
    */
   function registerComponentInstance(type: string, component: Component) {
-    componentInstanceRegistry.value.set(type, component);
+    componentInstanceRegistry.value.set(type, markRaw(component));
+    // 手动触发 shallowRef 更新
+    triggerRef(componentInstanceRegistry);
   }
 
   /**
@@ -133,8 +138,10 @@ export function useComponentRegistry() {
    */
   function registerComponentInstances(components: Record<string, Component>) {
     for (const [type, component] of Object.entries(components)) {
-      componentInstanceRegistry.value.set(type, component);
+      componentInstanceRegistry.value.set(type, markRaw(component));
     }
+    // 手动触发 shallowRef 更新
+    triggerRef(componentInstanceRegistry);
   }
 
   /**
@@ -144,6 +151,8 @@ export function useComponentRegistry() {
    */
   function unregisterComponentInstance(type: string) {
     componentInstanceRegistry.value.delete(type);
+    // 手动触发 shallowRef 更新
+    triggerRef(componentInstanceRegistry);
   }
 
   /**

@@ -57,11 +57,8 @@ export function provideDataContext(context: DataContext) {
  * 在组件中调用，获取上层传递的数据
  */
 export function useDataContext(): Ref<DataContext> {
-  const context = inject(DATA_CONTEXT_KEY);
-  if (!context) {
-    // 返回空上下文，避免报错
-    return ref<DataContext>({});
-  }
+  // 使用默认值避免警告，同时确保返回空上下文
+  const context = inject(DATA_CONTEXT_KEY, ref<DataContext>({}));
   return context;
 }
 
