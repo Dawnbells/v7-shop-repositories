@@ -16,6 +16,14 @@
 </head>
 
 <body>
+<script>
+  // 运行时环境变量 - Docker 部署时通过 entrypoint.sh 替换占位符
+  window.__ENV__ = {
+    VITE_NUXT_BUILDER_URL: "__VITE_NUXT_BUILDER_URL__",
+    VITE_API_BASE_URL: "__VITE_API_BASE_URL__",
+    VITE_IMAGE_BASE_URL: "__VITE_IMAGE_BASE_URL__"
+  };
+</script>
 <noscript>https://vuejs-core.cn/shop-vite</noscript>
 <div id="app">
   <figure>

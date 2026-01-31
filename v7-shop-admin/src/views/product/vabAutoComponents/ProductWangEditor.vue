@@ -21,6 +21,7 @@ import '@wangeditor/editor/dist/css/style.css'
 import type { ShallowRef } from 'vue'
 import { onBeforeUnmount, reactive, shallowRef } from 'vue'
 import { useUserStore } from '/@/store/modules/user'
+import { getEnv } from '/@/utils/env'
 
 defineOptions({
   name: 'ProductWangEditor',
@@ -46,7 +47,7 @@ const editorConfig = reactive<Partial<IEditorConfig>>({
       lineHeightList: ['0.25', '0.5', '1', '1.5', '2', '2.5', '3', '3.5', '4'],
     },
     uploadImage: {
-      server: `${import.meta.env.VITE_APP_BASE_URL}/multimedia-file/uploadFiles/root`, // 您的服务器地址
+      server: `${getEnv('VITE_API_BASE_URL', window.location.origin)}/multimedia-file/uploadFiles/root`, // 您的服务器地址
       fieldName: 'vab-file-name',
       allowedFileTypes: ['image/*'],
       maxFileSize: 20 * 1024 * 1024, // 20M

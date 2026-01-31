@@ -200,6 +200,7 @@ import {
 } from '~/src/api/explorer'
 import { VabContextMenu, VabContextMenuItem } from '/@/plugins/VabContextMenu'
 import { useUserStore } from '/@/store/modules/user'
+import { getEnv } from '/@/utils/env'
 
 defineOptions({
   name: 'Explorer',
@@ -262,7 +263,7 @@ const rules = reactive<any>({
 const uploadedFiles = ref<(UploadFile | UploadRawFile)[]>([])
 
 const uploadFilesAction = computed(() => {
-  return `${import.meta.env.VITE_APP_BASE_URL}/multimedia-file/uploadFiles/${workspaceFolderId.value ? workspaceFolderId.value : 'root'}`
+  return `${getEnv('VITE_API_BASE_URL', window.location.origin)}/multimedia-file/uploadFiles/${workspaceFolderId.value ? workspaceFolderId.value : 'root'}`
 })
 const totalUploadFiles = ref(0)
 const scrollContainer = ref<HTMLElement>()

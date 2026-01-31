@@ -3,6 +3,7 @@ import { contentType, debounce, messageName, statusName, successCode, timeout } 
 import router from '/@/router'
 import { useSettingsStore } from '/@/store/modules/settings'
 import { useUserStore } from '/@/store/modules/user'
+import { getEnv } from '/@/utils/env'
 import { isArray } from '/@/utils/validate'
 import { addErrorLog, needErrorLog } from '/@vab/plugins/errorLog'
 import { gp } from '/@vab/plugins/vab'
@@ -128,7 +129,7 @@ const handleData = async ({ config, data, status, statusText }: any): Promise<an
  * @description axios初始化
  */
 const instance = axios.create({
-  baseURL: `${import.meta.env.VITE_APP_BASE_URL}`,
+  baseURL: getEnv('VITE_API_BASE_URL', window.location.origin),
   timeout,
   headers: {
     'Content-Type': contentType,

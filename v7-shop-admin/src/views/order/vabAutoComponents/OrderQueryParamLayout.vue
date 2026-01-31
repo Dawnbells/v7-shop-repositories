@@ -261,6 +261,7 @@ import { status } from '~/src/api/taskManagement'
 import { useUserStore } from '~/src/store/modules/user'
 import { getRemoteQuery } from '/@/api/country'
 import { getRemoteQuery as getRemoteQueryEmployee } from '/@/api/employee'
+import { getEnv } from '/@/utils/env'
 // Set default date range from yesterday 9:00 to today 9:00
 const today = new Date()
 const tomorrow = new Date(today)
@@ -283,7 +284,7 @@ const uploadPercentage = ref<number>(0)
 const percentageFormat = (percentage: number) => `${percentage}%`
 // const fold = ref<boolean>(false)
 const queryForm = defineModel<any>()
-const uploadUrl = `${import.meta.env.VITE_APP_BASE_URL}/orders/upload`
+const uploadUrl = `${getEnv('VITE_API_BASE_URL', window.location.origin)}/orders/upload`
 const belongUserIdLoading = ref<boolean>(false)
 const belongUserIdOptions = ref<any[]>([])
 const allDepartmentTree = ref<Department[]>([])
