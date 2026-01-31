@@ -48,3 +48,36 @@ INSERT INTO `t_system_routers` (`id`, `create_time`, `status`, `update_time`, `c
 INSERT INTO `t_system_routers` (`id`, `create_time`, `status`, `update_time`, `company_id`, `component`, `hidden`, `icon`, `no_closable`, `title`, `name`, `path`, `platform`, `sort_order`, `type`, `parent_id`) VALUES (127, '2024-09-06 23:14:23.000000', 'VALID', '2024-09-06 23:14:27.000000', 1, 'Layout', b'0', 'bookmark-2-line', b'0', '订单', 'Order', '/order', 'MANAGER', 220006, 'MENU', NULL);
 INSERT INTO `t_system_routers` (`id`, `create_time`, `status`, `update_time`, `company_id`, `component`, `hidden`, `icon`, `no_closable`, `title`, `name`, `path`, `platform`, `sort_order`, `type`, `parent_id`) VALUES (128, '2024-09-06 23:15:23.000000', 'VALID', '2024-09-06 23:15:28.000000', 1, '/@/views/order/OrderManager.vue', b'0', 'bookmark-2-line', b'0', '订单管理', 'OrderManager', 'orderManager', 'MANAGER', 2200007, 'MENU', 127);
 INSERT INTO `t_system_routers` (`id`, `create_time`, `status`, `update_time`, `company_id`, `component`, `hidden`, `icon`, `no_closable`, `title`, `name`, `path`, `platform`, `sort_order`, `type`, `parent_id`) VALUES (129, '2024-09-08 15:58:36.000000', 'VALID', '2024-09-08 15:58:41.000000', 1, '/@/views/system/ServerManager.vue', b'0', 'bookmark-2-line', b'0', '服务器管理', 'ServerManager', 'serverManager', 'MANAGER', 2200008, 'MENU', 91);
+
+# 主题模板路由
+INSERT INTO `t_system_routers` (`id`, `create_time`, `status`, `update_time`, `company_id`, `component`, `hidden`, `icon`, `no_closable`, `title`, `name`, `path`, `platform`, `sort_order`, `type`, `parent_id`) VALUES (130, '2025-01-30 10:00:00.000000', 'VALID', '2025-01-30 10:00:00.000000', 1, '/@/views/website/ThemeTemplate.vue', b'0', 'palette-line', b'0', '主题模板', 'ThemeTemplate', 'themeTemplate', 'MANAGER', 30200, 'MENU', 89);
+
+# 主题模板表
+CREATE TABLE IF NOT EXISTS `t_theme_templates` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(100) NOT NULL COMMENT '模板名称',
+  `description` VARCHAR(500) COMMENT '模板描述',
+  `cover_image` VARCHAR(500) COMMENT '封面图',
+  
+  -- 主题配置（与落地页主题相同的4个字段）
+  `theme_config` JSON COMMENT '页面布局、组件、样式',
+  `variable_schema` JSON COMMENT '变量定义结构',
+  `site_config` JSON COMMENT '站点配置值',
+  `variable_values` JSON COMMENT '变量实际值',
+  
+  -- 共享设置
+  `share_type` VARCHAR(20) DEFAULT 'PRIVATE' COMMENT '共享类型: PRIVATE/DEPARTMENT/COMPANY',
+  `shared_from_id` BIGINT COMMENT '复制来源模板ID',
+  
+  -- 基础字段（继承 BaseDataRangeEntity）
+  `company_id` BIGINT NOT NULL,
+  `user_id` BIGINT COMMENT '所有者',
+  `status` VARCHAR(20) DEFAULT 'VALID',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  
+  PRIMARY KEY (`id`),
+  INDEX `idx_company_id` (`company_id`),
+  INDEX `idx_user_id` (`user_id`),
+  INDEX `idx_share_type` (`share_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='主题模板';

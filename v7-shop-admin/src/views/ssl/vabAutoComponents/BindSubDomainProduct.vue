@@ -175,6 +175,14 @@
                             主题
                           </el-button>
                           <el-button
+                            :icon="CopyDocument"
+                            link
+                            type="warning"
+                            @click="handleApplyTemplate('LAND')"
+                          >
+                            模板
+                          </el-button>
+                          <el-button
                             :icon="Monitor"
                             link
                             type="primary"
@@ -224,6 +232,14 @@
                             @click="handleEditLandingTheme('CLOAK')"
                           >
                             主题
+                          </el-button>
+                          <el-button
+                            :icon="CopyDocument"
+                            link
+                            type="warning"
+                            @click="handleApplyTemplate('CLOAK')"
+                          >
+                            模板
                           </el-button>
                           <el-button
                             :icon="Monitor"
@@ -276,6 +292,14 @@
                             @click="handleEditLandingTheme('BLACKLISTED')"
                           >
                             主题
+                          </el-button>
+                          <el-button
+                            :icon="CopyDocument"
+                            link
+                            type="warning"
+                            @click="handleApplyTemplate('BLACKLISTED')"
+                          >
+                            模板
                           </el-button>
                           <el-button
                             :icon="Monitor"
@@ -486,6 +510,60 @@
     :title="`${landingPageTypeNames[currentSiteLandingType]}站点配置`"
     @confirm="handleSiteConfigConfirm"
   />
+
+  <!-- 应用模板弹窗 -->
+  <el-dialog
+    v-model="applyTemplateDialogVisible"
+    :title="`应用主题模板 - ${landingPageTypeNames[applyTemplateLandingType]}`"
+    width="600px"
+    append-to-body
+  >
+    <el-alert
+      type="warning"
+      :closable="false"
+      style="margin-bottom: 16px"
+    >
+      应用模板后将覆盖当前落地页的主题配置，此操作不可撤销。
+    </el-alert>
+    <el-form label-width="100px">
+      <el-form-item label="选择模板">
+        <el-select
+          v-model="selectedTemplateId"
+          filterable
+          placeholder="搜索并选择模板"
+          remote
+          :remote-method="remoteSearchTemplates"
+          :loading="templateSearchLoading"
+          style="width: 100%"
+        >
+          <el-option
+            v-for="tpl in templateOptions"
+            :key="tpl.id"
+            :label="tpl.name"
+            :value="Number(tpl.id)"
+          >
+            <div class="template-option">
+              <span class="template-name">{{ tpl.name }}</span>
+              <el-tag size="small" :type="getShareTypeTagType(tpl.shareType)">
+                {{ tpl.shareTypeName || '私有' }}
+              </el-tag>
+            </div>
+          </el-option>
+        </el-select>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="applyTemplateDialogVisible = false">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="applyTemplateLoading"
+        :disabled="!selectedTemplateId"
+        @click="handleApplyTemplateConfirm"
+      >
+        确定应用
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script lang="ts" setup>
@@ -494,6 +572,7 @@ import {
   Brush,
   Close,
   Connection,
+  CopyDocument,
   Delete,
   Document,
   Flag,
@@ -508,6 +587,7 @@ import {
 import SchemaFormDialog from './SchemaFormDialog.vue'
 import { getRemoteQuery as getRemoteQueryPixel } from '/@/api/pixelAccount'
 import { getRemoteQuery } from '/@/api/spu'
+import { remoteQuery as remoteQueryTemplates } from '/@/api/themeTemplate'
 import {
   bindLandingPageSpu,
   bindSpu,
@@ -600,6 +680,14 @@ const landingPageSpuOptions = ref<any[]>([])
 // 主题编辑器弹窗相关
 const themeEditorDialogVisible = ref<boolean>(false)
 const themeEditorLoading = ref<boolean>(true)
+
+// 应用模板弹窗相关
+const applyTemplateDialogVisible = ref<boolean>(false)
+const applyTemplateLandingType = ref<'LAND' | 'CLOAK' | 'BLACKLISTED'>('LAND')
+const selectedTemplateId = ref<number | null>(null)
+const templateSearchLoading = ref<boolean>(false)
+const applyTemplateLoading = ref<boolean>(false)
+const templateOptions = ref<any[]>([])
 
 // 站点配置弹窗相关
 const siteConfigDialogRef = ref<InstanceType<typeof SchemaFormDialog> | null>(null)
@@ -980,6 +1068,87 @@ const handleSiteConfigConfirm = (data: Record<string, any>) => {
   $baseMessage('站点配置保存成功', 'success', 'hey')
   // 刷新详情
   loadSpuDetail(activeSpuTab.value)
+}
+
+// 应用模板 - 打开弹窗
+const handleApplyTemplate = (landingType: 'LAND' | 'CLOAK' | 'BLACKLISTED') => {
+  applyTemplateLandingType.value = landingType
+  selectedTemplateId.value = null
+  templateOptions.value = []
+  applyTemplateDialogVisible.value = true
+  // 预加载模板列表
+  remoteSearchTemplates('')
+}
+
+// 搜索模板
+const remoteSearchTemplates = async (query: string) => {
+  templateSearchLoading.value = true
+  try {
+    const { data } = await remoteQueryTemplates(query)
+    templateOptions.value = data.list || []
+  } catch (error) {
+    console.error('搜索模板失败:', error)
+    templateOptions.value = []
+  } finally {
+    templateSearchLoading.value = false
+  }
+}
+
+// 确认应用模板
+const handleApplyTemplateConfirm = async () => {
+  if (!selectedTemplateId.value) {
+    $baseMessage('请选择模板', 'warning', 'hey')
+    return
+  }
+
+  applyTemplateLoading.value = true
+  try {
+    // 调用 Nuxt API 应用模板
+    const response = await fetch(
+      `${import.meta.env.VITE_NUXT_BUILDER_URL?.replace('/builder', '') || 'http://localhost:3000'}/api/builder/apply-template`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({
+          subDomainId: subDomainId.value,
+          spuId: activeSpuTab.value,
+          landingType: applyTemplateLandingType.value,
+          templateId: selectedTemplateId.value,
+        }),
+      }
+    )
+    
+    const result = await response.json()
+    
+    if (result.success) {
+      $baseMessage('模板应用成功', 'success', 'hey')
+      applyTemplateDialogVisible.value = false
+      // 刷新详情
+      loadSpuDetail(activeSpuTab.value)
+    } else {
+      $baseMessage(result.message || '应用模板失败', 'error', 'hey')
+    }
+  } catch (error: any) {
+    console.error('应用模板失败:', error)
+    $baseMessage('应用模板失败，请重试', 'error', 'hey')
+  } finally {
+    applyTemplateLoading.value = false
+  }
+}
+
+// 获取共享类型的标签类型
+const getShareTypeTagType = (shareType: string) => {
+  switch (shareType) {
+    case 'COMPANY':
+      return 'danger'
+    case 'DEPARTMENT':
+      return 'warning'
+    default:
+      return 'info'
+  }
 }
 
 // 添加像素 - 打开弹窗

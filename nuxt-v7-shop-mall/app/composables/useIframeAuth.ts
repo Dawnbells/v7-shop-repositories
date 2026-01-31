@@ -5,17 +5,25 @@
  * - 用户 token（用于 API 鉴权）
  * - imageBaseUrl（图片基础 URL）
  * - apiBaseUrl（API 基础 URL）
- * - query 参数（subDomainId, spuId, landingType）
+ * - mode（编辑模式：TEMPLATE 或 LANDING）
+ * - query 参数（根据模式不同有不同字段）
  */
+
+export type BuilderMode = 'TEMPLATE' | 'LANDING';
 
 export interface IframeAuthPayload {
   token: string;
   imageBaseUrl: string;
   apiBaseUrl: string;
-  query: {
-    subDomainId: string;
-    spuId: string;
-    landingType: string;
+  mode?: BuilderMode;  // 编辑模式
+  // TEMPLATE 模式使用
+  templateId?: string;
+  contextName?: string;
+  // LANDING 模式使用（向后兼容）
+  query?: {
+    subDomainId?: string;
+    spuId?: string;
+    landingType?: string;
     subDomainName?: string;
     spuName?: string;
   };
@@ -32,6 +40,9 @@ const authState = reactive<{
   token: string | null;
   imageBaseUrl: string | null;
   apiBaseUrl: string | null;
+  mode: BuilderMode;
+  templateId: string | null;
+  contextName: string | null;
   query: IframeAuthPayload['query'] | null;
   origin: string | null;
 }>({
@@ -39,6 +50,9 @@ const authState = reactive<{
   token: null,
   imageBaseUrl: null,
   apiBaseUrl: null,
+  mode: 'LANDING',  // 默认为 LANDING 模式（向后兼容）
+  templateId: null,
+  contextName: null,
   query: null,
   origin: null,
 });
@@ -101,6 +115,9 @@ const handleMessage = (event: MessageEvent) => {
   authState.token = payload.token;
   authState.imageBaseUrl = payload.imageBaseUrl || null;
   authState.apiBaseUrl = payload.apiBaseUrl || null;
+  authState.mode = payload.mode || 'LANDING';
+  authState.templateId = payload.templateId || null;
+  authState.contextName = payload.contextName || null;
   authState.query = payload.query || null;
   authState.origin = event.origin;
   authState.isReady = true;
@@ -109,6 +126,9 @@ const handleMessage = (event: MessageEvent) => {
     hasToken: !!payload.token,
     imageBaseUrl: payload.imageBaseUrl,
     apiBaseUrl: payload.apiBaseUrl,
+    mode: payload.mode,
+    templateId: payload.templateId,
+    contextName: payload.contextName,
     query: payload.query,
   });
 };
@@ -196,6 +216,21 @@ export function useIframeAuth() {
   // 计算属性：原始 token
   const token = computed(() => authState.token);
 
+  // 计算属性：编辑模式
+  const mode = computed(() => authState.mode);
+
+  // 计算属性：模板 ID（TEMPLATE 模式）
+  const templateId = computed(() => authState.templateId);
+
+  // 计算属性：上下文名称（显示用）
+  const contextName = computed(() => authState.contextName);
+
+  // 计算属性：是否为模板模式
+  const isTemplateMode = computed(() => authState.mode === 'TEMPLATE');
+
+  // 计算属性：是否为落地页模式
+  const isLandingMode = computed(() => authState.mode === 'LANDING');
+
   /**
    * 构建完整图片 URL
    */
@@ -250,6 +285,9 @@ export function useIframeAuth() {
     if (payload.token) authState.token = payload.token;
     if (payload.imageBaseUrl) authState.imageBaseUrl = payload.imageBaseUrl;
     if (payload.apiBaseUrl) authState.apiBaseUrl = payload.apiBaseUrl;
+    if (payload.mode) authState.mode = payload.mode;
+    if (payload.templateId) authState.templateId = payload.templateId;
+    if (payload.contextName) authState.contextName = payload.contextName;
     if (payload.query) authState.query = payload.query;
     authState.isReady = true;
   };
@@ -262,6 +300,9 @@ export function useIframeAuth() {
     authState.token = null;
     authState.imageBaseUrl = null;
     authState.apiBaseUrl = null;
+    authState.mode = 'LANDING';
+    authState.templateId = null;
+    authState.contextName = null;
     authState.query = null;
     authState.origin = null;
   };
@@ -274,6 +315,11 @@ export function useIframeAuth() {
     imageBaseUrl,
     apiBaseUrl,
     query,
+    mode,
+    templateId,
+    contextName,
+    isTemplateMode,
+    isLandingMode,
     
     // 方法
     buildImageUrl,

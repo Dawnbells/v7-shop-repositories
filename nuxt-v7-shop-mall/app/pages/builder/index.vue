@@ -10,14 +10,27 @@
  * - token：用于 API 鉴权
  * - imageBaseUrl：图片基础 URL
  * - apiBaseUrl：API 基础 URL
- * - query：subDomainId, spuId, landingType, subDomainName, spuName
+ * - mode：编辑模式 ('TEMPLATE' | 'LANDING')
+ * - templateId：模板 ID（TEMPLATE 模式）
+ * - contextName：上下文名称（显示用）
+ * - query：subDomainId, spuId, landingType, subDomainName, spuName（LANDING 模式）
  */
 
 import type { ThemeSchema, CustomVariable } from "~/types/builder";
 import { useIframeAuth } from "~/composables/useIframeAuth";
 
 // iframe 认证（初始化 postMessage 监听）
-const { isReady: iframeReady, query: iframeQuery, token, stopReadyRetry } = useIframeAuth();
+const { 
+  isReady: iframeReady, 
+  query: iframeQuery, 
+  token, 
+  stopReadyRetry,
+  mode,
+  templateId,
+  contextName,
+  isTemplateMode,
+  isLandingMode,
+} = useIframeAuth();
 
 // ==================== 认证检查 ====================
 
@@ -100,9 +113,26 @@ onUnmounted(() => {
 // ==================== 查询参数 ====================
 
 // 从 iframe postMessage 获取查询参数
+// LANDING 模式
 const subDomainId = computed(() => iframeQuery.value?.subDomainId);
 const spuId = computed(() => iframeQuery.value?.spuId);
 const landingType = computed(() => iframeQuery.value?.landingType || "LAND");
+
+// 获取显示名称
+const displayContextName = computed(() => {
+  if (contextName.value) {
+    return contextName.value;
+  }
+  if (isLandingMode.value && iframeQuery.value?.subDomainName) {
+    const landingTypeLabel = {
+      'LAND': '落地页',
+      'CLOAK': '风险页',
+      'BLACKLISTED': '黑名单页'
+    }[iframeQuery.value.landingType || 'LAND'] || '落地页';
+    return `${iframeQuery.value.subDomainName} - ${landingTypeLabel} - ${iframeQuery.value.spuName || 'SPU'}`;
+  }
+  return '主题编辑器';
+});
 
 definePageMeta({
   layout: false, // 编辑器使用自定义布局
@@ -136,15 +166,67 @@ async function loadThemeFromServer() {
   // 先清除现有状态，确保从数据库重新加载
   clearTheme();
 
+  // 根据模式选择不同的加载逻辑
+  if (isTemplateMode.value) {
+    await loadTemplateTheme();
+  } else {
+    await loadLandingTheme();
+  }
+
+  isLoading.value = false;
+
+  // 通知父窗口认证和加载完成
+  if (import.meta.client && window.parent !== window) {
+    window.parent.postMessage({ type: 'BUILDER_AUTHENTICATED' }, '*');
+    console.log("[Builder] 已通知父窗口认证完成");
+  }
+}
+
+// 加载模板主题 (TEMPLATE 模式)
+async function loadTemplateTheme() {
+  const tplId = templateId.value;
+  
+  if (tplId) {
+    console.log("[Builder] 加载模板主题，参数:", { templateId: tplId });
+
+    try {
+      const response = await $fetch<LoadApiResponse>("/api/builder/template/load", {
+        query: { templateId: tplId },
+      });
+
+      if (response.success && response.data?.themeConfig) {
+        loadFullData({
+          themeConfig: response.data.themeConfig,
+          variableSchema: response.data.variableSchema || [],
+          siteConfig: response.data.siteConfig || {},
+          variableValues: response.data.variableValues || {},
+        });
+        console.log("[Builder] 已加载模板主题配置");
+      } else {
+        initTheme(contextName.value || "主题模板");
+        console.log("[Builder] 初始化新模板主题");
+      }
+    } catch (error: any) {
+      console.error("[Builder] 加载模板主题失败:", error);
+      initTheme(contextName.value || "主题模板");
+      loadError.value = "加载模板配置失败，已创建新主题";
+    }
+  } else {
+    console.warn("[Builder] TEMPLATE 模式缺少 templateId");
+    initTheme("新模板");
+  }
+}
+
+// 加载落地页主题 (LANDING 模式)
+async function loadLandingTheme() {
   if (subDomainId.value && spuId.value) {
-    console.log("[Builder] 加载主题，参数:", {
+    console.log("[Builder] 加载落地页主题，参数:", {
       subDomainId: subDomainId.value,
       spuId: spuId.value,
       landingType: landingType.value,
     });
 
     try {
-      // 从 API 加载主题配置（分离的 4 个字段）
       const response = await $fetch<LoadApiResponse>("/api/builder/load", {
         query: {
           subDomainId: subDomainId.value,
@@ -154,37 +236,25 @@ async function loadThemeFromServer() {
       });
 
       if (response.success && response.data?.themeConfig) {
-        // 加载已有主题配置（使用新的分离数据加载方法）
         loadFullData({
           themeConfig: response.data.themeConfig,
           variableSchema: response.data.variableSchema || [],
           siteConfig: response.data.siteConfig || {},
           variableValues: response.data.variableValues || {},
         });
-        console.log("[Builder] 已加载主题配置（分离数据）");
+        console.log("[Builder] 已加载落地页主题配置");
       } else {
-        // 没有已有配置，初始化新主题
         initTheme("商品落地页主题");
-        console.log("[Builder] 初始化新主题");
+        console.log("[Builder] 初始化新落地页主题");
       }
     } catch (error: any) {
       console.error("[Builder] 加载主题失败:", error);
-      // 加载失败时也初始化新主题，让用户可以继续编辑
       initTheme("商品落地页主题");
       loadError.value = "加载主题配置失败，已创建新主题";
     }
   } else {
-    // 参数不完整，初始化空主题
-    console.warn("[Builder] 参数不完整，请提供 subDomainId 和 spuId");
+    console.warn("[Builder] LANDING 模式参数不完整，请提供 subDomainId 和 spuId");
     initTheme("新主题");
-  }
-
-  isLoading.value = false;
-
-  // 通知父窗口认证和加载完成
-  if (import.meta.client && window.parent !== window) {
-    window.parent.postMessage({ type: 'BUILDER_AUTHENTICATED' }, '*');
-    console.log("[Builder] 已通知父窗口认证完成");
   }
 }
 

@@ -12,7 +12,14 @@ import {
 import { useIframeAuth } from "~/composables/useIframeAuth";
 
 // 获取 iframe 认证信息
-const { query: iframeQuery } = useIframeAuth();
+const { 
+  query: iframeQuery, 
+  mode, 
+  templateId, 
+  contextName,
+  isTemplateMode,
+  isLandingMode,
+} = useIframeAuth();
 
 // 落地页类型显示名称
 const landingTypeLabels: Record<string, string> = {
@@ -23,14 +30,19 @@ const landingTypeLabels: Record<string, string> = {
 
 // 上下文显示文本
 const contextInfo = computed(() => {
+  // 优先使用 contextName（模板模式）
+  if (contextName.value) {
+    return contextName.value;
+  }
+  // 落地页模式
   const q = iframeQuery.value;
   if (!q?.subDomainName) return null;
   
-  const typeLabel = landingTypeLabels[q.landingType] || q.landingType;
+  const typeLabel = landingTypeLabels[q.landingType || 'LAND'] || q.landingType;
   return `${q.subDomainName} - ${typeLabel} - ${q.spuName || 'SPU'}`;
 });
 
-// 从 iframe postMessage 获取查询参数
+// 从 iframe postMessage 获取查询参数（LANDING 模式）
 const subDomainId = computed(() => iframeQuery.value?.subDomainId);
 const spuId = computed(() => iframeQuery.value?.spuId);
 const landingType = computed(() => iframeQuery.value?.landingType || "LAND");
@@ -296,6 +308,59 @@ const { exportFullData } = useThemeSchema();
 
 // 保存主题
 async function handleSave() {
+  // 根据模式选择不同的保存逻辑
+  if (isTemplateMode.value) {
+    await saveTemplate();
+  } else {
+    await saveLanding();
+  }
+}
+
+// 保存模板主题（TEMPLATE 模式）
+async function saveTemplate() {
+  if (!templateId.value) {
+    saveMessage.value = { type: "error", text: "缺少模板ID，无法保存" };
+    setTimeout(() => (saveMessage.value = null), 3000);
+    return;
+  }
+
+  isSaving.value = true;
+  saveMessage.value = null;
+
+  try {
+    const fullData = exportFullData();
+
+    const response = await $fetch("/api/builder/template/save", {
+      method: "POST",
+      body: {
+        templateId: templateId.value,
+        themeConfig: fullData.themeConfig,
+        variableSchema: fullData.variableSchema,
+        siteConfig: fullData.siteConfig,
+        variableValues: fullData.variableValues,
+      },
+    });
+
+    if ((response as any).success) {
+      markAsSaved();
+      saveMessage.value = { type: "success", text: "模板保存成功" };
+    } else {
+      saveMessage.value = { type: "error", text: "保存失败" };
+    }
+  } catch (error: any) {
+    console.error("[ThemeEditor] Save template error:", error);
+    saveMessage.value = {
+      type: "error",
+      text: error.data?.statusMessage || "保存失败，请重试",
+    };
+  } finally {
+    isSaving.value = false;
+    setTimeout(() => (saveMessage.value = null), 3000);
+  }
+}
+
+// 保存落地页主题（LANDING 模式）
+async function saveLanding() {
   if (!subDomainId.value || !spuId.value) {
     saveMessage.value = { type: "error", text: "缺少必要参数，无法保存" };
     setTimeout(() => (saveMessage.value = null), 3000);

@@ -18,8 +18,8 @@ const SPU_MAX_AGE = 365 * 24 * 60 * 60;
 export default defineEventHandler(async (event) => {
   const path = event.path || "";
 
-  // 跳过 builder 路由（编辑器不需要经过 middleware）
-  if (path.startsWith("/builder")) {
+  // 跳过 API 和 builder 路由（不需要经过域名检查中间件）
+  if (path.startsWith("/api/") || path.startsWith("/builder")) {
     return;
   }
 
