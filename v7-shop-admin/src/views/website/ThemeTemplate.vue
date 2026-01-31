@@ -164,10 +164,8 @@
       v-model="themeEditorDialogVisible"
       append-to-body
       class="theme-editor-dialog"
-      destroy-on-close
       fullscreen
-      :show-close="true"
-      :title="`设计主题 - ${currentTemplate?.name || ''}`"
+      :show-close="false"
       @close="handleThemeEditorClose"
     >
       <div v-if="themeEditorLoading" class="theme-editor-loading">
@@ -533,31 +531,31 @@ onBeforeMount(() => {
   }
 }
 
-.theme-editor-dialog {
-  :deep(.el-dialog__body) {
-    padding: 0;
-    height: calc(100vh - 54px);
+.theme-editor-iframe {
+  width: 100% !important;
+  height: calc(100vh - 3px) !important;
+  border: none;
+}
+
+.theme-editor-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: #909399;
+  font-size: 14px;
+  gap: 12px;
+  background-color: #1e293b;
+
+  .loading-icon {
+    font-size: 32px;
+    color: #3b82f6;
+    animation: rotate 1s linear infinite;
   }
 
-  .theme-editor-loading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--el-text-color-secondary);
-
-    .loading-icon {
-      font-size: 48px;
-      animation: rotate 1.5s linear infinite;
-      margin-bottom: 16px;
-    }
-  }
-
-  .theme-editor-iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
+  span {
+    color: #94a3b8;
   }
 }
 
@@ -567,6 +565,22 @@ onBeforeMount(() => {
   }
   to {
     transform: rotate(360deg);
+  }
+}
+</style>
+<style lang="scss">
+.theme-editor-dialog {
+  .el-dialog__header {
+    display: none !important;
+  }
+  .el-dialog__body {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: 100vh !important;
+  }
+  .el-dialog__footer {
+    display: none !important;
   }
 }
 </style>
