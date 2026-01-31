@@ -188,6 +188,9 @@ const showVariableManager = ref(false);
 // 变量值设置弹窗
 const showVariableValueEditor = ref(false);
 
+// 应用模板弹窗
+const showTemplateSelect = ref(false);
+
 // 布局选择下拉菜单
 const showLayoutSelectMenu = ref(false);
 const layoutSelectBtnRef = ref<HTMLElement | null>(null);
@@ -419,6 +422,27 @@ function handleClose() {
   window.parent.postMessage({ type: "themeEditor", action: "close" }, "*");
 }
 
+// 处理应用模板
+function handleApplyTemplate(templateData: {
+  themeConfig: any;
+  variableSchema: any[];
+  siteConfig: any;
+  variableValues: any;
+}) {
+  const { loadFullData } = useThemeSchema();
+  loadFullData({
+    themeConfig: templateData.themeConfig,
+    variableSchema: templateData.variableSchema || [],
+    siteConfig: templateData.siteConfig || {},
+    variableValues: templateData.variableValues || {},
+  });
+  showTemplateSelect.value = false;
+  // 切换到首页
+  switchPage("home");
+  saveMessage.value = { type: "success", text: "模板应用成功" };
+  setTimeout(() => (saveMessage.value = null), 3000);
+}
+
 // 添加自定义页面
 function handleAddCustomPage() {
   if (!newPageName.value || !newPageSlug.value) return;
@@ -565,6 +589,10 @@ function getLayoutName(layoutId: string | undefined): string {
           </span>
         </Transition>
 
+        <button class="btn btn-secondary" @click="showTemplateSelect = true">
+          <span class="i-carbon-template mr-1"></span>
+          应用模板
+        </button>
         <button class="btn btn-secondary" @click="showVariableManager = true">
           <span class="i-carbon-parameter mr-1"></span>
           变量管理
@@ -821,6 +849,13 @@ function getLayoutName(layoutId: string | undefined): string {
     <VariableValueEditor
       :visible="showVariableValueEditor"
       @close="showVariableValueEditor = false"
+    />
+
+    <!-- 应用模板弹窗 -->
+    <TemplateSelectModal
+      :visible="showTemplateSelect"
+      @close="showTemplateSelect = false"
+      @apply="handleApplyTemplate"
     />
   </div>
 </template>
