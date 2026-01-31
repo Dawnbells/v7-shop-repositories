@@ -252,40 +252,55 @@ watch(
               <p class="text-sm text-gray-600">请先在管理后台创建主题模板</p>
             </div>
 
-            <!-- 模板列表 -->
-            <div v-else class="template-list">
+            <!-- 模板卡片网格 -->
+            <div v-else class="card-grid">
               <div
                 v-for="template in templateList"
                 :key="template.id"
-                class="template-item"
+                class="template-card"
                 :class="{ selected: selectedTemplateId === template.id }"
                 @click="selectTemplate(template.id)"
               >
-                <div class="template-info">
-                  <div class="template-name">
+                <!-- 封面图 -->
+                <div class="card-cover">
+                  <img
+                    v-if="template.coverImage"
+                    :src="template.coverImage"
+                    :alt="template.name"
+                  />
+                  <div v-else class="no-cover">
+                    <span class="i-carbon-image"></span>
+                    <span>暂无封面</span>
+                  </div>
+                  <!-- 共享类型标签 -->
+                  <span
+                    class="share-badge"
+                    :class="getShareTypeInfo(template.shareType).class"
+                  >
+                    {{ template.shareTypeName || getShareTypeInfo(template.shareType).label }}
+                  </span>
+                  <!-- 选中勾选 -->
+                  <div
+                    v-if="selectedTemplateId === template.id"
+                    class="card-check"
+                  >
+                    <span class="i-carbon-checkmark-filled"></span>
+                  </div>
+                </div>
+                <!-- 内容区 -->
+                <div class="card-content">
+                  <div class="card-title" :title="template.name">
                     {{ template.name }}
-                    <span
-                      class="share-tag"
-                      :class="getShareTypeInfo(template.shareType).class"
-                    >
-                      {{ template.shareTypeName || getShareTypeInfo(template.shareType).label }}
-                    </span>
                   </div>
-                  <div v-if="template.description" class="template-desc">
-                    {{ template.description }}
+                  <div class="card-desc" :title="template.description">
+                    {{ template.description || '暂无描述' }}
                   </div>
-                  <div class="template-meta">
+                  <div class="card-meta">
                     <span v-if="template.ownerName" class="meta-item">
                       <span class="i-carbon-user"></span>
                       {{ template.ownerName }}
                     </span>
                   </div>
-                </div>
-                <div class="template-check">
-                  <span
-                    v-if="selectedTemplateId === template.id"
-                    class="i-carbon-checkmark-filled"
-                  ></span>
                 </div>
               </div>
             </div>
@@ -331,7 +346,7 @@ watch(
 .template-select-modal {
   background: #1e293b;
   border-radius: 12px;
-  width: 560px;
+  width: 720px;
   max-width: 90vw;
   max-height: 80vh;
   display: flex;
@@ -496,84 +511,140 @@ watch(
   text-align: center;
 }
 
-/* 模板列表 */
-.template-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* 卡片网格 */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
 }
 
-.template-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
+/* 模板卡片 */
+.template-card {
+  position: relative;
   background: #0f172a;
   border: 1px solid #334155;
   border-radius: 8px;
+  overflow: hidden;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.template-item:hover {
+.template-card:hover {
   border-color: #475569;
-  background: #1e293b;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.template-item.selected {
+.template-card.selected {
   border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(59, 130, 246, 0.05);
 }
 
-.template-info {
-  flex: 1;
-  min-width: 0;
+/* 封面图区域 */
+.card-cover {
+  position: relative;
+  height: 120px;
+  background: #1e293b;
+  overflow: hidden;
 }
 
-.template-name {
+.card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card-cover .no-cover {
+  width: 100%;
+  height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #f1f5f9;
-  margin-bottom: 4px;
+  justify-content: center;
+  color: #475569;
+  gap: 6px;
 }
 
-.share-tag {
+.card-cover .no-cover span:first-child {
+  font-size: 28px;
+}
+
+.card-cover .no-cover span:last-child {
+  font-size: 12px;
+}
+
+/* 共享类型标签 */
+.share-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   border-radius: 4px;
 }
 
 .tag-danger {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
 }
 
 .tag-warning {
-  background: rgba(245, 158, 11, 0.2);
-  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.9);
+  color: white;
 }
 
 .tag-info {
-  background: rgba(100, 116, 139, 0.2);
-  color: #94a3b8;
+  background: rgba(100, 116, 139, 0.9);
+  color: white;
 }
 
-.template-desc {
-  font-size: 12px;
-  color: #64748b;
+/* 选中勾选 */
+.card-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3b82f6;
+  border-radius: 50%;
+  color: white;
+  font-size: 14px;
+}
+
+/* 内容区 */
+.card-content {
+  padding: 12px;
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #f1f5f9;
   margin-bottom: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.template-meta {
+.card-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+  height: 32px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.card-meta {
   display: flex;
-  gap: 12px;
+  gap: 8px;
 }
 
 .meta-item {
@@ -582,16 +653,6 @@ watch(
   gap: 4px;
   font-size: 11px;
   color: #64748b;
-}
-
-.template-check {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #3b82f6;
-  font-size: 20px;
 }
 
 /* 底部 */
