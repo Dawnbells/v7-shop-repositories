@@ -440,6 +440,32 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
     linear-gradient(-45deg, transparent 75%, #1e293b 75%);
   background-size: 20px 20px;
   background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  /* Firefox 滚动条 */
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
+}
+
+/* 画布包装器滚动条 - 深色风格 (WebKit) */
+.canvas-wrapper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.canvas-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.canvas-wrapper::-webkit-scrollbar-thumb {
+  background-color: #475569;
+  border-radius: 4px;
+}
+
+.canvas-wrapper::-webkit-scrollbar-thumb:hover {
+  background-color: #64748b;
+}
+
+.canvas-wrapper::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .canvas-wrapper.is-dragging {
@@ -504,6 +530,27 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
   overflow-y: auto;
   overflow-x: hidden;
   transition: width 0.15s ease;
+  /* Firefox 滚动条 */
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* 设备框架滚动条 - 浅色风格 (WebKit) */
+.device-frame::-webkit-scrollbar {
+  width: 6px;
+}
+
+.device-frame::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.device-frame::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 3px;
+}
+
+.device-frame::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
 }
 
 .canvas-wrapper.is-resizing .device-frame {

@@ -10,6 +10,9 @@
 
 import type { VariableFieldSchema } from '~/types/data-context';
 
+// 获取图片 URL 构建函数
+const { buildImageUrl } = useIframeAuth();
+
 // Props
 const props = defineProps<{
   modelValue: Record<string, any>;
@@ -59,11 +62,11 @@ function openImagePicker(fieldKey: string) {
   showImagePicker.value = true;
 }
 
-// 处理图片选择
+// 处理图片选择 - 只保存 relativePath，渲染时再拼接 imageBaseUrl
 function handleImageSelect(images: any[]) {
   if (currentImageField.value && images.length > 0) {
     const image = images[0];
-    const url = image.absolutionPath || image.relativePath || '';
+    const url = image.relativePath || '';
     updateFieldValue(currentImageField.value, url);
   }
   showImagePicker.value = false;
@@ -162,7 +165,7 @@ function handleImageSelect(images: any[]) {
               </button>
             </div>
             <div v-if="getFieldValue(field.key)" class="image-preview">
-              <img :src="getFieldValue(field.key)" alt="" />
+              <img :src="buildImageUrl(getFieldValue(field.key))" alt="" />
             </div>
           </div>
 

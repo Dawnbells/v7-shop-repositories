@@ -41,10 +41,11 @@ export function switchValidity(data: any) {
   })
 }
 
-export function folderTree() {
+export function folderTree(query?: string) {
   return request({
     url: '/folder/tree',
     method: 'get',
+    params: query ? { query } : undefined,
   })
 }
 

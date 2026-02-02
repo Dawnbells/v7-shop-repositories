@@ -10,8 +10,9 @@ import java.util.List;
 public interface IFolderService extends IBaseDataRangeService<Folder> {
     /**
      * 获取所有顶层文件夹
+     * @param query 可选的文件夹名称搜索关键字
      */
-    List<Folder> treeAllTopFolders();
+    List<Folder> treeAllTopFolders(String query);
 
     /**
      * 创建文件夹

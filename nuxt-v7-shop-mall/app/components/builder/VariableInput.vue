@@ -8,6 +8,9 @@
 
 import type { CustomVariable, VariableType, EnumOption, VariableFieldSchema } from '~/types/data-context';
 
+// 获取图片 URL 构建函数
+const { buildImageUrl } = useIframeAuth();
+
 // Props
 const props = defineProps<{
   variable: CustomVariable;        // 变量定义
@@ -49,19 +52,19 @@ function openImagePicker() {
   showImagePicker.value = true;
 }
 
-// 处理图片选择
+// 处理图片选择 - 只保存 relativePath，渲染时再拼接 imageBaseUrl
 function handleImageSelect(images: any[]) {
   if (images.length > 0) {
     const image = images[0];
-    const url = image.absolutionPath || image.relativePath || '';
+    const url = image.relativePath || '';
     updateValue(url);
   }
   showImagePicker.value = false;
 }
 
-// 处理多图选择（用于图片数组）
+// 处理多图选择（用于图片数组）- 只保存 relativePath
 function handleMultiImageSelect(images: any[]) {
-  const urls = images.map(img => img.absolutionPath || img.relativePath || '').filter(Boolean);
+  const urls = images.map(img => img.relativePath || '').filter(Boolean);
   if (Array.isArray(props.modelValue)) {
     updateValue([...props.modelValue, ...urls]);
   } else {
@@ -170,7 +173,7 @@ const presetColors = [
         </button>
       </div>
       <div v-if="modelValue" class="image-preview">
-        <img :src="modelValue" alt="预览" />
+        <img :src="buildImageUrl(modelValue)" alt="预览" />
         <button class="clear-image" :disabled="disabled" @click="updateValue('')">
           <span class="i-carbon-close"></span>
         </button>
@@ -223,7 +226,7 @@ const presetColors = [
             :key="index"
             class="image-array-item"
           >
-            <img :src="url" alt="" />
+            <img :src="buildImageUrl(url)" alt="" />
             <button
               class="remove-image"
               :disabled="disabled"

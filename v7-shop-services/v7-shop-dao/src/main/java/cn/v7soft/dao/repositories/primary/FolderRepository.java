@@ -18,4 +18,16 @@ public interface FolderRepository extends BaseRepository<Folder> {
 
     @Query("from Folder where parent is null ")
     List<Folder> findAllTopFolder();
+
+    /**
+     * 检查顶层文件夹中是否存在同名文件夹
+     */
+    @Query("SELECT COUNT(f) > 0 FROM Folder f WHERE f.name = :name AND f.parent IS NULL AND f.status = 'VALID'")
+    boolean existsByNameInTopLevel(@Param("name") String name);
+
+    /**
+     * 检查指定父文件夹下是否存在同名文件夹
+     */
+    @Query("SELECT COUNT(f) > 0 FROM Folder f WHERE f.name = :name AND f.parent.id = :parentId AND f.status = 'VALID'")
+    boolean existsByNameInParent(@Param("name") String name, @Param("parentId") Long parentId);
 }

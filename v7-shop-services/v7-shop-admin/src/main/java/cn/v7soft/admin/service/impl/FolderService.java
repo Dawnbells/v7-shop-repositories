@@ -1,19 +1,21 @@
 package cn.v7soft.admin.service.impl;
 
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import cn.v7soft.admin.controller.req.EditFolderRequest;
 import cn.v7soft.admin.service.IFolderService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
+import cn.v7soft.core.controller.request.BasePageRequest;
 import cn.v7soft.core.controller.request.DeleteRequest;
 import cn.v7soft.core.controller.request.QueryPageRequest;
+import cn.v7soft.core.controller.request.attributes.LikeAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.primary.Folder;
 import cn.v7soft.dao.repositories.primary.FolderRepository;
@@ -36,25 +38,34 @@ public class FolderService extends BaseDataRangeService<Folder, FolderRepository
     }
 
     @Override
-    public List<Folder> treeAllTopFolders() {
-        return findPaginated(QueryPageRequest.<Folder>fromUnLimit().isNull("parent")).stream().toList();
+    public List<Folder> treeAllTopFolders(String query) {
+        QueryPageRequest<Folder> request = QueryPageRequest.<Folder>fromRequest(
+                BasePageRequest.builder().pageSize(100).pageNo(1).build()
+        ).isNull("parent");
+        
+        if (StringUtils.hasText(query)) {
+            request.add(LikeAttribute.builder().name("name").value("%" + query.trim() + "%").build());
+        }
+        
+        return findPaginated(request).stream().toList();
     }
 
     @Override
     @Transactional
     public void mkdir(EditFolderRequest request) {
-        List<Folder> sameLevelFolders;
         Folder parentFolder = null;
+        boolean nameExists;
+        
         if (request.getId() == null || "10001".equals(request.getId()) || "10000".equals(request.getId())) {
             // 顶层文件夹, 10001-根目录，10000-所有文件
-            sameLevelFolders = treeAllTopFolders();
+            nameExists = repository.existsByNameInTopLevel(request.getName());
         } else {
             // 子文件夹
             parentFolder = getById(request.getIdLongValue());
-            sameLevelFolders = parentFolder.getChildren();
+            nameExists = repository.existsByNameInParent(request.getName(), parentFolder.getId());
         }
-        Optional<Folder> optional = sameLevelFolders.stream().filter(folder -> folder.getName().equalsIgnoreCase(request.getName())).findAny();
-        if (optional.isPresent()) {
+        
+        if (nameExists) {
             ClientResponseEnum.PARAMETER_ILLEGAL.throwException("文件夹名称不允许重复");
         }
 

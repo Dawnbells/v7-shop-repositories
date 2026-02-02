@@ -1,7 +1,7 @@
 /**
  * 网站预设配置 Schema
  * 定义全局站点配置的字段结构，用于渲染配置表单
- * 
+ *
  * 使用与 PropSchema 类似的结构，便于复用表单渲染逻辑
  */
 
@@ -11,27 +11,25 @@ import type { PropEditorType, SelectOption } from "~/types/component-meta";
  * 站点配置字段 Schema
  */
 export interface SiteFieldSchema {
-  key: string;                    // 字段键名
-  label: string;                  // 显示标签
-  type: PropEditorType;           // 编辑器类型
-  defaultValue?: any;             // 默认值
-  placeholder?: string;           // 占位符
-  options?: SelectOption[];       // 下拉选项
-  group: string;                  // 分组键名
-  description?: string;           // 描述说明
-  required?: boolean;             // 是否必填
-  // 多语言支持
-  i18n?: boolean;                 // 是否支持多语言
+  key: string; // 字段键名
+  label: string; // 显示标签
+  type: PropEditorType; // 编辑器类型
+  defaultValue?: any; // 默认值
+  placeholder?: string; // 占位符
+  options?: SelectOption[]; // 下拉选项
+  group: string; // 分组键名
+  description?: string; // 描述说明
+  required?: boolean; // 是否必填
 }
 
 /**
  * 站点配置分组
  */
 export interface SiteConfigGroup {
-  key: string;                    // 分组键名
-  label: string;                  // 分组标签
-  icon?: string;                  // 分组图标
-  description?: string;           // 分组描述
+  key: string; // 分组键名
+  label: string; // 分组标签
+  icon?: string; // 分组图标
+  description?: string; // 分组描述
 }
 
 /**
@@ -89,7 +87,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "输入网站/品牌名称",
     group: "basic",
     description: "显示在页头、页脚等位置的网站名称",
-    i18n: true,
   },
   {
     key: "logo",
@@ -99,15 +96,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "上传或输入 Logo 图片 URL",
     group: "basic",
     description: "网站 Logo 图片",
-  },
-  {
-    key: "logoDark",
-    label: "Logo (深色模式)",
-    type: "image",
-    defaultValue: "",
-    placeholder: "深色模式下的 Logo",
-    group: "basic",
-    description: "可选，深色模式下使用的 Logo",
   },
   {
     key: "favicon",
@@ -126,7 +114,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "网站标语或口号",
     group: "basic",
     description: "简短的品牌标语",
-    i18n: true,
   },
   {
     key: "description",
@@ -136,7 +123,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "简要描述网站内容",
     group: "basic",
     description: "用于 SEO 和品牌展示",
-    i18n: true,
   },
 
   // ============ 联系方式 ============
@@ -171,7 +157,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     defaultValue: "",
     placeholder: "公司/店铺地址",
     group: "contact",
-    i18n: true,
   },
   {
     key: "businessHours",
@@ -180,7 +165,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     defaultValue: "",
     placeholder: "如：周一至周五 9:00-18:00",
     group: "contact",
-    i18n: true,
   },
 
   // ============ 页脚信息 ============
@@ -192,7 +176,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "版权声明文字",
     group: "footer",
     description: "显示在页脚底部的版权信息",
-    i18n: true,
   },
   {
     key: "icp",
@@ -287,7 +270,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "搜索引擎显示的标题",
     group: "seo",
     description: "留空则使用网站名称",
-    i18n: true,
   },
   {
     key: "seoDescription",
@@ -297,7 +279,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "搜索引擎显示的描述",
     group: "seo",
     description: "建议 150-160 字符",
-    i18n: true,
   },
   {
     key: "seoKeywords",
@@ -306,7 +287,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     defaultValue: "",
     placeholder: "关键词，用逗号分隔",
     group: "seo",
-    i18n: true,
   },
   {
     key: "googleAnalytics",

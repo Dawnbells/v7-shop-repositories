@@ -4,45 +4,20 @@ import type { ComponentMeta } from "~/types/component-meta";
 /**
  * HeaderBar 组件元数据
  * 用于编辑器中的组件注册和属性配置
+ * Logo 和站点名称从全局站点配置 (siteConfig) 获取
  */
 export const meta: ComponentMeta = {
   type: "header-bar",
   name: "页头导航",
   icon: "i-carbon-application-web",
   category: "layout",
-  description: "页头组件，支持 Logo、导航菜单、搜索框、用户操作区",
+  description: "页头组件，Logo 关联全局配置，支持居中显示",
   propsSchema: [
     {
-      key: "logo",
-      label: "Logo 图片",
-      type: "image",
-      defaultValue: "",
-      placeholder: "输入图片 URL",
-    },
-    {
-      key: "logoText",
-      label: "Logo 文字",
-      type: "text",
-      defaultValue: "商城",
-      placeholder: "品牌名称",
-    },
-    {
-      key: "showSearch",
-      label: "显示搜索框",
+      key: "centerLogo",
+      label: "Logo 居中",
       type: "switch",
-      defaultValue: true,
-    },
-    {
-      key: "searchPlaceholder",
-      label: "搜索占位符",
-      type: "text",
-      defaultValue: "搜索商品",
-    },
-    {
-      key: "showCart",
-      label: "显示购物车",
-      type: "switch",
-      defaultValue: true,
+      defaultValue: false,
     },
     {
       key: "showUser",
@@ -87,12 +62,8 @@ export const meta: ComponentMeta = {
   ],
   supportEvents: ["click"],
   defaultProps: {
-    logo: "",
-    logoText: "商城",
+    centerLogo: false,
     navItems: [],
-    showSearch: true,
-    searchPlaceholder: "搜索商品",
-    showCart: true,
     showUser: true,
     showLocale: false,
   },
@@ -113,7 +84,8 @@ export default {
 <script setup lang="ts">
 /**
  * HeaderBar 页头组件
- * 支持 Logo、导航菜单、搜索框、用户操作区
+ * Logo 和站点名称从全局站点配置获取
+ * 支持可选 Logo 居中显示
  * 响应式设计：手机端显示抽屉式导航菜单
  */
 
@@ -124,43 +96,36 @@ interface NavItem {
 }
 
 interface Props {
-  logo?: string;
-  logoText?: string;
+  centerLogo?: boolean;
   navItems?: NavItem[];
-  showSearch?: boolean;
-  searchPlaceholder?: string;
-  showCart?: boolean;
   showUser?: boolean;
   showLocale?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  logo: "",
-  logoText: "商城",
+  centerLogo: false,
   navItems: () => [],
-  showSearch: true,
-  searchPlaceholder: "搜索商品",
-  showCart: true,
   showUser: true,
   showLocale: false,
 });
 
+// 注入站点配置
+const siteConfig = inject<Ref<Record<string, any>>>('siteConfig', ref({}));
+
+// 从站点配置获取 Logo 和站点名称
+const logo = computed(() => siteConfig.value?.logo || '');
+const siteName = computed(() => siteConfig.value?.siteName || '商城');
+
+// 从站点配置获取购物车启用状态
+const enableCart = computed(() => siteConfig.value?.enableCart !== false);
+
 // 是否显示操作区
 const showActions = computed(
-  () => props.showCart || props.showUser || props.showLocale
+  () => enableCart.value || props.showUser || props.showLocale
 );
 
 // 抽屉菜单状态
 const isDrawerOpen = ref(false);
-
-// 搜索关键词
-const searchQuery = ref("");
-
-function handleSearch() {
-  if (searchQuery.value.trim()) {
-    console.log("Search:", searchQuery.value);
-  }
-}
 
 function handleNavClick(item: NavItem) {
   if (item.url) {
@@ -193,7 +158,7 @@ onMounted(() => {
 
 <template>
   <header class="header-bar">
-    <div class="header-content">
+    <div class="header-content" :class="{ 'center-logo': centerLogo }">
       <!-- 移动端菜单按钮 -->
       <button
         v-if="navItems.length > 0"
@@ -209,14 +174,17 @@ onMounted(() => {
         </span>
       </button>
 
-      <!-- Logo 区域 -->
+      <!-- 左侧占位区 (居中模式) -->
+      <div v-if="centerLogo" class="header-spacer"></div>
+
+      <!-- Logo 区域 - 使用全局站点配置 -->
       <div class="header-logo">
-        <img v-if="logo" :src="logo" :alt="logoText" class="logo-image" />
-        <span v-else class="logo-text">{{ logoText }}</span>
+        <img v-if="logo" :src="logo" :alt="siteName" class="logo-image" />
+        <span v-else class="logo-text">{{ siteName }}</span>
       </div>
 
-      <!-- 导航菜单 - 桌面端 -->
-      <nav v-if="navItems.length > 0" class="header-nav desktop-nav">
+      <!-- 导航菜单 - 桌面端 (非居中模式才显示) -->
+      <nav v-if="!centerLogo && navItems.length > 0" class="header-nav desktop-nav">
         <a
           v-for="(item, index) in navItems"
           :key="index"
@@ -229,26 +197,15 @@ onMounted(() => {
         </a>
       </nav>
 
-      <!-- 搜索框 / 占位区 -->
-      <div class="header-spacer" :class="{ 'has-search': showSearch }">
-        <template v-if="showSearch">
-          <span class="i-carbon-search search-icon"></span>
-          <input
-            v-model="searchQuery"
-            type="text"
-            class="search-input"
-            :placeholder="searchPlaceholder"
-            @keyup.enter="handleSearch"
-          />
-        </template>
-      </div>
+      <!-- 右侧占位区 -->
+      <div class="header-spacer"></div>
 
       <!-- 用户操作区 -->
       <div v-if="showActions" class="header-actions">
         <button v-if="showLocale" class="action-btn" title="语言切换">
           <span class="i-carbon-language"></span>
         </button>
-        <button v-if="showCart" class="action-btn" title="购物车">
+        <button v-if="enableCart" class="action-btn" title="购物车">
           <span class="i-carbon-shopping-cart"></span>
         </button>
         <button v-if="showUser" class="action-btn" title="用户">
@@ -425,45 +382,21 @@ onMounted(() => {
   font-size: 16px;
 }
 
-/* 搜索框 / 占位区 */
+/* 占位区 */
 .header-spacer {
   flex: 1;
   min-width: 40px;
+}
+
+/* Logo 居中模式 */
+.header-content.center-logo {
   position: relative;
 }
 
-.header-spacer.has-search {
-  min-width: 120px;
-  max-width: 400px;
-}
-
-.search-icon {
+.header-content.center-logo .header-logo {
   position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--color-text-secondary, #64748b);
-}
-
-.search-input {
-  width: 100%;
-  padding: 8px 12px 8px 36px;
-  font-size: 14px;
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 20px;
-  background-color: var(--color-background, #f8fafc);
-  color: var(--color-text, #1e293b);
-  outline: none;
-  transition: all 0.2s;
-}
-
-.search-input:focus {
-  border-color: var(--color-primary, #3b82f6);
-  background-color: var(--color-surface, #ffffff);
-}
-
-.search-input::placeholder {
-  color: var(--color-text-secondary, #64748b);
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .header-actions {
@@ -634,10 +567,6 @@ onMounted(() => {
     display: flex;
   }
 
-  .header-spacer.has-search {
-    max-width: none;
-  }
-
   .action-btn {
     width: 36px;
     height: 36px;
@@ -662,20 +591,6 @@ onMounted(() => {
 
   .header-spacer {
     min-width: 32px;
-  }
-
-  .header-spacer.has-search {
-    min-width: 80px;
-  }
-
-  .search-input {
-    padding: 6px 10px 6px 32px;
-    font-size: 13px;
-  }
-
-  .search-icon {
-    left: 10px;
-    font-size: 14px;
   }
 
   .header-actions {
@@ -718,10 +633,6 @@ onMounted(() => {
     display: flex;
   }
 
-  .header-spacer.has-search {
-    max-width: none;
-  }
-
   .action-btn {
     width: 36px;
     height: 36px;
@@ -745,20 +656,6 @@ onMounted(() => {
 
   .header-spacer {
     min-width: 32px;
-  }
-
-  .header-spacer.has-search {
-    min-width: 80px;
-  }
-
-  .search-input {
-    padding: 6px 10px 6px 32px;
-    font-size: 13px;
-  }
-
-  .search-icon {
-    left: 10px;
-    font-size: 14px;
   }
 
   .header-actions {

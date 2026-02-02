@@ -11,6 +11,7 @@
  */
 
 import { useIframeAuth } from '~/composables/useIframeAuth';
+import FolderTreeNode from './FolderTreeNode.vue';
 
 // Props
 const props = withDefaults(defineProps<{
@@ -79,13 +80,58 @@ const rootFolders: FolderItem[] = [
   { id: '10001', compactId: '10001', name: '根目录', sensitive: false },
 ];
 
+// 展开状态管理
+const expandedFolders = ref<Set<string>>(new Set(['10001'])); // 默认展开根目录
+
+// 递归过滤文件夹树（保留匹配项及其父节点）
+function filterFolderTree(folders: FolderItem[], keyword: string): FolderItem[] {
+  return folders.reduce((acc: FolderItem[], folder) => {
+    const nameMatch = folder.name.toLowerCase().includes(keyword);
+    const filteredChildren = folder.children 
+      ? filterFolderTree(folder.children, keyword) 
+      : [];
+    
+    if (nameMatch || filteredChildren.length > 0) {
+      acc.push({
+        ...folder,
+        children: filteredChildren.length > 0 ? filteredChildren : folder.children,
+      });
+    }
+    return acc;
+  }, []);
+}
+
+// 过滤后的文件夹树
+const filteredTreeData = computed(() => {
+  if (!filterText.value) return treeData.value;
+  return filterFolderTree(treeData.value, filterText.value.toLowerCase());
+});
+
+// 切换文件夹展开状态
+function toggleFolderExpand(folderId: string) {
+  if (expandedFolders.value.has(folderId)) {
+    expandedFolders.value.delete(folderId);
+  } else {
+    expandedFolders.value.add(folderId);
+  }
+}
+
+// 检查文件夹是否展开
+function isFolderExpanded(folderId: string): boolean {
+  return expandedFolders.value.has(folderId);
+}
+
 // 获取文件夹树
-async function fetchFolderTree() {
+async function fetchFolderTree(query?: string) {
   if (!isReady.value) return;
   
   treeLoading.value = true;
   try {
-    const response = await fetch(`${apiBaseUrl.value}/folder/tree`, {
+    const url = new URL(`${apiBaseUrl.value}/folder/tree`);
+    if (query) {
+      url.searchParams.set('query', query);
+    }
+    const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
         ...authHeaders.value,
@@ -144,11 +190,6 @@ function handleFolderClick(folder: FolderItem) {
   fetchImageList();
 }
 
-// 过滤文件夹树
-function filterNode(value: string, data: FolderItem): boolean {
-  if (!value) return true;
-  return data.name.toLowerCase().includes(value.toLowerCase());
-}
 
 // 切换图片选中状态
 function toggleImageSelection(image: ImageItem) {
@@ -292,11 +333,13 @@ async function handleFileUpload(event: Event) {
 
 // 获取图片显示 URL
 function getImageUrl(image: ImageItem): string {
-  if (image.absolutionPath) {
-    return image.absolutionPath;
-  }
+  // 优先使用 relativePath + imageBaseUrl 构建
   if (image.relativePath) {
     return buildImageUrl(image.relativePath);
+  }
+  // fallback 到 absolutionPath
+  if (image.absolutionPath) {
+    return image.absolutionPath;
   }
   return '';
 }
@@ -355,16 +398,17 @@ watch(isReady, (ready) => {
                 <span class="i-carbon-circle-dash animate-spin"></span>
               </div>
               <div v-else class="tree-list">
-                <div
-                  v-for="folder in treeData"
-                  :key="folder.id"
-                  class="tree-node"
-                  :class="{ active: currentFolderId === folder.compactId || currentFolderId === folder.id }"
-                  @click="handleFolderClick(folder)"
-                >
-                  <span class="i-carbon-folder" :style="{ color: folder.sensitive ? '#008077' : '#94a3b8' }"></span>
-                  <span class="folder-name">{{ folder.name }}</span>
-                </div>
+                <!-- 递归渲染文件夹树 -->
+                <template v-for="folder in filteredTreeData" :key="folder.id">
+                  <FolderTreeNode
+                    :folder="folder"
+                    :current-folder-id="currentFolderId"
+                    :depth="0"
+                    :expanded-folders="expandedFolders"
+                    @select="handleFolderClick"
+                    @toggle-expand="toggleFolderExpand"
+                  />
+                </template>
               </div>
             </div>
 
@@ -595,35 +639,7 @@ watch(isReady, (ready) => {
 .tree-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0 8px 12px;
-}
-
-.tree-node {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
-  color: #94a3b8;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.tree-node:hover {
-  color: #e2e8f0;
-  background-color: #1e293b;
-}
-
-.tree-node.active {
-  color: #3b82f6;
-  background-color: rgba(59, 130, 246, 0.1);
-}
-
-.folder-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 4px 8px 12px;
 }
 
 /* 右侧图片列表 */

@@ -22,6 +22,9 @@ import {
   type SiteFieldSchema,
 } from "~/constants/site-config.schema";
 
+// 获取图片 URL 构建函数
+const { buildImageUrl } = useIframeAuth();
+
 // Props
 defineProps<{
   visible: boolean;
@@ -103,11 +106,11 @@ function openImagePicker(fieldKey: string) {
   showImagePicker.value = true;
 }
 
-// 处理图片选择
+// 处理图片选择 - 只保存 relativePath，渲染时再拼接 imageBaseUrl
 function handleImageSelect(images: any[]) {
   if (currentImageField.value && images.length > 0) {
     const image = images[0];
-    const url = image.absolutionPath || image.relativePath || '';
+    const url = image.relativePath || '';
     handleSiteConfigChange(currentImageField.value, url);
   }
   showImagePicker.value = false;
@@ -223,7 +226,7 @@ function handleImageSelect(images: any[]) {
                       v-if="getSiteValue(field.key)"
                       class="image-preview"
                     >
-                      <img :src="getSiteValue(field.key)" alt="预览" />
+                      <img :src="buildImageUrl(getSiteValue(field.key))" alt="预览" />
                     </div>
                   </div>
 

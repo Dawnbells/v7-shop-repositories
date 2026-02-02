@@ -190,6 +190,7 @@
 import { Delete, Folder, Search, Upload } from '@element-plus/icons-vue'
 import type { UploadFile, UploadFiles, UploadProgressEvent, UploadRawFile } from 'element-plus'
 import { ElTree, ElUpload } from 'element-plus'
+import { useDebounceFn } from '@vueuse/core'
 import {
   deleteFolderApi,
   doDelete,
@@ -343,8 +344,13 @@ const mkdirFolder = () => {
   })
 }
 
-watch(filterText, (value) => {
+// 使用防抖避免频繁过滤导致卡顿
+const debouncedFilter = useDebounceFn((value: string) => {
   treeRef.value?.filter(value)
+}, 300)
+
+watch(filterText, (value) => {
+  debouncedFilter(value)
 })
 
 const filterNode: any = (value: string, data: any) => {
@@ -359,7 +365,7 @@ const handleNodeClick = (node: any) => {
 
 const defaultProps = {
   children: 'children',
-  label: 'label',
+  label: 'name',
 }
 
 const fetchTreeFolder = async () => {
@@ -597,6 +603,25 @@ onBeforeMount(() => {
 
 <style lang="scss" scoped>
 .explorer-container {
+  // 左侧文件夹树区域高度限制
+  > :deep(.el-row) > .el-col:first-child {
+    .el-card__body {
+      display: flex;
+      flex-direction: column;
+      max-height: calc(var(--el-container-height) - 2px);
+
+      > .el-input {
+        flex-shrink: 0;
+      }
+
+      > .el-tree {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 0;
+      }
+    }
+  }
+
   .explorer-image-box {
     flex: 1;
     overflow-y: auto;
