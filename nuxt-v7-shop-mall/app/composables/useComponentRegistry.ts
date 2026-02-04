@@ -1,20 +1,31 @@
 /**
- * 组件元数据注册表 Composable
+ * 组件注册表 Composable
  *
  * 功能说明：
- * 管理主题编辑器所需的组件元数据信息。
- * 组件实例的动态渲染由 Nuxt 全局组件 + Vue resolveComponent 处理。
+ * 管理主题编辑器和前端渲染所需的组件信息，采用双注册表设计：
  *
- * 元数据注册表 (componentRegistry)
- * - 存储组件的配置信息（属性定义、样式定义、分类等）
- * - 用于编辑器的组件面板展示和属性面板编辑
- * - 数据类型: ComponentMeta
+ * 1. 元数据注册表 (componentRegistry)
+ *    - 存储组件的配置信息（属性定义、样式定义、分类等）
+ *    - 用于编辑器的组件面板展示和属性面板编辑
+ *    - 数据类型: ComponentMeta
+ *
+ * 2. 实例注册表 (componentInstanceRegistry)
+ *    - 存储实际的 Vue 组件实例
+ *    - 用于 ComponentRenderer 动态渲染组件
+ *    - 数据类型: Vue Component
+ *
+ * 为什么需要两个注册表？
+ * - 元数据用于编辑时的 UI 展示（图标、名称、可编辑属性等）
+ * - 实例用于运行时的组件渲染（实际的 Vue 组件）
+ * - 两者可以独立注册，支持懒加载场景
  *
  * 使用场景：
  * - 编辑器组件面板: getCategorizedComponents() 获取分类后的组件列表
  * - 属性面板: getComponentMeta(type) 获取组件的属性定义
+ * - 动态渲染: getComponentInstance(type) 获取 Vue 组件进行渲染
  */
 
+import type { Component } from "vue";
 import type { ComponentMeta, ComponentCategory } from "~/types/builder";
 import { COMPONENT_CATEGORY_LABELS } from "~/types/component-meta";
 
@@ -30,7 +41,17 @@ import { COMPONENT_CATEGORY_LABELS } from "~/types/component-meta";
 const componentRegistry = ref<Map<string, ComponentMeta>>(new Map());
 
 /**
- * 组件元数据注册表 Composable
+ * 组件实例注册表
+ * Map<组件类型, Vue组件>
+ * 例如: Map { "notice-bar" => NoticeBar (Vue Component) }
+ * 
+ * 注意：使用 shallowRef 而非 ref，避免 Vue 将组件实例代理为响应式对象
+ * Vue 组件不应该被设为响应式，否则会导致性能问题和警告
+ */
+const componentInstanceRegistry = shallowRef<Map<string, Component>>(new Map());
+
+/**
+ * 组件注册表 Composable
  *
  * @returns 注册表操作方法和状态
  */
@@ -80,6 +101,84 @@ export function useComponentRegistry() {
    */
   function getComponentMeta(type: string): ComponentMeta | undefined {
     return componentRegistry.value.get(type);
+  }
+
+  // ============================================================
+  // 组件实例管理
+  // ============================================================
+
+  /**
+   * 注册组件实例（Vue 组件）
+   * 由 register-components.ts 插件自动调用
+   *
+   * @param type - 组件类型标识（kebab-case 格式）
+   * @param component - Vue 组件实例
+   *
+   * @example
+   * // 在插件中自动注册
+   * registerComponentInstance("notice-bar", NoticeBar);
+   */
+  function registerComponentInstance(type: string, component: Component) {
+    componentInstanceRegistry.value.set(type, markRaw(component));
+    // 手动触发 shallowRef 更新
+    triggerRef(componentInstanceRegistry);
+  }
+
+  /**
+   * 批量注册组件实例
+   * 用于一次性注册多个组件
+   *
+   * @param components - 组件映射对象 { 类型: 组件 }
+   *
+   * @example
+   * registerComponentInstances({
+   *   "notice-bar": NoticeBar,
+   *   "product-card": ProductCard
+   * });
+   */
+  function registerComponentInstances(components: Record<string, Component>) {
+    for (const [type, component] of Object.entries(components)) {
+      componentInstanceRegistry.value.set(type, markRaw(component));
+    }
+    // 手动触发 shallowRef 更新
+    triggerRef(componentInstanceRegistry);
+  }
+
+  /**
+   * 注销组件实例
+   *
+   * @param type - 组件类型标识
+   */
+  function unregisterComponentInstance(type: string) {
+    componentInstanceRegistry.value.delete(type);
+    // 手动触发 shallowRef 更新
+    triggerRef(componentInstanceRegistry);
+  }
+
+  /**
+   * 获取组件实例
+   * ComponentRenderer 使用此方法获取要渲染的 Vue 组件
+   *
+   * @param type - 组件类型标识
+   * @returns Vue 组件实例，如果未注册则返回 undefined
+   *
+   * @example
+   * // 在 ComponentRenderer 中
+   * const instance = getComponentInstance(node.type);
+   * // 然后使用 <component :is="instance" v-bind="props" />
+   */
+  function getComponentInstance(type: string): Component | undefined {
+    return componentInstanceRegistry.value.get(type);
+  }
+
+  /**
+   * 检查组件实例是否已注册
+   *
+   * @param type - 组件类型标识
+   * @returns 是否已注册
+   */
+  function hasComponentInstance(type: string): boolean {
+    return componentInstanceRegistry.value.has(type);
   }
 
   // ============================================================
@@ -190,6 +289,15 @@ export function useComponentRegistry() {
     getComponentMeta,
     getAllComponents,
     getCategorizedComponents,
+
+    // 组件实例注册操作
+    registerComponentInstance,
+    registerComponentInstances,
+    unregisterComponentInstance,
+
+    // 组件实例查询
+    getComponentInstance,
+    hasComponentInstance,
 
     // 统计
     componentCount,

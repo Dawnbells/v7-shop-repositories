@@ -30,10 +30,6 @@ export default defineNuxtConfig({
 
   // 组件自动导入
   components: [
-    // 全局组件（用于 ComponentRenderer 动态渲染）
-    { path: '~/components/shop', global: true },
-    { path: '~/components/shop-layout', global: true },
-    // 其他组件保持默认（按需导入）
     { path: '~/components', pathPrefix: false }
   ],
 
