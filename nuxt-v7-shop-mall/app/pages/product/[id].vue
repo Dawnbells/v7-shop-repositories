@@ -5,7 +5,7 @@ const route = useRoute();
 const productId = computed(() => route.params.id as string);
 
 // 只传递需要的字段到客户端
-const pageContext = usePageContext(["cloak.page", "cloak.isAdmin", "landingProduct"]);
+const pageContext = usePageContext(["cloak.page", "cloak.isAdmin", "landingSpuId", "themeConfig", "siteConfig", "variableValues", "languages"]);
 
 // 设备检测
 const { device } = useDeviceDetect();
@@ -18,10 +18,9 @@ const {
   getPageSchema,
   getPageLayout,
   defaultLayout,
+  productInfo,
+  productPending,
 } = useThemeRender();
-
-// 获取产品信息
-const landingProduct = computed(() => pageContext.value.landingProduct);
 
 // 商品页配置
 const pageSchema = computed(() => getPageSchema("product"));
@@ -34,7 +33,7 @@ const layoutSchema = computed(() => {
 
 // 提供数据上下文（用于组件内的数据绑定）
 provideDataContext({
-  product: landingProduct.value,
+  product: productInfo.value ?? undefined,
 });
 
 // 是否使用主题渲染
@@ -72,36 +71,38 @@ const useThemeRenderer = computed(() => {
       <div class="default-product-page">
         <h1>Product {{ productId }}</h1>
         <div class="debug-info">
-          <p>Cloak Page: {{ pageContext.cloak.page }}</p>
-          <p>Is Admin: {{ pageContext.cloak.isAdmin }}</p>
+          <p>Cloak Page: {{ pageContext.cloak?.page }}</p>
+          <p>Is Admin: {{ pageContext.cloak?.isAdmin }}</p>
+          <p>Landing SPU ID: {{ pageContext.landingSpuId }}</p>
+          <p v-if="productPending">Loading product info...</p>
           <details>
             <summary>Product Info</summary>
-            <pre>{{ JSON.stringify(landingProduct ?? {}, null, 2) }}</pre>
+            <pre>{{ JSON.stringify(productInfo ?? {}, null, 2) }}</pre>
           </details>
         </div>
 
         <!-- 基础产品展示 -->
-        <div v-if="landingProduct" class="product-basic">
-          <h2>{{ landingProduct.title }}</h2>
+        <div v-if="productInfo" class="product-basic">
+          <h2>{{ productInfo.title }}</h2>
           <p class="price">
-            <span class="sell-price">{{ landingProduct.sellPrice }}</span>
-            <span v-if="landingProduct.originPrice" class="origin-price">
-              {{ landingProduct.originPrice }}
+            <span class="sell-price">{{ productInfo.sellPrice }}</span>
+            <span v-if="productInfo.originPrice" class="origin-price">
+              {{ productInfo.originPrice }}
             </span>
           </p>
-          <div v-if="landingProduct.images?.length" class="images">
+          <div v-if="productInfo.images?.length" class="images">
             <img
-              v-for="(img, idx) in landingProduct.images.slice(0, 3)"
+              v-for="(img, idx) in productInfo.images.slice(0, 3)"
               :key="idx"
               :src="img.relativePath"
-              :alt="img.name || landingProduct.title"
+              :alt="img.name || productInfo.title"
               class="product-image"
             />
           </div>
         </div>
 
         <!-- 无产品信息 -->
-        <div v-else class="no-product">
+        <div v-else-if="!productPending" class="no-product">
           <p>暂无产品信息</p>
         </div>
       </div>

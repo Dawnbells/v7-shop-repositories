@@ -26,10 +26,10 @@ export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig();
   const headers = getHeaders(event);
   const host = headers.host || "";
-  
+
   // 移除端口号
   let fullName = host.split(":")[0];
-  
+
   // 本地开发时使用配置的开发域名
   if (fullName === "localhost" || fullName === "127.0.0.1") {
     if (config.devDomain) {
@@ -69,7 +69,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     // 查询域名信息（包含国家、货币、语言、公司、顶级域名、销售用户，使用 Redis 缓存）
-    const domainInfo = await findByFullName(fullName);
+    const domainInfo = await findByFullName(fullName ?? "");
 
     if (!domainInfo) {
       console.log("[Domain Middleware] Domain not found:", fullName);
@@ -77,17 +77,52 @@ export default defineEventHandler(async (event) => {
       return;
     }
 
-    console.log("[Domain Middleware] Domain found:", domainInfo.domain.id, domainInfo.domain.name);
+    console.log(
+      "[Domain Middleware] Domain found:",
+      domainInfo.domain.id,
+      domainInfo.domain.name
+    );
+
+    // 校验必须字段是否存在
+    const {
+      domain,
+      country,
+      currency,
+      languages,
+      company,
+      topLevelDomain,
+      salesUser,
+    } = domainInfo;
+
+    if (
+      !country ||
+      !currency ||
+      !languages?.length ||
+      !company ||
+      !topLevelDomain ||
+      !salesUser
+    ) {
+      console.log("[Domain Middleware] Domain data incomplete:", {
+        hasCountry: !!country,
+        hasCurrency: !!currency,
+        hasLanguages: !!languages?.length,
+        hasCompany: !!company,
+        hasTopLevelDomain: !!topLevelDomain,
+        hasSalesUser: !!salesUser,
+      });
+      showSafePage(event, SafePageType.SHOP_CLOSED);
+      return;
+    }
 
     // 更新 pageContext
     updatePageContext(event, {
-      domain: domainInfo.domain,
-      country: domainInfo.country ?? undefined,
-      currency: domainInfo.currency ?? undefined,
-      languages: domainInfo.languages,
-      company: domainInfo.company ?? undefined,
-      topLevelDomain: domainInfo.topLevelDomain ?? undefined,
-      salesUser: domainInfo.salesUser ?? undefined,
+      domain,
+      country,
+      currency,
+      languages,
+      company,
+      topLevelDomain,
+      salesUser,
       spuId,
     });
   } catch (error) {

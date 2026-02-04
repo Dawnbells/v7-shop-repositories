@@ -207,6 +207,10 @@ export interface PageContext {
   safePageType?: SafePageType;
   /** 落地页 SPU ID（根据 cloak 结果映射后的 SPU ID） */
   landingSpuId?: number;
-  /** 落地页产品信息 */
-  landingProduct?: ProductInfo;
+  /** 主题配置（JSON 格式，包含页面布局、组件、样式） */
+  themeConfig?: any;
+  /** 站点配置值（全局固定配置，如网站名称、Logo、版权等） */
+  siteConfig?: Record<string, any>;
+  /** 变量实际值（用户自定义变量的值） */
+  variableValues?: Record<string, any>;
 }

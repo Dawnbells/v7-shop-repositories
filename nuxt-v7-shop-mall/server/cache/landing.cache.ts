@@ -6,7 +6,9 @@
 import type { ProductInfo } from "~/types/page-context";
 import { 
   findProductBySpuId as findProductBySpuIdFromDb,
-  findCloakLandingProduct as findCloakLandingProductFromDb 
+  findCloakLandingProduct as findCloakLandingProductFromDb,
+  findLandingPageConfig as findLandingPageConfigFromDb,
+  type LandingPageConfig
 } from "../repositories/landing.repository";
 import { getRedis } from "../utils/redis";
 
@@ -15,6 +17,9 @@ const PRODUCT_CACHE_PREFIX = "product:";
 
 /** CLOAK 落地页缓存 key 前缀 */
 const CLOAK_CACHE_PREFIX = "cloak_landing:";
+
+/** Landing Page 配置缓存 key 前缀 */
+const LANDING_CONFIG_CACHE_PREFIX = "landing_config:";
 
 /** 缓存 TTL（秒） */
 const CACHE_TTL = 60 * 60; // 1 hour
@@ -33,6 +38,14 @@ function getProductCacheKey(subDomainId: number, spuId: number, languageId: numb
  */
 function getCloakCacheKey(subDomainId: number, spuId: number, languageId: number): string {
   return `${CLOAK_CACHE_PREFIX}${subDomainId}:${spuId}:${languageId}`;
+}
+
+/**
+ * 生成 Landing Page 配置缓存 key
+ * 格式: landing_config:{subDomainId}:{spuId}:{landingPageType}
+ */
+function getLandingConfigCacheKey(subDomainId: number, spuId: number, landingPageType: string): string {
+  return `${LANDING_CONFIG_CACHE_PREFIX}${subDomainId}:${spuId}:${landingPageType}`;
 }
 
 /**
@@ -265,5 +278,72 @@ export async function clearAllLandingCache(): Promise<number> {
   } catch (error) {
     console.error("[Landing Cache] Redis clear error:", error);
     return 0;
+  }
+}
+
+/**
+ * 查询 Landing Page 配置（带缓存，用于 middleware）
+ * 
+ * @param subDomainId 子域名 ID
+ * @param spuId SPU ID
+ * @param landingPageType 落地页类型（LAND/CLOAK）
+ */
+export async function findLandingPageConfig(
+  subDomainId: number,
+  spuId: number,
+  landingPageType: string
+): Promise<LandingPageConfig | null> {
+  const redis = getRedis();
+  const cacheKey = getLandingConfigCacheKey(subDomainId, spuId, landingPageType);
+
+  try {
+    // 先从缓存获取
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      console.log("[Landing Cache] Landing config cache hit:", cacheKey);
+      // 续期（滑动过期）
+      await redis.expire(cacheKey, CACHE_TTL);
+      return JSON.parse(cached) as LandingPageConfig;
+    }
+  } catch (error) {
+    console.error("[Landing Cache] Redis get error:", error);
+  }
+
+  console.log("[Landing Cache] Landing config cache miss, fetching from DB:", cacheKey);
+
+  // 从数据库查询
+  const config = await findLandingPageConfigFromDb(subDomainId, spuId, landingPageType);
+
+  // 存入缓存（只缓存有效结果）
+  if (config) {
+    try {
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(config));
+    } catch (error) {
+      console.error("[Landing Cache] Redis set error:", error);
+    }
+  }
+
+  return config;
+}
+
+/**
+ * 清理指定 Landing Page 配置的缓存
+ */
+export async function clearLandingConfigCache(
+  subDomainId: number,
+  spuId: number,
+  landingPageType: string
+): Promise<boolean> {
+  const redis = getRedis();
+  const cacheKey = getLandingConfigCacheKey(subDomainId, spuId, landingPageType);
+
+  try {
+    const result = await redis.del(cacheKey);
+    const existed = result > 0;
+    console.log("[Landing Cache] Landing config cache cleared:", cacheKey, existed ? "(existed)" : "(not found)");
+    return existed;
+  } catch (error) {
+    console.error("[Landing Cache] Redis del error:", error);
+    return false;
   }
 }

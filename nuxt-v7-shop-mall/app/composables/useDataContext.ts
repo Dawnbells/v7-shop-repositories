@@ -309,18 +309,19 @@ export const PAGE_CONTEXT_FIELDS: BindableField[] = [
   { path: "pageContext.company.name", label: "公司名称", type: "string", source: "preset" },
   { path: "pageContext.company.domain", label: "公司域名", type: "string", source: "preset" },
   
-  // 落地页产品信息
-  { path: "pageContext.landingProduct.id", label: "产品 ID", type: "number", source: "preset" },
-  { path: "pageContext.landingProduct.title", label: "产品标题", type: "string", source: "preset" },
-  { path: "pageContext.landingProduct.merchandise", label: "商品名称", type: "string", source: "preset" },
-  { path: "pageContext.landingProduct.introduction", label: "产品介绍", type: "string", source: "preset" },
-  { path: "pageContext.landingProduct.summary", label: "产品摘要", type: "string", source: "preset" },
-  { path: "pageContext.landingProduct.sellPrice", label: "销售价格", type: "number", source: "preset" },
-  { path: "pageContext.landingProduct.originPrice", label: "原价", type: "number", source: "preset" },
-  { path: "pageContext.landingProduct.isMultiSpecs", label: "是否多规格", type: "boolean", source: "preset" },
-  { path: "pageContext.landingProduct.images", label: "产品图片列表", type: "array", source: "preset" },
-  { path: "pageContext.landingProduct.images[0].relativePath", label: "首张图片路径", type: "string", source: "preset" },
-  { path: "pageContext.landingProduct.specifications", label: "产品规格列表", type: "array", source: "preset" },
+  // 产品信息（通过 dataContext.product 访问）
+  { path: "product.id", label: "产品 ID", type: "number", source: "preset" },
+  { path: "product.spuId", label: "产品 SPU ID", type: "number", source: "preset" },
+  { path: "product.title", label: "产品标题", type: "string", source: "preset" },
+  { path: "product.merchandise", label: "商品名称", type: "string", source: "preset" },
+  { path: "product.introduction", label: "产品介绍", type: "string", source: "preset" },
+  { path: "product.summary", label: "产品摘要", type: "string", source: "preset" },
+  { path: "product.sellPrice", label: "销售价格", type: "number", source: "preset" },
+  { path: "product.originPrice", label: "原价", type: "number", source: "preset" },
+  { path: "product.isMultiSpecs", label: "是否多规格", type: "boolean", source: "preset" },
+  { path: "product.images", label: "产品图片列表", type: "array", source: "preset" },
+  { path: "product.images[0].relativePath", label: "首张图片路径", type: "string", source: "preset" },
+  { path: "product.specifications", label: "产品规格列表", type: "array", source: "preset" },
 ];
 
 /**

@@ -21,11 +21,19 @@ const emit = defineEmits<{
 // 响应式样式
 const { resolveStyle } = useResponsive();
 
-// 组件注册表
-const { getComponentInstance } = useComponentRegistry();
-
 // 数据上下文（用于解析绑定表达式）
 const dataContext = useDataContext();
+
+/**
+ * kebab-case 转 PascalCase
+ * 例如: "header-bar" -> "HeaderBar"
+ */
+function kebabToPascal(str: string): string {
+  return str
+    .split("-")
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join("");
+}
 
 // 当前页面状态（仅编辑器模式使用）
 // 使用条件调用避免在前端渲染时引入编辑器依赖
@@ -51,9 +59,18 @@ function handleClick(event: MouseEvent) {
   }
 }
 
-// 获取要渲染的组件（从注册表获取）
+// 获取要渲染的组件（使用 Vue 的 resolveComponent 从全局组件解析）
 const renderComponent = computed(() => {
-  return getComponentInstance(props.node.type) || null;
+  // kebab-case 转 PascalCase（Nuxt 全局组件使用 PascalCase）
+  const pascalName = kebabToPascal(props.node.type);
+  
+  try {
+    const component = resolveComponent(pascalName);
+    // resolveComponent 找不到时返回字符串，需要检查
+    return typeof component === "string" ? null : component;
+  } catch {
+    return null;
+  }
 });
 
 // 解析后的 props（处理数据绑定表达式）

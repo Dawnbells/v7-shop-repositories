@@ -3,7 +3,12 @@
  * 封装落地页产品相关的数据库操作
  */
 
-import type { ProductInfo, ProductImage, ProductSpecification, SpecificationAttribute } from "~/types/page-context";
+import type {
+  ProductInfo,
+  ProductImage,
+  ProductSpecification,
+  SpecificationAttribute,
+} from "~/types/page-context";
 import { query, queryOne } from "../utils/db";
 
 /**
@@ -31,7 +36,7 @@ function parseJsonField(value: any): any {
 
 /**
  * 根据 SPU ID 和语言 ID 直接查询产品信息（用于 LAND 类型）
- * 
+ *
  * @param spuId SPU ID
  * @param languageId 语言 ID
  * @param subDomainId 子域名 ID（可选，用于获取渲染配置）
@@ -67,7 +72,7 @@ export async function findProductBySpuId(
 /**
  * 根据子域名、SPU ID 和语言 ID 查询 CLOAK 类型的落地页产品信息
  * 连表查询 t_sub_domain_spu_landing_pages 和 t_products
- * 
+ *
  * @param subDomainId 子域名 ID
  * @param spuId 原始 SPU ID
  * @param languageId 语言 ID
@@ -92,7 +97,11 @@ export async function findCloakLandingProduct(
     LIMIT 1
   `;
 
-  const productRow = await queryOne(productSql, [languageId, subDomainId, spuId]);
+  const productRow = await queryOne(productSql, [
+    languageId,
+    subDomainId,
+    spuId,
+  ]);
   if (!productRow) {
     return null;
   }
@@ -110,10 +119,60 @@ export async function findCloakLandingProduct(
 /**
  * 渲染配置结果（包含主题配置、站点配置、变量值）
  */
-interface RenderConfig {
+export interface RenderConfig {
   themeConfig: any;
   siteConfig: Record<string, any>;
   variableValues: Record<string, any>;
+}
+
+/**
+ * Landing Page 配置（用于 middleware，不含产品详情）
+ */
+export interface LandingPageConfig {
+  /** 落地页 SPU ID */
+  landingSpuId: number;
+  /** 主题配置 */
+  themeConfig: any;
+  /** 站点配置 */
+  siteConfig: Record<string, any>;
+  /** 变量值 */
+  variableValues: Record<string, any>;
+  /** 变量定义 schema */
+  variableSchema: Record<string, any>;
+}
+
+/**
+ * 查询 Landing Page 配置（仅配置信息，不含产品详情）
+ * 用于 03-landing.ts middleware
+ *
+ * @param subDomainId 子域名 ID
+ * @param spuId SPU ID
+ * @param landingPageType 落地页类型（LAND/CLOAK）
+ */
+export async function findLandingPageConfig(
+  subDomainId: number,
+  spuId: number,
+  landingPageType: string
+): Promise<LandingPageConfig | null> {
+  const sql = `
+    SELECT landing_page_spu_id, theme_config, site_config, variable_values, variable_schema
+    FROM t_sub_domain_spu_landing_pages
+    WHERE sub_domain_id = ? AND spu_id = ? AND landing_page_type = ?
+    LIMIT 1
+  `;
+
+  const row = await queryOne(sql, [subDomainId, spuId, landingPageType]);
+  if (!row) {
+    return null;
+  }
+
+  return {
+    landingSpuId: row.landing_page_spu_id,
+    themeConfig: parseJsonField(row.theme_config),
+    siteConfig: parseJsonField(row.site_config) || {},
+    variableValues: parseJsonField(row.variable_values) || {},
+    variableSchema: parseJsonField(row.variable_schema) || {},
+  };
 }
 
 /**
@@ -183,7 +242,9 @@ async function buildProductInfo(
     introduction: productRow.introduction,
     summary: productRow.summary,
     sellPrice: parseFloat(productRow.sell_price),
-    originPrice: productRow.origin_price ? parseFloat(productRow.origin_price) : null,
+    originPrice: productRow.origin_price
+      ? parseFloat(productRow.origin_price)
+      : null,
     isMultiSpecs: !!productRow.is_multi_specs,
     images,
     specifications,
@@ -216,7 +277,9 @@ async function findProductImages(productId: number): Promise<ProductImage[]> {
 /**
  * 查询产品规格
  */
-async function findProductSpecifications(productId: number): Promise<ProductSpecification[]> {
+async function findProductSpecifications(
+  productId: number
+): Promise<ProductSpecification[]> {
   const specSql = `
     SELECT id, sku_id, sell_price, origin_price, stock_quantity
     FROM t_product_specifications
@@ -224,13 +287,13 @@ async function findProductSpecifications(productId: number): Promise<ProductSpec
   `;
 
   const specRows = await query(specSql, [productId]);
-  
+
   const specifications: ProductSpecification[] = [];
-  
+
   for (const row of specRows) {
     // 查询规格属性
     const attributes = await findSpecificationAttributes(row.id);
-    
+
     specifications.push({
       id: row.id,
       skuId: row.sku_id,
@@ -247,7 +310,9 @@ async function findProductSpecifications(productId: number): Promise<ProductSpec
 /**
  * 查询规格属性
  */
-async function findSpecificationAttributes(specificationId: number): Promise<SpecificationAttribute[]> {
+async function findSpecificationAttributes(
+  specificationId: number
+): Promise<SpecificationAttribute[]> {
   const sql = `
     SELECT name, value
     FROM t_product_specification_attributes

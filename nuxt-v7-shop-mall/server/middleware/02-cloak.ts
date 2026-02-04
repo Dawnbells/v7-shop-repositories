@@ -65,7 +65,7 @@ function isProductRoute(path: string): boolean {
 function getPreviewCloakPage(event: any): CloakPage | null {
   const query = getQuery(event);
   const preview = query.preview as string | undefined;
-  
+
   if (preview && PREVIEW_ALLOWED_PAGES.has(preview)) {
     return preview as CloakPage;
   }
@@ -90,11 +90,11 @@ function deserializeCloakResult(value: string): CloakCheckResponse | null {
   const parts = value.split("-");
   if (parts.length < 4) return null;
   const [remote, page, isAdmin, ...pdValParts] = parts;
-  const pageNum = parseInt(page, 10);
+  const pageNum = parseInt(page ?? "0", 10);
   if (!(pageNum in NUM_TO_CLOAK_PAGE)) return null;
   return {
     remote: remote === "1",
-    page: NUM_TO_CLOAK_PAGE[pageNum],
+    page: NUM_TO_CLOAK_PAGE[pageNum] ?? CloakPage.CLOAK,
     isAdmin: isAdmin === "1",
     pdVal: pdValParts.join("-"), // pdVal 可能包含 "-"
   };
@@ -154,7 +154,10 @@ function buildCloakRequest(event: any): CloakCheckRequest {
   } else if (event.path) {
     // event.path 通常只包含 path，不含 query
     fullPath = event.path;
-    if (event.node?.req?.originalUrl && typeof event.node.req.originalUrl === "string") {
+    if (
+      event.node?.req?.originalUrl &&
+      typeof event.node.req.originalUrl === "string"
+    ) {
       fullPath = event.node.req.originalUrl; // 某些 node 服务器有 originalUrl
     }
   }
@@ -193,7 +196,7 @@ function buildCloakRequest(event: any): CloakCheckRequest {
     spuId: pageContext.spuId ?? undefined,
     headers: headerMap,
     fingerprint,
-    cloakStrategy: pageContext.topLevelDomain?.cloakStrategy ?? 'DEFAULT',
+    cloakStrategy: pageContext.topLevelDomain?.cloakStrategy ?? "DEFAULT",
     accessKey: pageContext.company?.accessKey ?? undefined,
     continentCode: pageContext.country?.continentCode ?? undefined,
     countryCode: pageContext.country?.code ?? undefined,
@@ -277,7 +280,10 @@ export default defineEventHandler(async (event) => {
   // 检查是否有 preview 参数强制指定 cloak 类型
   const previewPage = getPreviewCloakPage(event);
   if (previewPage) {
-    console.log("[Cloak Middleware] Preview mode, forcing cloak page:", previewPage);
+    console.log(
+      "[Cloak Middleware] Preview mode, forcing cloak page:",
+      previewPage
+    );
     cloakResult = {
       remote: false,
       page: previewPage,
@@ -301,12 +307,18 @@ export default defineEventHandler(async (event) => {
     // 非产品路由：从 cookie 读取
     const cookieValue = getCookie(event, CLOAK_COOKIE);
     if (cookieValue) {
-      cloakResult = deserializeCloakResult(cookieValue);
-      console.log("[Cloak Middleware] Got cloak result from cookie:", cloakResult);
+      cloakResult = deserializeCloakResult(cookieValue!);
+      console.log(
+        "[Cloak Middleware] Got cloak result from cookie:",
+        cloakResult
+      );
     }
     if (!cloakResult) {
       // 没有 cookie，使用降级策略
-      console.log("[Cloak Middleware] No cookie, using fallback:", fallbackPage);
+      console.log(
+        "[Cloak Middleware] No cookie, using fallback:",
+        fallbackPage
+      );
       cloakResult = {
         remote: false,
         page: fallbackPage,
@@ -318,7 +330,9 @@ export default defineEventHandler(async (event) => {
 
   // BLACKLISTED 显示安全页面
   if (cloakResult.page === CloakPage.BLACKLISTED) {
-    showSafePage(event, SafePageType.SHOP_NOT_FOUND, { trackingId: cloakResult.pdVal });
+    showSafePage(event, SafePageType.SHOP_NOT_FOUND, {
+      trackingId: cloakResult.pdVal,
+    });
     return;
   }
 

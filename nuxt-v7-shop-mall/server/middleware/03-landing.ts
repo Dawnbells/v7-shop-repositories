@@ -1,9 +1,9 @@
 /**
- * 落地页产品信息 Server Middleware
- * 根据 cloak 结果查询对应的落地页产品信息，将结果注入到 event.context
+ * 落地页配置 Server Middleware
+ * 根据 cloak 结果查询对应的落地页配置，将结果注入到 event.context
  * 
- * - LAND：直接使用原始 spuId 查询产品信息
- * - CLOAK/CRAWLER/RISK：关联 t_sub_domain_spu_landing_pages 查询落地页产品
+ * - LAND：查询 LAND 类型的配置，landingSpuId = 原始 spuId
+ * - CLOAK/CRAWLER/RISK：查询 CLOAK 类型的配置，landingSpuId 来自 landing_page_spu_id
  * - BLACKLISTED：不处理（在 02-cloak.ts 中已显示安全页面）
  */
 
@@ -11,7 +11,7 @@ import { CloakPage } from "~/types/cloak";
 import { SafePageType } from "~/types/page-context";
 import { getPageContext, updatePageContext } from "../utils/page-context";
 import { showSafePage } from "../utils/safe-page";
-import { findProductBySpuId, findCloakLandingProduct } from "../cache/landing.cache";
+import { findLandingPageConfig } from "../cache/landing.cache";
 
 export default defineEventHandler(async (event) => {
   const path = event.path || "";
@@ -23,64 +23,57 @@ export default defineEventHandler(async (event) => {
 
   const pageContext = getPageContext(event);
 
-  // 需要 domain、spuId、cloak、languages 都存在
+  // 需要 domain、spuId、cloak 都存在
   if (
     !pageContext.domain?.id ||
     !pageContext.spuId ||
-    !pageContext.cloak ||
-    !pageContext.languages?.length
+    !pageContext.cloak
   ) {
     console.log("[Landing Middleware] Missing required context, skipping");
     return;
   }
 
   const cloakPage = pageContext.cloak.page;
-
   const subDomainId = pageContext.domain.id;
   const spuId = pageContext.spuId;
-  const languageId = pageContext.languages[0].id;
+
+  // 根据 cloak 类型确定查询的 landing page type
+  const landingPageType = cloakPage === CloakPage.LAND ? "LAND" : "CLOAK";
 
   console.log("[Landing Middleware] Processing:", {
     cloakPage,
     subDomainId,
     spuId,
-    languageId,
+    landingPageType,
   });
 
   try {
-    let productInfo = null;
+    // 查询 landing page 配置
+    const config = await findLandingPageConfig(subDomainId, spuId, landingPageType);
 
-    if (cloakPage === CloakPage.LAND) {
-      // LAND：直接使用原始 spuId 查询产品信息
-      console.log("[Landing Middleware] LAND - querying product by spuId");
-      productInfo = await findProductBySpuId(subDomainId, spuId, languageId);
-    } else {
-      // CLOAK/CRAWLER/RISK：关联 t_sub_domain_spu_landing_pages 查询
-      console.log("[Landing Middleware] CLOAK type - querying landing product");
-      productInfo = await findCloakLandingProduct(subDomainId, spuId, languageId);
-    }
-
-    if (productInfo) {
-      console.log("[Landing Middleware] Found product:", productInfo.id);
+    if (config) {
+      console.log("[Landing Middleware] Found config, landingSpuId:", config.landingSpuId);
       // 打印 themeConfig 加载状态用于调试
       console.log("[Landing Middleware] themeConfig loaded:", {
-        hasThemeConfig: !!productInfo.themeConfig,
-        themeConfigType: typeof productInfo.themeConfig,
-        themeConfigKeys: productInfo.themeConfig ? Object.keys(productInfo.themeConfig) : [],
+        hasThemeConfig: !!config.themeConfig,
+        themeConfigType: typeof config.themeConfig,
+        themeConfigKeys: config.themeConfig ? Object.keys(config.themeConfig) : [],
       });
-      // 更新 pageContext
+      // 更新 pageContext：存入 landingSpuId 和渲染配置
       updatePageContext(event, {
-        landingSpuId: productInfo.spuId,
-        landingProduct: productInfo,
+        landingSpuId: config.landingSpuId,
+        themeConfig: config.themeConfig,
+        siteConfig: config.siteConfig,
+        variableValues: config.variableValues,
       });
     } else {
-      console.log("[Landing Middleware] No product found");
-      // 产品不存在，显示安全页面
+      console.log("[Landing Middleware] No config found");
+      // 配置不存在，显示安全页面
       showSafePage(event, SafePageType.PRODUCT_NOT_FOUND, { trackingId: pageContext.cloak.pdVal });
       return;
     }
   } catch (error) {
-    console.error("[Landing Middleware] Error querying product:", error);
+    console.error("[Landing Middleware] Error querying config:", error);
     // 出错时显示产品不存在页面
     showSafePage(event, SafePageType.PRODUCT_NOT_FOUND, { trackingId: pageContext.cloak.pdVal });
   }
