@@ -31,10 +31,10 @@ const emit = defineEmits<{
 }>();
 
 // 主题状态
-const { globalData, addGlobalVariable, updateGlobalVariable, removeGlobalVariable } = useThemeSchema();
+const { variableSchema, addGlobalVariable, updateGlobalVariable, removeGlobalVariable } = useThemeSchema();
 
 // 变量列表
-const variables = computed(() => globalData.value.variables || []);
+const variables = computed(() => variableSchema.value || []);
 
 // ============ 默认值配置弹窗状态 ============
 

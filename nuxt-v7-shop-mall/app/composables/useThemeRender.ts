@@ -41,7 +41,6 @@ export function useThemeRender() {
     // 调试日志：打印主题配置信息
     if (import.meta.dev && config) {
       console.log("[useThemeRender] themeConfig computed:", {
-        hasGlobalStyle: !!config.globalStyle,
         pagesKeys: config.pages ? Object.keys(config.pages) : [],
         layoutsCount: config.pages?.layouts?.length || 0,
       });
@@ -85,27 +84,27 @@ export function useThemeRender() {
     };
   });
 
-  // 全局样式
+  // 全局样式（从 siteConfig.globalStyle 获取）
   const globalStyle = computed<GlobalStyle | null>(() => {
-    return themeConfig.value?.globalStyle || null;
+    return siteConfig.value?.globalStyle || null;
   });
 
-  // 生成全局样式 CSS 变量
+  // 生成全局样式 CSS 变量（变量命名与 LayoutRenderer/PageRenderer 保持一致）
   const globalStyleVars = computed(() => {
     const style = globalStyle.value;
     if (!style) return {};
 
     return {
-      "--color-primary": style.primaryColor,
-      "--color-secondary": style.secondaryColor,
-      "--color-success": style.successColor,
-      "--color-warning": style.warningColor,
-      "--color-error": style.errorColor,
-      "--color-background": style.backgroundColor,
-      "--color-surface": style.surfaceColor,
-      "--color-text": style.textColor,
-      "--color-text-secondary": style.textSecondaryColor,
-      "--color-border": style.borderColor,
+      "--primary-color": style.primaryColor,
+      "--secondary-color": style.secondaryColor,
+      "--success-color": style.successColor,
+      "--warning-color": style.warningColor,
+      "--error-color": style.errorColor,
+      "--background-color": style.backgroundColor,
+      "--surface-color": style.surfaceColor,
+      "--text-color": style.textColor,
+      "--text-secondary-color": style.textSecondaryColor,
+      "--border-color": style.borderColor,
       "--font-family": style.fontFamily,
       "--font-size-base": style.fontSizeBase,
       "--line-height": style.lineHeight,

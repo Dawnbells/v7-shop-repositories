@@ -20,6 +20,11 @@ import { clearProductCacheAllLanguages, clearCloakCacheAllLanguages } from "../.
 const VALID_LANDING_TYPES = ["LAND", "CLOAK", "BLACKLISTED"] as const;
 type LandingPageType = typeof VALID_LANDING_TYPES[number];
 
+interface VariableDefinition {
+  key: string;
+  defaultValue?: any;
+}
+
 interface SaveThemeRequest {
   subDomainId: string | number;
   spuId: string | number;
@@ -27,9 +32,35 @@ interface SaveThemeRequest {
   landingPageSpuId?: string | number | null;  // 可选：落地页 SPU ID（用于 CLOAK 类型）
   // 分离的数据字段
   themeConfig: object;                        // 页面布局、组件、样式
-  variableSchema?: object[];                  // 变量定义结构
+  variableSchema?: VariableDefinition[];      // 变量定义结构
   siteConfig?: object;                        // 站点配置值
-  variableValues?: object;                    // 变量实际值
+  variableValues?: Record<string, any>;       // 变量实际值
+}
+
+/**
+ * 填充变量值的默认值
+ * 如果 variableValues 中没有设置某个变量的值，则使用 variableSchema 中定义的 defaultValue
+ */
+function fillVariableDefaults(
+  variableValues: Record<string, any> | undefined,
+  variableSchema: VariableDefinition[] | undefined
+): Record<string, any> {
+  const result: Record<string, any> = { ...(variableValues || {}) };
+  
+  if (!variableSchema || !Array.isArray(variableSchema)) {
+    return result;
+  }
+  
+  for (const variable of variableSchema) {
+    // 如果变量值未设置（undefined 或 null），则使用默认值
+    if (result[variable.key] === undefined || result[variable.key] === null) {
+      if (variable.defaultValue !== undefined) {
+        result[variable.key] = variable.defaultValue;
+      }
+    }
+  }
+  
+  return result;
 }
 
 export default defineEventHandler(async (event) => {
@@ -66,11 +97,14 @@ export default defineEventHandler(async (event) => {
 
   const pool = getPool();
 
+  // 填充变量默认值
+  const filledVariableValues = fillVariableDefaults(body.variableValues, body.variableSchema);
+  
   // 序列化各个 JSON 字段
   const themeConfigJson = JSON.stringify(body.themeConfig);
   const variableSchemaJson = body.variableSchema ? JSON.stringify(body.variableSchema) : "[]";
   const siteConfigJson = body.siteConfig ? JSON.stringify(body.siteConfig) : "{}";
-  const variableValuesJson = body.variableValues ? JSON.stringify(body.variableValues) : "{}";
+  const variableValuesJson = JSON.stringify(filledVariableValues);
 
   try {
     // 使用 INSERT ... ON DUPLICATE KEY UPDATE 实现 upsert

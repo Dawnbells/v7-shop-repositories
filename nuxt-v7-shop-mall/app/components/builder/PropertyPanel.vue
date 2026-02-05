@@ -35,7 +35,7 @@ const {
 const { getComponentMeta } = useComponentRegistry();
 
 // 主题状态（获取自定义变量）
-const { globalData } = useThemeSchema();
+const { variableSchema } = useThemeSchema();
 
 // 编辑器数据上下文
 const editorDataContext = useEditorDataContext();
@@ -75,7 +75,7 @@ const pageContextFields = computed(() => generatePageContextFields());
 
 // 自定义变量字段
 const variableFields = computed(() => {
-  const variables = globalData.value.variables || [];
+  const variables = variableSchema.value || [];
   return generateVariableFields(variables);
 });
 

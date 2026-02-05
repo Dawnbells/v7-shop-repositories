@@ -469,7 +469,7 @@ onMounted(() => {
   height: 48px;
   font-size: 24px;
   color: #ffffff;
-  background-color: var(--color-primary, #3b82f6);
+  background-color: var(--primary-color, #3b82f6);
   border: none;
   border-radius: 50%;
   cursor: pointer;

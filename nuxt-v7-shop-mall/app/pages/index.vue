@@ -56,8 +56,8 @@ const previewDevice = ref<"mobile" | "tablet" | "desktop">("desktop");
 <style scoped>
 .home-page {
   min-height: 100vh;
-  background-color: var(--color-background, #f8fafc);
-  color: var(--color-text, #1e293b);
+  background-color: var(--background-color, #f8fafc);
+  color: var(--text-color, #1e293b);
   font-family: var(--font-family, "Inter", -apple-system, BlinkMacSystemFont, sans-serif);
 }
 

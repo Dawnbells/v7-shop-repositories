@@ -72,6 +72,12 @@ export const SITE_CONFIG_GROUPS: SiteConfigGroup[] = [
     icon: "i-carbon-settings",
     description: "商城功能开关",
   },
+  {
+    key: "globalStyle",
+    label: "全局皮肤",
+    icon: "i-carbon-paint-brush",
+    description: "全局样式配置",
+  },
 ];
 
 /**
@@ -186,14 +192,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     group: "footer",
     description: "中国大陆网站备案号",
   },
-  {
-    key: "footerLinks",
-    label: "页脚链接",
-    type: "json",
-    defaultValue: [],
-    group: "footer",
-    description: '格式: [{ "text": "隐私政策", "url": "/privacy" }]',
-  },
 
   // ============ 社交媒体 ============
   {
@@ -244,22 +242,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "LinkedIn 主页链接",
     group: "social",
   },
-  {
-    key: "wechat",
-    label: "微信公众号",
-    type: "text",
-    defaultValue: "",
-    placeholder: "微信公众号 ID 或二维码链接",
-    group: "social",
-  },
-  {
-    key: "weibo",
-    label: "微博",
-    type: "text",
-    defaultValue: "",
-    placeholder: "微博主页链接",
-    group: "social",
-  },
 
   // ============ SEO 设置 ============
   {
@@ -288,22 +270,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "关键词，用逗号分隔",
     group: "seo",
   },
-  {
-    key: "googleAnalytics",
-    label: "Google Analytics ID",
-    type: "text",
-    defaultValue: "",
-    placeholder: "如：G-XXXXXXXXXX",
-    group: "seo",
-  },
-  {
-    key: "facebookPixel",
-    label: "Facebook Pixel ID",
-    type: "text",
-    defaultValue: "",
-    placeholder: "Facebook Pixel 追踪 ID",
-    group: "seo",
-  },
 
   // ============ 功能设置 ============
   {
@@ -322,6 +288,158 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     group: "features",
     description: "启用购物车和加入购物车按钮",
   },
+
+  // ============ 全局皮肤 (globalStyle) ============
+  // 颜色
+  {
+    key: "globalStyle.primaryColor",
+    label: "主色",
+    type: "color",
+    defaultValue: "#3b82f6",
+    group: "globalStyle",
+    description: "品牌主色调",
+  },
+  {
+    key: "globalStyle.secondaryColor",
+    label: "辅色",
+    type: "color",
+    defaultValue: "#64748b",
+    group: "globalStyle",
+    description: "次要颜色",
+  },
+  {
+    key: "globalStyle.successColor",
+    label: "成功色",
+    type: "color",
+    defaultValue: "#22c55e",
+    group: "globalStyle",
+    description: "成功状态颜色",
+  },
+  {
+    key: "globalStyle.warningColor",
+    label: "警告色",
+    type: "color",
+    defaultValue: "#f59e0b",
+    group: "globalStyle",
+    description: "警告状态颜色",
+  },
+  {
+    key: "globalStyle.errorColor",
+    label: "错误色",
+    type: "color",
+    defaultValue: "#ef4444",
+    group: "globalStyle",
+    description: "错误状态颜色",
+  },
+  {
+    key: "globalStyle.backgroundColor",
+    label: "页面背景色",
+    type: "color",
+    defaultValue: "#f8fafc",
+    group: "globalStyle",
+    description: "页面背景颜色",
+  },
+  {
+    key: "globalStyle.surfaceColor",
+    label: "表面背景色",
+    type: "color",
+    defaultValue: "#ffffff",
+    group: "globalStyle",
+    description: "卡片等表面元素背景色",
+  },
+  {
+    key: "globalStyle.textColor",
+    label: "主文字色",
+    type: "color",
+    defaultValue: "#1e293b",
+    group: "globalStyle",
+    description: "主要文字颜色",
+  },
+  {
+    key: "globalStyle.textSecondaryColor",
+    label: "次要文字色",
+    type: "color",
+    defaultValue: "#64748b",
+    group: "globalStyle",
+    description: "次要文字颜色",
+  },
+  {
+    key: "globalStyle.borderColor",
+    label: "边框色",
+    type: "color",
+    defaultValue: "#e2e8f0",
+    group: "globalStyle",
+    description: "边框颜色",
+  },
+
+  // 字体
+  {
+    key: "globalStyle.fontFamily",
+    label: "字体",
+    type: "text",
+    defaultValue: "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
+    placeholder: "字体名称",
+    group: "globalStyle",
+    description: "网站主字体",
+  },
+  {
+    key: "globalStyle.fontSizeBase",
+    label: "基础字号",
+    type: "text",
+    defaultValue: "14px",
+    placeholder: "如：14px",
+    group: "globalStyle",
+    description: "基础字体大小",
+  },
+  {
+    key: "globalStyle.lineHeight",
+    label: "行高",
+    type: "text",
+    defaultValue: "1.5",
+    placeholder: "如：1.5",
+    group: "globalStyle",
+    description: "文字行高",
+  },
+
+  // 圆角
+  {
+    key: "globalStyle.borderRadiusSmall",
+    label: "小圆角",
+    type: "text",
+    defaultValue: "4px",
+    placeholder: "如：4px",
+    group: "globalStyle",
+    description: "小尺寸元素圆角",
+  },
+  {
+    key: "globalStyle.borderRadiusMedium",
+    label: "中圆角",
+    type: "text",
+    defaultValue: "8px",
+    placeholder: "如：8px",
+    group: "globalStyle",
+    description: "中等尺寸元素圆角",
+  },
+  {
+    key: "globalStyle.borderRadiusLarge",
+    label: "大圆角",
+    type: "text",
+    defaultValue: "12px",
+    placeholder: "如：12px",
+    group: "globalStyle",
+    description: "大尺寸元素圆角",
+  },
+
+  // 间距
+  {
+    key: "globalStyle.spacingUnit",
+    label: "间距单位",
+    type: "text",
+    defaultValue: "8px",
+    placeholder: "如：8px",
+    group: "globalStyle",
+    description: "基础间距单位",
+  },
 ];
 
 /**
@@ -339,13 +457,34 @@ export function getI18nFields(): SiteFieldSchema[] {
 }
 
 /**
+ * 设置嵌套对象的值
+ * @param obj 目标对象
+ * @param path 路径，如 "globalStyle.primaryColor"
+ * @param value 值
+ */
+function setNestedValue(obj: Record<string, any>, path: string, value: any): void {
+  const keys = path.split('.');
+  let current = obj;
+  
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (!(key in current) || typeof current[key] !== 'object') {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+  
+  current[keys[keys.length - 1]] = value;
+}
+
+/**
  * 生成默认的站点配置值
  */
 export function createDefaultSiteConfig(): Record<string, any> {
   const config: Record<string, any> = {};
   for (const field of SITE_CONFIG_SCHEMA) {
     if (field.defaultValue !== undefined) {
-      config[field.key] = field.defaultValue;
+      setNestedValue(config, field.key, field.defaultValue);
     }
   }
   return config;

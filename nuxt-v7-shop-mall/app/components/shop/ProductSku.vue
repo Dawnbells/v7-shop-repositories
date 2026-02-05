@@ -248,9 +248,9 @@ function isSelected(skuId: string, valueId: string): boolean {
 }
 
 .sku-value-btn.selected {
-  border-color: var(--color-primary, #3b82f6);
+  border-color: var(--primary-color, #3b82f6);
   background: #eff6ff;
-  color: var(--color-primary, #3b82f6);
+  color: var(--primary-color, #3b82f6);
 }
 
 .sku-value-img {

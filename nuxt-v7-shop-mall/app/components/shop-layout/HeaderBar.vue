@@ -273,8 +273,8 @@ onMounted(() => {
 
 .header-bar {
   width: 100%;
-  background-color: var(--color-surface, #ffffff);
-  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  background-color: var(--surface-color, #ffffff);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
   /* 定义容器查询上下文 */
   container-type: inline-size;
   container-name: header;
@@ -317,7 +317,7 @@ onMounted(() => {
   display: block;
   width: 100%;
   height: 2px;
-  background-color: var(--color-text, #1e293b);
+  background-color: var(--text-color, #1e293b);
   border-radius: 1px;
   transition: all 0.3s ease;
   position: absolute;
@@ -359,7 +359,7 @@ onMounted(() => {
 .site-name-text {
   font-size: 16px;
   font-weight: 600;
-  color: var(--color-text, #1e293b);
+  color: var(--text-color, #1e293b);
 }
 
 .header-logo {
@@ -381,7 +381,7 @@ onMounted(() => {
 .logo-text {
   font-size: 20px;
   font-weight: 700;
-  color: var(--color-primary, #3b82f6);
+  color: var(--primary-color, #3b82f6);
 }
 
 .header-nav {
@@ -396,15 +396,15 @@ onMounted(() => {
   gap: 4px;
   padding: 8px 12px;
   font-size: 14px;
-  color: var(--color-text, #1e293b);
+  color: var(--text-color, #1e293b);
   text-decoration: none;
   border-radius: 6px;
   transition: all 0.2s;
 }
 
 .nav-item:hover {
-  color: var(--color-primary, #3b82f6);
-  background-color: var(--color-background, #f8fafc);
+  color: var(--primary-color, #3b82f6);
+  background-color: var(--background-color, #f8fafc);
 }
 
 .nav-icon {
@@ -436,7 +436,7 @@ onMounted(() => {
   width: 40px;
   height: 40px;
   font-size: 20px;
-  color: var(--color-text, #1e293b);
+  color: var(--text-color, #1e293b);
   background: none;
   border: none;
   border-radius: 8px;
@@ -445,8 +445,8 @@ onMounted(() => {
 }
 
 .action-btn:hover {
-  color: var(--color-primary, #3b82f6);
-  background-color: var(--color-background, #f8fafc);
+  color: var(--primary-color, #3b82f6);
+  background-color: var(--background-color, #f8fafc);
 }
 
 /* 抽屉菜单样式 */
@@ -468,7 +468,7 @@ onMounted(() => {
   width: 280px;
   max-width: 80vw;
   height: 100%;
-  background-color: var(--color-surface, #ffffff);
+  background-color: var(--surface-color, #ffffff);
   box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
   display: flex;
   flex-direction: column;
@@ -479,13 +479,13 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
 }
 
 .drawer-title {
   font-size: 16px;
   font-weight: 600;
-  color: var(--color-text, #1e293b);
+  color: var(--text-color, #1e293b);
 }
 
 .drawer-close {
@@ -495,7 +495,7 @@ onMounted(() => {
   width: 32px;
   height: 32px;
   font-size: 20px;
-  color: var(--color-text-secondary, #64748b);
+  color: var(--text-color-secondary, #64748b);
   background: none;
   border: none;
   border-radius: 6px;
@@ -504,8 +504,8 @@ onMounted(() => {
 }
 
 .drawer-close:hover {
-  color: var(--color-text, #1e293b);
-  background-color: var(--color-background, #f8fafc);
+  color: var(--text-color, #1e293b);
+  background-color: var(--background-color, #f8fafc);
 }
 
 .drawer-content {
@@ -520,24 +520,24 @@ onMounted(() => {
   gap: 12px;
   padding: 14px 16px;
   font-size: 15px;
-  color: var(--color-text, #1e293b);
+  color: var(--text-color, #1e293b);
   text-decoration: none;
   transition: all 0.2s;
 }
 
 .drawer-item:hover,
 .drawer-item:active {
-  background-color: var(--color-background, #f8fafc);
-  color: var(--color-primary, #3b82f6);
+  background-color: var(--background-color, #f8fafc);
+  color: var(--primary-color, #3b82f6);
 }
 
 .drawer-icon {
   font-size: 18px;
-  color: var(--color-text-secondary, #64748b);
+  color: var(--text-color-secondary, #64748b);
 }
 
 .drawer-item:hover .drawer-icon {
-  color: var(--color-primary, #3b82f6);
+  color: var(--primary-color, #3b82f6);
 }
 
 .drawer-text {
@@ -546,7 +546,7 @@ onMounted(() => {
 
 .drawer-arrow {
   font-size: 16px;
-  color: var(--color-text-secondary, #94a3b8);
+  color: var(--text-color-secondary, #94a3b8);
 }
 
 /* 抽屉动画 */

@@ -176,8 +176,8 @@ function handleBuy() {
 
 .btn-cart {
   background: white;
-  border: 1px solid var(--color-primary, #3b82f6);
-  color: var(--color-primary, #3b82f6);
+  border: 1px solid var(--primary-color, #3b82f6);
+  color: var(--primary-color, #3b82f6);
 }
 
 .btn-cart:hover {
@@ -185,7 +185,7 @@ function handleBuy() {
 }
 
 .btn-buy {
-  background: var(--color-primary, #3b82f6);
+  background: var(--primary-color, #3b82f6);
   border: none;
   color: white;
 }

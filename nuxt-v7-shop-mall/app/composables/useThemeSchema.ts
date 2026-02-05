@@ -15,9 +15,7 @@ import type {
   CustomPageSchema,
   LayoutSchema,
   GlobalStyle,
-  GlobalDataContext,
   CustomVariable,
-  PresetDataSetConfig,
   I18nValues,
   SiteConfig,
   SiteConfigI18n,
@@ -77,15 +75,10 @@ export function useThemeSchema() {
     return newTheme;
   }
 
-  // 加载主题（完整加载，包含所有独立数据）
+  // 加载主题
   function loadTheme(schema: ThemeSchema) {
     themeState.value = schema;
-    // 从 globalData.variables 迁移到独立状态（兼容旧数据）
-    if (schema.globalData?.variables) {
-      variableSchemaState.value = [...schema.globalData.variables];
-    } else {
-      variableSchemaState.value = [];
-    }
+    variableSchemaState.value = [];
     hasUnsavedChanges.value = false;
   }
 
@@ -120,19 +113,8 @@ export function useThemeSchema() {
   }
 
   function exportFullData(): ExportFullDataResult {
-    // 导出时从 themeConfig 中移除 globalData.variables（已独立存储）
-    let themeConfig = themeState.value;
-    if (themeConfig && themeConfig.globalData) {
-      themeConfig = {
-        ...themeConfig,
-        globalData: {
-          ...themeConfig.globalData,
-          variables: [], // 清空，使用独立的 variableSchema
-        },
-      };
-    }
     return {
-      themeConfig,
+      themeConfig: themeState.value,
       variableSchema: variableSchemaState.value,
       siteConfig: siteConfigState.value,
       siteConfigI18n: siteConfigI18nState.value,
@@ -152,88 +134,19 @@ export function useThemeSchema() {
     hasUnsavedChanges.value = true;
   }
 
-  // 更新全局样式
+  // 更新全局样式（存储在 siteConfig.globalStyle 中）
   function updateGlobalStyle(updates: Partial<GlobalStyle>) {
-    if (!themeState.value) return;
-
-    Object.assign(themeState.value.globalStyle, updates);
-    themeState.value.updatedAt = new Date().toISOString();
+    if (!siteConfigState.value.globalStyle) {
+      siteConfigState.value.globalStyle = {};
+    }
+    Object.assign(siteConfigState.value.globalStyle, updates);
     hasUnsavedChanges.value = true;
   }
 
   // 重置全局样式为默认值
   function resetGlobalStyle() {
-    if (!themeState.value) return;
-
-    themeState.value.globalStyle = createDefaultGlobalStyle();
-    themeState.value.updatedAt = new Date().toISOString();
+    siteConfigState.value.globalStyle = createDefaultGlobalStyle();
     hasUnsavedChanges.value = true;
-  }
-
-  // ============ 全局数据管理 ============
-
-  // 获取全局数据上下文（兼容旧代码，variables 从独立状态获取）
-  const globalData = computed<GlobalDataContext>(() => {
-    const presets = themeState.value?.globalData?.presets || [];
-    return { presets, variables: variableSchemaState.value };
-  });
-
-  // 更新全局数据上下文
-  function updateGlobalData(updates: Partial<GlobalDataContext>) {
-    if (!themeState.value) return;
-
-    if (!themeState.value.globalData) {
-      themeState.value.globalData = { presets: [], variables: [] };
-    }
-    Object.assign(themeState.value.globalData, updates);
-    themeState.value.updatedAt = new Date().toISOString();
-    hasUnsavedChanges.value = true;
-  }
-
-  // ============ 全局预设数据集操作 ============
-
-  // 添加全局预设数据集
-  function addGlobalPreset(preset: PresetDataSetConfig): boolean {
-    if (!themeState.value) return false;
-
-    if (!themeState.value.globalData) {
-      themeState.value.globalData = { presets: [], variables: [] };
-    }
-
-    // 检查是否已存在
-    if (themeState.value.globalData.presets.some((p) => p.dataSetId === preset.dataSetId)) {
-      console.warn(`Global preset "${preset.dataSetId}" already exists`);
-      return false;
-    }
-
-    themeState.value.globalData.presets.push(preset);
-    themeState.value.updatedAt = new Date().toISOString();
-    hasUnsavedChanges.value = true;
-    return true;
-  }
-
-  // 移除全局预设数据集
-  function removeGlobalPreset(dataSetId: string) {
-    if (!themeState.value?.globalData) return;
-
-    const index = themeState.value.globalData.presets.findIndex((p) => p.dataSetId === dataSetId);
-    if (index !== -1) {
-      themeState.value.globalData.presets.splice(index, 1);
-      themeState.value.updatedAt = new Date().toISOString();
-      hasUnsavedChanges.value = true;
-    }
-  }
-
-  // 更新全局预设数据集的 Mock 数据
-  function updateGlobalPresetMockData(dataSetId: string, mockDataOverride: Record<string, any>) {
-    if (!themeState.value?.globalData) return;
-
-    const preset = themeState.value.globalData.presets.find((p) => p.dataSetId === dataSetId);
-    if (preset) {
-      preset.mockDataOverride = mockDataOverride;
-      themeState.value.updatedAt = new Date().toISOString();
-      hasUnsavedChanges.value = true;
-    }
   }
 
   // ============ 全局变量 Schema 操作 ============
@@ -620,16 +533,9 @@ export function useThemeSchema() {
     updateThemeInfo,
     clearTheme,
 
-    // 全局样式
+    // 全局样式（存储在 siteConfig.globalStyle）
     updateGlobalStyle,
     resetGlobalStyle,
-
-    // 全局数据（兼容）
-    globalData,
-    updateGlobalData,
-    addGlobalPreset,
-    removeGlobalPreset,
-    updateGlobalPresetMockData,
 
     // 变量 Schema 操作
     addGlobalVariable,

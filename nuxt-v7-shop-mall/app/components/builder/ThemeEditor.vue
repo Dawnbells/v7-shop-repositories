@@ -62,7 +62,7 @@ const {
   setPageLayout,
   setCustomPageLayout,
   markAsSaved,
-  globalData,
+  variableSchema,
 } = useThemeSchema();
 
 // 保存状态
@@ -77,8 +77,8 @@ const { currentPageKey, switchPage, currentDevice, switchDevice } =
 // 生成可绑定字段列表
 const bindableFields = computed(() => {
   const pageFields = generatePageContextFields();
-  const variableFields = globalData.value?.variables
-    ? generateVariableFields(globalData.value.variables)
+  const variableFields = variableSchema.value.length > 0
+    ? generateVariableFields(variableSchema.value)
     : [];
   return [...pageFields, ...variableFields];
 });

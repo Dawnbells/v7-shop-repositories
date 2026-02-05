@@ -3,7 +3,6 @@
  */
 
 import type { CustomPageSchema, LayoutSchema, PageSchema } from './schema'
-import type { GlobalDataContext } from './data-context'
 
 // 主题状态
 export type ThemeStatus = 'draft' | 'published' | 'archived'
@@ -58,12 +57,6 @@ export interface ThemeSchema {
   version: string                   // 版本号
   status: ThemeStatus               // 状态
   thumbnail?: string                // 缩略图
-
-  // 全局样式
-  globalStyle: GlobalStyle
-
-  // 全局数据配置
-  globalData?: GlobalDataContext    // 全局数据上下文
 
   // i18n 变量值（格式：{ pageKey: { locale: { varKey: value } } }）
   i18nValues?: I18nValues           // i18n 变量的值
@@ -134,11 +127,6 @@ export function createEmptyTheme(id: string, name: string): ThemeSchema {
     name,
     version: '1.0.0',
     status: 'draft',
-    globalStyle: createDefaultGlobalStyle(),
-    globalData: {
-      presets: [],
-      variables: []
-    },
     pages: {
       layouts: [createDefaultLayout(id)],
       home: {

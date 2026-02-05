@@ -22,6 +22,11 @@ import {
   type SiteFieldSchema,
 } from "~/constants/site-config.schema";
 
+// 过滤掉 globalStyle 分组（有独立的 Tab）
+const siteConfigGroups = SITE_CONFIG_GROUPS.filter(
+  (group) => group.key !== "globalStyle"
+);
+
 // 获取图片 URL 构建函数
 const { buildImageUrl } = useIframeAuth();
 
@@ -42,10 +47,11 @@ const {
   variableValues,
   updateSiteConfig,
   updateVariableValue,
+  resetGlobalStyle,
 } = useThemeSchema();
 
 // 当前 Tab
-const activeTab = ref<"site" | "variables">("site");
+const activeTab = ref<"site" | "globalStyle" | "variables">("site");
 
 // 当前选中的站点配置分组
 const activeSiteGroup = ref<string>("basic");
@@ -55,9 +61,17 @@ function getGroupFields(groupKey: string): SiteFieldSchema[] {
   return SITE_CONFIG_SCHEMA.filter((field) => field.group === groupKey);
 }
 
-// 获取站点配置值
+// 获取站点配置值（支持嵌套键，如 "globalStyle.primaryColor"）
 function getSiteValue(key: string): any {
-  return siteConfig.value[key] ?? "";
+  const keys = key.split('.');
+  let value: any = siteConfig.value;
+  
+  for (const k of keys) {
+    if (value == null) return "";
+    value = value[k];
+  }
+  
+  return value ?? "";
 }
 
 // 获取变量值
@@ -65,9 +79,43 @@ function getVarValue(key: string): any {
   return variableValues.value[key] ?? "";
 }
 
-// 更新站点配置
+// 更新站点配置（支持嵌套键，如 "globalStyle.primaryColor"）
 function handleSiteConfigChange(key: string, value: any) {
-  updateSiteConfig(key, value);
+  const keys = key.split('.');
+  
+  if (keys.length === 1) {
+    // 简单键
+    updateSiteConfig(key, value);
+  } else {
+    // 嵌套键，需要获取父对象并更新
+    const rootKey = keys[0];
+    const childKey = keys.slice(1).join('.');
+    
+    // 获取或创建根对象
+    const rootObj = { ...(siteConfig.value[rootKey] || {}) };
+    
+    // 设置嵌套值
+    setNestedValue(rootObj, childKey, value);
+    
+    // 更新根对象
+    updateSiteConfig(rootKey, rootObj);
+  }
+}
+
+// 设置嵌套对象的值
+function setNestedValue(obj: Record<string, any>, path: string, value: any): void {
+  const keys = path.split('.');
+  let current = obj;
+  
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (!(key in current) || typeof current[key] !== 'object') {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+  
+  current[keys[keys.length - 1]] = value;
 }
 
 // 更新变量值
@@ -146,6 +194,14 @@ function handleImageSelect(images: any[]) {
             </button>
             <button
               class="tab-btn"
+              :class="{ active: activeTab === 'globalStyle' }"
+              @click="activeTab = 'globalStyle'"
+            >
+              <span class="i-carbon-paint-brush"></span>
+              全局皮肤
+            </button>
+            <button
+              class="tab-btn"
               :class="{ active: activeTab === 'variables' }"
               @click="activeTab = 'variables'"
             >
@@ -164,7 +220,7 @@ function handleImageSelect(images: any[]) {
               <!-- 左侧分组 Tab -->
               <div class="site-group-tabs">
                 <button
-                  v-for="group in SITE_CONFIG_GROUPS"
+                  v-for="group in siteConfigGroups"
                   :key="group.key"
                   class="site-group-tab"
                   :class="{ active: activeSiteGroup === group.key }"
@@ -271,6 +327,60 @@ function handleImageSelect(images: any[]) {
                   class="empty-group"
                 >
                   暂无配置项
+                </div>
+              </div>
+            </div>
+
+            <!-- 全局皮肤 Tab -->
+            <div v-else-if="activeTab === 'globalStyle'" class="global-style-panel">
+              <div class="global-style-content">
+                <div
+                  v-for="field in getGroupFields('globalStyle')"
+                  :key="field.key"
+                  class="field-row"
+                >
+                  <label class="field-label">
+                    {{ field.label }}
+                  </label>
+
+                  <!-- 颜色选择 -->
+                  <div v-if="field.type === 'color'" class="color-input">
+                    <input
+                      type="color"
+                      :value="getSiteValue(field.key) || field.defaultValue"
+                      @input="handleSiteConfigChange(field.key, ($event.target as HTMLInputElement).value)"
+                    />
+                    <input
+                      type="text"
+                      class="field-input"
+                      :value="getSiteValue(field.key) || field.defaultValue"
+                      :placeholder="field.placeholder || field.defaultValue"
+                      @input="handleSiteConfigChange(field.key, ($event.target as HTMLInputElement).value)"
+                    />
+                  </div>
+
+                  <!-- 文本输入 -->
+                  <input
+                    v-else-if="field.type === 'text'"
+                    type="text"
+                    class="field-input"
+                    :value="getSiteValue(field.key) || field.defaultValue"
+                    :placeholder="field.placeholder || field.defaultValue"
+                    @input="handleSiteConfigChange(field.key, ($event.target as HTMLInputElement).value)"
+                  />
+
+                  <!-- 描述 -->
+                  <p v-if="field.description" class="field-desc">
+                    {{ field.description }}
+                  </p>
+                </div>
+
+                <!-- 重置按钮 -->
+                <div class="reset-section">
+                  <button class="reset-btn" @click="resetGlobalStyle">
+                    <span class="i-carbon-reset"></span>
+                    重置为默认值
+                  </button>
                 </div>
               </div>
             </div>
@@ -865,6 +975,68 @@ function handleImageSelect(images: any[]) {
   text-align: center;
   font-size: 14px;
   color: #64748b;
+}
+
+/* 全局皮肤面板 */
+.global-style-panel {
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
+}
+
+.global-style-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.global-style-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.global-style-panel::-webkit-scrollbar-thumb {
+  background-color: #475569;
+  border-radius: 4px;
+}
+
+.global-style-panel::-webkit-scrollbar-thumb:hover {
+  background-color: #64748b;
+}
+
+.global-style-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reset-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #334155;
+}
+
+.reset-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: #94a3b8;
+  background-color: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reset-btn:hover {
+  color: #f59e0b;
+  border-color: #f59e0b;
+  background-color: rgba(245, 158, 11, 0.1);
+}
+
+.reset-btn span {
+  font-size: 16px;
 }
 
 /* 用户变量面板 */

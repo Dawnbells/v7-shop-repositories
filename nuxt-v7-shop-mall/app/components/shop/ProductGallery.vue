@@ -317,7 +317,7 @@ onMounted(() => {
 }
 
 .thumbnail-item.active {
-  border-color: var(--color-primary, #3b82f6);
+  border-color: var(--primary-color, #3b82f6);
 }
 
 .thumbnail-item:hover:not(.active) {

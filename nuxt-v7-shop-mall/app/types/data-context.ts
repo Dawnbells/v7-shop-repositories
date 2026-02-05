@@ -3,6 +3,8 @@
  * 包含数据绑定、字段结构、变量定义等
  */
 
+import type { GlobalStyle } from './theme'
+
 // ============ 数据字段类型 ============
 
 /**
@@ -229,10 +231,48 @@ export interface BindableField {
 // ============ 站点配置 ============
 
 /**
- * 站点配置值（宽松类型，键值对形式）
+ * 站点配置值
  * 字段结构由 SITE_CONFIG_SCHEMA 定义
  */
-export type SiteConfig = Record<string, any>;
+export interface SiteConfig {
+  // 基础信息
+  siteName?: string;
+  logo?: string;
+  favicon?: string;
+
+  // SEO 设置
+  seoTitle?: string;
+  seoDescription?: string;
+  seoKeywords?: string;
+
+  // 社交媒体
+  facebook?: string;
+  twitter?: string;
+  instagram?: string;
+  youtube?: string;
+  tiktok?: string;
+  linkedin?: string;
+
+  // 联系方式
+  phone?: string;
+  email?: string;
+  address?: string;
+
+  // 页脚信息
+  copyright?: string;
+  icp?: string;
+
+  // 功能设置
+  enableMultiLanguage?: boolean;
+  enableUserReviews?: boolean;
+  enableWishlist?: boolean;
+
+  // 全局皮肤样式
+  globalStyle?: Partial<GlobalStyle>;
+
+  // 其他自定义字段
+  [key: string]: any;
+}
 
 /**
  * 多语言站点配置值
