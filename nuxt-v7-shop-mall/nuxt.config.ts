@@ -63,6 +63,12 @@ export default defineNuxtConfig({
       // 设置为 "*" 允许所有来源（仅用于开发环境）
       // 环境变量: NUXT_PUBLIC_ALLOWED_ORIGINS
       allowedOrigins: '',
+      // 图片基础链接（相对路径会拼接此前缀）
+      // 环境变量: NUXT_PUBLIC_IMAGE_BASE_URL
+      imageBaseUrl: '',
+      // 图片降级链接（主链接失败时换此前缀重试）
+      // 环境变量: NUXT_PUBLIC_IMAGE_FALLBACK_URL
+      imageFallbackUrl: '',
     },
   }
 })

@@ -233,6 +233,7 @@ export function useIframeAuth() {
 
   /**
    * 构建完整图片 URL
+   * 优先使用 iframe 传入的 imageBaseUrl，否则回退到 runtimeConfig
    */
   const buildImageUrl = (relativePath: string): string => {
     if (!relativePath) return '';
@@ -242,7 +243,9 @@ export function useIframeAuth() {
       return relativePath;
     }
 
-    const baseUrl = authState.imageBaseUrl;
+    // 优先使用 iframe 传入的 imageBaseUrl，否则使用 runtimeConfig
+    const config = useRuntimeConfig();
+    const baseUrl = authState.imageBaseUrl || (config.public.imageBaseUrl as string);
     if (!baseUrl) {
       return relativePath;
     }

@@ -119,6 +119,12 @@ const siteName = computed(() => siteConfig.value?.siteName || '商城');
 // 从站点配置获取购物车启用状态
 const enableCart = computed(() => siteConfig.value?.enableCart !== false);
 
+// 是否同时有 Logo 和网站名称（需要特殊布局：名称靠左，Logo 居中）
+const hasBothLogoAndName = computed(() => !!logo.value && !!siteConfig.value?.siteName);
+
+// 实际是否居中显示（同时有两者时强制居中 Logo）
+const shouldCenterLogo = computed(() => hasBothLogoAndName.value || props.centerLogo);
+
 // 是否显示操作区
 const showActions = computed(
   () => enableCart.value || props.showUser || props.showLocale
@@ -158,7 +164,7 @@ onMounted(() => {
 
 <template>
   <header class="header-bar">
-    <div class="header-content" :class="{ 'center-logo': centerLogo }">
+    <div class="header-content" :class="{ 'center-logo': shouldCenterLogo }">
       <!-- 移动端菜单按钮 -->
       <button
         v-if="navItems.length > 0"
@@ -174,17 +180,22 @@ onMounted(() => {
         </span>
       </button>
 
-      <!-- 左侧占位区 (居中模式) -->
-      <div v-if="centerLogo" class="header-spacer"></div>
+      <!-- 左侧占位区 (居中模式，但非双模式) -->
+      <div v-if="shouldCenterLogo && !hasBothLogoAndName" class="header-spacer"></div>
+
+      <!-- 左侧网站名称（同时有 Logo 和名称时显示） -->
+      <div v-if="hasBothLogoAndName" class="header-site-name">
+        <span class="site-name-text">{{ siteName }}</span>
+      </div>
 
       <!-- Logo 区域 - 使用全局站点配置 -->
-      <div class="header-logo">
-        <img v-if="logo" :src="logo" :alt="siteName" class="logo-image" />
+      <div class="header-logo" :class="{ 'logo-centered': shouldCenterLogo }">
+        <AppImage v-if="logo" :src="logo" :alt="siteName" class="logo-image" :lazy="false" />
         <span v-else class="logo-text">{{ siteName }}</span>
       </div>
 
       <!-- 导航菜单 - 桌面端 (非居中模式才显示) -->
-      <nav v-if="!centerLogo && navItems.length > 0" class="header-nav desktop-nav">
+      <nav v-if="!shouldCenterLogo && navItems.length > 0" class="header-nav desktop-nav">
         <a
           v-for="(item, index) in navItems"
           :key="index"
@@ -340,8 +351,26 @@ onMounted(() => {
   transform: translateY(50%) rotate(-45deg);
 }
 
+/* 左侧网站名称（同时有 Logo 和名称时显示） */
+.header-site-name {
+  flex-shrink: 0;
+}
+
+.site-name-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text, #1e293b);
+}
+
 .header-logo {
   flex-shrink: 0;
+}
+
+/* Logo 居中时使用绝对定位 */
+.header-content .header-logo.logo-centered {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .logo-image {
@@ -388,15 +417,9 @@ onMounted(() => {
   min-width: 40px;
 }
 
-/* Logo 居中模式 */
+/* Logo 居中模式 - 容器需要相对定位 */
 .header-content.center-logo {
   position: relative;
-}
-
-.header-content.center-logo .header-logo {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
 }
 
 .header-actions {
