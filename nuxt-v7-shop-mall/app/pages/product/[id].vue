@@ -20,7 +20,11 @@ const {
   defaultLayout,
   productInfo,
   productPending,
+  siteConfig,
 } = useThemeRender();
+
+// 提供站点配置给子组件（如 HeaderBar）
+provide('siteConfig', siteConfig);
 
 // 商品页配置
 const pageSchema = computed(() => getPageSchema("product"));
