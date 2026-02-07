@@ -45,28 +45,36 @@ export const meta: ComponentMeta = {
       defaultValue: [],
       description: '格式: [{ "text": "首页", "url": "/" }]',
     },
-  ],
-  styleSchema: [
     {
       key: "backgroundColor",
       label: "背景色",
       type: "color",
-      defaultValue: "#ffffff",
+      defaultValue: "",
+      description: "留空则使用全局背景色",
+    },
+    {
+      key: "textColor",
+      label: "文字色",
+      type: "color",
+      defaultValue: "",
+      description: "留空则使用全局文字色",
     },
     {
       key: "borderColor",
       label: "边框色",
       type: "color",
-      defaultValue: "#e2e8f0",
+      defaultValue: "",
+      description: "留空则使用全局边框色",
     },
     {
-      key: "padding",
+      key: "headerPadding",
       label: "内边距",
-      type: "size",
-      defaultValue: "12px",
-      unit: "px",
+      type: "text",
+      defaultValue: "12px 16px",
+      description: "Header 内边距，如 12px 16px",
     },
   ],
+  styleSchema: [],
   supportEvents: ["click"],
   defaultProps: {
     centerLogo: false,
@@ -74,6 +82,10 @@ export const meta: ComponentMeta = {
     showUser: true,
     showLocale: false,
     logoHeight: "32px",
+    backgroundColor: "",
+    textColor: "",
+    borderColor: "",
+    headerPadding: "12px 16px",
   },
   defaultStyle: {
     base: {
@@ -109,6 +121,10 @@ interface Props {
   showUser?: boolean;
   showLocale?: boolean;
   logoHeight?: string;
+  backgroundColor?: string;
+  textColor?: string;
+  borderColor?: string;
+  headerPadding?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -117,11 +133,42 @@ const props = withDefaults(defineProps<Props>(), {
   showUser: true,
   showLocale: false,
   logoHeight: "32px",
+  backgroundColor: "",
+  textColor: "",
+  borderColor: "",
+  headerPadding: "12px 16px",
 });
 
-console.log(props);
 // 注入站点配置
 const siteConfig = inject<Ref<Record<string, any>>>("siteConfig", ref({}));
+
+// 计算 Header 动态样式
+const headerStyle = computed(() => {
+  const style: Record<string, string> = {};
+  
+  if (props.backgroundColor) {
+    style.backgroundColor = props.backgroundColor;
+  }
+  if (props.borderColor) {
+    style.borderBottomColor = props.borderColor;
+  }
+  if (props.textColor) {
+    style.color = props.textColor;
+  }
+  
+  return style;
+});
+
+// 计算内容区动态样式
+const contentStyle = computed(() => {
+  const style: Record<string, string> = {};
+  
+  if (props.headerPadding) {
+    style.padding = props.headerPadding;
+  }
+  
+  return style;
+});
 
 // 从站点配置获取 Logo 和站点名称
 const logo = computed(() => siteConfig.value?.logo || "");
@@ -178,8 +225,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <header class="header-bar">
-    <div class="header-content" :class="{ 'center-logo': shouldCenterLogo }">
+  <header class="header-bar" :style="headerStyle">
+    <div class="header-content" :class="{ 'center-logo': shouldCenterLogo }" :style="contentStyle">
       <!-- 移动端菜单按钮 -->
       <button
         v-if="navItems.length > 0"
@@ -303,6 +350,7 @@ onMounted(() => {
   width: 100%;
   background-color: var(--surface-color, #ffffff);
   border-bottom: 1px solid var(--border-color, #e2e8f0);
+  color: var(--text-color, #1e293b);
   /* 定义容器查询上下文 */
   container-type: inline-size;
   container-name: header;
@@ -315,6 +363,19 @@ onMounted(() => {
   min-width: 320px;
   max-width: 100%;
   padding: 12px 16px;
+}
+
+/* 文字色继承 - 当设置了自定义文字色时生效 */
+.header-bar .site-name-text,
+.header-bar .logo-text,
+.header-bar .nav-item,
+.header-bar .action-btn,
+.header-bar .menu-line {
+  color: inherit;
+}
+
+.header-bar .menu-line {
+  background-color: currentColor;
 }
 
 /* 移动端菜单按钮 - 默认隐藏 */

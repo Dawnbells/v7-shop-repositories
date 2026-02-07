@@ -14,7 +14,7 @@
  */
 
 import { getPool } from "../../utils/db";
-import { clearProductCacheAllLanguages, clearCloakCacheAllLanguages } from "../../cache/landing.cache";
+import { clearProductCacheAllLanguages, clearCloakCacheAllLanguages, clearLandingConfigCache } from "../../cache/landing.cache";
 
 // 允许的落地页类型
 const VALID_LANDING_TYPES = ["LAND", "CLOAK", "BLACKLISTED"] as const;
@@ -137,6 +137,10 @@ export default defineEventHandler(async (event) => {
 
     // 清除相关缓存（使用模式匹配清除所有语言版本的缓存）
     try {
+      // 清除 Landing Page 配置缓存（所有类型都需要清除）
+      const configCleared = await clearLandingConfigCache(Number(subDomainId), Number(spuId), body.landingType);
+      console.log("[Builder API] Landing config cache cleared:", configCleared ? "existed" : "not found");
+
       if (body.landingType === "LAND") {
         // LAND 类型清除产品缓存（所有语言）
         const cleared = await clearProductCacheAllLanguages(Number(subDomainId), Number(spuId));

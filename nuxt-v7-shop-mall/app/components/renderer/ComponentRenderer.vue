@@ -33,6 +33,20 @@ const selectedComponentId = props.isEditor
   ? useCurrentPage().selectedComponentId
   : ref<string | null>(null);
 
+// 编辑器操作方法（从 BuilderCanvas 注入）
+interface EditorActions {
+  moveComponentUp: (id: string) => void;
+  moveComponentDown: (id: string) => void;
+  removeComponent: (id: string) => void;
+  canMoveUp: (id: string) => boolean;
+  canMoveDown: (id: string) => boolean;
+  getComponentMeta: (type: string) => any;
+}
+
+const editorActions = props.isEditor
+  ? inject<EditorActions>('editorActions', null)
+  : null;
+
 // 计算样式
 const computedStyle = computed(() => {
   return resolveStyle(props.node.style, props.previewDevice, props.globalStyle);
@@ -43,11 +57,68 @@ const isSelected = computed(() => {
   return props.isEditor && selectedComponentId.value === props.node.id;
 });
 
+// 是否处于 hover 状态（用于显示悬浮菜单）
+const isHovered = ref(false);
+
+// 鼠标进入
+function handleMouseEnter() {
+  if (props.isEditor) {
+    isHovered.value = true;
+  }
+}
+
+// 鼠标离开
+function handleMouseLeave() {
+  isHovered.value = false;
+}
+
+// 是否可以上移
+const canMoveUp = computed(() => {
+  if (!editorActions) return false;
+  return editorActions.canMoveUp(props.node.id);
+});
+
+// 是否可以下移
+const canMoveDown = computed(() => {
+  if (!editorActions) return false;
+  return editorActions.canMoveDown(props.node.id);
+});
+
+// 组件元数据
+const componentMeta = computed(() => {
+  if (!editorActions) return null;
+  return editorActions.getComponentMeta(props.node.type);
+});
+
 // 处理点击
 function handleClick(event: MouseEvent) {
   if (props.isEditor) {
     event.stopPropagation();
     emit("component-click", props.node);
+  }
+}
+
+// 上移组件
+function handleMoveUp(event: MouseEvent) {
+  event.stopPropagation();
+  if (editorActions) {
+    editorActions.moveComponentUp(props.node.id);
+  }
+}
+
+// 下移组件
+function handleMoveDown(event: MouseEvent) {
+  event.stopPropagation();
+  if (editorActions) {
+    editorActions.moveComponentDown(props.node.id);
+  }
+}
+
+// 删除组件
+function handleDelete(event: MouseEvent) {
+  event.stopPropagation();
+  if (editorActions && confirm("确定要删除这个组件吗？")) {
+    editorActions.removeComponent(props.node.id);
   }
 }
 
@@ -81,7 +152,42 @@ const resolvedProps = computed(() => {
     :data-component-id="node.id"
     :data-component-type="node.type"
     @click="handleClick"
+    @mouseenter="handleMouseEnter"
+    @mouseleave="handleMouseLeave"
   >
+    <!-- 鼠标悬浮时显示的操作菜单 -->
+    <div v-if="isHovered && editorActions" class="floating-toolbar">
+      <span v-if="componentMeta" class="toolbar-label">
+        <span :class="componentMeta.icon" class="toolbar-icon"></span>
+        {{ componentMeta.name }}
+      </span>
+      <div class="toolbar-buttons">
+        <button
+          class="toolbar-btn"
+          :disabled="!canMoveUp"
+          title="上移"
+          @click="handleMoveUp"
+        >
+          <span class="i-carbon-arrow-up"></span>
+        </button>
+        <button
+          class="toolbar-btn"
+          :disabled="!canMoveDown"
+          title="下移"
+          @click="handleMoveDown"
+        >
+          <span class="i-carbon-arrow-down"></span>
+        </button>
+        <button
+          class="toolbar-btn toolbar-btn-danger"
+          title="删除"
+          @click="handleDelete"
+        >
+          <span class="i-carbon-trash-can"></span>
+        </button>
+      </div>
+    </div>
+
     <!-- 动态组件渲染 -->
     <component
       :is="renderComponent"
@@ -130,6 +236,72 @@ const resolvedProps = computed(() => {
 .component-wrapper.selected {
   outline: 2px solid #3b82f6 !important;
   outline-offset: 2px;
+}
+
+/* 悬浮操作菜单 */
+.floating-toolbar {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background-color: #1e293b;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  white-space: nowrap;
+}
+
+.toolbar-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+  padding-right: 8px;
+  border-right: 1px solid #334155;
+}
+
+.toolbar-icon {
+  font-size: 14px;
+}
+
+.toolbar-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 14px;
+  color: #94a3b8;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  color: #e2e8f0;
+  background-color: #334155;
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.toolbar-btn-danger:hover:not(:disabled) {
+  color: #ef4444;
+  background-color: rgba(239, 68, 68, 0.15);
 }
 
 .placeholder-component {

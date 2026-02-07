@@ -13,11 +13,11 @@ const { device } = useDeviceDetect();
 // 主题渲染
 const {
   themeConfig,
+  globalStyle,
   globalStyleVars,
   hasTheme,
   getPageSchema,
   getPageLayout,
-  defaultLayout,
   productInfo,
   productPending,
   siteConfig,
@@ -33,15 +33,19 @@ provide('siteConfig', siteConfig);
 // 商品页配置
 const pageSchema = computed(() => getPageSchema("product"));
 
-// 商品页使用的布局（如果页面没有指定布局，使用默认布局）
-const layoutSchema = computed(() => {
-  const pageLayout = getPageLayout("product");
-  return pageLayout || defaultLayout.value;
-});
+// 商品页使用的布局（如果页面没有指定布局，不使用布局）
+const layoutSchema = computed(() => getPageLayout("product"));
 
 // 提供数据上下文（用于组件内的数据绑定）
-provideDataContext({
+const dataContextRef = provideDataContext({
   product: productInfo.value ?? undefined,
+});
+
+// 当 productInfo 更新时同步更新 dataContext
+watchEffect(() => {
+  if (dataContextRef.value && productInfo.value) {
+    dataContextRef.value.product = productInfo.value;
+  }
 });
 
 // 是否使用主题渲染
@@ -59,7 +63,7 @@ const useThemeRenderer = computed(() => {
         v-if="layoutSchema && pageSchema"
         :layout="layoutSchema"
         :page="pageSchema"
-        :global-style="themeConfig?.globalStyle"
+        :global-style="globalStyle"
         :preview-device="device"
         :is-editor="false"
       />
@@ -68,7 +72,7 @@ const useThemeRenderer = computed(() => {
       <PageRenderer
         v-else-if="pageSchema"
         :schema="pageSchema"
-        :global-style="themeConfig?.globalStyle"
+        :global-style="globalStyle"
         :preview-device="device"
         :is-editor="false"
       />

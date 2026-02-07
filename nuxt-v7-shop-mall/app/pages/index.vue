@@ -11,11 +11,11 @@ definePageMeta({
 // 主题渲染
 const {
   themeConfig,
+  globalStyle,
   globalStyleVars,
   hasTheme,
   getPageSchema,
   getPageLayout,
-  defaultLayout,
   useSiteTitle,
 } = useThemeRender();
 
@@ -25,11 +25,8 @@ useSiteTitle('首页');
 // 首页配置
 const homePageSchema = computed(() => getPageSchema("home"));
 
-// 首页使用的布局（如果页面没有指定布局，使用默认布局）
-const layout = computed(() => {
-  const pageLayout = getPageLayout("home");
-  return pageLayout || defaultLayout.value;
-});
+// 首页使用的布局（如果页面没有指定布局，不使用布局）
+const layout = computed(() => getPageLayout("home"));
 
 // 预览设备（前端访问时使用桌面端）
 const previewDevice = ref<"mobile" | "tablet" | "desktop">("desktop");
@@ -37,12 +34,21 @@ const previewDevice = ref<"mobile" | "tablet" | "desktop">("desktop");
 
 <template>
   <div class="home-page" :style="globalStyleVars">
-    <!-- 有主题配置时，使用 LayoutRenderer 渲染 -->
+    <!-- 有主题配置 + 有布局时，使用 LayoutRenderer 渲染 -->
     <LayoutRenderer
       v-if="hasTheme && layout && homePageSchema"
       :layout="layout"
       :page="homePageSchema"
-      :global-style="themeConfig?.globalStyle"
+      :global-style="globalStyle"
+      :preview-device="previewDevice"
+      :is-editor="false"
+    />
+
+    <!-- 有主题配置 + 无布局时，直接渲染页面组件 -->
+    <PageRenderer
+      v-else-if="hasTheme && homePageSchema"
+      :schema="homePageSchema"
+      :global-style="globalStyle"
       :preview-device="previewDevice"
       :is-editor="false"
     />

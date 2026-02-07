@@ -36,6 +36,16 @@ const { isDragging, dragState, endDrag } = useDragDrop();
 // 组件注册表
 const { getComponentMeta } = useComponentRegistry();
 
+// 提供组件操作方法给子组件（用于悬浮菜单）
+provide('editorActions', {
+  moveComponentUp,
+  moveComponentDown,
+  removeComponent,
+  canMoveUp,
+  canMoveDown,
+  getComponentMeta,
+});
+
 // 画布容器引用
 const canvasRef = ref<HTMLElement | null>(null);
 const deviceFrameRef = ref<HTMLElement | null>(null);
@@ -147,47 +157,6 @@ function handleDrop(event: DragEvent) {
 // 处理拖拽经过
 function handleDragOver(event: DragEvent) {
   event.preventDefault();
-}
-
-// 获取选中组件的元数据
-const selectedComponentMeta = computed(() => {
-  if (!selectedComponent.value) return null;
-  return getComponentMeta(selectedComponent.value.type);
-});
-
-// 是否可以上移
-const canMoveSelectedUp = computed(() => {
-  if (!selectedComponentId.value) return false;
-  return canMoveUp(selectedComponentId.value);
-});
-
-// 是否可以下移
-const canMoveSelectedDown = computed(() => {
-  if (!selectedComponentId.value) return false;
-  return canMoveDown(selectedComponentId.value);
-});
-
-// 上移选中组件
-function handleMoveUp() {
-  if (selectedComponentId.value) {
-    moveComponentUp(selectedComponentId.value);
-  }
-}
-
-// 下移选中组件
-function handleMoveDown() {
-  if (selectedComponentId.value) {
-    moveComponentDown(selectedComponentId.value);
-  }
-}
-
-// 删除选中组件
-function handleDeleteComponent() {
-  if (selectedComponentId.value) {
-    if (confirm("确定要删除这个组件吗？")) {
-      removeComponent(selectedComponentId.value);
-    }
-  }
 }
 
 // 宽度输入处理
@@ -313,42 +282,6 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
         >
           <div class="resize-handle-bar"></div>
         </div>
-      </div>
-    </div>
-
-    <!-- 组件操作工具栏 -->
-    <div
-      v-if="selectedComponentId && selectedComponentMeta"
-      class="component-toolbar"
-    >
-      <div class="toolbar-info">
-        <span :class="selectedComponentMeta.icon" class="toolbar-icon"></span>
-        <span class="toolbar-name">{{ selectedComponentMeta.name }}</span>
-      </div>
-      <div class="toolbar-actions">
-        <button
-          class="toolbar-btn"
-          :disabled="!canMoveSelectedUp"
-          title="上移"
-          @click="handleMoveUp"
-        >
-          <span class="i-carbon-arrow-up"></span>
-        </button>
-        <button
-          class="toolbar-btn"
-          :disabled="!canMoveSelectedDown"
-          title="下移"
-          @click="handleMoveDown"
-        >
-          <span class="i-carbon-arrow-down"></span>
-        </button>
-        <button
-          class="toolbar-btn toolbar-btn-danger"
-          title="删除"
-          @click="handleDeleteComponent"
-        >
-          <span class="i-carbon-trash-can"></span>
-        </button>
       </div>
     </div>
 
@@ -691,70 +624,5 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
 :deep([data-component-id].selected) {
   outline: 2px solid #3b82f6 !important;
   outline-offset: 2px;
-}
-
-/* 组件操作工具栏 */
-.component-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  background-color: #1e293b;
-  border-top: 1px solid #334155;
-}
-
-.toolbar-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #e2e8f0;
-  font-size: 14px;
-}
-
-.toolbar-icon {
-  font-size: 16px;
-  color: #94a3b8;
-}
-
-.toolbar-name {
-  font-weight: 500;
-}
-
-.toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.toolbar-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  font-size: 16px;
-  color: #94a3b8;
-  background: none;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.toolbar-btn:hover:not(:disabled) {
-  color: #e2e8f0;
-  background-color: #334155;
-  border-color: #475569;
-}
-
-.toolbar-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.toolbar-btn-danger:hover:not(:disabled) {
-  color: #ef4444;
-  border-color: #ef4444;
-  background-color: rgba(239, 68, 68, 0.1);
 }
 </style>
