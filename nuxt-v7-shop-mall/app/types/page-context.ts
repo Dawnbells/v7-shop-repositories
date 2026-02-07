@@ -205,8 +205,8 @@ export interface PageContext {
   cloak?: CloakCheckResponse;
   /** 安全页面类型（当需要显示安全页面时使用） */
   safePageType?: SafePageType;
-  /** 落地页 SPU ID（根据 cloak 结果映射后的 SPU ID） */
-  landingSpuId?: number;
+  /** 落地页产品 ID（直接指向 t_products.id，用于 CLOAK 类型；LAND 类型为 null） */
+  landingProductId?: number | null;
   /** 主题配置（JSON 格式，包含页面布局、组件、样式） */
   themeConfig?: any;
   /** 站点配置值（全局固定配置，如网站名称、Logo、版权等） */

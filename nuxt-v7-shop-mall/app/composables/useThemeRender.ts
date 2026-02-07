@@ -17,7 +17,7 @@ import type { SiteConfig, VariableValues } from "~/types/data-context";
  */
 export function useThemeRender() {
   // 从页面上下文获取渲染配置
-  const pageContext = usePageContext(["themeConfig", "siteConfig", "variableValues", "landingSpuId"]);
+  const pageContext = usePageContext(["themeConfig", "siteConfig", "variableValues", "landingProductId"]);
 
   // 调试日志：打印 pageContext 信息
   if (import.meta.dev) {
@@ -25,14 +25,14 @@ export function useThemeRender() {
       hasThemeConfig: !!pageContext.value.themeConfig,
       hasSiteConfig: !!pageContext.value.siteConfig,
       hasVariableValues: !!pageContext.value.variableValues,
-      landingSpuId: pageContext.value.landingSpuId,
+      landingProductId: pageContext.value.landingProductId,
       themeConfigKeys: pageContext.value.themeConfig
         ? Object.keys(pageContext.value.themeConfig)
         : [],
     });
   }
 
-  // 获取产品信息（自动从 pageContext 获取 landingSpuId、languageId、subDomainId）
+  // 获取产品信息（自动从 pageContext 获取 landingProductId、languageId、subDomainId）
   const { data: productInfo, pending: productPending } = useProductInfo();
 
   // 主题配置（直接从 pageContext 获取）

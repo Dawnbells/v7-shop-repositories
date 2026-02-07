@@ -26,10 +26,11 @@ type PageContextPaths =
   | "cloak.remote"
   // 其他
   | "safePageType"
-  | "landingSpuId"
+  | "landingProductId"
   | "themeConfig"
   | "siteConfig"
-  | "variableValues";
+  | "variableValues"
+  | "languages";
 
 /** 根据路径获取值类型 */
 type PathValue<T, P extends string> = P extends keyof T

@@ -5,6 +5,7 @@
 
 import type { ProductInfo } from "~/types/page-context";
 import { 
+  findProductById as findProductByIdFromDb,
   findProductBySpuId as findProductBySpuIdFromDb,
   findCloakLandingProduct as findCloakLandingProductFromDb,
   findLandingPageConfig as findLandingPageConfigFromDb,
@@ -24,8 +25,11 @@ const LANDING_CONFIG_CACHE_PREFIX = "landing_config:";
 /** 缓存 TTL（秒） */
 const CACHE_TTL = 60 * 60; // 1 hour
 
+/** 产品 ID 缓存 key 前缀（用于按 productId 直接查询） */
+const PRODUCT_BY_ID_CACHE_PREFIX = "product_by_id:";
+
 /**
- * 生成产品缓存 key
+ * 生成产品缓存 key（按 spuId + languageId）
  * 格式: product:{subDomainId}:{spuId}:{languageId}
  */
 function getProductCacheKey(subDomainId: number, spuId: number, languageId: number): string {
@@ -33,11 +37,20 @@ function getProductCacheKey(subDomainId: number, spuId: number, languageId: numb
 }
 
 /**
- * 生成 CLOAK 落地页缓存 key
- * 格式: cloak_landing:{subDomainId}:{spuId}:{languageId}
+ * 生成产品缓存 key（按 productId 直接查询）
+ * 格式: product_by_id:{productId}
  */
-function getCloakCacheKey(subDomainId: number, spuId: number, languageId: number): string {
-  return `${CLOAK_CACHE_PREFIX}${subDomainId}:${spuId}:${languageId}`;
+function getProductByIdCacheKey(productId: number): string {
+  return `${PRODUCT_BY_ID_CACHE_PREFIX}${productId}`;
+}
+
+/**
+ * 生成 CLOAK 落地页缓存 key
+ * 格式: cloak_landing:{subDomainId}:{spuId}
+ * 注：不再需要 languageId，因为 landing_page_product_id 已经指定了具体产品
+ */
+function getCloakCacheKey(subDomainId: number, spuId: number): string {
+  return `${CLOAK_CACHE_PREFIX}${subDomainId}:${spuId}`;
 }
 
 /**
@@ -46,6 +59,51 @@ function getCloakCacheKey(subDomainId: number, spuId: number, languageId: number
  */
 function getLandingConfigCacheKey(subDomainId: number, spuId: number, landingPageType: string): string {
   return `${LANDING_CONFIG_CACHE_PREFIX}${subDomainId}:${spuId}:${landingPageType}`;
+}
+
+/**
+ * 根据产品 ID 直接查询产品信息（带缓存，用于 CLOAK 类型）
+ * 
+ * @param productId 产品 ID
+ * @param subDomainId 子域名 ID（可选，用于获取渲染配置）
+ * @param spuId SPU ID（可选，用于获取渲染配置）
+ */
+export async function findProductById(
+  productId: number,
+  subDomainId?: number,
+  spuId?: number
+): Promise<ProductInfo | null> {
+  const redis = getRedis();
+  const cacheKey = getProductByIdCacheKey(productId);
+
+  try {
+    // 先从缓存获取
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      console.log("[Landing Cache] Product (by ID) cache hit:", cacheKey);
+      // 续期（滑动过期）
+      await redis.expire(cacheKey, CACHE_TTL);
+      return JSON.parse(cached) as ProductInfo;
+    }
+  } catch (error) {
+    console.error("[Landing Cache] Redis get error:", error);
+  }
+
+  console.log("[Landing Cache] Product (by ID) cache miss, fetching from DB:", cacheKey);
+
+  // 从数据库查询
+  const productInfo = await findProductByIdFromDb(productId, subDomainId, spuId);
+
+  // 存入缓存（只缓存有效结果）
+  if (productInfo) {
+    try {
+      await redis.setex(cacheKey, CACHE_TTL, JSON.stringify(productInfo));
+    } catch (error) {
+      console.error("[Landing Cache] Redis set error:", error);
+    }
+  }
+
+  return productInfo;
 }
 
 /**
@@ -94,19 +152,18 @@ export async function findProductBySpuId(
 }
 
 /**
- * 根据子域名、SPU ID 和语言 ID 查询 CLOAK 类型的落地页产品信息（带缓存）
+ * 根据子域名和 SPU ID 查询 CLOAK 类型的落地页产品信息（带缓存）
+ * 注：不再需要 languageId，因为 landing_page_product_id 已经指定了具体产品
  * 
  * @param subDomainId 子域名 ID
  * @param spuId 原始 SPU ID
- * @param languageId 语言 ID
  */
 export async function findCloakLandingProduct(
   subDomainId: number,
-  spuId: number,
-  languageId: number
+  spuId: number
 ): Promise<ProductInfo | null> {
   const redis = getRedis();
-  const cacheKey = getCloakCacheKey(subDomainId, spuId, languageId);
+  const cacheKey = getCloakCacheKey(subDomainId, spuId);
 
   try {
     // 先从缓存获取
@@ -124,7 +181,7 @@ export async function findCloakLandingProduct(
   console.log("[Landing Cache] Cloak cache miss, fetching from DB:", cacheKey);
 
   // 从数据库查询
-  const productInfo = await findCloakLandingProductFromDb(subDomainId, spuId, languageId);
+  const productInfo = await findCloakLandingProductFromDb(subDomainId, spuId);
 
   // 存入缓存（只缓存有效结果）
   if (productInfo) {
@@ -158,14 +215,14 @@ export async function clearProductCache(subDomainId: number, spuId: number, lang
 
 /**
  * 清理指定 CLOAK 落地页产品的缓存
+ * 注：不再需要 languageId，因为 landing_page_product_id 已经指定了具体产品
  */
 export async function clearCloakCache(
   subDomainId: number,
-  spuId: number,
-  languageId: number
+  spuId: number
 ): Promise<boolean> {
   const redis = getRedis();
-  const cacheKey = getCloakCacheKey(subDomainId, spuId, languageId);
+  const cacheKey = getCloakCacheKey(subDomainId, spuId);
 
   try {
     const result = await redis.del(cacheKey);
@@ -211,35 +268,16 @@ export async function clearProductCacheAllLanguages(
 }
 
 /**
- * 清理指定 CLOAK 落地页产品的所有语言缓存（使用模式匹配）
- * 格式: cloak_landing:{subDomainId}:{spuId}:*
+ * 清理指定 CLOAK 落地页产品的缓存
+ * 注：不再按语言区分缓存，因为 landing_page_product_id 已经指定了具体产品
  */
 export async function clearCloakCacheAllLanguages(
   subDomainId: number,
   spuId: number
 ): Promise<number> {
-  const redis = getRedis();
-  const pattern = `${CLOAK_CACHE_PREFIX}${subDomainId}:${spuId}:*`;
-
-  try {
-    let totalDeleted = 0;
-    let cursor = "0";
-
-    do {
-      const [newCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
-      cursor = newCursor;
-      if (keys.length > 0) {
-        const deleted = await redis.del(...keys);
-        totalDeleted += deleted;
-      }
-    } while (cursor !== "0");
-
-    console.log("[Landing Cache] Cloak cache cleared (all languages):", pattern, "count:", totalDeleted);
-    return totalDeleted;
-  } catch (error) {
-    console.error("[Landing Cache] Redis scan/del error:", error);
-    return 0;
-  }
+  // 直接调用 clearCloakCache，不再需要模式匹配
+  const cleared = await clearCloakCache(subDomainId, spuId);
+  return cleared ? 1 : 0;
 }
 
 /**

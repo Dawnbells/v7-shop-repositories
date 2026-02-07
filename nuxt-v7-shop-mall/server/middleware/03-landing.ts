@@ -2,8 +2,8 @@
  * 落地页配置 Server Middleware
  * 根据 cloak 结果查询对应的落地页配置，将结果注入到 event.context
  *
- * - LAND：查询 LAND 类型的配置，landingSpuId = 原始 spuId
- * - CLOAK/CRAWLER/RISK：查询 CLOAK 类型的配置，landingSpuId 来自 landing_page_spu_id
+ * - LAND：查询 LAND 类型的配置，landingProductId = null（前端需根据 spuId + languageId 查询）
+ * - CLOAK/CRAWLER/RISK：查询 CLOAK 类型的配置，landingProductId 来自 landing_page_product_id
  * - BLACKLISTED：不处理（在 02-cloak.ts 中已显示安全页面）
  */
 
@@ -53,17 +53,17 @@ export default defineEventHandler(async (event) => {
 
     if (config) {
       console.log(
-        "[Landing Middleware] Found config, landingSpuId:",
-        config.landingSpuId
+        "[Landing Middleware] Found config, landingProductId:",
+        config.landingProductId
       );
       // 打印 themeConfig 加载状态用于调试
       console.log("[Landing Middleware] themeConfig loaded:", {
         hasThemeConfig: !!config.themeConfig,
         themeConfig: JSON.stringify(config.themeConfig),
       });
-      // 更新 pageContext：存入 landingSpuId 和渲染配置
+      // 更新 pageContext：存入 landingProductId 和渲染配置
       updatePageContext(event, {
-        landingSpuId: config.landingSpuId,
+        landingProductId: config.landingProductId,
         themeConfig: config.themeConfig,
         siteConfig: config.siteConfig,
         variableValues: config.variableValues,

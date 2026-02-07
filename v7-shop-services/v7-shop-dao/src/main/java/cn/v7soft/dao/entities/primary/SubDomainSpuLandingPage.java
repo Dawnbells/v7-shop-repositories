@@ -39,10 +39,10 @@ public class SubDomainSpuLandingPage {
     private LandingPageType landingPageType;
 
     /**
-     * 落地页SPU ID（CLOAK/BLACKLISTED类型使用，关联到实际展示的产品）
+     * 落地页产品 ID（CLOAK/BLACKLISTED类型使用，直接关联到实际展示的产品）
      */
-    @Column(name = "landing_page_spu_id")
-    private Long landingPageSpuId;
+    @Column(name = "landing_page_product_id")
+    private Long landingPageProductId;
 
     /**
      * 主题配置（页面布局、组件、样式）
@@ -89,6 +89,6 @@ public class SubDomainSpuLandingPage {
     private Spu spu;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "landing_page_spu_id", insertable = false, updatable = false)
-    private Spu landingPageSpu;
+    @JoinColumn(name = "landing_page_product_id", insertable = false, updatable = false)
+    private Product landingPageProduct;
 }

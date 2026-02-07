@@ -1,22 +1,53 @@
 /**
  * 产品信息 API
- * 根据 SPU ID 和语言 ID 查询产品详细信息
+ * 支持两种查询方式：
+ * 1. 按 productId 直接查询（用于 CLOAK 类型，已知具体 productId）
+ * 2. 按 spuId + languageId 查询（用于 LAND 类型）
  */
 
-import { findProductBySpuId } from "../../cache/landing.cache";
+import { findProductById, findProductBySpuId } from "../../cache/landing.cache";
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event);
 
-  const spuId = Number(query.spuId);
-  const languageId = Number(query.languageId);
+  const productId = query.productId ? Number(query.productId) : undefined;
+  const spuId = query.spuId ? Number(query.spuId) : undefined;
+  const languageId = query.languageId ? Number(query.languageId) : undefined;
   const subDomainId = query.subDomainId ? Number(query.subDomainId) : undefined;
 
-  // 参数验证
+  // 方式1：按 productId 直接查询
+  if (productId && !isNaN(productId)) {
+    console.log("[Product API] Fetching product by productId:", { productId, subDomainId });
+
+    try {
+      // 直接按 productId 查询，不需要 spuId 和 languageId
+      const productInfo = await findProductById(productId, subDomainId);
+
+      if (!productInfo) {
+        throw createError({
+          statusCode: 404,
+          message: "Product not found",
+        });
+      }
+
+      return productInfo;
+    } catch (error: any) {
+      if (error.statusCode) {
+        throw error;
+      }
+      console.error("[Product API] Error fetching product by productId:", error);
+      throw createError({
+        statusCode: 500,
+        message: "Failed to fetch product info",
+      });
+    }
+  }
+
+  // 方式2：按 spuId + languageId 查询（用于 LAND 类型）
   if (!spuId || isNaN(spuId)) {
     throw createError({
       statusCode: 400,
-      message: "Missing or invalid spuId parameter",
+      message: "Missing or invalid spuId or productId parameter",
     });
   }
 

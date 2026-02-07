@@ -35,6 +35,41 @@ function parseJsonField(value: any): any {
 }
 
 /**
+ * 根据产品 ID 直接查询产品信息（用于 CLOAK 类型，已知具体 productId）
+ *
+ * @param productId 产品 ID
+ * @param subDomainId 子域名 ID（可选，用于获取渲染配置）
+ * @param spuId SPU ID（可选，用于查询渲染配置）
+ */
+export async function findProductById(
+  productId: number,
+  subDomainId?: number,
+  spuId?: number
+): Promise<ProductInfo | null> {
+  const productSql = `
+    SELECT 
+      p.id, p.spu_id, p.language_id, p.title, p.merchandise, p.introduction, p.summary,
+      p.sell_price, p.origin_price, p.is_multi_specs
+    FROM t_products p
+    WHERE p.id = ? AND p.status = 'VALID'
+    LIMIT 1
+  `;
+
+  const productRow = await queryOne(productSql, [productId]);
+  if (!productRow) {
+    return null;
+  }
+
+  // 获取渲染配置（如果提供了 subDomainId 和 spuId）
+  let renderConfig: RenderConfig | null = null;
+  if (subDomainId && spuId) {
+    renderConfig = await findRenderConfig(subDomainId, spuId, "CLOAK");
+  }
+
+  return await buildProductInfo(productRow, renderConfig);
+}
+
+/**
  * 根据 SPU ID 和语言 ID 直接查询产品信息（用于 LAND 类型）
  *
  * @param spuId SPU ID
@@ -70,38 +105,31 @@ export async function findProductBySpuId(
 }
 
 /**
- * 根据子域名、SPU ID 和语言 ID 查询 CLOAK 类型的落地页产品信息
- * 连表查询 t_sub_domain_spu_landing_pages 和 t_products
+ * 根据子域名和 SPU ID 查询 CLOAK 类型的落地页产品信息
+ * 通过 landing_page_product_id 直接关联 t_products
  *
  * @param subDomainId 子域名 ID
  * @param spuId 原始 SPU ID
- * @param languageId 语言 ID
  */
 export async function findCloakLandingProduct(
   subDomainId: number,
-  spuId: number,
-  languageId: number
+  spuId: number
 ): Promise<ProductInfo | null> {
   // 连表查询：t_sub_domain_spu_landing_pages JOIN t_products
   // CLOAK、CRAWLER、RISK 都使用 CLOAK 配置
-  // 同时获取渲染配置（theme_config、site_config、variable_values）
+  // 通过 landing_page_product_id 直接关联产品（不需要 language_id）
   const productSql = `
     SELECT 
       p.id, p.spu_id, p.language_id, p.title, p.merchandise, p.introduction, p.summary,
       p.sell_price, p.origin_price, p.is_multi_specs,
       lp.theme_config, lp.site_config, lp.variable_values
     FROM t_sub_domain_spu_landing_pages lp
-    JOIN t_products p ON lp.landing_page_spu_id = p.spu_id 
-      AND p.language_id = ? AND p.status = 'VALID'
+    JOIN t_products p ON lp.landing_page_product_id = p.id AND p.status = 'VALID'
     WHERE lp.sub_domain_id = ? AND lp.spu_id = ? AND lp.landing_page_type = 'CLOAK'
     LIMIT 1
   `;
 
-  const productRow = await queryOne(productSql, [
-    languageId,
-    subDomainId,
-    spuId,
-  ]);
+  const productRow = await queryOne(productSql, [subDomainId, spuId]);
   if (!productRow) {
     return null;
   }
@@ -129,8 +157,8 @@ export interface RenderConfig {
  * Landing Page 配置（用于 middleware，不含产品详情）
  */
 export interface LandingPageConfig {
-  /** 落地页 SPU ID */
-  landingSpuId: number;
+  /** 落地页产品 ID（直接关联到 t_products.id） */
+  landingProductId: number | null;
   /** 主题配置 */
   themeConfig: any;
   /** 站点配置 */
@@ -155,7 +183,7 @@ export async function findLandingPageConfig(
   landingPageType: string
 ): Promise<LandingPageConfig | null> {
   const sql = `
-    SELECT landing_page_spu_id, theme_config, site_config, variable_values, variable_schema
+    SELECT landing_page_product_id, theme_config, site_config, variable_values, variable_schema
     FROM t_sub_domain_spu_landing_pages
     WHERE sub_domain_id = ? AND spu_id = ? AND landing_page_type = ?
     LIMIT 1
@@ -167,7 +195,7 @@ export async function findLandingPageConfig(
   }
 
   return {
-    landingSpuId: row.landing_page_spu_id,
+    landingProductId: row.landing_page_product_id,
     themeConfig: parseJsonField(row.theme_config),
     siteConfig: parseJsonField(row.site_config) || {},
     variableValues: parseJsonField(row.variable_values) || {},

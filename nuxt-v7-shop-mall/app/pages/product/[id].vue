@@ -5,7 +5,7 @@ const route = useRoute();
 const productId = computed(() => route.params.id as string);
 
 // 只传递需要的字段到客户端
-const pageContext = usePageContext(["cloak.page", "cloak.isAdmin", "landingSpuId", "themeConfig", "siteConfig", "variableValues", "languages"]);
+const pageContext = usePageContext(["cloak.page", "cloak.isAdmin", "landingProductId", "themeConfig", "siteConfig", "variableValues", "languages"]);
 
 // 设备检测
 const { device } = useDeviceDetect();
@@ -81,7 +81,7 @@ const useThemeRenderer = computed(() => {
         <div class="debug-info">
           <p>Cloak Page: {{ pageContext.cloak?.page }}</p>
           <p>Is Admin: {{ pageContext.cloak?.isAdmin }}</p>
-          <p>Landing SPU ID: {{ pageContext.landingSpuId }}</p>
+          <p>Landing Product ID: {{ pageContext.landingProductId }}</p>
           <p v-if="productPending">Loading product info...</p>
           <details>
             <summary>Product Info</summary>

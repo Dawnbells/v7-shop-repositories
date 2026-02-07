@@ -29,7 +29,7 @@ interface SaveThemeRequest {
   subDomainId: string | number;
   spuId: string | number;
   landingType: string;
-  landingPageSpuId?: string | number | null;  // 可选：落地页 SPU ID（用于 CLOAK 类型）
+  landingPageProductId?: string | number | null;  // 可选：落地页产品 ID（用于 CLOAK 类型）
   // 分离的数据字段
   themeConfig: object;                        // 页面布局、组件、样式
   variableSchema?: VariableDefinition[];      // 变量定义结构
@@ -85,7 +85,7 @@ export default defineEventHandler(async (event) => {
   // 转换为 bigint（数据库字段类型）
   const subDomainId = BigInt(body.subDomainId);
   const spuId = BigInt(body.spuId);
-  const landingPageSpuId = body.landingPageSpuId ? BigInt(body.landingPageSpuId) : null;
+  const landingPageProductId = body.landingPageProductId ? BigInt(body.landingPageProductId) : null;
 
   // 确保 themeConfig 是有效的 JSON 对象
   if (typeof body.themeConfig !== "object" || body.themeConfig === null) {
@@ -111,12 +111,12 @@ export default defineEventHandler(async (event) => {
     // 主键顺序：(landing_page_type, spu_id, sub_domain_id)
     const sql = `
       INSERT INTO t_sub_domain_spu_landing_pages 
-        (landing_page_type, spu_id, sub_domain_id, landing_page_spu_id, 
+        (landing_page_type, spu_id, sub_domain_id, landing_page_product_id, 
          theme_config, variable_schema, site_config, variable_values,
          created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
       ON DUPLICATE KEY UPDATE 
-        landing_page_spu_id = VALUES(landing_page_spu_id),
+        landing_page_product_id = VALUES(landing_page_product_id),
         theme_config = VALUES(theme_config),
         variable_schema = VALUES(variable_schema),
         site_config = VALUES(site_config),
@@ -128,7 +128,7 @@ export default defineEventHandler(async (event) => {
       body.landingType,
       spuId.toString(),
       subDomainId.toString(),
-      landingPageSpuId?.toString() ?? null,
+      landingPageProductId?.toString() ?? null,
       themeConfigJson,
       variableSchemaJson,
       siteConfigJson,
@@ -163,7 +163,7 @@ export default defineEventHandler(async (event) => {
     if (error.code === "ER_NO_REFERENCED_ROW_2") {
       throw createError({
         statusCode: 400,
-        statusMessage: "Invalid reference: subDomainId, spuId, or landingPageSpuId does not exist",
+        statusMessage: "Invalid reference: subDomainId, spuId, or landingPageProductId does not exist",
       });
     }
 

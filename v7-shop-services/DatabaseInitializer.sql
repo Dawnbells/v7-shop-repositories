@@ -81,3 +81,17 @@ CREATE TABLE IF NOT EXISTS `t_theme_templates` (
   INDEX `idx_user_id` (`user_id`),
   INDEX `idx_share_type` (`share_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='主题模板';
+
+# 将 landing_page_spu_id 改为 landing_page_product_id（保存 productId 而非 spuId）
+# 步骤1: 重命名列
+ALTER TABLE t_sub_domain_spu_landing_pages 
+  CHANGE COLUMN landing_page_spu_id landing_page_product_id BIGINT NULL;
+
+# 步骤2: 根据子域名的 language_id 将已有的 SPU ID 转换为对应的 Product ID
+UPDATE t_sub_domain_spu_landing_pages lp
+  JOIN t_sub_domains sd ON lp.sub_domain_id = sd.id
+  JOIN t_products p ON p.spu_id = lp.landing_page_product_id 
+    AND p.language_id = sd.language_id 
+    AND p.status = 'VALID'
+SET lp.landing_page_product_id = p.id
+WHERE lp.landing_page_product_id IS NOT NULL;
