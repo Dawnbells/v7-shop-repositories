@@ -6,8 +6,8 @@
  * 支持属性绑定模式（静态值/数据绑定）
  */
 
-import type { DeviceType, PropBinding } from "~/types/builder";
-import { BREAKPOINTS, DEVICE_LIST } from "~/constants";
+import type { PropBinding, StyleDeviceType } from "~/types/builder";
+import { STYLE_BREAKPOINTS, STYLE_DEVICE_LIST } from "~/constants";
 import {
   useEditorDataContext,
   resolveExpression,
@@ -49,8 +49,8 @@ const componentMeta = computed(() => {
 // 当前面板 Tab（记住上次停留，不随选中组件切换而重置）
 const activeTab = ref<PanelTabKey>("props");
 
-// 当前编辑的样式设备
-const styleDevice = ref<DeviceType>("pc");
+// 当前编辑的样式设备（默认通用）
+const styleDevice = ref<StyleDeviceType>("base");
 
 // 属性绑定模式记录（key -> 'static' | 'binding'）
 const propBindingModes = ref<Record<string, "static" | "binding">>({});
@@ -64,6 +64,9 @@ const propsForm = computed(() => {
 const styleForm = computed<Record<string, any>>(() => {
   if (!selectedComponent.value) return {};
   const style = selectedComponent.value.style;
+  if (styleDevice.value === "base") {
+    return { ...style.base };
+  }
   return {
     ...style.base,
     ...style[styleDevice.value],
@@ -571,14 +574,14 @@ function handleCopy() {
             <!-- 设备切换（图标按钮组） -->
             <div class="style-device-tabs">
               <button
-                v-for="device in DEVICE_LIST"
+                v-for="device in STYLE_DEVICE_LIST"
                 :key="device"
                 class="device-tab"
                 :class="{ active: styleDevice === device }"
-                :title="BREAKPOINTS[device].label"
+                :title="STYLE_BREAKPOINTS[device].label"
                 @click="styleDevice = device"
               >
-                <span :class="BREAKPOINTS[device].icon"></span>
+                <span :class="STYLE_BREAKPOINTS[device].icon"></span>
               </button>
             </div>
           </div>

@@ -19,7 +19,7 @@
  * - pc: @media (min-width: 1024px)
  */
 
-import type { DeviceType } from "~/types/schema";
+import type { DeviceType, StyleDeviceType } from "~/types/schema";
 
 /**
  * 断点配置接口
@@ -107,6 +107,23 @@ export const DEVICE_TYPES: DeviceType[] = ["mobile", "tablet", "pc"];
  * 与 DEVICE_TYPES 相同，为了兼容性保留
  */
 export const DEVICE_LIST: DeviceType[] = DEVICE_TYPES;
+
+/**
+ * 样式编辑设备配置（含通用 base）
+ * 用于 PropertyPanel 的样式设备切换
+ */
+export const STYLE_BREAKPOINTS: Record<StyleDeviceType, { label: string; icon: string }> = {
+  base: { label: "通用", icon: "i-carbon-globe" },
+  mobile: { label: "手机", icon: "i-carbon-phone" },
+  tablet: { label: "平板", icon: "i-carbon-tablet" },
+  pc: { label: "电脑", icon: "i-carbon-laptop" },
+};
+
+/**
+ * 样式编辑设备列表
+ * 包含 base（通用）在最前面，按从小到大的顺序排列
+ */
+export const STYLE_DEVICE_LIST: StyleDeviceType[] = ["base", "mobile", "tablet", "pc"];
 
 /**
  * 根据视口宽度获取设备类型

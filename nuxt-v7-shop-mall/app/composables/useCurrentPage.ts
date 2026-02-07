@@ -5,6 +5,7 @@
 import { nanoid } from "nanoid";
 import type {
   DeviceType,
+  StyleDeviceType,
   ComponentNode,
   ResponsiveStyle,
   PageSchema,
@@ -411,7 +412,7 @@ export function useCurrentPage() {
   function updateComponentDeviceStyle(
     componentId: string,
     deviceStyle: Record<string, any>,
-    targetDevice?: DeviceType
+    targetDevice?: StyleDeviceType
   ) {
     const targetList = getTargetComponentList();
     if (!targetList) return;
@@ -419,7 +420,9 @@ export function useCurrentPage() {
     const component = findComponentById(targetList, componentId);
     if (component) {
       const device = targetDevice || currentDevice.value;
-      if (device === "pc") {
+      if (device === "base") {
+        component.style.base = { ...component.style.base, ...deviceStyle };
+      } else if (device === "pc") {
         component.style.pc = { ...component.style.pc, ...deviceStyle };
       } else if (device === "tablet") {
         component.style.tablet = { ...component.style.tablet, ...deviceStyle };

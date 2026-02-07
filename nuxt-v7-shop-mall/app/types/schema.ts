@@ -33,6 +33,9 @@ export type PageType =
 // 设备类型
 export type DeviceType = "pc" | "tablet" | "mobile";
 
+// 样式编辑设备类型（含通用 base）
+export type StyleDeviceType = "base" | DeviceType;
+
 // 响应式样式
 export interface ResponsiveStyle {
   base: CSSProperties; // 基础样式（所有设备）
