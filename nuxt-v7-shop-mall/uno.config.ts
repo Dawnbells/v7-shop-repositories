@@ -110,6 +110,9 @@ export default defineConfig({
     'i-carbon-text-align-left', 'i-carbon-list-checked',
     'i-carbon-list', 'i-carbon-json', 'i-carbon-unknown',
     'i-carbon-touch-1', 'i-carbon-copy', 'i-carbon-parameter',
-    'i-carbon-circle-dash'
+    'i-carbon-circle-dash',
+    // 全局皮肤分组图标
+    'i-carbon-paint-brush', 'i-carbon-crop', 'i-carbon-fit-to-screen',
+    'i-carbon-reset', 'i-carbon-image-search'
   ]
 })

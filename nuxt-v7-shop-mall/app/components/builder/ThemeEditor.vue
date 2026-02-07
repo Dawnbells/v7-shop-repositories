@@ -254,7 +254,7 @@ const pageTabs = computed(() => {
   }> = [];
 
   // 布局 Tab（在首页之前）
-  for (const layout of theme.value.pages.layouts) {
+  for (const layout of theme.value.layouts) {
     tabs.push({
       key: `layout-${layout.id}`,
       label: layout.name,

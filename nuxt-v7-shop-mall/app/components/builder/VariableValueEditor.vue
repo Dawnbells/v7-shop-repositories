@@ -22,9 +22,14 @@ import {
   type SiteFieldSchema,
 } from "~/constants/site-config.schema";
 
-// 过滤掉 globalStyle 分组（有独立的 Tab）
+// 过滤掉 globalStyle.* 子分组（有独立的 Tab）
 const siteConfigGroups = SITE_CONFIG_GROUPS.filter(
-  (group) => group.key !== "globalStyle"
+  (group) => !group.key.startsWith("globalStyle.")
+);
+
+// globalStyle 子分组（用于全局皮肤 Tab）
+const globalStyleGroups = SITE_CONFIG_GROUPS.filter(
+  (group) => group.key.startsWith("globalStyle.")
 );
 
 // 获取图片 URL 构建函数
@@ -55,6 +60,9 @@ const activeTab = ref<"site" | "globalStyle" | "variables">("site");
 
 // 当前选中的站点配置分组
 const activeSiteGroup = ref<string>("basic");
+
+// 当前选中的全局皮肤分组
+const activeGlobalStyleGroup = ref<string>("globalStyle.color");
 
 // 获取分组的字段
 function getGroupFields(groupKey: string): SiteFieldSchema[] {
@@ -331,11 +339,26 @@ function handleImageSelect(images: any[]) {
               </div>
             </div>
 
-            <!-- 全局皮肤 Tab -->
+            <!-- 全局皮肤 Tab - 左侧垂直 Tab 布局 -->
             <div v-else-if="activeTab === 'globalStyle'" class="global-style-panel">
-              <div class="global-style-content">
+              <!-- 左侧分组 Tab -->
+              <div class="site-group-tabs">
+                <button
+                  v-for="group in globalStyleGroups"
+                  :key="group.key"
+                  class="site-group-tab"
+                  :class="{ active: activeGlobalStyleGroup === group.key }"
+                  @click="activeGlobalStyleGroup = group.key"
+                >
+                  <span :class="group.icon || 'i-carbon-folder'"></span>
+                  <span class="tab-label">{{ group.label }}</span>
+                </button>
+              </div>
+
+              <!-- 右侧字段内容 -->
+              <div class="site-group-content">
                 <div
-                  v-for="field in getGroupFields('globalStyle')"
+                  v-for="field in getGroupFields(activeGlobalStyleGroup)"
                   :key="field.key"
                   class="field-row"
                 >
@@ -977,35 +1000,10 @@ function handleImageSelect(images: any[]) {
   color: #64748b;
 }
 
-/* 全局皮肤面板 */
+/* 全局皮肤面板 - 使用与全局配置相同的左右布局 */
 .global-style-panel {
-  height: 100%;
-  overflow-y: auto;
-  padding-right: 8px;
-  scrollbar-width: thin;
-  scrollbar-color: #475569 transparent;
-}
-
-.global-style-panel::-webkit-scrollbar {
-  width: 8px;
-}
-
-.global-style-panel::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.global-style-panel::-webkit-scrollbar-thumb {
-  background-color: #475569;
-  border-radius: 4px;
-}
-
-.global-style-panel::-webkit-scrollbar-thumb:hover {
-  background-color: #64748b;
-}
-
-.global-style-content {
   display: flex;
-  flex-direction: column;
+  height: 100%;
   gap: 12px;
 }
 

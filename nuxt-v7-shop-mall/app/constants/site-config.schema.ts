@@ -73,10 +73,28 @@ export const SITE_CONFIG_GROUPS: SiteConfigGroup[] = [
     description: "商城功能开关",
   },
   {
-    key: "globalStyle",
-    label: "全局皮肤",
-    icon: "i-carbon-paint-brush",
-    description: "全局样式配置",
+    key: "globalStyle.color",
+    label: "颜色",
+    icon: "i-carbon-color-palette",
+    description: "颜色配置",
+  },
+  {
+    key: "globalStyle.font",
+    label: "字体",
+    icon: "i-carbon-text-font",
+    description: "字体配置",
+  },
+  {
+    key: "globalStyle.radius",
+    label: "圆角",
+    icon: "i-carbon-crop",
+    description: "圆角配置",
+  },
+  {
+    key: "globalStyle.spacing",
+    label: "间距",
+    icon: "i-carbon-fit-to-screen",
+    description: "间距配置",
   },
 ];
 
@@ -129,6 +147,15 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "简要描述网站内容",
     group: "basic",
     description: "用于 SEO 和品牌展示",
+  },
+  {
+    key: "browserTabTitle",
+    label: "浏览器标签标题",
+    type: "text",
+    defaultValue: "",
+    placeholder: "如：Vapsolo",
+    group: "basic",
+    description: "浏览器标签页标题后缀，格式：页面标题 - {此值}",
   },
 
   // ============ 联系方式 ============
@@ -296,7 +323,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "主色",
     type: "color",
     defaultValue: "#3b82f6",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "品牌主色调",
   },
   {
@@ -304,7 +331,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "辅色",
     type: "color",
     defaultValue: "#64748b",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "次要颜色",
   },
   {
@@ -312,7 +339,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "成功色",
     type: "color",
     defaultValue: "#22c55e",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "成功状态颜色",
   },
   {
@@ -320,7 +347,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "警告色",
     type: "color",
     defaultValue: "#f59e0b",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "警告状态颜色",
   },
   {
@@ -328,7 +355,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "错误色",
     type: "color",
     defaultValue: "#ef4444",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "错误状态颜色",
   },
   {
@@ -336,7 +363,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "页面背景色",
     type: "color",
     defaultValue: "#f8fafc",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "页面背景颜色",
   },
   {
@@ -344,7 +371,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "表面背景色",
     type: "color",
     defaultValue: "#ffffff",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "卡片等表面元素背景色",
   },
   {
@@ -352,7 +379,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "主文字色",
     type: "color",
     defaultValue: "#1e293b",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "主要文字颜色",
   },
   {
@@ -360,7 +387,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "次要文字色",
     type: "color",
     defaultValue: "#64748b",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "次要文字颜色",
   },
   {
@@ -368,7 +395,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     label: "边框色",
     type: "color",
     defaultValue: "#e2e8f0",
-    group: "globalStyle",
+    group: "globalStyle.color",
     description: "边框颜色",
   },
 
@@ -379,7 +406,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     type: "text",
     defaultValue: "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
     placeholder: "字体名称",
-    group: "globalStyle",
+    group: "globalStyle.font",
     description: "网站主字体",
   },
   {
@@ -388,7 +415,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     type: "text",
     defaultValue: "14px",
     placeholder: "如：14px",
-    group: "globalStyle",
+    group: "globalStyle.font",
     description: "基础字体大小",
   },
   {
@@ -397,7 +424,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     type: "text",
     defaultValue: "1.5",
     placeholder: "如：1.5",
-    group: "globalStyle",
+    group: "globalStyle.font",
     description: "文字行高",
   },
 
@@ -408,7 +435,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     type: "text",
     defaultValue: "4px",
     placeholder: "如：4px",
-    group: "globalStyle",
+    group: "globalStyle.radius",
     description: "小尺寸元素圆角",
   },
   {
@@ -417,7 +444,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     type: "text",
     defaultValue: "8px",
     placeholder: "如：8px",
-    group: "globalStyle",
+    group: "globalStyle.radius",
     description: "中等尺寸元素圆角",
   },
   {
@@ -426,7 +453,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     type: "text",
     defaultValue: "12px",
     placeholder: "如：12px",
-    group: "globalStyle",
+    group: "globalStyle.radius",
     description: "大尺寸元素圆角",
   },
 
@@ -437,7 +464,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     type: "text",
     defaultValue: "8px",
     placeholder: "如：8px",
-    group: "globalStyle",
+    group: "globalStyle.spacing",
     description: "基础间距单位",
   },
 ];

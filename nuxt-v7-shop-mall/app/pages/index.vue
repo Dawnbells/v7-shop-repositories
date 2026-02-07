@@ -16,7 +16,11 @@ const {
   getPageSchema,
   getPageLayout,
   defaultLayout,
+  useSiteTitle,
 } = useThemeRender();
+
+// 设置浏览器标签页标题
+useSiteTitle('首页');
 
 // 首页配置
 const homePageSchema = computed(() => getPageSchema("home"));

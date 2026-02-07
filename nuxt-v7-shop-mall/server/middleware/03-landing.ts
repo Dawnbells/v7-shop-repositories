@@ -1,7 +1,7 @@
 /**
  * 落地页配置 Server Middleware
  * 根据 cloak 结果查询对应的落地页配置，将结果注入到 event.context
- * 
+ *
  * - LAND：查询 LAND 类型的配置，landingSpuId = 原始 spuId
  * - CLOAK/CRAWLER/RISK：查询 CLOAK 类型的配置，landingSpuId 来自 landing_page_spu_id
  * - BLACKLISTED：不处理（在 02-cloak.ts 中已显示安全页面）
@@ -24,11 +24,7 @@ export default defineEventHandler(async (event) => {
   const pageContext = getPageContext(event);
 
   // 需要 domain、spuId、cloak 都存在
-  if (
-    !pageContext.domain?.id ||
-    !pageContext.spuId ||
-    !pageContext.cloak
-  ) {
+  if (!pageContext.domain?.id || !pageContext.spuId || !pageContext.cloak) {
     console.log("[Landing Middleware] Missing required context, skipping");
     return;
   }
@@ -49,15 +45,21 @@ export default defineEventHandler(async (event) => {
 
   try {
     // 查询 landing page 配置
-    const config = await findLandingPageConfig(subDomainId, spuId, landingPageType);
+    const config = await findLandingPageConfig(
+      subDomainId,
+      spuId,
+      landingPageType
+    );
 
     if (config) {
-      console.log("[Landing Middleware] Found config, landingSpuId:", config.landingSpuId);
+      console.log(
+        "[Landing Middleware] Found config, landingSpuId:",
+        config.landingSpuId
+      );
       // 打印 themeConfig 加载状态用于调试
       console.log("[Landing Middleware] themeConfig loaded:", {
         hasThemeConfig: !!config.themeConfig,
-        themeConfigType: typeof config.themeConfig,
-        themeConfigKeys: config.themeConfig ? Object.keys(config.themeConfig) : [],
+        themeConfig: JSON.stringify(config.themeConfig),
       });
       // 更新 pageContext：存入 landingSpuId 和渲染配置
       updatePageContext(event, {
@@ -69,12 +71,16 @@ export default defineEventHandler(async (event) => {
     } else {
       console.log("[Landing Middleware] No config found");
       // 配置不存在，显示安全页面
-      showSafePage(event, SafePageType.PRODUCT_NOT_FOUND, { trackingId: pageContext.cloak.pdVal });
+      showSafePage(event, SafePageType.PRODUCT_NOT_FOUND, {
+        trackingId: pageContext.cloak.pdVal,
+      });
       return;
     }
   } catch (error) {
     console.error("[Landing Middleware] Error querying config:", error);
     // 出错时显示产品不存在页面
-    showSafePage(event, SafePageType.PRODUCT_NOT_FOUND, { trackingId: pageContext.cloak.pdVal });
+    showSafePage(event, SafePageType.PRODUCT_NOT_FOUND, {
+      trackingId: pageContext.cloak.pdVal,
+    });
   }
 });

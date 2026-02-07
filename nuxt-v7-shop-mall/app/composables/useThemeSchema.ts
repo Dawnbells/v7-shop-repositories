@@ -365,12 +365,12 @@ export function useThemeSchema() {
 
   // 获取所有布局
   const layouts = computed<LayoutSchema[]>(() => {
-    return themeState.value?.pages.layouts || [];
+    return themeState.value?.layouts || [];
   });
 
   // 获取布局
   function getLayout(layoutId: string): LayoutSchema | undefined {
-    return themeState.value?.pages.layouts.find((l) => l.id === layoutId);
+    return themeState.value?.layouts.find((l) => l.id === layoutId);
   }
 
   // 添加布局（空布局，需要手动拖拽添加 Page Slot）
@@ -386,7 +386,7 @@ export function useThemeSchema() {
       components: [],
     };
 
-    themeState.value.pages.layouts.push(newLayout);
+    themeState.value.layouts.push(newLayout);
     themeState.value.updatedAt = new Date().toISOString();
     hasUnsavedChanges.value = true;
 
@@ -397,7 +397,7 @@ export function useThemeSchema() {
   function updateLayout(layoutId: string, updates: Partial<LayoutSchema>) {
     if (!themeState.value) return;
 
-    const layout = themeState.value.pages.layouts.find((l) => l.id === layoutId);
+    const layout = themeState.value.layouts.find((l) => l.id === layoutId);
     if (layout) {
       Object.assign(layout, updates);
       themeState.value.updatedAt = new Date().toISOString();
@@ -409,9 +409,9 @@ export function useThemeSchema() {
   function removeLayout(layoutId: string) {
     if (!themeState.value) return;
 
-    const index = themeState.value.pages.layouts.findIndex((l) => l.id === layoutId);
+    const index = themeState.value.layouts.findIndex((l) => l.id === layoutId);
     if (index !== -1) {
-      themeState.value.pages.layouts.splice(index, 1);
+      themeState.value.layouts.splice(index, 1);
       themeState.value.updatedAt = new Date().toISOString();
       hasUnsavedChanges.value = true;
 

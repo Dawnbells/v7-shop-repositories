@@ -239,6 +239,7 @@ export interface SiteConfig {
   siteName?: string;
   logo?: string;
   favicon?: string;
+  browserTabTitle?: string;  // 浏览器标签标题后缀，如 "Vapsolo"
 
   // SEO 设置
   seoTitle?: string;

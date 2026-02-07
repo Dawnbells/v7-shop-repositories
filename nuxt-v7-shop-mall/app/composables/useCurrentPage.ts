@@ -36,7 +36,7 @@ export function useCurrentPage() {
   const currentLayout = computed<LayoutSchema | null>(() => {
     if (!isEditingLayout.value || !theme.value) return null;
     const layoutId = currentPageKey.value.replace("layout-", "");
-    return theme.value.pages.layouts.find((l) => l.id === layoutId) || null;
+    return theme.value.layouts.find((l) => l.id === layoutId) || null;
   });
 
   // 当前页面（如果在编辑页面）
@@ -168,7 +168,7 @@ export function useCurrentPage() {
 
     if (isEditingLayout.value) {
       const layoutId = currentPageKey.value.replace("layout-", "");
-      const layout = theme.value.pages.layouts.find((l) => l.id === layoutId);
+      const layout = theme.value.layouts.find((l) => l.id === layoutId);
       return layout?.components || null;
     }
 

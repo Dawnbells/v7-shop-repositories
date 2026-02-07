@@ -32,6 +32,13 @@ export const meta: ComponentMeta = {
       defaultValue: false,
     },
     {
+      key: "logoHeight",
+      label: "Logo 高度",
+      type: "text",
+      defaultValue: "32px",
+      description: "Logo 图片高度，如 32px、2rem",
+    },
+    {
       key: "navItems",
       label: "导航菜单",
       type: "json",
@@ -66,6 +73,7 @@ export const meta: ComponentMeta = {
     navItems: [],
     showUser: true,
     showLocale: false,
+    logoHeight: "32px",
   },
   defaultStyle: {
     base: {
@@ -100,6 +108,7 @@ interface Props {
   navItems?: NavItem[];
   showUser?: boolean;
   showLocale?: boolean;
+  logoHeight?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -107,23 +116,29 @@ const props = withDefaults(defineProps<Props>(), {
   navItems: () => [],
   showUser: true,
   showLocale: false,
+  logoHeight: "32px",
 });
 
+console.log(props);
 // 注入站点配置
-const siteConfig = inject<Ref<Record<string, any>>>('siteConfig', ref({}));
+const siteConfig = inject<Ref<Record<string, any>>>("siteConfig", ref({}));
 
 // 从站点配置获取 Logo 和站点名称
-const logo = computed(() => siteConfig.value?.logo || '');
-const siteName = computed(() => siteConfig.value?.siteName || '商城');
+const logo = computed(() => siteConfig.value?.logo || "");
+const siteName = computed(() => siteConfig.value?.siteName || "商城");
 
 // 从站点配置获取购物车启用状态
 const enableCart = computed(() => siteConfig.value?.enableCart !== false);
 
 // 是否同时有 Logo 和网站名称（需要特殊布局：名称靠左，Logo 居中）
-const hasBothLogoAndName = computed(() => !!logo.value && !!siteConfig.value?.siteName);
+const hasBothLogoAndName = computed(
+  () => !!logo.value && !!siteConfig.value?.siteName
+);
 
 // 实际是否居中显示（同时有两者时强制居中 Logo）
-const shouldCenterLogo = computed(() => hasBothLogoAndName.value || props.centerLogo);
+const shouldCenterLogo = computed(
+  () => hasBothLogoAndName.value || props.centerLogo
+);
 
 // 是否显示操作区
 const showActions = computed(
@@ -181,7 +196,10 @@ onMounted(() => {
       </button>
 
       <!-- 左侧占位区 (居中模式，但非双模式) -->
-      <div v-if="shouldCenterLogo && !hasBothLogoAndName" class="header-spacer"></div>
+      <div
+        v-if="shouldCenterLogo && !hasBothLogoAndName"
+        class="header-spacer"
+      ></div>
 
       <!-- 左侧网站名称（同时有 Logo 和名称时显示） -->
       <div v-if="hasBothLogoAndName" class="header-site-name">
@@ -190,12 +208,22 @@ onMounted(() => {
 
       <!-- Logo 区域 - 使用全局站点配置 -->
       <div class="header-logo" :class="{ 'logo-centered': shouldCenterLogo }">
-        <AppImage v-if="logo" :src="logo" :alt="siteName" class="logo-image" :lazy="false" />
+        <AppImage
+          v-if="logo"
+          :src="logo"
+          :alt="siteName"
+          class="logo-image"
+          :style="{ height: props.logoHeight }"
+          :lazy="false"
+        />
         <span v-else class="logo-text">{{ siteName }}</span>
       </div>
 
       <!-- 导航菜单 - 桌面端 (非居中模式才显示) -->
-      <nav v-if="!shouldCenterLogo && navItems.length > 0" class="header-nav desktop-nav">
+      <nav
+        v-if="!shouldCenterLogo && navItems.length > 0"
+        class="header-nav desktop-nav"
+      >
         <a
           v-for="(item, index) in navItems"
           :key="index"

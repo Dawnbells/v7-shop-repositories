@@ -37,7 +37,6 @@ export interface GlobalStyle {
 
 // 页面配置集合
 export interface ThemePages {
-  layouts: LayoutSchema[]           // 布局列表
   home: PageSchema                  // 首页 - 必选
   product: PageSchema               // 商品落地页 - 必选
   orderResult: PageSchema           // 订单结果页 - 必选
@@ -60,6 +59,9 @@ export interface ThemeSchema {
 
   // i18n 变量值（格式：{ pageKey: { locale: { varKey: value } } }）
   i18nValues?: I18nValues           // i18n 变量的值
+
+  // 布局列表
+  layouts: LayoutSchema[]
 
   // 页面配置
   pages: ThemePages
@@ -127,8 +129,8 @@ export function createEmptyTheme(id: string, name: string): ThemeSchema {
     name,
     version: '1.0.0',
     status: 'draft',
+    layouts: [createDefaultLayout(id)],
     pages: {
-      layouts: [createDefaultLayout(id)],
       home: {
         id: `${id}-home`,
         name: '首页',

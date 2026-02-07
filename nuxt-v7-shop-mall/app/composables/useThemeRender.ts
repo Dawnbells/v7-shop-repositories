@@ -130,7 +130,7 @@ export function useThemeRender() {
   // 获取布局配置
   function getLayout(layoutId: string | undefined): LayoutSchema | null {
     if (!themeConfig.value || !layoutId) return null;
-    return themeConfig.value.pages.layouts.find((l) => l.id === layoutId) || null;
+    return themeConfig.value.layouts.find((l) => l.id === layoutId) || null;
   }
 
   // 获取页面使用的布局
@@ -143,11 +143,21 @@ export function useThemeRender() {
   // 获取默认布局
   const defaultLayout = computed<LayoutSchema | null>(() => {
     if (!themeConfig.value) return null;
-    return themeConfig.value.pages.layouts.find((l) => l.name === "default") || themeConfig.value.pages.layouts[0] || null;
+    return themeConfig.value.layouts.find((l) => l.name === "default") || themeConfig.value.layouts[0] || null;
   });
 
   // 是否有主题配置
   const hasTheme = computed(() => !!themeConfig.value);
+
+  // 设置浏览器标签页标题（格式：页面标题 - browserTabTitle）
+  function useSiteTitle(pageTitle: MaybeRefOrGetter<string>) {
+    const title = computed(() => {
+      const suffix = siteConfig.value?.browserTabTitle;
+      const t = toValue(pageTitle);
+      return suffix ? `${t} - ${suffix}` : t;
+    });
+    useHead({ title });
+  }
 
   return {
     // 数据
@@ -171,5 +181,6 @@ export function useThemeRender() {
     getCustomPageSchema,
     getLayout,
     getPageLayout,
+    useSiteTitle,
   };
 }
