@@ -45,36 +45,34 @@ export const meta: ComponentMeta = {
       defaultValue: [],
       description: '格式: [{ "text": "首页", "url": "/" }]',
     },
+  ],
+  styleSchema: [
     {
       key: "backgroundColor",
       label: "背景色",
       type: "color",
       defaultValue: "",
-      description: "留空则使用全局背景色",
     },
     {
-      key: "textColor",
+      key: "color",
       label: "文字色",
       type: "color",
       defaultValue: "",
-      description: "留空则使用全局文字色",
     },
     {
       key: "borderColor",
       label: "边框色",
       type: "color",
       defaultValue: "",
-      description: "留空则使用全局边框色",
     },
     {
-      key: "headerPadding",
+      key: "padding",
       label: "内边距",
-      type: "text",
+      type: "size",
       defaultValue: "12px 16px",
-      description: "Header 内边距，如 12px 16px",
+      unit: "px",
     },
   ],
-  styleSchema: [],
   supportEvents: ["click"],
   defaultProps: {
     centerLogo: false,
@@ -82,10 +80,6 @@ export const meta: ComponentMeta = {
     showUser: true,
     showLocale: false,
     logoHeight: "32px",
-    backgroundColor: "",
-    textColor: "",
-    borderColor: "",
-    headerPadding: "12px 16px",
   },
   defaultStyle: {
     base: {
@@ -102,6 +96,9 @@ export default {
 </script>
 
 <script setup lang="ts">
+import type { ResponsiveStyle } from "~/types/schema";
+import type { DeviceType } from "~/types/builder";
+
 /**
  * HeaderBar 页头组件
  * Logo 和站点名称从全局站点配置获取
@@ -121,10 +118,8 @@ interface Props {
   showUser?: boolean;
   showLocale?: boolean;
   logoHeight?: string;
-  backgroundColor?: string;
-  textColor?: string;
-  borderColor?: string;
-  headerPadding?: string;
+  componentStyle?: ResponsiveStyle;
+  previewDevice?: DeviceType;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -133,10 +128,14 @@ const props = withDefaults(defineProps<Props>(), {
   showUser: true,
   showLocale: false,
   logoHeight: "32px",
-  backgroundColor: "",
-  textColor: "",
-  borderColor: "",
-  headerPadding: "12px 16px",
+});
+
+// 合并基础样式和设备样式
+const mergedStyle = computed(() => {
+  if (!props.componentStyle) return {};
+  const base = props.componentStyle.base || {};
+  const device = props.previewDevice ? props.componentStyle[props.previewDevice] || {} : {};
+  return { ...base, ...device };
 });
 
 // 注入站点配置
@@ -146,14 +145,14 @@ const siteConfig = inject<Ref<Record<string, any>>>("siteConfig", ref({}));
 const headerStyle = computed(() => {
   const style: Record<string, string> = {};
   
-  if (props.backgroundColor) {
-    style.backgroundColor = props.backgroundColor;
+  if (mergedStyle.value.backgroundColor) {
+    style.backgroundColor = mergedStyle.value.backgroundColor as string;
   }
-  if (props.borderColor) {
-    style.borderBottomColor = props.borderColor;
+  if (mergedStyle.value.borderColor) {
+    style.borderBottomColor = mergedStyle.value.borderColor as string;
   }
-  if (props.textColor) {
-    style.color = props.textColor;
+  if (mergedStyle.value.color) {
+    style.color = mergedStyle.value.color as string;
   }
   
   return style;
@@ -163,8 +162,8 @@ const headerStyle = computed(() => {
 const contentStyle = computed(() => {
   const style: Record<string, string> = {};
   
-  if (props.headerPadding) {
-    style.padding = props.headerPadding;
+  if (mergedStyle.value.padding) {
+    style.padding = mergedStyle.value.padding as string;
   }
   
   return style;

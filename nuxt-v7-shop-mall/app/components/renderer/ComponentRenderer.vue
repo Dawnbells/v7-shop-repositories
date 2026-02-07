@@ -195,6 +195,7 @@ const resolvedProps = computed(() => {
       v-bind="resolvedProps"
       :global-style="globalStyle"
       :preview-device="previewDevice"
+      :component-style="node.style"
     />
 
     <!-- 未注册的组件显示占位 -->

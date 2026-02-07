@@ -407,17 +407,18 @@ export function useCurrentPage() {
     return newComponent;
   }
 
-  // 更新当前设备的样式
+  // 更新指定设备的样式
   function updateComponentDeviceStyle(
     componentId: string,
-    deviceStyle: Record<string, any>
+    deviceStyle: Record<string, any>,
+    targetDevice?: DeviceType
   ) {
     const targetList = getTargetComponentList();
     if (!targetList) return;
 
     const component = findComponentById(targetList, componentId);
     if (component) {
-      const device = currentDevice.value;
+      const device = targetDevice || currentDevice.value;
       if (device === "pc") {
         component.style.pc = { ...component.style.pc, ...deviceStyle };
       } else if (device === "tablet") {

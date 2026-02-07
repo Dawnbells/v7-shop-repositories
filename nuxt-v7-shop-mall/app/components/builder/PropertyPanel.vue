@@ -247,10 +247,10 @@ function handleNumberInputChange(
   updateComponentProps(selectedComponentId.value, { [key]: num });
 }
 
-// 更新样式（当前设备）
+// 更新样式（当前选中的设备）
 function handleStyleChange(key: string, value: any) {
   if (!selectedComponentId.value) return;
-  updateComponentDeviceStyle(selectedComponentId.value, { [key]: value });
+  updateComponentDeviceStyle(selectedComponentId.value, { [key]: value }, styleDevice.value);
 }
 
 // 删除组件
