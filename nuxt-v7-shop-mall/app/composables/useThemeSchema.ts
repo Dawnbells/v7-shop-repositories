@@ -77,6 +77,10 @@ export function useThemeSchema() {
 
   // 加载主题
   function loadTheme(schema: ThemeSchema) {
+    // 确保 layouts 字段存在（兼容旧数据）
+    if (!Array.isArray(schema.layouts)) {
+      schema.layouts = [];
+    }
     themeState.value = schema;
     variableSchemaState.value = [];
     hasUnsavedChanges.value = false;
@@ -93,6 +97,10 @@ export function useThemeSchema() {
   }
 
   function loadFullData(data: LoadFullDataParams) {
+    // 确保 layouts 字段存在（兼容旧数据）
+    if (!Array.isArray(data.themeConfig.layouts)) {
+      data.themeConfig.layouts = [];
+    }
     themeState.value = data.themeConfig;
     variableSchemaState.value = data.variableSchema || [];
     siteConfigState.value = data.siteConfig || createDefaultSiteConfig();
