@@ -171,12 +171,12 @@ const SOCIAL_PLATFORMS = [
   { key: "twitter", icon: "i-carbon-logo-twitter", name: "Twitter" },
   { key: "instagram", icon: "i-carbon-logo-instagram", name: "Instagram" },
   { key: "youtube", icon: "i-carbon-logo-youtube", name: "YouTube" },
-  { key: "tiktok", icon: "i-carbon-logo-tiktok", name: "TikTok" },
+  { key: "tiktok", icon: "i-simple-icons-tiktok", name: "TikTok" },
   { key: "linkedin", icon: "i-carbon-logo-linkedin", name: "LinkedIn" },
 ] as const;
 
-// 从全局 siteConfig 读取社交媒体链接，过滤未配置的项
-const { siteConfig } = useThemeRender();
+// 注入站点配置（编辑器预览 + 生产页面均通过 provide/inject 传递）
+const siteConfig = inject<Ref<Record<string, any>>>("siteConfig", ref({}));
 
 const socialLinks = computed<SocialLink[]>(() => {
   return SOCIAL_PLATFORMS
