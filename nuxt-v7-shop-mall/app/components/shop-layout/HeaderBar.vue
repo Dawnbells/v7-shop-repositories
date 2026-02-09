@@ -32,11 +32,10 @@ export const meta: ComponentMeta = {
       defaultValue: false,
     },
     {
-      key: "logoHeight",
-      label: "Logo 高度",
-      type: "text",
-      defaultValue: "32px",
-      description: "Logo 图片高度，如 32px、2rem",
+      key: "showBottomBorder",
+      label: "显示底部横线",
+      type: "switch",
+      defaultValue: true,
     },
     {
       key: "navItems",
@@ -60,17 +59,31 @@ export const meta: ComponentMeta = {
       defaultValue: "",
     },
     {
-      key: "borderColor",
-      label: "边框色",
-      type: "color",
-      defaultValue: "",
+      key: "logoHeight",
+      label: "Logo 高度",
+      type: "size",
+      defaultValue: "32px",
+      unit: "px",
     },
     {
-      key: "padding",
-      label: "内边距",
+      key: "verticalPadding",
+      label: "垂直内边距",
       type: "size",
-      defaultValue: "12px 16px",
+      defaultValue: "12px",
       unit: "px",
+    },
+    {
+      key: "horizontalPadding",
+      label: "水平内边距",
+      type: "size",
+      defaultValue: "16px",
+      unit: "px",
+    },
+    {
+      key: "borderColor",
+      label: "底部横线颜色",
+      type: "color",
+      defaultValue: "",
     },
   ],
   supportEvents: ["click"],
@@ -79,15 +92,17 @@ export const meta: ComponentMeta = {
     navItems: [],
     showUser: true,
     showLocale: false,
-    logoHeight: "32px",
+    showBottomBorder: true,
   },
   defaultStyle: {
     base: {
       width: "100%",
       backgroundColor: { type: "global", key: "surfaceColor" },
       color: { type: "global", key: "textColor" },
+      logoHeight: "32px",
+      verticalPadding: "12px",
+      horizontalPadding: "16px",
       borderColor: { type: "global", key: "borderColor" },
-      padding: "12px 16px",
     },
   },
   isContainer: false,
@@ -121,7 +136,7 @@ interface Props {
   navItems?: NavItem[];
   showUser?: boolean;
   showLocale?: boolean;
-  logoHeight?: string;
+  showBottomBorder?: boolean;
   componentStyle?: ResponsiveStyle;
   previewDevice?: DeviceType;
 }
@@ -131,7 +146,7 @@ const props = withDefaults(defineProps<Props>(), {
   navItems: () => [],
   showUser: true,
   showLocale: false,
-  logoHeight: "32px",
+  showBottomBorder: true,
 });
 
 // 合并基础样式和设备样式
@@ -145,6 +160,11 @@ const mergedStyle = computed(() => {
 // 注入站点配置
 const siteConfig = inject<Ref<Record<string, any>>>("siteConfig", ref({}));
 
+// 从样式中获取 Logo 高度
+const logoHeight = computed(() => {
+  return (mergedStyle.value.logoHeight as string) || "32px";
+});
+
 // 计算 Header 动态样式
 const headerStyle = computed(() => {
   const style: Record<string, string> = {};
@@ -152,24 +172,26 @@ const headerStyle = computed(() => {
   if (mergedStyle.value.backgroundColor) {
     style.backgroundColor = mergedStyle.value.backgroundColor as string;
   }
-  if (mergedStyle.value.borderColor) {
-    style.borderBottomColor = mergedStyle.value.borderColor as string;
-  }
   if (mergedStyle.value.color) {
     style.color = mergedStyle.value.color as string;
+  }
+  // 底部横线：根据 showBottomBorder 开关控制
+  if (props.showBottomBorder) {
+    const borderColor = (mergedStyle.value.borderColor as string) || "var(--border-color, #e2e8f0)";
+    style.borderBottom = `1px solid ${borderColor}`;
+  } else {
+    style.borderBottom = "none";
   }
   
   return style;
 });
 
-// 计算内容区动态样式
+// 计算内容区动态样式（垂直内边距 + 水平内边距）
 const contentStyle = computed(() => {
   const style: Record<string, string> = {};
-  
-  if (mergedStyle.value.padding) {
-    style.padding = mergedStyle.value.padding as string;
-  }
-  
+  const vPad = (mergedStyle.value.verticalPadding as string) || "12px";
+  const hPad = (mergedStyle.value.horizontalPadding as string) || "16px";
+  style.padding = `${vPad} ${hPad}`;
   return style;
 });
 
@@ -263,7 +285,7 @@ onMounted(() => {
           :src="logo"
           :alt="siteName"
           class="logo-image"
-          :style="{ height: props.logoHeight }"
+          :style="{ height: logoHeight }"
           :lazy="false"
         />
         <span v-else class="logo-text">{{ siteName }}</span>
@@ -352,8 +374,8 @@ onMounted(() => {
 .header-bar {
   width: 100%;
   background-color: var(--surface-color, #ffffff);
-  border-bottom: 1px solid var(--border-color, #e2e8f0);
   color: var(--text-color, #1e293b);
+  /* 底部边框由 headerStyle 动态控制 */
   /* 定义容器查询上下文 */
   container-type: inline-size;
   container-name: header;
@@ -365,7 +387,7 @@ onMounted(() => {
   gap: 24px;
   min-width: 320px;
   max-width: 100%;
-  padding: 12px 16px;
+  /* padding 由 contentStyle 动态控制 */
 }
 
 /* 文字色继承 - 当设置了自定义文字色时生效 */
@@ -466,7 +488,7 @@ onMounted(() => {
 }
 
 .logo-image {
-  height: 32px;
+  /* height 由 :style 动态绑定（从 styleSchema.logoHeight 获取） */
   width: auto;
 }
 
@@ -671,7 +693,6 @@ onMounted(() => {
 @container header (max-width: 768px) {
   .header-content {
     gap: 16px;
-    padding: 10px 12px;
   }
 
   .desktop-nav {
@@ -693,15 +714,10 @@ onMounted(() => {
 @container header (max-width: 480px) {
   .header-content {
     gap: 12px;
-    padding: 8px 12px;
   }
 
   .logo-text {
     font-size: 18px;
-  }
-
-  .logo-image {
-    height: 28px;
   }
 
   .header-spacer {
@@ -737,7 +753,6 @@ onMounted(() => {
 @media (max-width: 768px) {
   .header-content {
     gap: 16px;
-    padding: 10px 12px;
   }
 
   .desktop-nav {
@@ -758,15 +773,10 @@ onMounted(() => {
 @media (max-width: 480px) {
   .header-content {
     gap: 12px;
-    padding: 8px 12px;
   }
 
   .logo-text {
     font-size: 18px;
-  }
-
-  .logo-image {
-    height: 28px;
   }
 
   .header-spacer {
