@@ -7,6 +7,8 @@
  */
 
 import type { PropBinding, StyleDeviceType } from "~/types/builder";
+import { isStyleRef, isGlobalStyleRef, isVariableStyleRef } from "~/types/schema";
+import { GLOBAL_STYLE_OPTIONS } from "~/types/theme";
 import { STYLE_BREAKPOINTS, STYLE_DEVICE_LIST } from "~/constants";
 import {
   useEditorDataContext,
@@ -34,8 +36,8 @@ const {
 // 组件注册表
 const { getComponentMeta } = useComponentRegistry();
 
-// 主题状态（获取自定义变量）
-const { variableSchema } = useThemeSchema();
+// 主题状态（获取自定义变量和变量值）
+const { variableSchema, variableValues, siteConfig } = useThemeSchema();
 
 // 编辑器数据上下文
 const editorDataContext = useEditorDataContext();
@@ -54,6 +56,9 @@ const styleDevice = ref<StyleDeviceType>("base");
 
 // 属性绑定模式记录（key -> 'static' | 'binding'）
 const propBindingModes = ref<Record<string, "static" | "binding">>({});
+
+// 样式引用模式记录（key -> 'static' | 'ref'）
+const styleRefModes = ref<Record<string, "static" | "ref">>({});
 
 // 属性表单数据
 const propsForm = computed(() => {
@@ -102,6 +107,7 @@ watch(
   (comp) => {
     if (!comp) {
       propBindingModes.value = {};
+      styleRefModes.value = {};
       return;
     }
     // 根据属性值判断是否为绑定模式
@@ -114,6 +120,21 @@ watch(
       }
     }
     propBindingModes.value = modes;
+
+    // 根据样式值判断是否为引用模式
+    const sRefModes: Record<string, "static" | "ref"> = {};
+    const allStyleEntries = {
+      ...comp.style.base,
+      ...comp.style.pc,
+      ...comp.style.tablet,
+      ...comp.style.mobile,
+    };
+    for (const [key, value] of Object.entries(allStyleEntries)) {
+      if (isStyleRef(value)) {
+        sRefModes[key] = "ref";
+      }
+    }
+    styleRefModes.value = sRefModes;
   },
   { immediate: true }
 );
@@ -254,6 +275,89 @@ function handleNumberInputChange(
 function handleStyleChange(key: string, value: any) {
   if (!selectedComponentId.value) return;
   updateComponentDeviceStyle(selectedComponentId.value, { [key]: value }, styleDevice.value);
+}
+
+// 获取样式的引用模式
+function getStyleRefMode(key: string): "static" | "ref" {
+  return styleRefModes.value[key] || "static";
+}
+
+// 切换样式引用模式
+function toggleStyleRefMode(key: string) {
+  const currentMode = getStyleRefMode(key);
+  const newMode = currentMode === "static" ? "ref" : "static";
+  styleRefModes.value[key] = newMode;
+
+  if (!selectedComponentId.value) return;
+
+  if (newMode === "static") {
+    // 切回静态模式，清空该样式值
+    handleStyleChange(key, "");
+  }
+  // 切到引用模式时，等待用户选择引用值，不立即保存
+}
+
+// 处理样式引用选择变更
+function handleStyleRefChange(key: string, refValue: string) {
+  if (!selectedComponentId.value || !refValue) return;
+
+  // 格式: "global:primaryColor" 或 "variable:myVar"
+  const [type, refKey] = refValue.split(":");
+  if (type === "global") {
+    handleStyleChange(key, { type: "global", key: refKey });
+  } else if (type === "variable") {
+    handleStyleChange(key, { type: "variable", key: refKey });
+  }
+}
+
+// 获取样式引用的当前选中值（用于下拉的 :value）
+function getStyleRefSelectValue(key: string): string {
+  const value = styleForm.value[key];
+  if (isGlobalStyleRef(value)) {
+    return `global:${value.key}`;
+  }
+  if (isVariableStyleRef(value)) {
+    return `variable:${value.key}`;
+  }
+  return "";
+}
+
+// 获取样式引用的预览显示值
+function getStyleRefPreview(key: string): string {
+  const value = styleForm.value[key];
+  if (isGlobalStyleRef(value)) {
+    const gs = siteConfig.value?.globalStyle;
+    return gs ? (gs[value.key as keyof typeof gs] as string) || "" : "";
+  }
+  if (isVariableStyleRef(value)) {
+    return variableValues.value[value.key] ?? "";
+  }
+  return typeof value === "string" ? value : "";
+}
+
+// 获取样式引用的标签
+function getStyleRefLabel(key: string): string {
+  const value = styleForm.value[key];
+  if (isGlobalStyleRef(value)) {
+    for (const group of GLOBAL_STYLE_OPTIONS) {
+      const item = group.items.find((i) => i.key === value.key);
+      if (item) return `${group.group} - ${item.label}`;
+    }
+    return value.key;
+  }
+  if (isVariableStyleRef(value)) {
+    const variable = variableSchema.value?.find((v: any) => v.key === value.key);
+    return variable?.label || value.key;
+  }
+  return "";
+}
+
+// 过滤出与样式属性类型兼容的自定义变量
+function getStyleCompatibleVariables(styleType: string) {
+  if (!variableSchema.value) return [];
+  // 颜色类型匹配 color 变量，其余匹配 string 变量
+  const compatibleTypes = styleType === "color" ? ["color", "string"] : ["string", "number"];
+  return variableSchema.value.filter((v: any) => compatibleTypes.includes(v.type));
 }
 
 // 删除组件
@@ -592,42 +696,152 @@ function handleCopy() {
               :key="style.key"
               class="property-item"
             >
-              <label class="property-label">{{ style.label }}</label>
-
-              <!-- 尺寸 -->
-              <div v-if="style.type === 'size'" class="size-input">
-                <input
-                  type="number"
-                  class="property-input"
-                  :value="parseInt(styleForm[style.key]) || ''"
-                  @input="
-                    handleStyleChange(
-                      style.key,
-                      ($event.target as HTMLInputElement).value +
-                        (style.unit || 'px')
-                    )
-                  "
-                />
-                <span class="unit">{{ style.unit || "px" }}</span>
+              <div class="property-label-row">
+                <label class="property-label">{{ style.label }}</label>
+                <!-- 引用模式切换按钮 -->
+                <button
+                  class="style-ref-toggle"
+                  :class="{ active: getStyleRefMode(style.key) === 'ref' }"
+                  :title="getStyleRefMode(style.key) === 'ref' ? '切换为自定义值' : '引用全局皮肤/变量'"
+                  @click="toggleStyleRefMode(style.key)"
+                >
+                  <span class="i-carbon-link"></span>
+                </button>
               </div>
 
-              <!-- 颜色 -->
-              <div v-else-if="style.type === 'color'" class="color-input">
-                <input
-                  type="color"
-                  :value="styleForm[style.key] || '#000000'"
-                  @input="
+              <!-- 引用模式：下拉选择全局皮肤或自定义变量 -->
+              <template v-if="getStyleRefMode(style.key) === 'ref'">
+                <select
+                  class="property-input style-ref-select"
+                  :value="getStyleRefSelectValue(style.key)"
+                  @change="handleStyleRefChange(style.key, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="">-- 选择引用 --</option>
+                  <optgroup v-for="group in GLOBAL_STYLE_OPTIONS" :key="group.group" :label="'全局 - ' + group.group">
+                    <option
+                      v-for="item in group.items"
+                      :key="item.key"
+                      :value="'global:' + item.key"
+                    >
+                      {{ item.label }}
+                    </option>
+                  </optgroup>
+                  <optgroup v-if="getStyleCompatibleVariables(style.type).length" label="自定义变量">
+                    <option
+                      v-for="v in getStyleCompatibleVariables(style.type)"
+                      :key="v.key"
+                      :value="'variable:' + v.key"
+                    >
+                      {{ v.label || v.key }}
+                    </option>
+                  </optgroup>
+                </select>
+                <!-- 引用预览 -->
+                <div v-if="getStyleRefSelectValue(style.key)" class="style-ref-preview">
+                  <span class="preview-label">{{ getStyleRefLabel(style.key) }}</span>
+                  <span
+                    v-if="style.type === 'color'"
+                    class="preview-color-swatch"
+                    :style="{ backgroundColor: getStyleRefPreview(style.key) }"
+                  ></span>
+                  <span v-else class="preview-value">{{ getStyleRefPreview(style.key) }}</span>
+                </div>
+              </template>
+
+              <!-- 静态模式：原有编辑器 -->
+              <template v-else>
+                <!-- 尺寸 -->
+                <div v-if="style.type === 'size'" class="size-input">
+                  <input
+                    type="number"
+                    class="property-input"
+                    :value="parseInt(styleForm[style.key]) || ''"
+                    @input="
+                      handleStyleChange(
+                        style.key,
+                        ($event.target as HTMLInputElement).value +
+                          (style.unit || 'px')
+                      )
+                    "
+                  />
+                  <span class="unit">{{ style.unit || "px" }}</span>
+                </div>
+
+                <!-- 颜色 -->
+                <div v-else-if="style.type === 'color'" class="color-input">
+                  <input
+                    type="color"
+                    :value="styleForm[style.key] || '#000000'"
+                    @input="
+                      handleStyleChange(
+                        style.key,
+                        ($event.target as HTMLInputElement).value
+                      )
+                    "
+                  />
+                  <input
+                    type="text"
+                    class="property-input"
+                    :value="styleForm[style.key]"
+                    placeholder="#000000"
+                    @input="
+                      handleStyleChange(
+                        style.key,
+                        ($event.target as HTMLInputElement).value
+                      )
+                    "
+                  />
+                </div>
+
+                <!-- 下拉选择 -->
+                <select
+                  v-else-if="style.type === 'select'"
+                  class="property-input"
+                  :value="styleForm[style.key]"
+                  @change="
                     handleStyleChange(
                       style.key,
-                      ($event.target as HTMLInputElement).value
+                      ($event.target as HTMLSelectElement).value
                     )
                   "
-                />
+                >
+                  <option
+                    v-for="opt in style.options"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </option>
+                </select>
+
+                <!-- 滑块 -->
+                <div v-else-if="style.type === 'slider'" class="slider-input">
+                  <input
+                    type="range"
+                    :min="style.min || 0"
+                    :max="style.max || 100"
+                    :step="style.step || 1"
+                    :value="parseInt(styleForm[style.key]) || 0"
+                    @input="
+                      handleStyleChange(
+                        style.key,
+                        ($event.target as HTMLInputElement).value +
+                          (style.unit || '')
+                      )
+                    "
+                  />
+                  <span class="slider-value">{{
+                    styleForm[style.key] || 0
+                  }}</span>
+                </div>
+
+                <!-- 默认：文本输入 -->
                 <input
+                  v-else
                   type="text"
                   class="property-input"
                   :value="styleForm[style.key]"
-                  placeholder="#000000"
+                  :placeholder="style.defaultValue"
                   @input="
                     handleStyleChange(
                       style.key,
@@ -635,64 +849,7 @@ function handleCopy() {
                     )
                   "
                 />
-              </div>
-
-              <!-- 下拉选择 -->
-              <select
-                v-else-if="style.type === 'select'"
-                class="property-input"
-                :value="styleForm[style.key]"
-                @change="
-                  handleStyleChange(
-                    style.key,
-                    ($event.target as HTMLSelectElement).value
-                  )
-                "
-              >
-                <option
-                  v-for="opt in style.options"
-                  :key="opt.value"
-                  :value="opt.value"
-                >
-                  {{ opt.label }}
-                </option>
-              </select>
-
-              <!-- 滑块 -->
-              <div v-else-if="style.type === 'slider'" class="slider-input">
-                <input
-                  type="range"
-                  :min="style.min || 0"
-                  :max="style.max || 100"
-                  :step="style.step || 1"
-                  :value="parseInt(styleForm[style.key]) || 0"
-                  @input="
-                    handleStyleChange(
-                      style.key,
-                      ($event.target as HTMLInputElement).value +
-                        (style.unit || '')
-                    )
-                  "
-                />
-                <span class="slider-value">{{
-                  styleForm[style.key] || 0
-                }}</span>
-              </div>
-
-              <!-- 默认：文本输入 -->
-              <input
-                v-else
-                type="text"
-                class="property-input"
-                :value="styleForm[style.key]"
-                :placeholder="style.defaultValue"
-                @input="
-                  handleStyleChange(
-                    style.key,
-                    ($event.target as HTMLInputElement).value
-                  )
-                "
-              />
+              </template>
             </div>
           </template>
 
@@ -961,6 +1118,80 @@ function handleCopy() {
   color: #3b82f6;
   background-color: rgba(59, 130, 246, 0.1);
   border-color: #3b82f6;
+}
+
+/* 样式属性标签行 */
+.property-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+/* 样式引用切换按钮 */
+.style-ref-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid transparent;
+  background: none;
+  color: #64748b;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 12px;
+}
+
+.style-ref-toggle:hover {
+  color: #3b82f6;
+  background-color: #1e293b;
+}
+
+.style-ref-toggle.active {
+  color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.1);
+  border-color: #3b82f6;
+}
+
+/* 样式引用下拉 */
+.style-ref-select {
+  width: 100%;
+  font-size: 12px;
+}
+
+/* 样式引用预览 */
+.style-ref-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: #1e293b;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.style-ref-preview .preview-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.style-ref-preview .preview-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid #334155;
+  flex-shrink: 0;
+}
+
+.style-ref-preview .preview-value {
+  color: #e2e8f0;
+  font-family: monospace;
 }
 
 /* 绑定编辑器 */

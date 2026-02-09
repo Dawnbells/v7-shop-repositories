@@ -84,6 +84,10 @@ export const meta: ComponentMeta = {
   defaultStyle: {
     base: {
       width: "100%",
+      backgroundColor: { type: "global", key: "surfaceColor" },
+      color: { type: "global", key: "textColor" },
+      borderColor: { type: "global", key: "borderColor" },
+      padding: "12px 16px",
     },
   },
   isContainer: false,

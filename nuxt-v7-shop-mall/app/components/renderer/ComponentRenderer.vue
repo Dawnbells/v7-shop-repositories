@@ -4,7 +4,8 @@
  * 根据组件类型动态渲染对应的组件
  */
 
-import type { ComponentNode, DeviceType, GlobalStyle } from "~/types/builder";
+import type { ComponentNode, DeviceType, GlobalStyle, ResponsiveStyle } from "~/types/builder";
+import type { VariableValues } from "~/types/data-context";
 import { useDataContext, resolvePropsBindings, hasBindingExpression } from "~/composables/useDataContext";
 
 const props = defineProps<{
@@ -19,7 +20,10 @@ const emit = defineEmits<{
 }>();
 
 // 响应式样式
-const { resolveStyle } = useResponsive();
+const { resolveStyle, resolveResponsiveStyleRefs } = useResponsive();
+
+// 注入变量值（由页面或编辑器提供）
+const variableValues = inject<Ref<VariableValues>>('variableValues', ref({}));
 
 // 组件注册表
 const { getComponentInstance } = useComponentRegistry();
@@ -47,9 +51,15 @@ const editorActions = props.isEditor
   ? inject<EditorActions>('editorActions', null)
   : null;
 
-// 计算样式
+// 计算样式（用于 wrapper div）
 const computedStyle = computed(() => {
-  return resolveStyle(props.node.style, props.previewDevice, props.globalStyle);
+  return resolveStyle(props.node.style, props.previewDevice, props.globalStyle, variableValues.value);
+});
+
+// 解析后的组件样式（传递给子组件，所有引用已解析为实际值）
+const resolvedComponentStyle = computed<ResponsiveStyle | undefined>(() => {
+  if (!props.node.style || !props.globalStyle) return props.node.style;
+  return resolveResponsiveStyleRefs(props.node.style, props.globalStyle, variableValues.value);
 });
 
 // 是否选中
@@ -195,7 +205,7 @@ const resolvedProps = computed(() => {
       v-bind="resolvedProps"
       :global-style="globalStyle"
       :preview-device="previewDevice"
-      :component-style="node.style"
+      :component-style="resolvedComponentStyle"
     />
 
     <!-- 未注册的组件显示占位 -->

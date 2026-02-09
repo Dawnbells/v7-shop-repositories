@@ -16,8 +16,14 @@ const {
   hasTheme,
   getPageSchema,
   getPageLayout,
+  siteConfig,
+  variableValues,
   useSiteTitle,
 } = useThemeRender();
+
+// 提供站点配置和变量值给子组件
+provide('siteConfig', siteConfig);
+provide('variableValues', variableValues);
 
 // 设置浏览器标签页标题
 useSiteTitle('首页');

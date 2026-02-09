@@ -4,14 +4,15 @@
 
 import type { CSSProperties } from "vue";
 import type { ResponsiveStyle, DeviceType, GlobalStyle } from "~/types/builder";
-import { isGlobalStyleRef } from "~/types/schema";
+import { isGlobalStyleRef, isVariableStyleRef } from "~/types/schema";
 
 export function useResponsive() {
   // 根据设备类型计算最终样式
   function resolveStyle(
     style: ResponsiveStyle,
     device: DeviceType,
-    globalStyle?: GlobalStyle
+    globalStyle?: GlobalStyle,
+    variableValues?: Record<string, any>
   ): CSSProperties {
     // 基础样式
     const baseStyle = { ...style.base };
@@ -33,32 +34,42 @@ export function useResponsive() {
     // 合并样式
     const mergedStyle = { ...baseStyle, ...deviceStyle };
 
-    // 解析全局样式引用
+    // 解析样式引用（全局皮肤 + 自定义变量）
     if (globalStyle) {
-      return resolveGlobalStyleRefs(mergedStyle, globalStyle);
+      return resolveStyleRefs(mergedStyle, globalStyle, variableValues);
     }
 
     return mergedStyle;
   }
 
-  // 解析全局样式引用
-  function resolveGlobalStyleRefs(
+  // 解析样式引用（全局皮肤 + 自定义变量）
+  function resolveStyleRefs(
     style: CSSProperties,
-    globalStyle: GlobalStyle
+    globalStyle: GlobalStyle,
+    variableValues?: Record<string, any>
   ): CSSProperties {
     const resolved: CSSProperties = {};
 
     for (const [key, value] of Object.entries(style)) {
       if (isGlobalStyleRef(value)) {
-        // 从全局样式中获取值
         const globalKey = value.key as keyof GlobalStyle;
         resolved[key as keyof CSSProperties] = globalStyle[globalKey] as any;
+      } else if (isVariableStyleRef(value)) {
+        resolved[key as keyof CSSProperties] = (variableValues?.[value.key] ?? '') as any;
       } else {
         resolved[key as keyof CSSProperties] = value;
       }
     }
 
     return resolved;
+  }
+
+  // 解析全局样式引用（兼容旧接口）
+  function resolveGlobalStyleRefs(
+    style: CSSProperties,
+    globalStyle: GlobalStyle
+  ): CSSProperties {
+    return resolveStyleRefs(style, globalStyle);
   }
 
   // 将样式对象转换为 CSS 字符串
@@ -76,23 +87,19 @@ export function useResponsive() {
   function generateResponsiveCSS(
     style: ResponsiveStyle,
     className: string,
-    globalStyle?: GlobalStyle
+    globalStyle?: GlobalStyle,
+    variableValues?: Record<string, any>
   ): string {
     const cssRules: string[] = [];
+    const gs = globalStyle || ({} as GlobalStyle);
 
     // 基础样式
-    const baseResolved = resolveGlobalStyleRefs(
-      style.base,
-      globalStyle || ({} as GlobalStyle)
-    );
+    const baseResolved = resolveStyleRefs(style.base, gs, variableValues);
     cssRules.push(`.${className} { ${styleToString(baseResolved)} }`);
 
     // PC 样式
     if (style.pc) {
-      const pcResolved = resolveGlobalStyleRefs(
-        style.pc,
-        globalStyle || ({} as GlobalStyle)
-      );
+      const pcResolved = resolveStyleRefs(style.pc, gs, variableValues);
       cssRules.push(
         `@media (min-width: 1024px) { .${className} { ${styleToString(pcResolved)} } }`
       );
@@ -100,10 +107,7 @@ export function useResponsive() {
 
     // 平板样式
     if (style.tablet) {
-      const tabletResolved = resolveGlobalStyleRefs(
-        style.tablet,
-        globalStyle || ({} as GlobalStyle)
-      );
+      const tabletResolved = resolveStyleRefs(style.tablet, gs, variableValues);
       cssRules.push(
         `@media (min-width: 768px) and (max-width: 1023px) { .${className} { ${styleToString(tabletResolved)} } }`
       );
@@ -111,10 +115,7 @@ export function useResponsive() {
 
     // 手机样式
     if (style.mobile) {
-      const mobileResolved = resolveGlobalStyleRefs(
-        style.mobile,
-        globalStyle || ({} as GlobalStyle)
-      );
+      const mobileResolved = resolveStyleRefs(style.mobile, gs, variableValues);
       cssRules.push(
         `@media (max-width: 767px) { .${className} { ${styleToString(mobileResolved)} } }`
       );
@@ -123,9 +124,25 @@ export function useResponsive() {
     return cssRules.join("\n");
   }
 
+  // 解析完整 ResponsiveStyle 的所有引用
+  function resolveResponsiveStyleRefs(
+    style: ResponsiveStyle,
+    globalStyle: GlobalStyle,
+    variableValues?: Record<string, any>
+  ): ResponsiveStyle {
+    return {
+      base: resolveStyleRefs(style.base, globalStyle, variableValues),
+      pc: style.pc ? resolveStyleRefs(style.pc, globalStyle, variableValues) : undefined,
+      tablet: style.tablet ? resolveStyleRefs(style.tablet, globalStyle, variableValues) : undefined,
+      mobile: style.mobile ? resolveStyleRefs(style.mobile, globalStyle, variableValues) : undefined,
+    };
+  }
+
   return {
     resolveStyle,
+    resolveStyleRefs,
     resolveGlobalStyleRefs,
+    resolveResponsiveStyleRefs,
     styleToString,
     generateResponsiveCSS,
   };

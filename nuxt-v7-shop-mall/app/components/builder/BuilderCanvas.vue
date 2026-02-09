@@ -28,7 +28,11 @@ const {
 } = useCurrentPage();
 
 // 主题状态
-const { theme } = useThemeSchema();
+const { theme, variableValues, siteConfig } = useThemeSchema();
+
+// 提供变量值给子组件（用于样式引用解析）
+provide('variableValues', variableValues);
+provide('siteConfig', siteConfig);
 
 // 拖拽状态
 const { isDragging, dragState, endDrag } = useDragDrop();
@@ -219,7 +223,7 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
               <template v-if="currentLayout.components.length > 0">
                 <PageRenderer
                   :schema="currentLayout"
-                  :global-style="theme?.globalStyle"
+                  :global-style="siteConfig?.globalStyle"
                   :preview-device="currentDevice"
                   :is-editor="true"
                   @component-click="handleComponentClick"
@@ -242,7 +246,7 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
               <template v-if="currentPage.components.length > 0">
                 <PageRenderer
                   :schema="currentPage"
-                  :global-style="theme?.globalStyle"
+                  :global-style="siteConfig?.globalStyle"
                   :preview-device="currentDevice"
                   :is-editor="true"
                   @component-click="handleComponentClick"

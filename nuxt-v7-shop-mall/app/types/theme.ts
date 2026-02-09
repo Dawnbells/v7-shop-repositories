@@ -88,6 +88,57 @@ export const PAGE_TYPE_LABELS: Record<RequiredPageType | OptionalPageType, strin
   checkout: '收银台'
 }
 
+// 全局皮肤选项分组（供编辑器下拉菜单使用）
+export interface GlobalStyleOptionItem {
+  key: keyof GlobalStyle
+  label: string
+}
+
+export interface GlobalStyleOptionGroup {
+  group: string
+  items: GlobalStyleOptionItem[]
+}
+
+export const GLOBAL_STYLE_OPTIONS: GlobalStyleOptionGroup[] = [
+  {
+    group: "颜色",
+    items: [
+      { key: "primaryColor", label: "主色" },
+      { key: "secondaryColor", label: "辅色" },
+      { key: "successColor", label: "成功色" },
+      { key: "warningColor", label: "警告色" },
+      { key: "errorColor", label: "错误色" },
+      { key: "backgroundColor", label: "背景色" },
+      { key: "surfaceColor", label: "表面色" },
+      { key: "textColor", label: "文字色" },
+      { key: "textSecondaryColor", label: "次要文字色" },
+      { key: "borderColor", label: "边框色" },
+    ],
+  },
+  {
+    group: "字体",
+    items: [
+      { key: "fontFamily", label: "主字体" },
+      { key: "fontSizeBase", label: "基础字号" },
+      { key: "lineHeight", label: "行高" },
+    ],
+  },
+  {
+    group: "圆角",
+    items: [
+      { key: "borderRadiusSmall", label: "小圆角" },
+      { key: "borderRadiusMedium", label: "中圆角" },
+      { key: "borderRadiusLarge", label: "大圆角" },
+    ],
+  },
+  {
+    group: "间距",
+    items: [
+      { key: "spacingUnit", label: "间距单位" },
+    ],
+  },
+]
+
 // 创建默认全局样式
 export function createDefaultGlobalStyle(): GlobalStyle {
   return {

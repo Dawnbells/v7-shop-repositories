@@ -21,14 +21,16 @@ const {
   productInfo,
   productPending,
   siteConfig,
+  variableValues,
   useSiteTitle,
 } = useThemeRender();
 
 // 设置浏览器标签页标题
 useSiteTitle(computed(() => productInfo.value?.title || '商品详情'));
 
-// 提供站点配置给子组件（如 HeaderBar）
+// 提供站点配置和变量值给子组件
 provide('siteConfig', siteConfig);
+provide('variableValues', variableValues);
 
 // 商品页配置
 const pageSchema = computed(() => getPageSchema("product"));

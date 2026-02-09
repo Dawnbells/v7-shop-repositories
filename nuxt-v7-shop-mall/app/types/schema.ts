@@ -13,12 +13,34 @@ export interface GlobalStyleRef {
   key: keyof GlobalStyle  // 如 'primaryColor', 'secondaryColor' 等
 }
 
-// 颜色值类型：可以是静态值或全局样式引用
-export type ColorValue = string | GlobalStyleRef
+// 自定义变量引用（用于样式属性绑定到自定义变量）
+export interface VariableStyleRef {
+  type: 'variable'
+  key: string  // variableSchema 中的 key
+}
+
+// 样式值引用（全局皮肤或自定义变量）
+export type StyleRef = GlobalStyleRef | VariableStyleRef
+
+// 颜色值类型：可以是静态值或样式引用
+export type ColorValue = string | StyleRef
+
+// 样式值：静态值或引用
+export type StyleValue = string | StyleRef
 
 // 判断是否为全局样式引用
 export function isGlobalStyleRef(value: any): value is GlobalStyleRef {
   return value && typeof value === 'object' && value.type === 'global' && 'key' in value
+}
+
+// 判断是否为自定义变量引用
+export function isVariableStyleRef(value: any): value is VariableStyleRef {
+  return value && typeof value === 'object' && value.type === 'variable' && 'key' in value
+}
+
+// 判断是否为样式引用（全局或变量）
+export function isStyleRef(value: any): value is StyleRef {
+  return isGlobalStyleRef(value) || isVariableStyleRef(value)
 }
 
 // 页面类型
