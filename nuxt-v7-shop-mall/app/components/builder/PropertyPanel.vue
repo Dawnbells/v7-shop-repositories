@@ -277,6 +277,12 @@ function handleStyleChange(key: string, value: any) {
   updateComponentDeviceStyle(selectedComponentId.value, { [key]: value }, styleDevice.value);
 }
 
+// 获取样式的静态值（防止 StyleRef 对象显示为 [object Object]）
+function getStaticStyleValue(key: string): string {
+  const value = styleForm.value[key];
+  return isStyleRef(value) ? "" : (value ?? "");
+}
+
 // 获取样式的引用模式
 function getStyleRefMode(key: string): "static" | "ref" {
   return styleRefModes.value[key] || "static";
@@ -302,7 +308,10 @@ function handleStyleRefChange(key: string, refValue: string) {
   if (!selectedComponentId.value || !refValue) return;
 
   // 格式: "global:primaryColor" 或 "variable:myVar"
-  const [type, refKey] = refValue.split(":");
+  const colonIdx = refValue.indexOf(":");
+  if (colonIdx === -1) return;
+  const type = refValue.substring(0, colonIdx);
+  const refKey = refValue.substring(colonIdx + 1);
   if (type === "global") {
     handleStyleChange(key, { type: "global", key: refKey });
   } else if (type === "variable") {
@@ -755,7 +764,7 @@ function handleCopy() {
                   <input
                     type="number"
                     class="property-input"
-                    :value="parseInt(styleForm[style.key]) || ''"
+                    :value="parseInt(getStaticStyleValue(style.key)) || ''"
                     @input="
                       handleStyleChange(
                         style.key,
@@ -771,7 +780,7 @@ function handleCopy() {
                 <div v-else-if="style.type === 'color'" class="color-input">
                   <input
                     type="color"
-                    :value="styleForm[style.key] || '#000000'"
+                    :value="getStaticStyleValue(style.key) || '#000000'"
                     @input="
                       handleStyleChange(
                         style.key,
@@ -782,7 +791,7 @@ function handleCopy() {
                   <input
                     type="text"
                     class="property-input"
-                    :value="styleForm[style.key]"
+                    :value="getStaticStyleValue(style.key)"
                     placeholder="#000000"
                     @input="
                       handleStyleChange(
@@ -797,7 +806,7 @@ function handleCopy() {
                 <select
                   v-else-if="style.type === 'select'"
                   class="property-input"
-                  :value="styleForm[style.key]"
+                  :value="getStaticStyleValue(style.key)"
                   @change="
                     handleStyleChange(
                       style.key,
@@ -821,7 +830,7 @@ function handleCopy() {
                     :min="style.min || 0"
                     :max="style.max || 100"
                     :step="style.step || 1"
-                    :value="parseInt(styleForm[style.key]) || 0"
+                    :value="parseInt(getStaticStyleValue(style.key)) || 0"
                     @input="
                       handleStyleChange(
                         style.key,
@@ -831,7 +840,7 @@ function handleCopy() {
                     "
                   />
                   <span class="slider-value">{{
-                    styleForm[style.key] || 0
+                    getStaticStyleValue(style.key) || 0
                   }}</span>
                 </div>
 
@@ -840,7 +849,7 @@ function handleCopy() {
                   v-else
                   type="text"
                   class="property-input"
-                  :value="styleForm[style.key]"
+                  :value="getStaticStyleValue(style.key)"
                   :placeholder="style.defaultValue"
                   @input="
                     handleStyleChange(

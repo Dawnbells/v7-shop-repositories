@@ -85,8 +85,9 @@ export function useThemeRender() {
   });
 
   // 全局样式（从 siteConfig.globalStyle 获取）
-  const globalStyle = computed<GlobalStyle | null>(() => {
-    return siteConfig.value?.globalStyle || null;
+  const globalStyle = computed<GlobalStyle | undefined>(() => {
+    const gs = siteConfig.value?.globalStyle;
+    return gs ? (gs as GlobalStyle) : undefined;
   });
 
   // 生成全局样式 CSS 变量（变量命名与 LayoutRenderer/PageRenderer 保持一致）

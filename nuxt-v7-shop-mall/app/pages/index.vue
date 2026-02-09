@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { DeviceType } from "~/types/schema";
+
 /**
  * 首页 - SSR 渲染
  * 根据主题配置渲染页面
@@ -35,7 +37,7 @@ const homePageSchema = computed(() => getPageSchema("home"));
 const layout = computed(() => getPageLayout("home"));
 
 // 预览设备（前端访问时使用桌面端）
-const previewDevice = ref<"mobile" | "tablet" | "desktop">("desktop");
+const previewDevice = ref<DeviceType>("pc");
 </script>
 
 <template>
