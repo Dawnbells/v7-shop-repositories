@@ -35,14 +35,6 @@ export const meta: ComponentMeta = {
         '格式: [{ "title": "关于我们", "links": [{ "text": "公司介绍", "url": "/about" }] }]',
     },
     {
-      key: "socialLinks",
-      label: "社交媒体",
-      type: "json",
-      defaultValue: [],
-      description:
-        '格式: [{ "icon": "i-carbon-logo-wechat", "url": "#", "name": "微信" }]',
-    },
-    {
       key: "copyright",
       label: "版权信息",
       type: "text",
@@ -114,10 +106,6 @@ export const meta: ComponentMeta = {
         ],
       },
     ],
-    socialLinks: [
-      { icon: "i-carbon-logo-wechat", url: "#", name: "微信" },
-      { icon: "i-carbon-logo-twitter", url: "#", name: "Twitter" },
-    ],
     copyright: "© 2024 商城. All rights reserved.",
     showBackToTop: true,
     backToTopMode: "auto",
@@ -163,7 +151,6 @@ interface Props {
   logoText?: string;
   description?: string;
   linkGroups?: LinkGroup[];
-  socialLinks?: SocialLink[];
   copyright?: string;
   showBackToTop?: boolean;
   backToTopMode?: "auto" | "always" | "never";
@@ -173,10 +160,32 @@ const props = withDefaults(defineProps<Props>(), {
   logoText: "商城",
   description: "为您提供优质的购物体验",
   linkGroups: () => [],
-  socialLinks: () => [],
   copyright: "© 2024 商城. All rights reserved.",
   showBackToTop: true,
   backToTopMode: "auto",
+});
+
+// 社交媒体平台映射表
+const SOCIAL_PLATFORMS = [
+  { key: "facebook", icon: "i-carbon-logo-facebook", name: "Facebook" },
+  { key: "twitter", icon: "i-carbon-logo-twitter", name: "Twitter" },
+  { key: "instagram", icon: "i-carbon-logo-instagram", name: "Instagram" },
+  { key: "youtube", icon: "i-carbon-logo-youtube", name: "YouTube" },
+  { key: "tiktok", icon: "i-carbon-logo-tiktok", name: "TikTok" },
+  { key: "linkedin", icon: "i-carbon-logo-linkedin", name: "LinkedIn" },
+] as const;
+
+// 从全局 siteConfig 读取社交媒体链接，过滤未配置的项
+const { siteConfig } = useThemeRender();
+
+const socialLinks = computed<SocialLink[]>(() => {
+  return SOCIAL_PLATFORMS
+    .filter((p) => siteConfig.value?.[p.key])
+    .map((p) => ({
+      icon: p.icon,
+      url: siteConfig.value[p.key] as string,
+      name: p.name,
+    }));
 });
 
 // 展开的链接分组 (移动端折叠)

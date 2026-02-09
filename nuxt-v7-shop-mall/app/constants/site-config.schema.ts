@@ -131,6 +131,15 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     description: "浏览器标签页显示的小图标",
   },
   {
+    key: "browserTabTitle",
+    label: "浏览器标签标题",
+    type: "text",
+    defaultValue: "",
+    placeholder: "如：Vapsolo",
+    group: "basic",
+    description: "浏览器标签页标题后缀，格式：页面标题 - {此值}",
+  },
+  {
     key: "slogan",
     label: "标语",
     type: "text",
@@ -147,15 +156,6 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     placeholder: "简要描述网站内容",
     group: "basic",
     description: "用于 SEO 和品牌展示",
-  },
-  {
-    key: "browserTabTitle",
-    label: "浏览器标签标题",
-    type: "text",
-    defaultValue: "",
-    placeholder: "如：Vapsolo",
-    group: "basic",
-    description: "浏览器标签页标题后缀，格式：页面标题 - {此值}",
   },
 
   // ============ 联系方式 ============
@@ -489,18 +489,22 @@ export function getI18nFields(): SiteFieldSchema[] {
  * @param path 路径，如 "globalStyle.primaryColor"
  * @param value 值
  */
-function setNestedValue(obj: Record<string, any>, path: string, value: any): void {
-  const keys = path.split('.');
+function setNestedValue(
+  obj: Record<string, any>,
+  path: string,
+  value: any
+): void {
+  const keys = path.split(".");
   let current = obj;
-  
+
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (!(key in current) || typeof current[key] !== 'object') {
+    if (!(key in current) || typeof current[key] !== "object") {
       current[key] = {};
     }
     current = current[key];
   }
-  
+
   current[keys[keys.length - 1]] = value;
 }
 

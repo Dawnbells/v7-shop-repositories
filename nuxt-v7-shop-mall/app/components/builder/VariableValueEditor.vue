@@ -588,34 +588,17 @@ function handleImageSelect(images: any[]) {
 .editor-content {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 16px 20px;
-  scrollbar-width: thin;
-  scrollbar-color: #475569 transparent;
-}
-
-.editor-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.editor-content::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.editor-content::-webkit-scrollbar-thumb {
-  background-color: #475569;
-  border-radius: 4px;
-}
-
-.editor-content::-webkit-scrollbar-thumb:hover {
-  background-color: #64748b;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 站点配置面板 - 左右布局 */
 .site-config-panel {
   display: flex;
   gap: 16px;
-  height: 100%;
+  flex: 1;
   min-height: 0;
   overflow: hidden;
 }
@@ -692,6 +675,7 @@ function handleImageSelect(images: any[]) {
 .site-group-content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 8px;
   scrollbar-width: thin;
@@ -1003,8 +987,10 @@ function handleImageSelect(images: any[]) {
 /* 全局皮肤面板 - 使用与全局配置相同的左右布局 */
 .global-style-panel {
   display: flex;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   gap: 12px;
+  overflow: hidden;
 }
 
 .reset-section {
@@ -1039,7 +1025,8 @@ function handleImageSelect(images: any[]) {
 
 /* 用户变量面板 */
 .variables-panel {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 8px;
   scrollbar-width: thin;
