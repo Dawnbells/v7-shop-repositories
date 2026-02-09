@@ -102,6 +102,7 @@ export default defineConfig({
     'i-carbon-logo-wechat', 'i-carbon-logo-twitter',
     'i-carbon-logo-facebook', 'i-carbon-logo-instagram',
     'i-carbon-logo-youtube', 'i-carbon-logo-linkedin',
+    'i-simple-icons-tiktok',
     // 站点配置分组图标
     'i-carbon-information', 'i-carbon-row-collapse',
     'i-carbon-globe', 'i-carbon-data-vis-4',
