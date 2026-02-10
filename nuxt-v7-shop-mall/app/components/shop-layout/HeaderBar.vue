@@ -153,7 +153,9 @@ const props = withDefaults(defineProps<Props>(), {
 const mergedStyle = computed(() => {
   if (!props.componentStyle) return {};
   const base = props.componentStyle.base || {};
-  const device = props.previewDevice ? props.componentStyle[props.previewDevice] || {} : {};
+  const device = props.previewDevice
+    ? props.componentStyle[props.previewDevice] || {}
+    : {};
   return { ...base, ...device };
 });
 
@@ -168,7 +170,7 @@ const logoHeight = computed(() => {
 // 计算 Header 动态样式
 const headerStyle = computed(() => {
   const style: Record<string, string> = {};
-  
+
   if (mergedStyle.value.backgroundColor) {
     style.backgroundColor = mergedStyle.value.backgroundColor as string;
   }
@@ -177,12 +179,14 @@ const headerStyle = computed(() => {
   }
   // 底部横线：根据 showBottomBorder 开关控制
   if (props.showBottomBorder) {
-    const borderColor = (mergedStyle.value.borderColor as string) || "var(--border-color, #e2e8f0)";
+    const borderColor =
+      (mergedStyle.value.borderColor as string) ||
+      "var(--border-color, #e2e8f0)";
     style.borderBottom = `1px solid ${borderColor}`;
   } else {
     style.borderBottom = "none";
   }
-  
+
   return style;
 });
 
@@ -204,17 +208,17 @@ const enableCart = computed(() => siteConfig.value?.enableCart !== false);
 
 // 是否同时有 Logo 和网站名称（需要特殊布局：名称靠左，Logo 居中）
 const hasBothLogoAndName = computed(
-  () => !!logo.value && !!siteConfig.value?.siteName
+  () => !!logo.value && !!siteConfig.value?.siteName,
 );
 
 // 实际是否居中显示（同时有两者时强制居中 Logo）
 const shouldCenterLogo = computed(
-  () => hasBothLogoAndName.value || props.centerLogo
+  () => hasBothLogoAndName.value || props.centerLogo,
 );
 
 // 是否显示操作区
 const showActions = computed(
-  () => enableCart.value || props.showUser || props.showLocale
+  () => enableCart.value || props.showUser || props.showLocale,
 );
 
 // 抽屉菜单状态
@@ -235,6 +239,11 @@ function closeDrawer() {
   isDrawerOpen.value = false;
 }
 
+// Logo 点击跳转首页
+function handleLogoClick() {
+  navigateTo("/");
+}
+
 // 监听 ESC 键关闭抽屉
 onMounted(() => {
   const handleEsc = (e: KeyboardEvent) => {
@@ -251,7 +260,11 @@ onMounted(() => {
 
 <template>
   <header class="header-bar" :style="headerStyle">
-    <div class="header-content" :class="{ 'center-logo': shouldCenterLogo }" :style="contentStyle">
+    <div
+      class="header-content"
+      :class="{ 'center-logo': shouldCenterLogo }"
+      :style="contentStyle"
+    >
       <!-- 移动端菜单按钮 -->
       <button
         v-if="navItems.length > 0"
@@ -279,7 +292,11 @@ onMounted(() => {
       </div>
 
       <!-- Logo 区域 - 使用全局站点配置 -->
-      <div class="header-logo" :class="{ 'logo-centered': shouldCenterLogo }">
+      <div
+        class="header-logo"
+        :class="{ 'logo-centered': shouldCenterLogo }"
+        @click="handleLogoClick"
+      >
         <AppImage
           v-if="logo"
           :src="logo"
@@ -478,6 +495,12 @@ onMounted(() => {
 
 .header-logo {
   flex-shrink: 0;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.header-logo:hover {
+  opacity: 0.8;
 }
 
 /* Logo 居中时使用绝对定位 */
@@ -490,6 +513,7 @@ onMounted(() => {
 .logo-image {
   /* height 由 :style 动态绑定（从 styleSchema.logoHeight 获取） */
   width: auto;
+  display: block;
 }
 
 .logo-text {
