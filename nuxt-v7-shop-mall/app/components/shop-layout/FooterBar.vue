@@ -10,7 +10,7 @@ export const meta: ComponentMeta = {
   name: "页脚信息",
   icon: "i-carbon-bookmark",
   category: "layout",
-  description: "页脚组件，支持品牌信息、链接分组、社交媒体、版权声明",
+  description: "页脚组件，支持品牌信息、绑定协议分组链接、社交媒体、版权声明",
   propsSchema: [
     {
       key: "logoText",
@@ -25,14 +25,6 @@ export const meta: ComponentMeta = {
       type: "textarea",
       defaultValue: "为您提供优质的购物体验",
       placeholder: "简短的品牌描述",
-    },
-    {
-      key: "linkGroups",
-      label: "链接分组",
-      type: "json",
-      defaultValue: [],
-      description:
-        '格式: [{ "title": "关于我们", "links": [{ "text": "公司介绍", "url": "/about" }] }]',
     },
     {
       key: "copyright",
@@ -90,22 +82,6 @@ export const meta: ComponentMeta = {
   defaultProps: {
     logoText: "商城",
     description: "为您提供优质的购物体验",
-    linkGroups: [
-      {
-        title: "关于我们",
-        links: [
-          { text: "公司介绍", url: "/about" },
-          { text: "联系我们", url: "/contact" },
-        ],
-      },
-      {
-        title: "帮助中心",
-        links: [
-          { text: "常见问题", url: "/faq" },
-          { text: "退换货政策", url: "/return-policy" },
-        ],
-      },
-    ],
     copyright: "© 2024 商城. All rights reserved.",
     showBackToTop: true,
     backToTopMode: "auto",
@@ -150,7 +126,6 @@ interface SocialLink {
 interface Props {
   logoText?: string;
   description?: string;
-  linkGroups?: LinkGroup[];
   copyright?: string;
   showBackToTop?: boolean;
   backToTopMode?: "auto" | "always" | "never";
@@ -159,10 +134,16 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   logoText: "商城",
   description: "为您提供优质的购物体验",
-  linkGroups: () => [],
   copyright: "© 2024 商城. All rights reserved.",
   showBackToTop: true,
   backToTopMode: "auto",
+});
+
+// 链接分组来自当前落地页绑定的协议（pageContext.protocolGroups），编辑器预览时可能为空
+const pageContext = usePageContext(["protocolGroups"]);
+const linkGroups = computed<LinkGroup[]>(() => {
+  const groups = pageContext.value.protocolGroups;
+  return Array.isArray(groups) ? groups : [];
 });
 
 // 社交媒体平台映射表
@@ -272,7 +253,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- 链接分组 -->
+        <!-- 协议分组链接（来自落地页绑定的协议） -->
         <div v-if="linkGroups.length > 0" class="footer-links">
           <div
             v-for="(group, groupIndex) in linkGroups"

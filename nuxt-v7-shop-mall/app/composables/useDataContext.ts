@@ -8,10 +8,21 @@ import type { InjectionKey } from "vue";
 import type { ProductInfo } from "~/types/page-context";
 import type { PropBinding, BindableField, DataFieldSchema } from "~/types/data-context";
 
+// 文章信息类型
+export interface ArticleInfo {
+  id: number;
+  name: string;
+  title: string;
+  content: string;
+  description: string;
+}
+
 // 数据上下文类型
 export interface DataContext {
   // 产品信息
   product?: ProductInfo;
+  // 文章信息
+  article?: ArticleInfo;
   // 用户信息（可扩展）
   user?: {
     id?: string;

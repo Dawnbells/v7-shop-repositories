@@ -127,4 +127,10 @@ public interface ISubDomainService extends IBaseService<SubDomain> {
      * @param landingPageType 落地页类型
      */
     void unbindLandingPageSpu(Long subDomainId, Long spuId, cn.v7soft.dao.enums.LandingPageType landingPageType);
+
+    /**
+     * 绑定协议到落地页
+     * @param request 绑定协议请求
+     */
+    void bindLandingPageProtocol(cn.v7soft.admin.controller.req.BindLandingPageProtocolRequest request);
 }

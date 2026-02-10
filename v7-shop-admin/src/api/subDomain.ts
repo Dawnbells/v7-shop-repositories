@@ -138,6 +138,29 @@ export function bindLandingPageSpu(data: {
 }
 
 /**
+ * 绑定协议到落地页
+ * @param data 绑定参数
+ * - subDomainId: 子域名ID
+ * - spuId: 当前绑定的SPU ID
+ * - landingPageType: 落地页类型 ('LAND' | 'CLOAK' | 'BLACKLISTED')
+ * - protocolId: 协议ID
+ * - placeholderValues: 占位符值
+ */
+export function bindLandingPageProtocol(data: {
+  subDomainId: number | string
+  spuId: number | string
+  landingPageType: 'LAND' | 'CLOAK' | 'BLACKLISTED'
+  protocolId: string
+  placeholderValues: Record<string, string>
+}) {
+  return request({
+    url: '/sub-domain/bindLandingPageProtocol',
+    method: 'post',
+    data,
+  })
+}
+
+/**
  * 解绑落地页SPU（使用默认配置）
  * @param data 解绑参数
  * - subDomainId: 子域名ID

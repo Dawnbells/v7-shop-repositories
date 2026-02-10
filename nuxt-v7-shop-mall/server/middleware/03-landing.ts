@@ -12,6 +12,7 @@ import { SafePageType } from "~/types/page-context";
 import { getPageContext, updatePageContext } from "../utils/page-context";
 import { showSafePage } from "../utils/safe-page";
 import { findLandingPageConfig } from "../cache/landing.cache";
+import { findProtocolGroupsForFooter } from "../repositories/protocol.repository";
 
 export default defineEventHandler(async (event) => {
   const path = event.path || "";
@@ -61,12 +62,29 @@ export default defineEventHandler(async (event) => {
         hasThemeConfig: !!config.themeConfig,
         themeConfig: JSON.stringify(config.themeConfig),
       });
-      // 更新 pageContext：存入 landingProductId 和渲染配置
+
+      // 若落地页绑定了协议，加载协议分组用于页脚链接
+      let protocolGroups: { title: string; links: { text: string; url: string }[] }[] = [];
+      if (config.protocolId) {
+        const languageId =
+          pageContext.domain?.languageId ??
+          (Array.isArray(pageContext.languages) && pageContext.languages.length > 0
+            ? (pageContext.languages[0] as { id?: number })?.id
+            : undefined);
+        protocolGroups = await findProtocolGroupsForFooter(
+          config.protocolId,
+          languageId,
+          config.protocolPlaceholderValues ?? undefined
+        );
+      }
+
+      // 更新 pageContext：存入 landingProductId、渲染配置与协议分组
       updatePageContext(event, {
         landingProductId: config.landingProductId,
         themeConfig: config.themeConfig,
         siteConfig: config.siteConfig,
         variableValues: config.variableValues,
+        protocolGroups,
       });
     } else {
       console.log("[Landing Middleware] No config found");

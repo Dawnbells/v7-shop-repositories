@@ -213,4 +213,6 @@ export interface PageContext {
   siteConfig?: Record<string, any>;
   /** 变量实际值（用户自定义变量的值） */
   variableValues?: Record<string, any>;
+  /** 当前落地页绑定协议的分组链接（用于页脚展示） */
+  protocolGroups?: { title: string; links: { text: string; url: string }[] }[];
 }

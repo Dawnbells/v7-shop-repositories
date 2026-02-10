@@ -20,6 +20,7 @@ import cn.v7soft.dao.enums.LandingPageType;
 import jakarta.validation.Valid;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.v7soft.admin.controller.req.BindLandingPageProtocolRequest;
 import cn.v7soft.admin.controller.req.BindLandingPageSpuRequest;
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
 import cn.v7soft.admin.controller.req.BindSpuPixelRequest;
@@ -198,6 +199,12 @@ public class SubDomainController extends BaseController<SubDomain, ISubDomainSer
     @Operation(summary = "解绑落地页SPU（删除个性化配置，使用默认配置）")
     public void unbindLandingPageSpu(@Valid @RequestBody UnbindLandingPageSpuRequest request) {
         service.unbindLandingPageSpu(request.getSubDomainId(), request.getSpuId(), request.getLandingPageType());
+    }
+
+    @PostMapping("/bindLandingPageProtocol")
+    @Operation(summary = "绑定协议到落地页")
+    public void bindLandingPageProtocol(@Valid @RequestBody BindLandingPageProtocolRequest request) {
+        service.bindLandingPageProtocol(request);
     }
 
     @Operation(summary = "远程搜索")

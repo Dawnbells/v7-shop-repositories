@@ -1,5 +1,6 @@
 package cn.v7soft.dao.entities.primary;
 
+import cn.v7soft.dao.converter.MapStringConverter;
 import cn.v7soft.dao.enums.LandingPageType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -9,6 +10,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * 子域名SPU落地页配置实体类
@@ -67,6 +69,20 @@ public class SubDomainSpuLandingPage {
      */
     @Column(name = "variable_values", columnDefinition = "JSON")
     private String variableValues;
+
+    /**
+     * 绑定的协议
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "protocol_id")
+    private Protocol protocol;
+
+    /**
+     * 协议占位符值
+     */
+    @Column(name = "protocol_placeholder_values", columnDefinition = "JSON")
+    @Convert(converter = MapStringConverter.class)
+    private Map<String, String> protocolPlaceholderValues;
 
     /**
      * 创建时间

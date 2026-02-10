@@ -174,6 +174,19 @@
                           >
                             主题
                           </el-button>
+                          <el-tooltip
+                            :content="spuDetail.realLandingPageProtocol ? '已绑定：' + spuDetail.realLandingPageProtocol.protocolName : '未绑定协议'"
+                            placement="top"
+                          >
+                            <el-button
+                              :icon="Notebook"
+                              link
+                              :type="spuDetail.realLandingPageProtocol ? 'success' : 'info'"
+                              @click="handleBindProtocol('LAND')"
+                            >
+                              协议
+                            </el-button>
+                          </el-tooltip>
                           <el-button
                             :icon="CopyDocument"
                             link
@@ -233,6 +246,19 @@
                           >
                             主题
                           </el-button>
+                          <el-tooltip
+                            :content="spuDetail.riskUserLandingPageProtocol ? '已绑定：' + spuDetail.riskUserLandingPageProtocol.protocolName : '未绑定协议'"
+                            placement="top"
+                          >
+                            <el-button
+                              :icon="Notebook"
+                              link
+                              :type="spuDetail.riskUserLandingPageProtocol ? 'success' : 'info'"
+                              @click="handleBindProtocol('CLOAK')"
+                            >
+                              协议
+                            </el-button>
+                          </el-tooltip>
                           <el-button
                             :icon="CopyDocument"
                             link
@@ -293,6 +319,19 @@
                           >
                             主题
                           </el-button>
+                          <el-tooltip
+                            :content="spuDetail.blacklistLandingPageProtocol ? '已绑定：' + spuDetail.blacklistLandingPageProtocol.protocolName : '未绑定协议'"
+                            placement="top"
+                          >
+                            <el-button
+                              :icon="Notebook"
+                              link
+                              :type="spuDetail.blacklistLandingPageProtocol ? 'success' : 'info'"
+                              @click="handleBindProtocol('BLACKLISTED')"
+                            >
+                              协议
+                            </el-button>
+                          </el-tooltip>
                           <el-button
                             :icon="CopyDocument"
                             link
@@ -489,6 +528,12 @@
     @save="handleThemeEditorSave"
   />
 
+  <!-- 落地页协议绑定弹窗 -->
+  <BindLandingPageProtocolEdit
+    ref="protocolEditRef"
+    @fetch-data="loadSpuDetail(activeSpuTab)"
+  />
+
   <!-- 站点配置弹窗 -->
   <schema-form-dialog
     ref="siteConfigDialogRef"
@@ -565,12 +610,14 @@ import {
   Link,
   Loading,
   Monitor,
+  Notebook,
   Plus,
   Refresh,
   Search,
   Setting
 } from '@element-plus/icons-vue'
 import SchemaFormDialog from './SchemaFormDialog.vue'
+import BindLandingPageProtocolEdit from './BindLandingPageProtocolEdit.vue'
 import BuilderEditorDialog from '/@/components/BuilderEditorDialog.vue'
 import { getRemoteQuery as getRemoteQueryPixel } from '/@/api/pixelAccount'
 import { getRemoteQuery } from '/@/api/spu'
@@ -623,6 +670,13 @@ interface LandingPageSpu {
   supportCurrentCountry?: boolean
 }
 
+// 协议信息类型
+interface ProtocolInfo {
+  protocolId: number | null
+  protocolName: string | null
+  placeholderValues: Record<string, string> | null
+}
+
 // SPU详情数据
 const spuDetail = ref<{
   realLandingPageSpu: LandingPageSpu | null
@@ -638,6 +692,9 @@ const spuDetail = ref<{
     platform: string
     conversionEvent?: string
   }>
+  realLandingPageProtocol: ProtocolInfo | null
+  riskUserLandingPageProtocol: ProtocolInfo | null
+  blacklistLandingPageProtocol: ProtocolInfo | null
 }>({
   realLandingPageSpu: null,
   crawlerLandingPageSpu: null,
@@ -646,6 +703,9 @@ const spuDetail = ref<{
   theme: null,
   themeEditorUrl: null,
   pixels: [],
+  realLandingPageProtocol: null,
+  riskUserLandingPageProtocol: null,
+  blacklistLandingPageProtocol: null,
 })
 
 // 像素弹窗相关
@@ -682,6 +742,9 @@ const selectedTemplateId = ref<number | null>(null)
 const templateSearchLoading = ref<boolean>(false)
 const applyTemplateLoading = ref<boolean>(false)
 const templateOptions = ref<any[]>([])
+
+// 协议绑定弹窗相关
+const protocolEditRef = ref<InstanceType<typeof BindLandingPageProtocolEdit> | null>(null)
 
 // 站点配置弹窗相关
 const siteConfigDialogRef = ref<InstanceType<typeof SchemaFormDialog> | null>(null)
@@ -888,6 +951,9 @@ watch(activeSpuTab, async (newVal) => {
       theme: null,
       themeEditorUrl: null,
       pixels: [],
+      realLandingPageProtocol: null,
+      riskUserLandingPageProtocol: null,
+      blacklistLandingPageProtocol: null,
     }
   }
 })
@@ -905,6 +971,9 @@ const loadSpuDetail = async (spuId: string) => {
       theme: data?.theme || null,
       themeEditorUrl: data?.themeEditorUrl || null,
       pixels: data?.pixels || [],
+      realLandingPageProtocol: data?.realLandingPageProtocol || null,
+      riskUserLandingPageProtocol: data?.riskUserLandingPageProtocol || null,
+      blacklistLandingPageProtocol: data?.blacklistLandingPageProtocol || null,
     }
   } catch (error) {
     console.error('加载SPU详情失败:', error)
@@ -968,6 +1037,25 @@ const handleThemeEditorClose = () => {
 // 主题编辑器保存
 const handleThemeEditorSave = () => {
   loadSpuDetail(activeSpuTab.value)
+}
+
+// 绑定落地页协议
+const handleBindProtocol = (landingType: 'LAND' | 'CLOAK' | 'BLACKLISTED') => {
+  // 根据落地页类型获取当前的协议信息
+  const protocolFieldMap: Record<string, string> = {
+    LAND: 'realLandingPageProtocol',
+    CLOAK: 'riskUserLandingPageProtocol',
+    BLACKLISTED: 'blacklistLandingPageProtocol',
+  }
+  const protocolInfo = (spuDetail.value as any)[protocolFieldMap[landingType]] || null
+  protocolEditRef.value?.showEdit({
+    subDomainId: subDomainId.value,
+    spuId: activeSpuTab.value,
+    landingPageType: landingType,
+    protocolId: protocolInfo?.protocolId || '',
+    protocolName: protocolInfo?.protocolName || '',
+    placeholderValues: protocolInfo?.placeholderValues || {},
+  })
 }
 
 // 编辑落地页站点配置

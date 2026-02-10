@@ -30,7 +30,8 @@ type PageContextPaths =
   | "themeConfig"
   | "siteConfig"
   | "variableValues"
-  | "languages";
+  | "languages"
+  | "protocolGroups";
 
 /** 根据路径获取值类型 */
 type PathValue<T, P extends string> = P extends keyof T

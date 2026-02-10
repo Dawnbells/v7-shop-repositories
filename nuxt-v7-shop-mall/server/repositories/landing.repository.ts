@@ -167,6 +167,10 @@ export interface LandingPageConfig {
   variableValues: Record<string, any>;
   /** 变量定义 schema */
   variableSchema: Record<string, any>;
+  /** 绑定的协议 ID（用于页脚协议分组） */
+  protocolId: number | null;
+  /** 协议占位符值（用于替换协议内文章中的 {{key}}） */
+  protocolPlaceholderValues: Record<string, string> | null;
 }
 
 /**
@@ -183,7 +187,8 @@ export async function findLandingPageConfig(
   landingPageType: string
 ): Promise<LandingPageConfig | null> {
   const sql = `
-    SELECT landing_page_product_id, theme_config, site_config, variable_values, variable_schema
+    SELECT landing_page_product_id, theme_config, site_config, variable_values, variable_schema,
+           protocol_id, protocol_placeholder_values
     FROM t_sub_domain_spu_landing_pages
     WHERE sub_domain_id = ? AND spu_id = ? AND landing_page_type = ?
     LIMIT 1
@@ -194,12 +199,18 @@ export async function findLandingPageConfig(
     return null;
   }
 
+  const protocolPlaceholderValues = parseJsonField(row.protocol_placeholder_values);
   return {
     landingProductId: row.landing_page_product_id,
     themeConfig: parseJsonField(row.theme_config),
     siteConfig: parseJsonField(row.site_config) || {},
     variableValues: parseJsonField(row.variable_values) || {},
     variableSchema: parseJsonField(row.variable_schema) || {},
+    protocolId: row.protocol_id != null ? Number(row.protocol_id) : null,
+    protocolPlaceholderValues:
+      protocolPlaceholderValues && typeof protocolPlaceholderValues === "object"
+        ? (protocolPlaceholderValues as Record<string, string>)
+        : null,
   };
 }
 

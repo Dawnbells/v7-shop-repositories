@@ -36,6 +36,7 @@ import cn.v7soft.dao.entities.primary.CloudPlatformAccount;
 import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.entities.primary.PixelAccount;
 import cn.v7soft.dao.entities.primary.Product;
+import cn.v7soft.dao.entities.primary.Protocol;
 import cn.v7soft.dao.entities.primary.Spu;
 import cn.v7soft.dao.entities.primary.SubDomain;
 import cn.v7soft.dao.entities.primary.SubDomainSpuLandingPage;
@@ -371,6 +372,19 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
             themeEditorUrl = "https://theme." + companyDomain + "?subDomainId=" + subDomainId + "&spuId=" + spuId;
         }
 
+        // 构建各落地页类型的协议信息
+        java.util.Map<LandingPageType, SubDomainSpuDetailResponse.ProtocolInfo> protocolInfoMap = new java.util.HashMap<>();
+        for (SubDomainSpuLandingPage lp : landingPageBindings) {
+            if (lp.getProtocol() != null) {
+                Protocol proto = lp.getProtocol();
+                protocolInfoMap.put(lp.getLandingPageType(), SubDomainSpuDetailResponse.ProtocolInfo.builder()
+                        .protocolId(proto.getId())
+                        .protocolName(proto.getName())
+                        .placeholderValues(lp.getProtocolPlaceholderValues())
+                        .build());
+            }
+        }
+
         return SubDomainSpuDetailResponse.builder()
                 .realLandingPageSpu(realLandingPageSpu)
                 .riskUserLandingPageSpu(riskUserLandingPageSpu)
@@ -378,6 +392,9 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
                 .theme(theme)
                 .pixels(pixels)
                 .themeEditorUrl(themeEditorUrl)
+                .realLandingPageProtocol(protocolInfoMap.get(LandingPageType.LAND))
+                .riskUserLandingPageProtocol(protocolInfoMap.get(LandingPageType.CLOAK))
+                .blacklistLandingPageProtocol(protocolInfoMap.get(LandingPageType.BLACKLISTED))
                 .build();
     }
 
@@ -440,5 +457,24 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     @Transactional
     public void unbindLandingPageSpu(Long subDomainId, Long spuId, LandingPageType landingPageType) {
         subDomainSpuLandingPageRepository.deleteById(new SubDomainSpuLandingPageId(subDomainId, spuId, landingPageType));
+    }
+
+    @Override
+    @Transactional
+    public void bindLandingPageProtocol(cn.v7soft.admin.controller.req.BindLandingPageProtocolRequest request) {
+        SubDomainSpuLandingPageId id = new SubDomainSpuLandingPageId(
+                request.getSubDomainId(), request.getSpuId(), request.getLandingPageType());
+        SubDomainSpuLandingPage landingPage = subDomainSpuLandingPageRepository.findById(id)
+                .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("落地页配置不存在"));
+
+        if (cn.hutool.core.util.StrUtil.isBlank(request.getProtocolId())) {
+            landingPage.setProtocol(null);
+            landingPage.setProtocolPlaceholderValues(null);
+        } else {
+            landingPage.setProtocol(Protocol.builder().id(Long.valueOf(request.getProtocolId())).build());
+            landingPage.setProtocolPlaceholderValues(request.getPlaceholderValues());
+        }
+        landingPage.setUpdatedAt(LocalDateTime.now());
+        subDomainSpuLandingPageRepository.save(landingPage);
     }
 }
