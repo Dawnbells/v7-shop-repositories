@@ -31,8 +31,9 @@ const {
 const { theme, variableValues, siteConfig } = useThemeSchema();
 
 // 提供变量值给子组件（用于样式引用解析）
-provide('variableValues', variableValues);
-provide('siteConfig', siteConfig);
+provide("variableValues", variableValues);
+provide("siteConfig", siteConfig);
+provide("isInEditor", ref(true)); // 标识当前在编辑器环境中
 
 // 拖拽状态
 const { isDragging, dragState, endDrag } = useDragDrop();
@@ -41,7 +42,7 @@ const { isDragging, dragState, endDrag } = useDragDrop();
 const { getComponentMeta } = useComponentRegistry();
 
 // 提供组件操作方法给子组件（用于悬浮菜单）
-provide('editorActions', {
+provide("editorActions", {
   moveComponentUp,
   moveComponentDown,
   removeComponent,
@@ -82,44 +83,44 @@ const currentDeviceLabel = computed(() => {
 const isResizing = ref(false);
 
 // 开始调整宽度
-function startResize(event: PointerEvent, side: 'left' | 'right') {
+function startResize(event: PointerEvent, side: "left" | "right") {
   event.preventDefault();
-  
+
   const startX = event.clientX;
   const startWidth = canvasWidth.value;
-  
+
   isResizing.value = true;
-  
+
   const onMove = (e: PointerEvent) => {
     // 根据拖拽方向计算宽度变化
     // 左边拖拽：向左拉增加宽度，向右拉减少宽度
     // 右边拖拽：向右拉增加宽度，向左拉减少宽度
     const dx = e.clientX - startX;
-    const delta = side === 'right' ? dx : -dx;
-    
+    const delta = side === "right" ? dx : -dx;
+
     // 双边同时调整，所以变化量翻倍
     let newWidth = startWidth + delta * 2;
-    
+
     // 限制宽度范围
     newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
-    
+
     customWidth.value = Math.round(newWidth);
-    
+
     // 根据宽度自动更新设备类型
     const device = getDeviceType(newWidth);
     if (device !== currentDevice.value) {
       switchDevice(device);
     }
   };
-  
+
   const onUp = () => {
     isResizing.value = false;
-    window.removeEventListener('pointermove', onMove);
-    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
   };
-  
-  window.addEventListener('pointermove', onMove);
-  window.addEventListener('pointerup', onUp);
+
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
 }
 
 // 重置为设备预设宽度
@@ -164,7 +165,7 @@ function handleDragOver(event: DragEvent) {
 }
 
 // 宽度输入处理
-const widthInputValue = ref('');
+const widthInputValue = ref("");
 
 function handleWidthInputFocus() {
   widthInputValue.value = String(canvasWidth.value);
@@ -175,15 +176,15 @@ function handleWidthInputBlur() {
   if (!isNaN(value) && value >= MIN_WIDTH && value <= MAX_WIDTH) {
     setWidth(value);
   }
-  widthInputValue.value = '';
+  widthInputValue.value = "";
 }
 
 function handleWidthInputKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter') {
+  if (event.key === "Enter") {
     (event.target as HTMLInputElement).blur();
   }
-  if (event.key === 'Escape') {
-    widthInputValue.value = '';
+  if (event.key === "Escape") {
+    widthInputValue.value = "";
     (event.target as HTMLInputElement).blur();
   }
 }
@@ -209,7 +210,7 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
         >
           <div class="resize-handle-bar"></div>
         </div>
-        
+
         <!-- 设备框架 -->
         <div
           ref="deviceFrameRef"
@@ -232,7 +233,9 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
               <!-- 布局空状态 -->
               <div v-else class="empty-canvas">
                 <div class="empty-content">
-                  <span class="i-carbon-template text-5xl text-purple-400 mb-4"></span>
+                  <span
+                    class="i-carbon-template text-5xl text-purple-400 mb-4"
+                  ></span>
                   <p class="text-lg text-gray-400 mb-2">拖拽组件到这里</p>
                   <p class="text-sm text-gray-500">
                     布局中的组件将应用于使用此布局的所有页面
@@ -255,7 +258,9 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
               <!-- 页面空状态 -->
               <div v-else class="empty-canvas">
                 <div class="empty-content">
-                  <span class="i-carbon-drag-horizontal text-5xl text-gray-500 mb-4"></span>
+                  <span
+                    class="i-carbon-drag-horizontal text-5xl text-gray-500 mb-4"
+                  ></span>
                   <p class="text-lg text-gray-400 mb-2">拖拽组件到这里</p>
                   <p class="text-sm text-gray-500">
                     从左侧面板拖拽组件开始搭建页面
@@ -267,7 +272,9 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
             <!-- 无内容 -->
             <div v-else class="empty-canvas">
               <div class="empty-content">
-                <span class="i-carbon-warning text-5xl text-amber-500 mb-4"></span>
+                <span
+                  class="i-carbon-warning text-5xl text-amber-500 mb-4"
+                ></span>
                 <p class="text-lg text-gray-400 mb-2">无法加载内容</p>
               </div>
             </div>
@@ -278,7 +285,7 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
             <!-- 选中框通过 CSS 实现 -->
           </div>
         </div>
-        
+
         <!-- 右侧拖拽手柄 -->
         <div
           class="resize-handle resize-handle-right"
@@ -294,7 +301,7 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
       <!-- 设备类型 -->
       <span class="device-label">{{ currentDeviceLabel }}</span>
       <span class="divider">|</span>
-      
+
       <!-- 宽度输入/显示 -->
       <div class="width-control">
         <input
@@ -308,7 +315,7 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
         />
         <span class="width-unit">px</span>
       </div>
-      
+
       <!-- 重置按钮 -->
       <button
         v-if="customWidth !== null"
@@ -318,9 +325,9 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
       >
         <span class="i-carbon-reset"></span>
       </button>
-      
+
       <span class="divider">|</span>
-      
+
       <!-- 快捷预设按钮 -->
       <div class="preset-buttons">
         <button
@@ -371,12 +378,17 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
   overflow: auto;
   min-width: 0;
   background-color: #0f172a;
-  background-image: linear-gradient(45deg, #1e293b 25%, transparent 25%),
+  background-image:
+    linear-gradient(45deg, #1e293b 25%, transparent 25%),
     linear-gradient(-45deg, #1e293b 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #1e293b 75%),
     linear-gradient(-45deg, transparent 75%, #1e293b 75%);
   background-size: 20px 20px;
-  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
   /* Firefox 滚动条 */
   scrollbar-width: thin;
   scrollbar-color: #475569 transparent;
@@ -442,7 +454,9 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
   height: 48px;
   background-color: #3b82f6;
   border-radius: 2px;
-  transition: background-color 0.2s, transform 0.2s;
+  transition:
+    background-color 0.2s,
+    transform 0.2s;
 }
 
 .resize-handle:hover .resize-handle-bar {

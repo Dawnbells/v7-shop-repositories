@@ -139,11 +139,57 @@ const props = withDefaults(defineProps<Props>(), {
   backToTopMode: "auto",
 });
 
-// 链接分组来自当前落地页绑定的协议（pageContext.protocolGroups），编辑器预览时可能为空
+// 固化的预览数据（用于编辑器预览）
+const FOOTER_PREVIEW_DATA: LinkGroup[] = [
+  {
+    title: "购物指南",
+    links: [
+      { text: "购物流程", url: "/help/shopping-guide" },
+      { text: "支付方式", url: "/help/payment" },
+      { text: "配送说明", url: "/help/delivery" },
+      { text: "退换货政策", url: "/help/return-policy" },
+    ],
+  },
+  {
+    title: "法律条款",
+    links: [
+      { text: "用户协议", url: "/protocol/user-agreement" },
+      { text: "隐私政策", url: "/protocol/privacy-policy" },
+      { text: "服务条款", url: "/protocol/terms-of-service" },
+      { text: "知识产权", url: "/protocol/intellectual-property" },
+    ],
+  },
+  {
+    title: "客户服务",
+    links: [
+      { text: "联系我们", url: "/contact" },
+      { text: "常见问题", url: "/faq" },
+      { text: "售后服务", url: "/after-sales" },
+    ],
+  },
+];
+
+// 链接分组来自当前落地页绑定的协议（pageContext.protocolGroups）
+// 编辑器预览时使用固化的预览数据
 const pageContext = usePageContext(["protocolGroups"]);
+
+// 检测是否在编辑器环境中
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
 const linkGroups = computed<LinkGroup[]>(() => {
-  const groups = pageContext.value.protocolGroups;
-  return Array.isArray(groups) ? groups : [];
+  // 优先使用真实数据（生产环境）
+  const contextGroups = pageContext.value.protocolGroups;
+  if (Array.isArray(contextGroups) && contextGroups.length > 0) {
+    return contextGroups;
+  }
+
+  // 编辑器预览时，使用固化的预览数据
+  if (isInEditor.value) {
+    return FOOTER_PREVIEW_DATA;
+  }
+
+  // 都没有，返回空
+  return [];
 });
 
 // 社交媒体平台映射表
@@ -160,13 +206,11 @@ const SOCIAL_PLATFORMS = [
 const siteConfig = inject<Ref<Record<string, any>>>("siteConfig", ref({}));
 
 const socialLinks = computed<SocialLink[]>(() => {
-  return SOCIAL_PLATFORMS
-    .filter((p) => siteConfig.value?.[p.key])
-    .map((p) => ({
-      icon: p.icon,
-      url: siteConfig.value[p.key] as string,
-      name: p.name,
-    }));
+  return SOCIAL_PLATFORMS.filter((p) => siteConfig.value?.[p.key]).map((p) => ({
+    icon: p.icon,
+    url: siteConfig.value[p.key] as string,
+    name: p.name,
+  }));
 });
 
 // 展开的链接分组 (移动端折叠)
@@ -480,7 +524,9 @@ onMounted(() => {
 /* 返回顶部按钮动画 */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s, transform 0.3s;
+  transition:
+    opacity 0.3s,
+    transform 0.3s;
 }
 
 .fade-enter-from,
@@ -536,7 +582,9 @@ onMounted(() => {
   .group-links {
     max-height: 0;
     overflow: hidden;
-    transition: max-height 0.3s ease, padding 0.3s ease;
+    transition:
+      max-height 0.3s ease,
+      padding 0.3s ease;
     padding: 0;
   }
 
@@ -645,7 +693,9 @@ onMounted(() => {
   .group-links {
     max-height: 0;
     overflow: hidden;
-    transition: max-height 0.3s ease, padding 0.3s ease;
+    transition:
+      max-height 0.3s ease,
+      padding 0.3s ease;
     padding: 0;
   }
 
