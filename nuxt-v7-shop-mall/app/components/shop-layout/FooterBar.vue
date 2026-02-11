@@ -146,6 +146,7 @@ interface LogisticsIcon {
   class?: string; // 自定义CSS类名
   external?: boolean; // 是否外部链接
   logoClass?: string; // Logo图片的CSS类名
+  iconify?: string; // Logo图片的CSS类名
 }
 
 interface ContactInfo {
@@ -367,14 +368,14 @@ const DEFAULT_LOGISTICS_ICONS: LogisticsIcon[] = [
     url: "https://gls-group.com",
   },
   {
-    name: "Express POST",
-    imageUrl: `data:image/webp;base64,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`,
-    url: "#",
-  },
-  {
     name: "NACEX",
     svg: `<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="1%" height="1%" class="logistics-logo nacex-logo" preserveAspectRatio="none" viewBox="900 238.431 2325.287 566.93"><g fill="#FFF"><path d="M1006.968 294.352h120.603l175.971 283.667h1.23l44.931-283.667h120.604l-73.485 463.958h-120.604l-175.874-284.281h-1.23l-45.027 284.281H933.482zm599.525 383.349-44.765 80.608h-127.987l251.93-463.958h131.679l101.266 463.958h-128.603l-17.384-80.608zm122.309-239.977h-1.23l-73.231 147.679h100.297zm589.374 12.305c-19.35-33.228-56.52-51.072-97.747-51.072-73.838 0-132.647 56.61-144.05 128.604-11.599 73.224 30.477 126.143 105.546 126.143 39.382 0 81.783-19.075 111.787-49.227L2270.81 749.08c-41.946 12.307-72.328 21.537-109.863 21.537-64.609 0-122.243-24.613-163.317-68.302-43.763-46.149-57.593-106.452-46.678-175.369 10.038-63.379 43.685-124.297 95.2-169.831 52.94-46.765 123.264-75.07 188.488-75.07 38.766 0 73.09 8.615 106.44 23.382zm203.533-53.533-12.282 77.533h135.987l-16.179 102.145h-135.987l-12.669 79.991h143.37l-16.178 102.145h-263.975l73.486-463.957h263.974l-16.18 102.144zm222.921-102.144h148.293l51.756 119.989 89.77-119.989h148.293l-182.503 215.981 132.398 247.977H2987.42l-73.246-151.371-130.426 151.371h-145.831l220.798-247.977z"/></g></svg>`,
     url: "https://www.nacex.es",
+  },
+  {
+    name: "Express POST",
+    iconify: `i-ph-truck`,
+    url: "#",
   },
 ];
 
@@ -577,6 +578,11 @@ onMounted(() => {
                   :alt="icon.name"
                   :class="['logistics-logo', icon.logoClass]"
                 />
+                <!-- Iconify图标 -->
+                <span
+                  v-else-if="icon.iconify"
+                  :class="[icon.iconify, 'logistics-iconify']"
+                ></span>
               </a>
             </div>
           </div>
@@ -822,7 +828,7 @@ onMounted(() => {
   align-content: center;
 }
 
-/* 物流图标样式 - 与 default-footer.vue 一致 */
+/* 物流图标样式 - 单色化处理适配深色背景 */
 .logistics-icon {
   display: inline-flex;
   align-items: center;
@@ -830,12 +836,27 @@ onMounted(() => {
   text-decoration: none;
   height: 22px;
   transition: opacity 0.2s ease, transform 0.2s ease;
-  opacity: 0.9;
+  /* 单色化处理：将图标统一为白色 */
+  filter: brightness(0) invert(1);
+  opacity: 0.7;
 }
 
 .logistics-icon:hover {
   opacity: 1;
   transform: translateY(-2px);
+  /* 悬停时移除滤镜，恢复原始颜色 */
+  filter: none;
+}
+
+/* Iconify 图标样式 */
+.logistics-iconify {
+  font-size: 20px;
+  line-height: 1;
+  color: currentColor;
+}
+
+.logistics-icon:hover .logistics-iconify {
+  color: currentColor;
 }
 
 .logistics-icon svg {
@@ -860,7 +881,7 @@ onMounted(() => {
 }
 
 .express-post-wrapper {
-  background: #ffcc00;
+  background: rgba(255, 255, 255, 0.15);
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   overflow: hidden;
@@ -876,8 +897,8 @@ onMounted(() => {
   width: auto;
   max-width: 64px;
   object-fit: contain;
-  mix-blend-mode: multiply;
-  filter: contrast(1.1) brightness(0.95);
+  /* 单色化处理 */
+  filter: brightness(0) invert(1);
 }
 
 /* 支付方式容器 - 与 default-footer.vue 一致 */
@@ -1300,8 +1321,8 @@ onMounted(() => {
 }
 
 .nacex-logo {
-  filter: brightness(0) saturate(100%) invert(45%) sepia(100%) saturate(2000%)
-    hue-rotate(0deg) brightness(1.1) contrast(1.2);
+  /* NACEX 原本是白色，单色化处理后无需额外滤镜 */
+  filter: brightness(0) invert(1);
   height: 14px !important;
 }
 
@@ -1312,11 +1333,14 @@ onMounted(() => {
   text-decoration: none;
   height: 22px;
   transition: opacity 0.2s ease, transform 0.2s ease;
-  opacity: 0.9;
+  /* 单色化处理：将图标统一为白色 */
+  filter: brightness(0) invert(1);
+  opacity: 0.7;
 
   &:hover {
     opacity: 1;
     transform: translateY(-2px);
+    filter: none;
   }
 
   svg {

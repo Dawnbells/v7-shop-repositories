@@ -114,6 +114,8 @@ export default defineConfig({
     'i-carbon-circle-dash',
     // 全局皮肤分组图标
     'i-carbon-paint-brush', 'i-carbon-crop', 'i-carbon-fit-to-screen',
-    'i-carbon-reset', 'i-carbon-image-search'
+    'i-carbon-reset', 'i-carbon-image-search',
+    // 物流图标
+    'i-ph-truck'
   ]
 })
