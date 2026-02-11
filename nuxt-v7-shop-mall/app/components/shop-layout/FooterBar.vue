@@ -806,11 +806,6 @@ onMounted(() => {
   margin-right: auto;
 }
 
-/* 当显示物流图标时，版权信息靠左对齐 */
-.footer-bottom.has-payment {
-  text-align: left;
-}
-
 .copyright {
   font-size: 13px;
   color: var(--footer-text, #64748b);
@@ -1168,6 +1163,10 @@ onMounted(() => {
     width: 40px;
     height: 40px;
     font-size: 20px;
+  }
+
+  .footer-payment {
+    margin-top: 0;
   }
 }
 </style>
