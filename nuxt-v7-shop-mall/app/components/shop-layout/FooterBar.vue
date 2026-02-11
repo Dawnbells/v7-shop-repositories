@@ -539,7 +539,6 @@ onMounted(() => {
           <p v-if="copyright" class="copyright">{{ copyright }}</p>
           <!-- 物流/支付图标区域 -->
           <div v-if="showPaymentIcons" class="payment-methods">
-            <span class="payment-label">物流</span>
             <div class="payment-icons">
               <a
                 v-for="(icon, index) in DEFAULT_LOGISTICS_ICONS"
@@ -925,6 +924,29 @@ onMounted(() => {
   transform: translateY(20px);
 }
 
+/* 底部区域 */
+.footer-bottom {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 32px;
+  padding-top: 24px;
+}
+
+.footer-bottom-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* 版权信息 */
+.copyright {
+  font-size: 0.875rem;
+  color: var(--footer-text, #94a3b8);
+  margin: 0;
+  flex: 0 1 auto;
+}
+
 /* ============================================
  * 响应式样式 - 使用 Container Queries
  * 基于容器宽度而非视口宽度
@@ -1170,6 +1192,8 @@ onMounted(() => {
   }
 
   .footer-bottom-content {
+    flex-direction: column;
+    align-items: center;
     text-align: center;
   }
 
