@@ -308,13 +308,32 @@ function handleContactClick(contact: ContactInfo) {
       const encodedAddress = encodeURIComponent(contact.value);
       window.open(
         `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`,
-        "_blank",
+        "_blank"
       );
       break;
     case "text":
       // 营业时间等文本信息不可点击
       break;
   }
+}
+
+// 处理链接点击
+function handleLinkClick(link: FooterLink) {
+  if (link.url) {
+    navigateTo(link.url);
+  }
+}
+
+// 处理社交媒体点击
+function handleSocialClick(social: SocialLink) {
+  if (social.url && social.url !== "#") {
+    window.open(social.url, "_blank", "noopener,noreferrer");
+  }
+}
+
+// 返回顶部
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // 是否显示联系我们栏（至少有一个联系方式）
@@ -333,7 +352,25 @@ const DEFAULT_PAYMENT_ICONS: PaymentIcon[] = [
   { name: "Nacex", icon: "i-carbon-delivery-truck" },
 ];
 
-// 展开的链接分组 (移动端折叠，桌面端默认展开联系我们栏)
+// 展开的链接分组 (移动端折叠式设计，桌面端默认展开联系我们栏)
+// 移动端断点检测
+const isMobile = ref(false);
+
+// 检测是否在移动端
+function checkMobile() {
+  isMobile.value = window.innerWidth <= 768;
+}
+
+// 默认的展开状态
+const defaultExpandedGroups = computed(() => {
+  // 移动端默认不展开任何分组
+  if (isMobile.value) {
+    return new Set<number | string>();
+  }
+  // 桌面端默认展开联系我们栏
+  return new Set(["contact"]);
+});
+
 const expandedGroups = ref<Set<number | string>>(new Set(["contact"]));
 
 // 返回顶部按钮可见性
@@ -347,7 +384,16 @@ const shouldShowBackToTop = computed(() => {
   return isBackToTopVisible.value;
 });
 
+// 判断分组是否展开
+function isGroupExpanded(index: number | string): boolean {
+  return expandedGroups.value.has(index);
+}
+
+// 切换分组展开状态
 function toggleGroup(index: number | string) {
+  // 移动端允许切换，桌面端联系我们栏不可切换
+  if (!isMobile.value && index === "contact") return;
+
   if (expandedGroups.value.has(index)) {
     expandedGroups.value.delete(index);
   } else {
@@ -357,28 +403,12 @@ function toggleGroup(index: number | string) {
   expandedGroups.value = new Set(expandedGroups.value);
 }
 
-function isGroupExpanded(index: number | string): boolean {
-  return expandedGroups.value.has(index);
-}
-
-function handleLinkClick(link: FooterLink) {
-  if (link.url) {
-    navigateTo(link.url);
-  }
-}
-
-function handleSocialClick(social: SocialLink) {
-  if (social.url && social.url !== "#") {
-    window.open(social.url, "_blank", "noopener,noreferrer");
-  }
-}
-
-function scrollToTop() {
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-// 监听滚动，控制返回顶部按钮显示
+// 监听窗口大小变化，更新移动端状态
 onMounted(() => {
+  checkMobile();
+  window.addEventListener("resize", checkMobile, { passive: true });
+
+  // 返回顶部按钮滚动监听
   if (props.backToTopMode !== "auto") return;
 
   const handleScroll = () => {
@@ -389,6 +419,7 @@ onMounted(() => {
   handleScroll();
 
   onUnmounted(() => {
+    window.removeEventListener("resize", checkMobile);
     window.removeEventListener("scroll", handleScroll);
   });
 });
@@ -418,7 +449,7 @@ onMounted(() => {
         </div>
 
         <!-- 协议分组链接（来自落地页绑定的协议） -->
-        <div v-if="linkGroups.length > 0" class="footer-links">
+        <template v-if="linkGroups.length > 0">
           <div
             v-for="(group, groupIndex) in linkGroups"
             :key="groupIndex"
@@ -443,7 +474,7 @@ onMounted(() => {
               </a>
             </div>
           </div>
-        </div>
+        </template>
 
         <!-- 联系我们栏（根据 siteConfig 动态渲染） -->
         <div v-if="showContactSection" class="footer-contact">
@@ -452,13 +483,16 @@ onMounted(() => {
             <span
               :class="[
                 'toggle-icon',
-                expandedGroups.has('contact')
+                isMobile && expandedGroups.has('contact')
                   ? 'i-carbon-chevron-up'
                   : 'i-carbon-chevron-down',
               ]"
             ></span>
           </div>
-          <div v-show="expandedGroups.has('contact')" class="contact-list">
+          <div
+            class="contact-list"
+            :class="{ 'is-visible': expandedGroups.has('contact') }"
+          >
             <div
               v-for="(contact, index) in contactInfoList"
               :key="index"
@@ -542,8 +576,6 @@ onMounted(() => {
 .footer-main {
   display: flex;
   flex-wrap: wrap;
-  gap: 48px;
-  margin-bottom: 32px;
   max-width: 1400px;
   margin-left: auto;
   margin-right: auto;
@@ -554,6 +586,7 @@ onMounted(() => {
   flex: 1;
   min-width: 200px;
   max-width: 300px;
+  padding-bottom: 24px;
 }
 
 .brand-logo {
@@ -613,20 +646,26 @@ onMounted(() => {
 .group-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+  justify-content: center;
+  position: relative;
+  padding: 16px;
+  min-height: 56px;
 }
 
 .group-title {
   font-size: 16px;
   font-weight: 600;
   color: var(--footer-link, #e2e8f0);
+  flex: 0 0 auto;
 }
 
 .group-arrow {
   display: none;
   font-size: 16px;
   transition: transform 0.2s;
+  position: absolute;
+  right: 16px;
+  line-height: 1;
 }
 
 .link-group.is-expanded .group-arrow {
@@ -637,6 +676,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 0 24px;
 }
 
 .link-item {
@@ -644,11 +684,11 @@ onMounted(() => {
   color: var(--footer-text, #94a3b8);
   text-decoration: none;
   transition: all 0.2s;
+  padding: 0 24px;
 }
 
 .link-item:hover {
   color: var(--footer-link, #e2e8f0);
-  padding-left: 4px;
 }
 
 /* 联系我们栏 */
@@ -660,6 +700,7 @@ onMounted(() => {
 /* PC端：标题不可点击 */
 .footer-contact .group-header {
   cursor: default;
+  justify-content: start;
 }
 
 /* PC端：隐藏折叠图标 */
@@ -669,10 +710,18 @@ onMounted(() => {
   transition: transform 0.2s;
 }
 
+/* PC端：group-links 横向居中显示 */
+.group-links {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 .contact-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 0 24px;
 }
 
 .contact-item {
@@ -715,6 +764,7 @@ onMounted(() => {
   max-width: 1400px;
   margin-left: auto;
   margin-right: auto;
+  margin-top: 24px;
 }
 
 .payment-icons {
@@ -798,9 +848,7 @@ onMounted(() => {
 /* 返回顶部按钮动画 */
 .fade-enter-active,
 .fade-leave-active {
-  transition:
-    opacity 0.3s,
-    transform 0.3s;
+  transition: opacity 0.3s, transform 0.3s;
 }
 
 .fade-enter-from,
@@ -821,7 +869,6 @@ onMounted(() => {
   }
 
   .footer-main {
-    gap: 32px;
     flex-direction: column;
   }
 
@@ -829,69 +876,73 @@ onMounted(() => {
     max-width: none;
   }
 
-  .footer-links {
-    gap: 0;
-    flex-direction: column;
-    min-width: 100%;
-  }
-
   .footer-contact {
     min-width: 100%;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .footer-contact .group-header {
-    padding: 16px 0;
-    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    position: relative;
+    padding: 16px;
+    min-height: 56px;
     cursor: pointer;
   }
 
   .footer-contact .toggle-icon {
     display: block;
+    font-size: 16px;
+    line-height: 1;
+    position: absolute;
+    right: 16px;
   }
 
   .footer-contact .contact-list {
     max-height: 0;
     overflow: hidden;
-    transition:
-      max-height 0.3s ease,
-      padding 0.3s ease;
-    padding: 0;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+    padding: 0 24px;
   }
 
-  /* 当联系我们栏展开时 */
-  .footer-contact:has(.contact-list[style*="display: block"]) .contact-list,
-  .footer-contact:has(.contact-list:not([style*="display: none"]))
-    .contact-list {
+  /* 当联系我们栏展开时 - 使用 class 控制而非 :has() 选择器 */
+  .footer-contact .contact-list.is-visible {
     max-height: 500px;
-    padding-bottom: 16px;
+    padding: 0 24px 16px;
   }
 
   .link-group {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     min-width: 100%;
   }
 
-  .link-group:last-child {
-    border-bottom: none;
+  .group-header {
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    padding: 16px;
+    min-height: 56px;
+    cursor: pointer;
   }
 
-  .group-header {
-    padding: 16px 0;
-    margin-bottom: 0;
-    cursor: pointer;
+  .group-title {
+    flex: 0 0 auto;
   }
 
   .group-arrow {
     display: block;
+    font-size: 16px;
+    line-height: 1;
+    position: absolute;
+    right: 16px;
   }
 
   .group-links {
+    flex-direction: column;
     max-height: 0;
     overflow: hidden;
-    transition:
-      max-height 0.3s ease,
-      padding 0.3s ease;
+    transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0;
   }
 
@@ -919,10 +970,6 @@ onMounted(() => {
 @container footer (max-width: 480px) {
   .footer-content {
     padding: 32px 16px 16px;
-  }
-
-  .footer-main {
-    gap: 24px;
   }
 
   .brand-logo {
@@ -971,7 +1018,6 @@ onMounted(() => {
   }
 
   .footer-main {
-    gap: 32px;
     flex-direction: column;
   }
 
@@ -979,41 +1025,72 @@ onMounted(() => {
     max-width: none;
   }
 
-  .footer-links {
-    gap: 0;
-    flex-direction: column;
-    min-width: 100%;
-  }
-
   .footer-contact {
     min-width: 100%;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .footer-contact .group-header {
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    position: relative;
+    padding: 16px;
+    min-height: 56px;
+    cursor: pointer;
+  }
+
+  .footer-contact .toggle-icon {
+    display: block;
+    font-size: 16px;
+    line-height: 1;
+    position: absolute;
+    right: 16px;
+  }
+
+  .footer-contact .contact-list {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+    padding: 0 24px;
+  }
+
+  .footer-contact .contact-list.is-visible {
+    max-height: 500px;
+    padding: 0 24px 16px;
   }
 
   .link-group {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     min-width: 100%;
   }
 
-  .link-group:last-child {
-    border-bottom: none;
+  .group-header {
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    padding: 16px;
+    min-height: 56px;
+    cursor: pointer;
   }
 
-  .group-header {
-    padding: 16px 0;
-    margin-bottom: 0;
-    cursor: pointer;
+  .group-title {
+    flex: 0 0 auto;
   }
 
   .group-arrow {
     display: block;
+    font-size: 16px;
+    line-height: 1;
+    position: absolute;
+    right: 16px;
   }
 
   .group-links {
+    flex-direction: column;
     max-height: 0;
     overflow: hidden;
-    transition:
-      max-height 0.3s ease,
-      padding 0.3s ease;
+    transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0;
   }
 
@@ -1040,10 +1117,6 @@ onMounted(() => {
 @media (max-width: 480px) {
   .footer-content {
     padding: 32px 16px 16px;
-  }
-
-  .footer-main {
-    gap: 24px;
   }
 
   .brand-logo {
