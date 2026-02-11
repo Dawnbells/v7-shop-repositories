@@ -34,6 +34,12 @@ export const meta: ComponentMeta = {
       placeholder: "版权声明文字",
     },
     {
+      key: "showPaymentIcons",
+      label: "显示支付/物流图标",
+      type: "switch",
+      defaultValue: true,
+    },
+    {
       key: "showBackToTop",
       label: "返回顶部按钮",
       type: "switch",
@@ -83,6 +89,7 @@ export const meta: ComponentMeta = {
     logoText: "商城",
     description: "为您提供优质的购物体验",
     copyright: "© 2024 商城. All rights reserved.",
+    showPaymentIcons: true,
     showBackToTop: true,
     backToTopMode: "auto",
   },
@@ -123,10 +130,26 @@ interface SocialLink {
   name?: string;
 }
 
+interface PaymentIcon {
+  name: string;
+  icon?: string;
+  imageUrl?: string;
+  svg?: string;
+  url?: string;
+}
+
+interface ContactInfo {
+  icon: string;
+  label: string;
+  value: string;
+  type: "email" | "phone" | "whatsapp" | "address" | "text";
+}
+
 interface Props {
   logoText?: string;
   description?: string;
   copyright?: string;
+  showPaymentIcons?: boolean;
   showBackToTop?: boolean;
   backToTopMode?: "auto" | "always" | "never";
 }
@@ -135,6 +158,7 @@ const props = withDefaults(defineProps<Props>(), {
   logoText: "商城",
   description: "为您提供优质的购物体验",
   copyright: "© 2024 商城. All rights reserved.",
+  showPaymentIcons: true,
   showBackToTop: true,
   backToTopMode: "auto",
 });
@@ -213,8 +237,104 @@ const socialLinks = computed<SocialLink[]>(() => {
   }));
 });
 
-// 展开的链接分组 (移动端折叠)
-const expandedGroups = ref<Set<number>>(new Set());
+// 联系方式信息（从 siteConfig 中读取）
+const contactInfoList = computed<ContactInfo[]>(() => {
+  const list: ContactInfo[] = [];
+
+  if (siteConfig.value?.contactEmail) {
+    list.push({
+      icon: "i-carbon-email",
+      label: "",
+      value: siteConfig.value.contactEmail,
+      type: "email",
+    });
+  }
+
+  if (siteConfig.value?.contactPhone) {
+    list.push({
+      icon: "i-carbon-phone",
+      label: "",
+      value: siteConfig.value.contactPhone,
+      type: "phone",
+    });
+  }
+
+  if (siteConfig.value?.whatsapp) {
+    list.push({
+      icon: "i-logos-whatsapp-icon",
+      label: "",
+      value: siteConfig.value.whatsapp,
+      type: "whatsapp",
+    });
+  }
+
+  if (siteConfig.value?.address) {
+    list.push({
+      icon: "i-carbon-location",
+      label: "",
+      value: siteConfig.value.address,
+      type: "address",
+    });
+  }
+
+  if (siteConfig.value?.businessHours) {
+    list.push({
+      icon: "i-carbon-time",
+      label: "",
+      value: siteConfig.value.businessHours,
+      type: "text",
+    });
+  }
+
+  return list;
+});
+
+// 处理联系方式点击
+function handleContactClick(contact: ContactInfo) {
+  switch (contact.type) {
+    case "email":
+      window.location.href = `mailto:${contact.value}`;
+      break;
+    case "phone":
+      window.location.href = `tel:${contact.value}`;
+      break;
+    case "whatsapp":
+      // WhatsApp 链接格式
+      const phone = contact.value.replace(/\D/g, ""); // 移除非数字字符
+      window.open(`https://wa.me/${phone}`, "_blank");
+      break;
+    case "address":
+      // Google Maps 搜索链接
+      const encodedAddress = encodeURIComponent(contact.value);
+      window.open(
+        `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`,
+        "_blank",
+      );
+      break;
+    case "text":
+      // 营业时间等文本信息不可点击
+      break;
+  }
+}
+
+// 是否显示联系我们栏（至少有一个联系方式）
+const showContactSection = computed(() => contactInfoList.value.length > 0);
+
+// 默认的物流/支付图标
+const DEFAULT_PAYMENT_ICONS: PaymentIcon[] = [
+  { name: "Visa", icon: "i-logos-visa" },
+  { name: "Mastercard", icon: "i-logos-mastercard" },
+  { name: "PayPal", icon: "i-logos-paypal" },
+  { name: "American Express", icon: "i-logos-amex" },
+  { name: "DPD", icon: "i-simple-icons-dpd" },
+  { name: "DHL", icon: "i-simple-icons-dhl" },
+  { name: "GLS", icon: "i-simple-icons-gls" },
+  { name: "Express Post", icon: "i-carbon-delivery-parcel" },
+  { name: "Nacex", icon: "i-carbon-delivery-truck" },
+];
+
+// 展开的链接分组 (移动端折叠，桌面端默认展开联系我们栏)
+const expandedGroups = ref<Set<number | string>>(new Set(["contact"]));
 
 // 返回顶部按钮可见性
 const isBackToTopVisible = ref(false);
@@ -227,7 +347,7 @@ const shouldShowBackToTop = computed(() => {
   return isBackToTopVisible.value;
 });
 
-function toggleGroup(index: number) {
+function toggleGroup(index: number | string) {
   if (expandedGroups.value.has(index)) {
     expandedGroups.value.delete(index);
   } else {
@@ -237,7 +357,7 @@ function toggleGroup(index: number) {
   expandedGroups.value = new Set(expandedGroups.value);
 }
 
-function isGroupExpanded(index: number): boolean {
+function isGroupExpanded(index: number | string): boolean {
   return expandedGroups.value.has(index);
 }
 
@@ -324,10 +444,57 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
+        <!-- 联系我们栏（根据 siteConfig 动态渲染） -->
+        <div v-if="showContactSection" class="footer-contact">
+          <div class="group-header" @click="toggleGroup('contact')">
+            <span class="group-title">联系我们</span>
+            <span
+              :class="[
+                'toggle-icon',
+                expandedGroups.has('contact')
+                  ? 'i-carbon-chevron-up'
+                  : 'i-carbon-chevron-down',
+              ]"
+            ></span>
+          </div>
+          <div v-show="expandedGroups.has('contact')" class="contact-list">
+            <div
+              v-for="(contact, index) in contactInfoList"
+              :key="index"
+              class="contact-item"
+              :class="{ clickable: contact.type !== 'text' }"
+              @click="handleContactClick(contact)"
+            >
+              <span :class="contact.icon" class="contact-icon"></span>
+              <span class="contact-value">{{ contact.value }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 物流/支付图标区域 -->
+      <div v-if="showPaymentIcons" class="footer-payment">
+        <div class="payment-icons">
+          <div
+            v-for="(icon, index) in DEFAULT_PAYMENT_ICONS"
+            :key="index"
+            class="payment-icon"
+            :title="icon.name"
+          >
+            <img
+              v-if="icon.imageUrl"
+              :src="icon.imageUrl"
+              :alt="icon.name"
+              class="payment-logo"
+            />
+            <span v-else :class="icon.icon"></span>
+          </div>
+        </div>
       </div>
 
       <!-- 底部版权区 -->
-      <div class="footer-bottom">
+      <div class="footer-bottom" :class="{ 'has-payment': showPaymentIcons }">
         <p class="copyright">{{ copyright }}</p>
       </div>
     </div>
@@ -377,6 +544,9 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 48px;
   margin-bottom: 32px;
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* 品牌信息 */
@@ -432,10 +602,12 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 32px;
   flex: 2;
+  min-width: 400px;
 }
 
 .link-group {
-  min-width: 140px;
+  min-width: 160px;
+  flex: 1;
 }
 
 .group-header {
@@ -479,11 +651,113 @@ onMounted(() => {
   padding-left: 4px;
 }
 
+/* 联系我们栏 */
+.footer-contact {
+  min-width: 200px;
+  flex: 1;
+}
+
+/* PC端：标题不可点击 */
+.footer-contact .group-header {
+  cursor: default;
+}
+
+/* PC端：隐藏折叠图标 */
+.footer-contact .toggle-icon {
+  display: none;
+  font-size: 16px;
+  transition: transform 0.2s;
+}
+
+.contact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.contact-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.contact-item.clickable {
+  cursor: pointer;
+}
+
+.contact-item.clickable:hover {
+  color: var(--footer-link, #e2e8f0);
+  transform: translateX(2px);
+}
+
+.contact-item.clickable:hover .contact-icon {
+  color: var(--footer-link-hover, #60a5fa);
+}
+
+.contact-icon {
+  font-size: 20px;
+  color: var(--footer-link, #e2e8f0);
+  flex-shrink: 0;
+}
+
+.contact-value {
+  color: var(--footer-text, #94a3b8);
+  word-break: break-word;
+  flex: 1;
+}
+
+/* 物流/支付图标区域 */
+.footer-payment {
+  padding: 24px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.payment-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  align-items: center;
+}
+
+.payment-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 40px;
+  font-size: 24px;
+  color: var(--footer-text, #94a3b8);
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.payment-icon:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
 /* 底部版权区 */
 .footer-bottom {
   padding-top: 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   text-align: center;
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* 当显示物流图标时，版权信息靠左对齐 */
+.footer-bottom.has-payment {
+  text-align: left;
 }
 
 .copyright {
@@ -558,6 +832,39 @@ onMounted(() => {
   .footer-links {
     gap: 0;
     flex-direction: column;
+    min-width: 100%;
+  }
+
+  .footer-contact {
+    min-width: 100%;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .footer-contact .group-header {
+    padding: 16px 0;
+    margin-bottom: 0;
+    cursor: pointer;
+  }
+
+  .footer-contact .toggle-icon {
+    display: block;
+  }
+
+  .footer-contact .contact-list {
+    max-height: 0;
+    overflow: hidden;
+    transition:
+      max-height 0.3s ease,
+      padding 0.3s ease;
+    padding: 0;
+  }
+
+  /* 当联系我们栏展开时 */
+  .footer-contact:has(.contact-list[style*="display: block"]) .contact-list,
+  .footer-contact:has(.contact-list:not([style*="display: none"]))
+    .contact-list {
+    max-height: 500px;
+    padding-bottom: 16px;
   }
 
   .link-group {
@@ -591,6 +898,12 @@ onMounted(() => {
   .link-group.is-expanded .group-links {
     max-height: 500px;
     padding-bottom: 16px;
+  }
+
+  .payment-icon {
+    width: 56px;
+    height: 36px;
+    font-size: 22px;
   }
 
   .back-to-top {
@@ -669,6 +982,11 @@ onMounted(() => {
   .footer-links {
     gap: 0;
     flex-direction: column;
+    min-width: 100%;
+  }
+
+  .footer-contact {
+    min-width: 100%;
   }
 
   .link-group {
@@ -702,6 +1020,12 @@ onMounted(() => {
   .link-group.is-expanded .group-links {
     max-height: 500px;
     padding-bottom: 16px;
+  }
+
+  .payment-icon {
+    width: 56px;
+    height: 36px;
+    font-size: 22px;
   }
 
   .back-to-top {
@@ -742,6 +1066,20 @@ onMounted(() => {
 
   .link-item {
     font-size: 13px;
+  }
+
+  .contact-item {
+    font-size: 13px;
+  }
+
+  .contact-icon {
+    font-size: 16px;
+  }
+
+  .payment-icon {
+    width: 52px;
+    height: 34px;
+    font-size: 20px;
   }
 
   .copyright {
