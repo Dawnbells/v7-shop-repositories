@@ -384,7 +384,13 @@ const isMobile = ref(false);
 
 // 检测是否在移动端
 function checkMobile() {
+  const wasMobile = isMobile.value;
   isMobile.value = window.innerWidth <= 768;
+
+  // 如果从桌面端变为移动端，重置展开状态为移动端默认状态（折叠）
+  if (!wasMobile && isMobile.value) {
+    expandedGroups.value = defaultExpandedGroups.value;
+  }
 }
 
 // 默认的展开状态
@@ -432,6 +438,12 @@ function toggleGroup(index: number | string) {
 // 监听窗口大小变化，更新移动端状态
 onMounted(() => {
   checkMobile();
+
+  // 如果是移动端，使用默认的展开状态（移动端默认折叠所有分组）
+  if (isMobile.value) {
+    expandedGroups.value = defaultExpandedGroups.value;
+  }
+
   window.addEventListener("resize", checkMobile, { passive: true });
 
   // 返回顶部按钮滚动监听
