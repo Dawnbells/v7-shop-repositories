@@ -712,11 +712,10 @@ onMounted(() => {
   transition: transform 0.2s;
 }
 
-/* PC端：group-links 横向居中显示 */
+/* PC端：group-links 保持纵向排列 */
 .group-links {
-  flex-direction: row;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
 }
 
 .contact-list {
@@ -946,6 +945,8 @@ onMounted(() => {
     overflow: hidden;
     transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0;
+    justify-content: start;
+    align-items: start;
   }
 
   .link-group.is-expanded .group-links {
