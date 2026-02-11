@@ -138,6 +138,16 @@ interface PaymentIcon {
   url?: string; // 链接地址
 }
 
+interface LogisticsIcon {
+  name: string;
+  svg?: string; // SVG代码（用于自定义SVG图标）
+  imageUrl?: string; // 图片URL（用于base64图片等）
+  url?: string; // 链接地址
+  class?: string; // 自定义CSS类名
+  external?: boolean; // 是否外部链接
+  logoClass?: string; // Logo图片的CSS类名
+}
+
 interface ContactInfo {
   icon: string;
   label: string;
@@ -340,7 +350,7 @@ function scrollToTop() {
 const showContactSection = computed(() => contactInfoList.value.length > 0);
 
 // 默认的物流图标（来自 spa-classic 模板）
-const DEFAULT_PAYMENT_ICONS: PaymentIcon[] = [
+const DEFAULT_LOGISTICS_ICONS: LogisticsIcon[] = [
   {
     name: "DPD",
     imageUrl: `data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20class%3D%22logistics-logo%22%20data-name%3D%22DPD%20Black%22%20viewBox%3D%220%200%201942.48%20850.39%22%3E%3Cpath%20d%3D%22M1260.93%20625.51c-36.67%209.71-84.44%2014.51-125.97%2014.51-106.6%200-177.19-56.73-177.19-160.56%200-98.27%2065.75-161.92%20161.97-161.92%2021.45%200%2044.27%202.73%2058.13%209.68V184.58h83.06v440.94Zm-83.06-224.94c-13.15-6.23-30.45-9.69-51.25-9.69-50.49%200-84.42%2031.16-84.42%2085.83%200%2058.84%2036.67%2092.08%2095.51%2092.08%2010.39%200%2026.3-.72%2040.15-3.46V400.58Zm764.6%20224.94c-36.71%209.71-84.46%2014.51-125.99%2014.51-106.58%200-177.21-56.73-177.21-160.56%200-98.27%2065.78-161.92%20162-161.92%2021.45%200%2044.29%202.73%2058.14%209.68V184.58h83.06v440.94Zm-83.06-224.94c-13.17-6.23-30.48-9.69-51.23-9.69-50.52%200-84.43%2031.16-84.43%2085.83%200%2058.84%2036.68%2092.08%2095.51%2092.08%2010.37%200%2026.3-.72%2040.15-3.46V400.58Zm-467.87-.68c13.83-5.55%2033.18-7.61%2049.8-7.61%2051.23%200%2086.53%2029.76%2086.53%2083.03%200%2062.85-39.1%2091.27-91.38%2092v72.66c1.38%200%202.77.05%204.18.05%20107.27%200%20171.65-60.19%20171.65-167.47%200-97.59-68.51-155.02-169.57-155.02-51.2%200-101.76%2011.77-134.97%2025.6v414.61h83.77V399.89Z%22%20class%3D%22cls-1%22%2F%3E%3Cpath%20d%3D%22M507%20379.53c-3.44%202-8.82%201.85-12.18-.23l-19.75-11.74c-1.61-.99-3.08-2.59-4.2-4.51-.06-.11-.13-.22-.2-.33-1.26-2.06-1.98-4.23-2.05-6.22l-.5-23.02c-.15-3.88%202.41-8.61%205.86-10.62l237.37-138.29L378.26%203.03C374.59.99%20369.75%200%20364.91%200c-4.85%200-9.69%201-13.37%203.03L18.45%20184.57%20391.61%20401.8c3.45%201.89%206.09%206.38%206.09%2010.43v316.9c0%203.98-2.85%208.55-6.33%2010.41l-20.08%2011.15c-1.67.89-3.79%201.36-6.01%201.36h-.38c-2.41.05-4.65-.42-6.41-1.36l-20.15-11.15c-3.43-1.82-6.22-6.41-6.22-10.41v-282.5c-.18-2.07-1.69-4.59-3.35-5.54L0%20249.72v374.85c0%208.39%205.91%2018.73%2013.16%2022.97l338.59%20199.69c3.62%202.12%208.39%203.17%2013.15%203.16%204.77-.01%209.53-1.01%2013.15-3.16l338.64-199.69c7.22-4.29%2013.12-14.58%2013.11-22.97V249.72L506.99%20379.53Z%22%20class%3D%22cls-2%22%2F%3E%3C%2Fsvg%3E`,
@@ -529,29 +539,34 @@ onMounted(() => {
           <p v-if="copyright" class="copyright">{{ copyright }}</p>
           <!-- 物流/支付图标区域 -->
           <div v-if="showPaymentIcons" class="payment-methods">
+            <span class="payment-label">物流</span>
             <div class="payment-icons">
-              <div
-                v-for="(icon, index) in DEFAULT_PAYMENT_ICONS"
+              <a
+                v-for="(icon, index) in DEFAULT_LOGISTICS_ICONS"
                 :key="index"
-                class="payment-icon"
+                :href="icon.url"
+                :class="['logistics-icon', icon.class]"
                 :title="icon.name"
+                :target="icon.external ? '_blank' : undefined"
+                :rel="icon.external ? 'noopener noreferrer' : undefined"
+                @click="
+                  icon.external ? (e: Event) => e.preventDefault() : undefined
+                "
               >
                 <!-- SVG图标 -->
                 <span
                   v-if="icon.svg"
                   v-html="icon.svg"
-                  class="payment-svg"
+                  class="logistics-svg"
                 ></span>
                 <!-- 图片图标 -->
                 <img
                   v-else-if="icon.imageUrl"
                   :src="icon.imageUrl"
                   :alt="icon.name"
-                  class="payment-logo"
+                  :class="['logistics-logo', icon.logoClass]"
                 />
-                <!-- 图标类（回退） -->
-                <span v-else :class="icon.icon"></span>
-              </div>
+              </a>
             </div>
           </div>
         </div>
@@ -785,100 +800,87 @@ onMounted(() => {
 
 /* 物流/支付图标区域 */
 .footer-payment {
-  padding: 24px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  max-width: 1400px;
-  margin-left: auto;
-  margin-right: auto;
-  margin-top: 24px;
+  display: none; /* 已合并到 footer-bottom 中 */
 }
 
 .payment-icons {
   display: flex;
+  gap: 1rem;
   flex-wrap: wrap;
-  gap: 16px;
-  justify-content: center;
   align-items: center;
+  align-content: center;
 }
 
-.payment-icon {
-  display: flex;
+/* 物流图标样式 - 与 default-footer.vue 一致 */
+.logistics-icon {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 60px;
-  height: 40px;
-  font-size: 24px;
-  color: var(--footer-text, #94a3b8);
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  transition: all 0.2s;
+  text-decoration: none;
+  height: 22px;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  opacity: 0.9;
 }
 
-.payment-icon:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
+.logistics-icon:hover {
+  opacity: 1;
   transform: translateY(-2px);
 }
 
-/* SVG图标样式 */
-.payment-svg {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
+.logistics-icon svg {
+  display: block;
+  height: 20px;
+  width: auto;
+  max-width: 64px;
 }
 
-.payment-svg svg {
-  max-width: 100%;
-  max-height: 100%;
+.logistics-logo {
+  display: block;
+  height: 14px;
   width: auto;
-  height: auto;
-}
-
-.payment-logo {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
+  max-width: 64px;
   object-fit: contain;
 }
 
-/* 底部版权区 */
-.footer-bottom {
-  padding-top: 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  max-width: 1400px;
-  margin-left: auto;
-  margin-right: auto;
+.nacex-logo {
+  filter: brightness(0) saturate(100%) invert(45%) sepia(100%) saturate(2000%)
+    hue-rotate(0deg) brightness(1.1) contrast(1.2);
+  height: 14px !important;
 }
 
-.footer-bottom-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.express-post-wrapper {
+  background: #ffcc00;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  overflow: hidden;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  height: 20px;
 }
 
-@media (min-width: 768px) {
-  .footer-bottom-content {
-    flex-direction: row;
-  }
+.express-post-logo {
+  display: block;
+  height: 20px;
+  width: auto;
+  max-width: 64px;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  filter: contrast(1.1) brightness(0.95);
 }
 
-.copyright {
-  font-size: 13px;
-  color: var(--footer-text, #64748b);
-  margin: 0;
-}
-
-/* 支付方式容器 */
+/* 支付方式容器 - 与 default-footer.vue 一致 */
 .payment-methods {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.payment-label {
+  font-size: 0.875rem;
+  color: #4b5563;
 }
 
 /* 返回顶部按钮 */
@@ -1017,12 +1019,6 @@ onMounted(() => {
   .link-group.is-expanded .group-links {
     max-height: 500px;
     padding-bottom: 16px;
-  }
-
-  .payment-icon {
-    width: 56px;
-    height: 36px;
-    font-size: 22px;
   }
 
   .back-to-top {
