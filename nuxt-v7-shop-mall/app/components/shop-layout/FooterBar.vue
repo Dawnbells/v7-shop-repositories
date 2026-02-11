@@ -605,6 +605,7 @@ onMounted(() => {
 /* 社交媒体链接 */
 .social-links {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -612,6 +613,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 40px;
   height: 40px;
   font-size: 20px;
