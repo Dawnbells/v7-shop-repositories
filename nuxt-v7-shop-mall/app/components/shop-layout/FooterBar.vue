@@ -132,10 +132,10 @@ interface SocialLink {
 
 interface PaymentIcon {
   name: string;
-  icon?: string;
-  imageUrl?: string;
-  svg?: string;
-  url?: string;
+  icon?: string; // 图标类名（用于Iconify图标）
+  svg?: string; // SVG代码（用于自定义SVG图标）
+  imageUrl?: string; // 图片URL（用于base64图片等）
+  url?: string; // 链接地址
 }
 
 interface ContactInfo {
@@ -339,17 +339,33 @@ function scrollToTop() {
 // 是否显示联系我们栏（至少有一个联系方式）
 const showContactSection = computed(() => contactInfoList.value.length > 0);
 
-// 默认的物流/支付图标
+// 默认的物流图标（来自 spa-classic 模板）
 const DEFAULT_PAYMENT_ICONS: PaymentIcon[] = [
-  { name: "Visa", icon: "i-logos-visa" },
-  { name: "Mastercard", icon: "i-logos-mastercard" },
-  { name: "PayPal", icon: "i-logos-paypal" },
-  { name: "American Express", icon: "i-logos-amex" },
-  { name: "DPD", icon: "i-simple-icons-dpd" },
-  { name: "DHL", icon: "i-simple-icons-dhl" },
-  { name: "GLS", icon: "i-simple-icons-gls" },
-  { name: "Express Post", icon: "i-carbon-delivery-parcel" },
-  { name: "Nacex", icon: "i-carbon-delivery-truck" },
+  {
+    name: "DPD",
+    svg: `<svg id="DPD_Black" xmlns="http://www.w3.org/2000/svg" data-name="DPD Black" viewBox="0 0 1942.48 850.39" class="logistics-logo"><path class="cls-1" d="m1260.93,625.51c-36.67,9.71-84.44,14.51-125.97,14.51-106.6,0-177.19-56.73-177.19-160.56,0-98.27,65.75-161.92,161.97-161.92,21.45,0,44.27,2.73,58.13,9.68v-142.64h83.06v440.94Zm-83.06-224.94c-13.15-6.23-30.45-9.69-51.25-9.69-50.49,0-84.42,31.16-84.42,85.83,0,58.84,36.67,92.08,95.51,92.08,10.39,0,26.3-.72,40.15-3.46v-164.75Zm764.6,224.94c-36.71,9.71-84.46,14.51-125.99,14.51-106.58,0-177.21-56.73-177.21-160.56,0-98.27,65.78-161.92,162-161.92,21.45,0,44.29,2.73,58.14,9.68v-142.64h83.06v440.94Zm-83.06-224.94c-13.17-6.23-30.48-9.69-51.23-9.69-50.52,0-84.43,31.16-84.43,85.83,0,58.84,36.68,92.08,95.51,92.08,10.37,0,26.3-.72,40.15-3.46v-164.75Zm-467.87-.68c13.83-5.55,33.18-7.61,49.8-7.61,51.23,0,86.53,29.76,86.53,83.03,0,62.85-39.1,91.27-91.38,92v72.66c1.38,0,2.77.05,4.18.05,107.27,0,171.65-60.19,171.65-167.47,0-97.59-68.51-155.02-169.57-155.02-51.2,0-101.76,11.77-134.97,25.6v414.61h83.77v-357.85Z"></path><path class="cls-2" d="m507,379.53c-3.44,2-8.82,1.85-12.18-.23l-19.75-11.74c-1.61-.99-3.08-2.59-4.2-4.51-.06-.11-.13-.22-.2-.33-1.26-2.06-1.98-4.23-2.05-6.22l-.5-23.02c-.15-3.88,2.41-8.61,5.86-10.62l237.37-138.29L378.26,3.03C374.59.99,369.75,0,364.91,0c-4.85,0-9.69,1-13.37,3.03L18.57l373.45,184.16,217.23c3.45,1.89,6.09,6.38,6.09,10.43v316.9c0,3.98-2.85,8.55-6.33,10.41l-20.08,11.15c-1.67.89-3.79,1.36-6.01,1.36h-.38c-2.41.05-4.65-.42-6.41-1.36l-20.15-11.15c-3.43-1.82-6.22-6.41-6.22-10.41v-282.5c-.18-2.07-1.69-4.59-3.35-5.54L0,249.72v374.85c0,8.39,5.91,18.73,13.16,22.97l338.59,199.69c3.62,2.12,8.39,3.17,13.15,3.16,4.77-.01,9.53-1.01,13.15-3.16l338.64-199.69c7.22-4.29,13.12-14.58,13.11-22.97V249.72l-222.81,129.81Z"></path></svg>`,
+    url: "https://www.dpd.com",
+  },
+  {
+    name: "DHL",
+    svg: `<svg enable-background="new 0 0 143.5 20" height="20" viewBox="0 0 143.5 20" width="143.5" xmlns="http://www.w3.org/2000/svg"><g fill="#d40511"><path d="m0 18.5h17.4l-1 1.4h-16.4z"></path><path d="m143.5 19.9h-21.3l1.1-1.4h20.3v1.4z"></path><path d="m0 15.9h19.4l-1.1 1.4h-18.3z"></path><path d="m0 13.3h21.4l-1.1 1.4h-20.3z"></path><path d="m143.5 17.3h-19.3l1.1-1.4h18.3v1.4z"></path><path d="m127.2 13.3h16.3v1.4h-17.4z"></path><path d="m18.8 19.9 9.2-12.3h11.4c1.3 0 1.3.5.6 1.3-.6.8-1.7 2.3-2.3 3.1-.3.5-.9 1.2 1 1.2h15.3c-1.2 1.8-5.4 6.8-12.8 6.8-6-.1-22.4-.1-22.4-.1z"></path><path d="m71.5 13.3-5 6.7h-13.1l5-6.7z"></path><path d="m90.6 13.3-5 6.7h-13.2l5-6.7z"></path><path d="m94.9 13.3s-1 1.3-1.4 1.9c-1.7 2.2-.2 4.8 5.2 4.8h21.2l5-6.7z"></path><path d="m25.3 0-4.6 6.1h25c1.3 0 1.3.5.6 1.3-.6.8-1.7 2.3-2.3 3.1-.3.4-.9 1.2 1 1.2h10.2s1.7-2.2 3-4.1c1.9-2.5.2-7.7-6.5-7.7-6 .1-26.4.1-26.4.1z"></path><path d="m91.7 11.7h-32.2l8.8-11.7h13.2l-5 6.7h5.9l5-6.7h13.2z"></path><path d="m118.8 0-8.8 11.7h-14l8.8-11.7z"></path></g></svg>`,
+    url: "https://www.dhl.com",
+  },
+  {
+    name: "GLS",
+    svg: `<svg width="110" height="50" viewBox="0 0 110 50" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M95.7846 39.8693C98.5185 39.8693 100.735 37.6603 100.735 34.9354C100.735 32.2104 98.5185 30.0015 95.7846 30.0015C93.0507 30.0015 90.8345 32.2104 90.8345 34.9354C90.8345 37.6603 93.0507 39.8693 95.7846 39.8693Z" fill="#FFD100"/><path d="M25.238 23.9744V30.4299H30.6265C29.8392 31.6613 28.064 32.3174 26.8606 32.3174C22.8045 32.3174 20.7765 30.0131 20.7765 25.3631C20.7765 20.2283 23.4532 17.6008 28.7671 17.6008C30.8762 17.6008 33.635 18.126 36.5955 19.0565V11.3345C35.7431 10.9708 34.4458 10.688 32.7826 10.4041C31.0789 10.1212 29.5778 10 28.2795 10C23.0061 10 18.8284 11.4153 15.7058 14.2449C12.5821 17.0755 11 20.8758 11 25.6874C11 30.0939 12.2173 33.571 14.6507 36.1188C17.0842 38.7059 20.37 40 24.5072 40C28.6614 40 32.4786 37.851 33.7086 35.1225L33.682 39.5141H39.6914V23.9744H25.238Z" fill="#003087"/><path d="M42.6914 39.514V10.4849H52.0209V31.9537H62.2017V39.514H42.6914Z" fill="#003087"/><path d="M65.606 38.7867V30.8627C66.9854 31.3072 68.6081 31.6709 70.4334 31.9952C72.2588 32.3184 73.8409 32.4801 75.1798 32.4801C77.451 32.4801 78.6278 31.9144 78.6278 30.9031C78.6278 30.2566 78.2629 29.9323 76.5997 29.5686L73.3544 28.8413C67.7973 27.5876 65.2017 24.7985 65.2017 20.0677C65.2017 16.9542 66.2973 14.4884 68.447 12.669C70.5945 10.889 73.5966 10 77.3689 10C79.9645 10 83.9406 10.5253 86.374 11.1325V18.6928C85.1162 18.3695 83.6163 18.0463 81.7909 17.7624C79.9656 17.4795 78.5456 17.3583 77.4916 17.3583C75.5041 17.3583 74.3679 17.924 74.3679 18.9352C74.3679 19.5413 74.8949 19.9465 75.9905 20.2293L79.7629 21.1183C85.2795 22.4124 87.8345 25.2419 87.8345 30.0535C87.8345 33.1266 86.6984 35.552 84.4676 37.331C82.2369 39.11 79.1537 39.9989 75.2192 39.9989C71.4874 39.9989 67.7151 39.4736 65.606 38.7867Z" fill="#003087"/></svg>`,
+    url: "https://gls-group.com",
+  },
+  {
+    name: "Express POST",
+    svg: `<svg width="64" height="20" viewBox="0 0 64 20" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="64" height="20" fill="#FFCC00"/><text x="32" y="14" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#003087" text-anchor="middle">EXPRESS</text><text x="32" y="7" font-family="Arial, sans-serif" font-size="5" fill="#003087" text-anchor="middle">POST</text></svg>`,
+    url: "#",
+  },
+  {
+    name: "NACEX",
+    svg: `<svg id="Capa_1" xmlns="http://www.w3.org/2000/svg" viewBox="900 238.431 2325.287 566.93" width="64" height="20"><g><path fill="#FFFFFF" d="M1006.968,294.352h120.603l175.971,283.667h1.23l44.931-283.667h120.604l-73.485,463.958h-120.604l-175.874-284.281h-1.23l-45.027,284.281H933.482L1006.968,294.352z"></path><path fill="#FFFFFF" d="M1606.493,677.701l-44.765,80.608h-127.987l251.93-463.958h131.679l101.266,463.958h-128.603l-17.384-80.608H1606.493z M1728.802,437.724h-1.23l-73.231,147.679h100.297L1728.802,437.724z"></path><path fill="#FFFFFF" d="M2318.176,450.029c-19.35-33.228-56.52-51.072-97.747-51.072c-73.838,0-132.647,56.61-144.05,128.604c-11.599,73.224,30.477,126.143,105.546,126.143c39.382,0,81.783-19.075,111.787-49.227L2270.81,749.08c-41.946,12.307-72.328,21.537-109.863,21.537c-64.609,0-122.243-24.613-163.317-68.302c-43.763-46.149-57.593-106.452-46.678-175.369c10.038-63.379,43.685-124.297,95.2-169.831c52.94-46.765,123.264-75.07,188.488-75.07c38.766,0,73.09,8.615,106.44,23.382L2318.176,450.029z"></path><path fill="#FFFFFF" d="M2521.709,396.496l-12.282,77.533h135.987l-16.179,102.145h-135.987l-12.669,79.991h143.37l-16.178,102.145h-263.975l73.486-463.957h263.974l-16.18,102.144H2521.709L2521.709,396.496z"></path><path fill="#FFFFFF" d="M2744.63,294.352h148.293l51.756,119.989l89.77-119.989h148.293l-182.503,215.981l132.398,247.977H2987.42l-73.246-151.371L2783.748,758.31h-145.831l220.798-247.977L2744.63,294.352z"></path></g></svg>`,
+    url: "https://www.nacex.es",
+  },
 ];
 
 // 展开的链接分组 (移动端折叠式设计，桌面端默认展开联系我们栏)
@@ -507,29 +523,38 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 物流/支付图标区域 -->
-      <div v-if="showPaymentIcons" class="footer-payment">
-        <div class="payment-icons">
-          <div
-            v-for="(icon, index) in DEFAULT_PAYMENT_ICONS"
-            :key="index"
-            class="payment-icon"
-            :title="icon.name"
-          >
-            <img
-              v-if="icon.imageUrl"
-              :src="icon.imageUrl"
-              :alt="icon.name"
-              class="payment-logo"
-            />
-            <span v-else :class="icon.icon"></span>
+      <!-- 底部版权和物流图标区域 -->
+      <div class="footer-bottom">
+        <div class="footer-bottom-content">
+          <p v-if="copyright" class="copyright">{{ copyright }}</p>
+          <!-- 物流/支付图标区域 -->
+          <div v-if="showPaymentIcons" class="payment-methods">
+            <div class="payment-icons">
+              <div
+                v-for="(icon, index) in DEFAULT_PAYMENT_ICONS"
+                :key="index"
+                class="payment-icon"
+                :title="icon.name"
+              >
+                <!-- SVG图标 -->
+                <span
+                  v-if="icon.svg"
+                  v-html="icon.svg"
+                  class="payment-svg"
+                ></span>
+                <!-- 图片图标 -->
+                <img
+                  v-else-if="icon.imageUrl"
+                  :src="icon.imageUrl"
+                  :alt="icon.name"
+                  class="payment-logo"
+                />
+                <!-- 图标类（回退） -->
+                <span v-else :class="icon.icon"></span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <!-- 底部版权区 -->
-      <div class="footer-bottom" :class="{ 'has-payment': showPaymentIcons }">
-        <p class="copyright">{{ copyright }}</p>
       </div>
     </div>
 
@@ -796,19 +821,64 @@ onMounted(() => {
   transform: translateY(-2px);
 }
 
+/* SVG图标样式 */
+.payment-svg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.payment-svg svg {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+}
+
+.payment-logo {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
 /* 底部版权区 */
 .footer-bottom {
   padding-top: 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  text-align: center;
   max-width: 1400px;
   margin-left: auto;
   margin-right: auto;
 }
 
+.footer-bottom-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@media (min-width: 768px) {
+  .footer-bottom-content {
+    flex-direction: row;
+  }
+}
+
 .copyright {
   font-size: 13px;
   color: var(--footer-text, #64748b);
+  margin: 0;
+}
+
+/* 支付方式容器 */
+.payment-methods {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* 返回顶部按钮 */
@@ -1101,6 +1171,10 @@ onMounted(() => {
     width: 56px;
     height: 36px;
     font-size: 22px;
+  }
+
+  .footer-bottom-content {
+    text-align: center;
   }
 
   .back-to-top {
