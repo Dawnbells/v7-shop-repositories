@@ -927,7 +927,7 @@ onMounted(() => {
 /* 底部区域 */
 .footer-bottom {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  margin-top: 32px;
+  margin-top: 24px;
   padding-top: 24px;
 }
 
@@ -1191,8 +1191,12 @@ onMounted(() => {
     font-size: 22px;
   }
 
+  .footer-bottom {
+    margin-top: 0;
+  }
+
   .footer-bottom-content {
-    flex-direction: column;
+    flex-direction: column-reverse;
     align-items: center;
     text-align: center;
   }
