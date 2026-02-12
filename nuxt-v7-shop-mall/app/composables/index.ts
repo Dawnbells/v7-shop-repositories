@@ -27,6 +27,5 @@ export { useComponentRegistry } from "./base/useComponentRegistry";
 export { useIframeAuth } from "./base/useIframeAuth";
 export { useDragDrop } from "./base/useDragDrop";
 
-// 页面 composables（按页面类型）
-export { useProductPage } from "./useProductPage";
-export { useArticlePage } from "./useArticlePage";
+// 注意：页面 composables (useProductPage, useArticlePage) 由 Nuxt 自动从 composables 目录导入
+// 无需在此处手动导出，避免重复导入警告
