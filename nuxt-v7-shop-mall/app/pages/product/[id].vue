@@ -34,73 +34,56 @@ const {
 
 // 设置浏览器标签页标题
 useSiteTitle(computed(() => productInfo.value?.title || "商品详情"));
+
+// 预览设备
+const previewDevice = ref(device);
 </script>
 
 <template>
   <div class="product-page" :style="globalStyleVars">
-    <!-- 使用主题渲染器 -->
-    <template v-if="useThemeRenderer">
-      <!-- 有布局时使用 LayoutRenderer -->
-      <LayoutRenderer
-        v-if="layoutSchema && pageSchema"
-        :layout="layoutSchema"
-        :page="pageSchema"
-        :global-style="globalStyle"
-        :preview-device="device"
-        :is-editor="false"
-      />
-
-      <!-- 无布局时直接使用 PageRenderer -->
-      <PageRenderer
-        v-else-if="pageSchema"
-        :schema="pageSchema"
-        :global-style="globalStyle"
-        :preview-device="device"
-        :is-editor="false"
-      />
-    </template>
-
-    <!-- 降级：无主题配置时显示默认页面 -->
-    <template v-else>
-      <div class="default-product-page">
-        <h1>Product {{ productId }}</h1>
-        <div class="debug-info">
-          <p>Cloak Page: {{ pageContext.cloak?.page }}</p>
-          <p>Is Admin: {{ pageContext.cloak?.isAdmin }}</p>
-          <p>Landing Product ID: {{ pageContext.landingProductId }}</p>
-          <p v-if="productPending">Loading product info...</p>
-          <details>
-            <summary>Product Info</summary>
-            <pre>{{ JSON.stringify(productInfo ?? {}, null, 2) }}</pre>
-          </details>
-        </div>
-
-        <!-- 基础产品展示 -->
-        <div v-if="productInfo" class="product-basic">
-          <h2>{{ productInfo.title }}</h2>
-          <p class="price">
-            <span class="sell-price">{{ productInfo.sellPrice }}</span>
-            <span v-if="productInfo.originPrice" class="origin-price">
-              {{ productInfo.originPrice }}
-            </span>
-          </p>
-          <div v-if="productInfo.images?.length" class="images">
-            <img
-              v-for="(img, idx) in productInfo.images.slice(0, 3)"
-              :key="idx"
-              :src="img.relativePath"
-              :alt="img.name || productInfo.title"
-              class="product-image"
-            />
+    <!-- 使用 TemplateRenderer 统一渲染 -->
+    <TemplateRenderer
+      :page="pageSchema"
+      :layout="layoutSchema"
+      :global-style="globalStyle"
+      :preview-device="previewDevice"
+      :is-editor="false"
+    >
+      <!-- 无主题配置时的 fallback -->
+      <template #fallback>
+        <template v-if="productPending">
+          <div class="product-loading">加载中...</div>
+        </template>
+        <template v-else-if="productInfo">
+          <div class="default-product-page">
+            <h1 class="product-default-title">{{ productInfo.title }}</h1>
+            <p class="price">
+              <span class="sell-price">{{ productInfo.sellPrice }}</span>
+              <span v-if="productInfo.originPrice" class="origin-price">
+                {{ productInfo.originPrice }}
+              </span>
+            </p>
+            <div v-if="productInfo.images?.length" class="images">
+              <img
+                v-for="(img, idx) in productInfo.images.slice(0, 3)"
+                :key="idx"
+                :src="img.relativePath"
+                :alt="img.name || productInfo.title"
+                class="product-image"
+              />
+            </div>
+            <div v-if="productInfo.introduction" class="product-description">
+              <p>{{ productInfo.introduction }}</p>
+            </div>
           </div>
-        </div>
-
-        <!-- 无产品信息 -->
-        <div v-else-if="!productPending" class="no-product">
-          <p>暂无产品信息</p>
-        </div>
-      </div>
-    </template>
+        </template>
+        <template v-else>
+          <div class="product-not-found">
+            <p>商品不存在或已被删除</p>
+          </div>
+        </template>
+      </template>
+    </TemplateRenderer>
   </div>
 </template>
 
@@ -143,13 +126,11 @@ useSiteTitle(computed(() => productInfo.value?.title || "商品详情"));
   font-size: 12px;
 }
 
-.product-basic {
-  margin-top: 2rem;
-}
-
-.product-basic h2 {
+.product-default-title {
   font-size: 1.5rem;
+  font-weight: 700;
   margin-bottom: 1rem;
+  color: #1f2937;
 }
 
 .price {
@@ -172,6 +153,7 @@ useSiteTitle(computed(() => productInfo.value?.title || "商品详情"));
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
+  margin-bottom: 1rem;
 }
 
 .product-image {
@@ -180,6 +162,41 @@ useSiteTitle(computed(() => productInfo.value?.title || "商品详情"));
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
+}
+
+.product-description {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #f8fafc;
+  border-radius: 8px;
+  color: #64748b;
+}
+
+.product-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.product-not-found {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: #9ca3af;
+  font-size: 16px;
+}
+
+.product-basic {
+  margin-top: 2rem;
+}
+
+.product-basic h2 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .no-product {

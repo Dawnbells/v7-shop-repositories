@@ -33,55 +33,48 @@ const {
 
 // 设置浏览器标签页标题
 useSiteTitle(computed(() => articleInfo.value?.title || "文章详情"));
+
+// 预览设备
+const previewDevice = ref(device);
 </script>
 
 <template>
   <div class="article-page" :style="globalStyleVars">
-    <!-- 使用主题渲染器 -->
-    <template v-if="useThemeRenderer">
-      <!-- 有布局时使用 LayoutRenderer -->
-      <LayoutRenderer
-        v-if="layoutSchema && pageSchema"
-        :layout="layoutSchema"
-        :page="pageSchema"
-        :global-style="globalStyle"
-        :preview-device="device"
-        :is-editor="false"
-      />
-
-      <!-- 无布局时直接使用 PageRenderer -->
-      <PageRenderer
-        v-else-if="pageSchema"
-        :schema="pageSchema"
-        :global-style="globalStyle"
-        :preview-device="device"
-        :is-editor="false"
-      />
-    </template>
-
-    <!-- 降级：无主题配置时显示默认页面 -->
-    <template v-else>
-      <div class="default-article-page">
+    <!-- 使用 TemplateRenderer 统一渲染 -->
+    <TemplateRenderer
+      :page="pageSchema"
+      :layout="layoutSchema"
+      :global-style="globalStyle"
+      :preview-device="previewDevice"
+      :is-editor="false"
+    >
+      <!-- 无主题配置时的 fallback -->
+      <template #fallback>
         <template v-if="articlePending">
           <div class="article-loading">加载中...</div>
         </template>
         <template v-else-if="articleInfo">
-          <h1 class="article-default-title">{{ articleInfo.title }}</h1>
-          <p v-if="articleInfo.description" class="article-default-description">
-            {{ articleInfo.description }}
-          </p>
-          <div
-            class="article-default-content"
-            v-html="articleInfo.content"
-          ></div>
+          <div class="default-article-page">
+            <h1 class="article-default-title">{{ articleInfo.title }}</h1>
+            <p
+              v-if="articleInfo.description"
+              class="article-default-description"
+            >
+              {{ articleInfo.description }}
+            </p>
+            <div
+              class="article-default-content"
+              v-html="articleInfo.content"
+            ></div>
+          </div>
         </template>
         <template v-else>
           <div class="article-not-found">
             <p>文章不存在或已被删除</p>
           </div>
         </template>
-      </div>
-    </template>
+      </template>
+    </TemplateRenderer>
   </div>
 </template>
 

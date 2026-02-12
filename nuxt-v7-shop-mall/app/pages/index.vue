@@ -12,14 +12,13 @@ definePageMeta({
 
 // 主题渲染
 const {
-  themeConfig,
   globalStyle,
   globalStyleVars,
   hasTheme,
-  getPageSchema,
-  getPageLayout,
   siteConfig,
   variableValues,
+  getPageSchema,
+  getPageLayout,
   useSiteTitle,
 } = useThemeRender();
 
@@ -42,32 +41,23 @@ const previewDevice = ref<DeviceType>("pc");
 
 <template>
   <div class="home-page" :style="globalStyleVars">
-    <!-- 有主题配置 + 有布局时，使用 LayoutRenderer 渲染 -->
-    <LayoutRenderer
-      v-if="hasTheme && layout && homePageSchema"
-      :layout="layout"
+    <TemplateRenderer
       :page="homePageSchema"
+      :layout="layout"
       :global-style="globalStyle"
       :preview-device="previewDevice"
       :is-editor="false"
-    />
-
-    <!-- 有主题配置 + 无布局时，直接渲染页面组件 -->
-    <PageRenderer
-      v-else-if="hasTheme && homePageSchema"
-      :schema="homePageSchema"
-      :global-style="globalStyle"
-      :preview-device="previewDevice"
-      :is-editor="false"
-    />
-
-    <!-- 无主题配置时，显示默认内容 -->
-    <div v-else class="default-content">
-      <div class="hero-section">
-        <h1 class="hero-title">欢迎访问商城</h1>
-        <p class="hero-subtitle">发现优质好物，享受购物乐趣</p>
-      </div>
-    </div>
+    >
+      <!-- 无主题配置时的 fallback -->
+      <template #fallback>
+        <div class="default-content">
+          <div class="hero-section">
+            <h1 class="hero-title">欢迎访问商城</h1>
+            <p class="hero-subtitle">发现优质好物，享受购物乐趣</p>
+          </div>
+        </div>
+      </template>
+    </TemplateRenderer>
   </div>
 </template>
 
