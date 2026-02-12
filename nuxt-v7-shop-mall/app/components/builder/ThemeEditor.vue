@@ -3,11 +3,16 @@
  * 主题编辑器主容器
  */
 
-import { PAGE_TYPE_LABELS, REQUIRED_PAGE_TYPES } from "~/types/theme";
+import {
+  PAGE_TYPE_LABELS,
+  REQUIRED_PAGE_TYPES,
+} from "~/types/theme";
 import {
   provideEditorDataContext,
   generatePageContextFields,
   generateVariableFields,
+  generateProductFields,
+  generateArticleFields,
 } from "~/composables";
 import { useIframeAuth } from "~/composables";
 
@@ -74,13 +79,35 @@ const { currentPageKey, switchPage, currentDevice, switchDevice } =
   useCurrentPage();
 
 // ============ 编辑器数据上下文 ============
-// 生成可绑定字段列表
+// 当前页面类型
+const currentPageType = computed(() => {
+  const key = currentPageKey.value;
+  if (key === 'product') return 'product';
+  if (key === 'article') return 'article';
+  if (key?.startsWith('home')) return 'home';
+  return 'general';
+});
+
+// 根据当前页面类型生成可绑定字段列表
 const bindableFields = computed(() => {
-  const pageFields = generatePageContextFields();
-  const variableFields = variableSchema.value.length > 0
-    ? generateVariableFields(variableSchema.value)
-    : [];
-  return [...pageFields, ...variableFields];
+  const fields: any[] = [];
+
+  // 根据页面类型添加对应字段
+  if (currentPageType.value === 'product') {
+    fields.push(...generateProductFields());
+  } else if (currentPageType.value === 'article') {
+    fields.push(...generateArticleFields());
+  }
+
+  // 通用页面预设字段
+  fields.push(...generatePageContextFields());
+
+  // 自定义变量字段
+  if (variableSchema.value.length > 0) {
+    fields.push(...generateVariableFields(variableSchema.value));
+  }
+
+  return fields;
 });
 
 // 提供编辑器数据上下文（供 PropertyPanel 等子组件使用）

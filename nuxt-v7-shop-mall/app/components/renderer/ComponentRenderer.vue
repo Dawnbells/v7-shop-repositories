@@ -6,7 +6,9 @@
 
 import type { ComponentNode, DeviceType, GlobalStyle, ResponsiveStyle } from "~/types/builder";
 import type { VariableValues } from "~/types/data-context";
-import { useDataContext, resolvePropsBindings, hasBindingExpression } from "~/composables";
+import type { ProductInfo } from "~/types/page-context";
+import type { ArticleInfo } from "~~/server/repositories/article.repository";
+import { resolvePropsBindings, hasBindingExpression } from "~/composables";
 
 const props = defineProps<{
   node: ComponentNode;
@@ -25,11 +27,19 @@ const { resolveStyle, resolveResponsiveStyleRefs } = useResponsive();
 // 注入变量值（由页面或编辑器提供）
 const variableValues = inject<Ref<VariableValues>>('variableValues', ref({}));
 
+// 注入产品数据
+const productInfo = inject<Ref<ProductInfo | null>>('productInfo', ref(null));
+// 注入文章数据
+const articleInfo = inject<Ref<ArticleInfo | null>>('articleInfo', ref(null));
+
 // 组件注册表
 const { getComponentInstance } = useComponentRegistry();
 
-// 数据上下文（用于解析绑定表达式）
-const dataContext = useDataContext();
+// 构造页面数据上下文（用于解析绑定表达式）
+const pageDataContext = computed(() => ({
+  product: productInfo.value,
+  article: articleInfo.value,
+}));
 
 // 当前页面状态（仅编辑器模式使用）
 // 使用条件调用避免在前端渲染时引入编辑器依赖
@@ -150,7 +160,7 @@ const resolvedProps = computed(() => {
   }
 
   // 解析绑定表达式
-  return resolvePropsBindings(props.node.props, dataContext.value);
+  return resolvePropsBindings(props.node.props, pageDataContext.value);
 });
 </script>
 

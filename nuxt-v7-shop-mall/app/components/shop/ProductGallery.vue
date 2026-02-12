@@ -79,7 +79,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useDataContext } from "~/composables";
+import type { ProductInfo } from "~/types/page-context";
 import { useIframeAuth } from "~/composables";
 
 interface Props {
@@ -100,17 +100,17 @@ const emit = defineEmits<{
   (e: "click", event: MouseEvent): void;
 }>();
 
-// 数据上下文
-const dataContext = useDataContext();
+// 从父组件注入产品数据
+const productInfo = inject<Ref<ProductInfo | null>>('productInfo', ref(null));
 const { buildImageUrl } = useIframeAuth();
 
-// 获取图片列表 - 优先使用 props，否则从 dataContext 获取
+// 获取图片列表 - 优先使用 props，否则从 inject 获取
 const imageList = computed(() => {
   if (props.images && props.images.length > 0) {
     return props.images;
   }
-  // 从 dataContext.product.images 获取
-  const productImages = dataContext.value.product?.images;
+  // 从 productInfo.images 获取
+  const productImages = productInfo.value?.images;
   if (productImages && productImages.length > 0) {
     return productImages.map((img) => buildImageUrl(img.relativePath));
   }

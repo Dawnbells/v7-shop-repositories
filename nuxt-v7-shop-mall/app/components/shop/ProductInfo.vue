@@ -97,7 +97,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useDataContext } from "~/composables";
+import type { ProductInfo } from "~/types/page-context";
 
 interface Props {
   title?: string;
@@ -121,24 +121,24 @@ const emit = defineEmits<{
   (e: "click", event: MouseEvent): void;
 }>();
 
-// 数据上下文
-const dataContext = useDataContext();
+// 从父组件注入产品数据
+const productInfo = inject<Ref<ProductInfo | null>>('productInfo', ref(null));
 
-// 计算属性 - 优先使用 props，否则从 dataContext 获取
+// 计算属性 - 优先使用 props，否则从 inject 获取
 const productTitle = computed(() => {
-  return props.title || dataContext.value.product?.title || "";
+  return props.title || productInfo.value?.title || "";
 });
 
 const productPrice = computed(() => {
-  return props.price ?? dataContext.value.product?.sellPrice ?? 0;
+  return props.price ?? productInfo.value?.sellPrice ?? 0;
 });
 
 const productOriginalPrice = computed(() => {
-  return props.originalPrice ?? dataContext.value.product?.originPrice ?? null;
+  return props.originalPrice ?? productInfo.value?.originPrice ?? null;
 });
 
 const productDescription = computed(() => {
-  return props.description || dataContext.value.product?.introduction || "";
+  return props.description || productInfo.value?.introduction || "";
 });
 
 // 计算折扣比例

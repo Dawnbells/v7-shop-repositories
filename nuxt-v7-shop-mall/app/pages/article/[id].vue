@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { provideDataContext } from "~/composables";
-import { useArticleInfo } from "~/composables";
+import { useArticlePage } from "~/composables/useArticlePage";
 
 const route = useRoute();
 const articleId = computed(() => route.params.id as string);
@@ -15,54 +14,25 @@ const pageContext = usePageContext([
   "languages",
 ]);
 
-// 设备检测
-const { device } = useDeviceDetect();
-
-// 主题渲染
+// 文章页面专用 composable
 const {
+  articleInfo,
+  articlePending,
   themeConfig,
   globalStyle,
   globalStyleVars,
   hasTheme,
-  getPageSchema,
-  getPageLayout,
   siteConfig,
   variableValues,
+  pageSchema,
+  layoutSchema,
+  useThemeRenderer,
+  device,
   useSiteTitle,
-} = useThemeRender();
-
-// 获取文章信息
-const { data: articleInfo, pending: articlePending } = useArticleInfo();
+} = useArticlePage();
 
 // 设置浏览器标签页标题
 useSiteTitle(computed(() => articleInfo.value?.title || "文章详情"));
-
-// 提供站点配置和变量值给子组件
-provide("siteConfig", siteConfig);
-provide("variableValues", variableValues);
-
-// 文章页配置
-const pageSchema = computed(() => getPageSchema("article"));
-
-// 文章页使用的布局
-const layoutSchema = computed(() => getPageLayout("article"));
-
-// 提供数据上下文（用于组件内的数据绑定）
-const dataContextRef = provideDataContext({
-  article: articleInfo.value ?? undefined,
-});
-
-// 当 articleInfo 更新时同步更新 dataContext
-watchEffect(() => {
-  if (dataContextRef.value && articleInfo.value) {
-    dataContextRef.value.article = articleInfo.value;
-  }
-});
-
-// 是否使用主题渲染
-const useThemeRenderer = computed(() => {
-  return hasTheme.value && !!pageSchema.value;
-});
 </script>
 
 <template>

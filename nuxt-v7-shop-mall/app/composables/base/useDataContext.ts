@@ -1,46 +1,10 @@
 /**
- * 数据上下文 composable
- * 用于在组件树中传递和访问数据
- * 支持数据绑定、表达式解析等功能
+ * 数据绑定 composable
+ * 用于解析数据绑定表达式、生成可绑定字段列表
  */
 
 import type { InjectionKey } from "vue";
-import type { ProductInfo } from "~/types/page-context";
 import type { PropBinding, BindableField, DataFieldSchema } from "~/types/data-context";
-
-// 文章信息类型
-export interface ArticleInfo {
-  id: number;
-  name: string;
-  title: string;
-  content: string;
-  description: string;
-}
-
-// 数据上下文类型
-export interface DataContext {
-  // 产品信息
-  product?: ProductInfo;
-  // 文章信息
-  article?: ArticleInfo;
-  // 用户信息（可扩展）
-  user?: {
-    id?: string;
-    name?: string;
-    email?: string;
-  };
-  // 订单信息（可扩展）
-  order?: {
-    id?: string;
-    status?: string;
-    total?: number;
-  };
-  // 自定义数据
-  custom?: Record<string, any>;
-}
-
-// 注入键
-export const DATA_CONTEXT_KEY: InjectionKey<Ref<DataContext>> = Symbol("dataContext");
 
 // 编辑器数据上下文注入键（用于编辑器中的数据绑定）
 export const EDITOR_DATA_CONTEXT_KEY: InjectionKey<Ref<EditorDataContext>> = Symbol("editorDataContext");
@@ -51,26 +15,6 @@ export interface EditorDataContext {
   mockData: Record<string, any>;
   // 可绑定字段列表
   bindableFields: BindableField[];
-}
-
-/**
- * 提供数据上下文
- * 在页面顶层调用，向下传递数据
- */
-export function provideDataContext(context: DataContext) {
-  const contextRef = ref<DataContext>(context);
-  provide(DATA_CONTEXT_KEY, contextRef);
-  return contextRef;
-}
-
-/**
- * 使用数据上下文
- * 在组件中调用，获取上层传递的数据
- */
-export function useDataContext(): Ref<DataContext> {
-  // 使用默认值避免警告，同时确保返回空上下文
-  const context = inject(DATA_CONTEXT_KEY, ref<DataContext>({}));
-  return context;
 }
 
 /**
@@ -102,7 +46,7 @@ export function useEditorDataContext(): Ref<EditorDataContext> {
  */
 export function resolveBindingExpression(
   expression: string,
-  context: DataContext
+  context: Record<string, any>
 ): any {
   // 检查是否是绑定表达式
   const match = expression.match(/^\{\{(.+)\}\}$/);
@@ -145,7 +89,7 @@ export function getValueByPath(obj: any, path: string): any {
  */
 export function resolvePropsBindings(
   props: Record<string, any>,
-  context: DataContext
+  context: Record<string, any>
 ): Record<string, any> {
   const resolved: Record<string, any> = {};
 
@@ -194,7 +138,7 @@ export function hasBindingExpression(value: any): boolean {
  * @param expression 表达式，如 "product.title"
  * @param context 数据上下文
  */
-export function resolveExpression(expression: string, context: DataContext | Record<string, any>): any {
+export function resolveExpression(expression: string, context: Record<string, any>): any {
   if (!expression) return undefined;
   return getValueByPath(context, expression);
 }
@@ -204,7 +148,7 @@ export function resolveExpression(expression: string, context: DataContext | Rec
  * @param binding 属性绑定对象
  * @param context 数据上下文
  */
-export function resolvePropBinding(binding: PropBinding, context: DataContext | Record<string, any>): any {
+export function resolvePropBinding(binding: PropBinding, context: Record<string, any>): any {
   if (binding.type === "static") {
     return binding.value;
   }
@@ -270,7 +214,7 @@ export function generateBindableFields(
  * @param expression 表达式
  * @param context 数据上下文
  */
-export function getExpressionPreview(expression: string, context: DataContext | Record<string, any>): string {
+export function getExpressionPreview(expression: string, context: Record<string, any>): string {
   if (!expression) return "";
 
   let value: any;
@@ -300,39 +244,25 @@ export const PAGE_CONTEXT_FIELDS: BindableField[] = [
   // 域名信息
   { path: "pageContext.domain.fullName", label: "完整域名", type: "string", source: "preset" },
   { path: "pageContext.domain.name", label: "域名名称", type: "string", source: "preset" },
-  
+
   // 国家信息
   { path: "pageContext.country.code", label: "国家代码", type: "string", source: "preset" },
   { path: "pageContext.country.name", label: "国家名称", type: "string", source: "preset" },
   { path: "pageContext.country.phonePrefix", label: "电话前缀", type: "string", source: "preset" },
-  
+
   // 货币信息
   { path: "pageContext.currency.code", label: "货币代码", type: "string", source: "preset" },
   { path: "pageContext.currency.name", label: "货币名称", type: "string", source: "preset" },
   { path: "pageContext.currency.symbol", label: "货币符号", type: "string", source: "preset" },
   { path: "pageContext.currency.exchangeRate", label: "汇率", type: "number", source: "preset" },
-  
+
   // 语言信息
   { path: "pageContext.languages[0].code", label: "当前语言代码", type: "string", source: "preset" },
   { path: "pageContext.languages[0].name", label: "当前语言名称", type: "string", source: "preset" },
-  
+
   // 公司信息
   { path: "pageContext.company.name", label: "公司名称", type: "string", source: "preset" },
   { path: "pageContext.company.domain", label: "公司域名", type: "string", source: "preset" },
-  
-  // 产品信息（通过 dataContext.product 访问）
-  { path: "product.id", label: "产品 ID", type: "number", source: "preset" },
-  { path: "product.spuId", label: "产品 SPU ID", type: "number", source: "preset" },
-  { path: "product.title", label: "产品标题", type: "string", source: "preset" },
-  { path: "product.merchandise", label: "商品名称", type: "string", source: "preset" },
-  { path: "product.introduction", label: "产品介绍", type: "string", source: "preset" },
-  { path: "product.summary", label: "产品摘要", type: "string", source: "preset" },
-  { path: "product.sellPrice", label: "销售价格", type: "number", source: "preset" },
-  { path: "product.originPrice", label: "原价", type: "number", source: "preset" },
-  { path: "product.isMultiSpecs", label: "是否多规格", type: "boolean", source: "preset" },
-  { path: "product.images", label: "产品图片列表", type: "array", source: "preset" },
-  { path: "product.images[0].relativePath", label: "首张图片路径", type: "string", source: "preset" },
-  { path: "product.specifications", label: "产品规格列表", type: "array", source: "preset" },
 ];
 
 /**
@@ -370,4 +300,49 @@ export function generateAllBindableFields(
   const pageContextFields = generatePageContextFields();
   const variableFields = generateVariableFields(customVariables);
   return [...pageContextFields, ...variableFields];
+}
+
+/**
+ * 产品页可绑定字段列表
+ */
+const PRODUCT_FIELDS: BindableField[] = [
+  { path: "product.id", label: "产品 ID", type: "number", source: "preset" },
+  { path: "product.spuId", label: "产品 SPU ID", type: "number", source: "preset" },
+  { path: "product.title", label: "产品标题", type: "string", source: "preset" },
+  { path: "product.merchandise", label: "商品名称", type: "string", source: "preset" },
+  { path: "product.introduction", label: "产品介绍", type: "string", source: "preset" },
+  { path: "product.summary", label: "产品摘要", type: "string", source: "preset" },
+  { path: "product.sellPrice", label: "销售价格", type: "number", source: "preset" },
+  { path: "product.originPrice", label: "原价", type: "number", source: "preset" },
+  { path: "product.isMultiSpecs", label: "是否多规格", type: "boolean", source: "preset" },
+  { path: "product.images", label: "产品图片列表", type: "array", source: "preset" },
+  { path: "product.images[0].relativePath", label: "首张图片路径", type: "string", source: "preset" },
+  { path: "product.specifications", label: "产品规格列表", type: "array", source: "preset" },
+];
+
+/**
+ * 文章页可绑定字段列表
+ */
+const ARTICLE_FIELDS: BindableField[] = [
+  { path: "article.id", label: "文章 ID", type: "number", source: "preset" },
+  { path: "article.title", label: "文章标题", type: "string", source: "preset" },
+  { path: "article.name", label: "文章名称", type: "string", source: "preset" },
+  { path: "article.description", label: "文章描述", type: "string", source: "preset" },
+  { path: "article.content", label: "文章内容", type: "string", source: "preset" },
+];
+
+/**
+ * 生成产品页可绑定字段列表
+ * @returns 产品页可绑定字段列表
+ */
+export function generateProductFields(): BindableField[] {
+  return PRODUCT_FIELDS;
+}
+
+/**
+ * 生成文章页可绑定字段列表
+ * @returns 文章页可绑定字段列表
+ */
+export function generateArticleFields(): BindableField[] {
+  return ARTICLE_FIELDS;
 }

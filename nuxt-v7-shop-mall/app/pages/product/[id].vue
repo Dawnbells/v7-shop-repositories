@@ -1,59 +1,39 @@
 <script setup lang="ts">
-import { provideDataContext } from "~/composables";
+import { useProductPage } from "~/composables/useProductPage";
 
 const route = useRoute();
 const productId = computed(() => route.params.id as string);
 
 // 只传递需要的字段到客户端
-const pageContext = usePageContext(["cloak.page", "cloak.isAdmin", "landingProductId", "themeConfig", "siteConfig", "variableValues", "languages"]);
+const pageContext = usePageContext([
+  "cloak.page",
+  "cloak.isAdmin",
+  "landingProductId",
+  "themeConfig",
+  "siteConfig",
+  "variableValues",
+  "languages",
+]);
 
-// 设备检测
-const { device } = useDeviceDetect();
-
-// 主题渲染
+// 产品页面专用 composable
 const {
+  productInfo,
+  productPending,
   themeConfig,
   globalStyle,
   globalStyleVars,
   hasTheme,
-  getPageSchema,
-  getPageLayout,
-  productInfo,
-  productPending,
   siteConfig,
   variableValues,
+  pageSchema,
+  layoutSchema,
+  useThemeRenderer,
+  device,
   useSiteTitle,
-} = useThemeRender();
+} = useProductPage();
 
 // 设置浏览器标签页标题
-useSiteTitle(computed(() => productInfo.value?.title || '商品详情'));
-
-// 提供站点配置和变量值给子组件
-provide('siteConfig', siteConfig);
-provide('variableValues', variableValues);
-
-// 商品页配置
-const pageSchema = computed(() => getPageSchema("product"));
-
-// 商品页使用的布局（如果页面没有指定布局，不使用布局）
-const layoutSchema = computed(() => getPageLayout("product"));
-
-// 提供数据上下文（用于组件内的数据绑定）
-const dataContextRef = provideDataContext({
-  product: productInfo.value ?? undefined,
-});
-
-// 当 productInfo 更新时同步更新 dataContext
-watchEffect(() => {
-  if (dataContextRef.value && productInfo.value) {
-    dataContextRef.value.product = productInfo.value;
-  }
-});
-
-// 是否使用主题渲染
-const useThemeRenderer = computed(() => {
-  return hasTheme.value && !!pageSchema.value;
-});
+useSiteTitle(computed(() => productInfo.value?.title || "商品详情"));
 </script>
 
 <template>
@@ -129,7 +109,13 @@ const useThemeRenderer = computed(() => {
   min-height: 100vh;
   background-color: var(--background-color, #f8fafc);
   color: var(--text-color, #1e293b);
-  font-family: var(--font-family, "Inter", -apple-system, BlinkMacSystemFont, sans-serif);
+  font-family: var(
+    --font-family,
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif
+  );
 }
 
 .default-product-page {

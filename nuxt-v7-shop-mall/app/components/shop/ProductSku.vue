@@ -64,8 +64,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useDataContext } from "~/composables";
-import type { ProductSpecification, SpecificationAttribute } from "~/types/page-context";
+import type { ProductSpecification } from "~/types/page-context";
 
 // SKU 值类型
 interface SkuValue {
@@ -95,8 +94,8 @@ const emit = defineEmits<{
   (e: "change", selection: Record<string, string>): void;
 }>();
 
-// 数据上下文
-const dataContext = useDataContext();
+// 从父组件注入产品数据
+const productInfo = inject<Ref<ProductInfo | null>>('productInfo', ref(null));
 
 // 将后端规格数据转换为 SKU 选项格式
 function convertSpecificationsToSku(specifications: ProductSpecification[]): SkuOption[] {
@@ -130,13 +129,13 @@ function convertSpecificationsToSku(specifications: ProductSpecification[]): Sku
   return skuOptions;
 }
 
-// 获取 SKU 数据 - 优先使用 props，否则从 dataContext 获取
+// 获取 SKU 数据 - 优先使用 props，否则从 inject 获取
 const skuOptions = computed<SkuOption[]>(() => {
   if (props.skuData && props.skuData.length > 0) {
     return props.skuData;
   }
-  // 从 dataContext.product.specifications 获取
-  const specifications = dataContext.value.product?.specifications;
+  // 从 productInfo.specifications 获取
+  const specifications = productInfo.value?.specifications;
   if (specifications && specifications.length > 0) {
     return convertSpecificationsToSku(specifications);
   }

@@ -71,7 +71,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useDataContext } from "~/composables";
+import type { ArticleInfo } from "~~/server/repositories/article.repository";
 
 interface Props {
   content?: string;
@@ -85,12 +85,12 @@ const props = withDefaults(defineProps<Props>(), {
   previewDevice: "",
 });
 
-// 数据上下文
-const dataContext = useDataContext();
+// 从父组件注入文章数据
+const articleInfo = inject<Ref<ArticleInfo | null>>('articleInfo', ref(null));
 
-// 获取正文内容 - 优先使用 props，否则从 dataContext 获取
+// 获取正文内容 - 优先使用 props，否则从 inject 获取
 const displayContent = computed(() => {
-  return props.content || dataContext.value.article?.content || "";
+  return props.content || articleInfo.value?.content || "";
 });
 
 // 合并样式

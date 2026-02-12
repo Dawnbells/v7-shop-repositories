@@ -1,12 +1,11 @@
 /**
  * 主题渲染 composable
  * 用于前端页面渲染主题配置
- * 
+ *
  * 数据来源：
  * - themeConfig: 页面布局、组件、样式（来自 pageContext）
  * - siteConfig: 站点配置值（全局固定配置，来自 pageContext）
  * - variableValues: 变量实际值（用户自定义变量，来自 pageContext）
- * - productInfo: 产品详情（来自 API）
  */
 
 import type { ThemeSchema, GlobalStyle, PageSchema, LayoutSchema } from "~/types/builder";
@@ -17,7 +16,7 @@ import type { SiteConfig, VariableValues } from "~/types/data-context";
  */
 export function useThemeRender() {
   // 从页面上下文获取渲染配置
-  const pageContext = usePageContext(["themeConfig", "siteConfig", "variableValues", "landingProductId"]);
+  const pageContext = usePageContext(["themeConfig", "siteConfig", "variableValues"]);
 
   // 调试日志：打印 pageContext 信息
   if (import.meta.dev) {
@@ -25,15 +24,11 @@ export function useThemeRender() {
       hasThemeConfig: !!pageContext.value.themeConfig,
       hasSiteConfig: !!pageContext.value.siteConfig,
       hasVariableValues: !!pageContext.value.variableValues,
-      landingProductId: pageContext.value.landingProductId,
       themeConfigKeys: pageContext.value.themeConfig
         ? Object.keys(pageContext.value.themeConfig)
         : [],
     });
   }
-
-  // 获取产品信息（自动从 pageContext 获取 landingProductId、languageId、subDomainId）
-  const { data: productInfo, pending: productPending } = useProductInfo();
 
   // 主题配置（直接从 pageContext 获取）
   const themeConfig = computed<ThemeSchema | null>(() => {
@@ -56,32 +51,6 @@ export function useThemeRender() {
   // 变量实际值（直接从 pageContext 获取）
   const variableValues = computed<VariableValues>(() => {
     return pageContext.value.variableValues || {};
-  });
-
-  // 合并的数据上下文（供组件绑定使用）
-  const dataContext = computed(() => {
-    return {
-      // 站点配置（以 site. 前缀访问）
-      site: siteConfig.value,
-      // 变量值（以 var. 前缀访问）
-      var: variableValues.value,
-      // 产品数据（以 product. 前缀访问，来自 API）
-      product: productInfo.value
-        ? {
-            id: productInfo.value.id,
-            spuId: productInfo.value.spuId,
-            title: productInfo.value.title,
-            merchandise: productInfo.value.merchandise,
-            introduction: productInfo.value.introduction,
-            summary: productInfo.value.summary,
-            sellPrice: productInfo.value.sellPrice,
-            originPrice: productInfo.value.originPrice,
-            isMultiSpecs: productInfo.value.isMultiSpecs,
-            images: productInfo.value.images,
-            specifications: productInfo.value.specifications,
-          }
-        : null,
-    };
   });
 
   // 全局样式（从 siteConfig.globalStyle 获取）
@@ -167,15 +136,10 @@ export function useThemeRender() {
     globalStyleVars,
     defaultLayout,
     hasTheme,
-    
+
     // 分离的配置数据
     siteConfig,
     variableValues,
-    dataContext,
-    
-    // 产品信息
-    productInfo,
-    productPending,
 
     // 方法
     getPageSchema,

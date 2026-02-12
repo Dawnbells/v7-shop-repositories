@@ -1,20 +1,21 @@
 import type { ProductInfo } from "~/types/page-context";
 
 /**
- * 获取产品信息
- * 自动从 pageContext 获取 landingProductId、spuId、languageId、subDomainId
- * 
- * - 如果 landingProductId 存在（CLOAK 类型），直接使用 productId 查询
- * - 如果 landingProductId 为空（LAND 类型），使用 spuId + languageId 查询
- *
- * @returns 产品信息、加载状态、错误信息、刷新函数
+ * 产品页面专用 composable
+ * 包含产品数据获取、主题渲染、页面配置等功能
  *
  * @example
  * ```ts
- * const { data, pending, error, refresh } = useProductInfo();
+ * const {
+ *   productInfo, productPending,
+ *   themeConfig, globalStyleVars,
+ *   pageSchema, useThemeRenderer,
+ * } = useProductPage();
  * ```
  */
-export function useProductInfo() {
+export function useProductPage() {
+  // ==================== 产品数据获取 ====================
+
   // 从 pageContext 自动获取所需参数
   const pageContext = usePageContext([
     "landingProductId",
@@ -34,7 +35,7 @@ export function useProductInfo() {
   const languageId = computed(() => pageContext.value.domain?.languageId);
 
   // 构建唯一的请求 key
-  const key = computed(() => {
+  const productKey = computed(() => {
     if (productId.value) {
       // CLOAK 类型：使用 productId
       return `product-info-pid-${productId.value}`;
@@ -45,10 +46,10 @@ export function useProductInfo() {
   });
 
   // 使用 useFetch 获取产品信息
-  const { data, pending, error, refresh } = useFetch<ProductInfo>(
+  const { data: productInfo, pending: productPending, error: productError, refresh: productRefresh } = useFetch<ProductInfo>(
     "/api/product/info",
     {
-      key: key.value || "product-info-placeholder",
+      key: productKey.value || "product-info-placeholder",
       query: computed(() => {
         if (productId.value) {
           // CLOAK 类型：直接使用 productId
@@ -70,15 +71,54 @@ export function useProductInfo() {
     }
   );
 
+  // ==================== 主题渲染 ====================
+
+  const {
+    themeConfig,
+    globalStyle,
+    globalStyleVars,
+    hasTheme,
+    getPageSchema,
+    getPageLayout,
+    siteConfig,
+    variableValues,
+    useSiteTitle,
+  } = useThemeRender();
+
+  // ==================== 设备检测 ====================
+
+  const { device } = useDeviceDetect();
+
+  // ==================== 提供数据给子组件 ====================
+
+  provide('productInfo', productInfo);
+  provide('productPending', productPending);
+
+  // ==================== 返回值 ====================
+
   return {
-    /** 产品信息 */
-    data,
-    /** 是否正在加载 */
-    pending,
-    /** 错误信息 */
-    error,
-    /** 刷新数据 */
-    refresh,
+    // 产品信息
+    productInfo,
+    productPending: readonly(productPending),
+    productError: readonly(productError),
+    productRefresh,
+
+    // 主题配置
+    themeConfig,
+    globalStyle,
+    globalStyleVars,
+    hasTheme,
+    siteConfig,
+    variableValues,
+
+    // 页面配置
+    pageSchema: computed(() => getPageSchema("product")),
+    layoutSchema: computed(() => getPageLayout("product")),
+    useThemeRenderer: computed(() => hasTheme.value && !!getPageSchema("product")),
+
+    // 工具
+    device,
+    useSiteTitle,
   };
 }
 
@@ -117,7 +157,7 @@ export async function fetchProductInfo(): Promise<ProductInfo | null> {
     } else {
       // LAND 类型：使用 spuId + languageId
       if (!routeSpuId || !languageId) {
-        console.warn("[useProductInfo] Missing spuId or languageId from pageContext");
+        console.warn("[fetchProductInfo] Missing spuId or languageId from pageContext");
         return null;
       }
       query.set("spuId", String(routeSpuId));
@@ -133,7 +173,7 @@ export async function fetchProductInfo(): Promise<ProductInfo | null> {
     );
     return response;
   } catch (error) {
-    console.error("[useProductInfo] Failed to fetch product:", error);
+    console.error("[fetchProductInfo] Failed to fetch product:", error);
     return null;
   }
 }

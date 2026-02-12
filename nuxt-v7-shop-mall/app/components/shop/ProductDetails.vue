@@ -59,7 +59,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useDataContext } from "~/composables";
+import type { ProductInfo } from "~/types/page-context";
 
 interface Props {
   content?: string;
@@ -77,12 +77,12 @@ const emit = defineEmits<{
   (e: "click", event: MouseEvent): void;
 }>();
 
-// 数据上下文
-const dataContext = useDataContext();
+// 从父组件注入产品数据
+const productInfo = inject<Ref<ProductInfo | null>>('productInfo', ref(null));
 
-// 获取详情内容 - 优先使用 props，否则从 dataContext 获取 merchandise
+// 获取详情内容 - 优先使用 props，否则从 inject 获取 merchandise
 const detailContent = computed(() => {
-  return props.content || dataContext.value.product?.merchandise || "";
+  return props.content || productInfo.value?.merchandise || "";
 });
 </script>
 
