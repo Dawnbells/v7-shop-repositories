@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { provideDataContext } from "~/composables/useDataContext";
-import { useArticleInfo } from "~/composables/useArticleInfo";
+import { provideDataContext } from "~/composables";
+import { useArticleInfo } from "~/composables";
 
 const route = useRoute();
 const articleId = computed(() => route.params.id as string);
 
 // 只传递需要的字段到客户端
-const pageContext = usePageContext(["cloak.page", "cloak.isAdmin", "themeConfig", "siteConfig", "variableValues", "languages"]);
+const pageContext = usePageContext([
+  "cloak.page",
+  "cloak.isAdmin",
+  "themeConfig",
+  "siteConfig",
+  "variableValues",
+  "languages",
+]);
 
 // 设备检测
 const { device } = useDeviceDetect();
@@ -28,11 +35,11 @@ const {
 const { data: articleInfo, pending: articlePending } = useArticleInfo();
 
 // 设置浏览器标签页标题
-useSiteTitle(computed(() => articleInfo.value?.title || '文章详情'));
+useSiteTitle(computed(() => articleInfo.value?.title || "文章详情"));
 
 // 提供站点配置和变量值给子组件
-provide('siteConfig', siteConfig);
-provide('variableValues', variableValues);
+provide("siteConfig", siteConfig);
+provide("variableValues", variableValues);
 
 // 文章页配置
 const pageSchema = computed(() => getPageSchema("article"));
@@ -93,7 +100,10 @@ const useThemeRenderer = computed(() => {
           <p v-if="articleInfo.description" class="article-default-description">
             {{ articleInfo.description }}
           </p>
-          <div class="article-default-content" v-html="articleInfo.content"></div>
+          <div
+            class="article-default-content"
+            v-html="articleInfo.content"
+          ></div>
         </template>
         <template v-else>
           <div class="article-not-found">
@@ -110,7 +120,13 @@ const useThemeRenderer = computed(() => {
   min-height: 100vh;
   background-color: var(--background-color, #f8fafc);
   color: var(--text-color, #1e293b);
-  font-family: var(--font-family, "Inter", -apple-system, BlinkMacSystemFont, sans-serif);
+  font-family: var(
+    --font-family,
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif
+  );
 }
 
 .default-article-page {

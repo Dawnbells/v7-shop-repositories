@@ -6,7 +6,7 @@
 
 import type { ComponentNode, DeviceType, GlobalStyle, ResponsiveStyle } from "~/types/builder";
 import type { VariableValues } from "~/types/data-context";
-import { useDataContext, resolvePropsBindings, hasBindingExpression } from "~/composables/useDataContext";
+import { useDataContext, resolvePropsBindings, hasBindingExpression } from "~/composables";
 
 const props = defineProps<{
   node: ComponentNode;

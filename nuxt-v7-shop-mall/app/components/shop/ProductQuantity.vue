@@ -65,7 +65,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useThemeSchema } from "~/composables/useThemeSchema";
+import { useThemeSchema } from "~/composables";
 
 interface Props {
   value?: number;

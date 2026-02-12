@@ -16,7 +16,7 @@ import {
   getExpressionPreview,
   generatePageContextFields,
   generateVariableFields,
-} from "~/composables/useDataContext";
+} from "~/composables";
 
 // Tab 类型
 type PanelTabKey = "props" | "style" | "events";

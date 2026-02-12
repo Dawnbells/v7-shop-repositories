@@ -10,7 +10,7 @@
  * - 使用 useIframeAuth 进行 API 鉴权
  */
 
-import { useIframeAuth } from '~/composables/useIframeAuth';
+import { useIframeAuth } from '~/composables';
 import FolderTreeNode from './FolderTreeNode.vue';
 
 // Props

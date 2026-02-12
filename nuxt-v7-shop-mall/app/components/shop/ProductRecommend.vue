@@ -74,7 +74,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useIframeAuth } from "~/composables/useIframeAuth";
+import { useIframeAuth } from "~/composables";
 
 // 推荐商品类型
 interface RecommendProduct {

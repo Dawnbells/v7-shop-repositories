@@ -97,7 +97,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useDataContext } from "~/composables/useDataContext";
+import { useDataContext } from "~/composables";
 
 interface Props {
   title?: string;

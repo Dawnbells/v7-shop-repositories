@@ -64,7 +64,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useDataContext } from "~/composables/useDataContext";
+import { useDataContext } from "~/composables";
 import type { ProductSpecification, SpecificationAttribute } from "~/types/page-context";
 
 // SKU 值类型

@@ -8,8 +8,8 @@ import {
   provideEditorDataContext,
   generatePageContextFields,
   generateVariableFields,
-} from "~/composables/useDataContext";
-import { useIframeAuth } from "~/composables/useIframeAuth";
+} from "~/composables";
+import { useIframeAuth } from "~/composables";
 
 // 获取 iframe 认证信息
 const { 

@@ -79,8 +79,8 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useDataContext } from "~/composables/useDataContext";
-import { useIframeAuth } from "~/composables/useIframeAuth";
+import { useDataContext } from "~/composables";
+import { useIframeAuth } from "~/composables";
 
 interface Props {
   images?: string[];

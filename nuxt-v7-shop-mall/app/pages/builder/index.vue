@@ -17,7 +17,7 @@
  */
 
 import type { ThemeSchema, CustomVariable } from "~/types/builder";
-import { useIframeAuth } from "~/composables/useIframeAuth";
+import { useIframeAuth } from "~/composables";
 
 // iframe 认证（初始化 postMessage 监听）
 const { 

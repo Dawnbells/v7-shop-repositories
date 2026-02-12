@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provideDataContext } from "~/composables/useDataContext";
+import { provideDataContext } from "~/composables";
 
 const route = useRoute();
 const productId = computed(() => route.params.id as string);
