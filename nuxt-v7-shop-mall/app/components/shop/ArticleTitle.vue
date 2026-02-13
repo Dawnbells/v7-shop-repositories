@@ -17,7 +17,7 @@ export const meta: ComponentMeta = {
       key: "title",
       label: "标题(静态)",
       type: "text",
-      defaultValue: "",
+      defaultValue: "示例文章标题",
       description: "留空则自动绑定文章标题",
     },
     {
@@ -82,7 +82,7 @@ export const meta: ComponentMeta = {
   supportEvents: ["click"],
 
   defaultProps: {
-    title: "",
+    title: "示例文章标题",
     tag: "h1",
     align: "center",
   },
@@ -113,7 +113,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  title: "",
+  title: "示例文章标题",
   tag: "h1",
   align: "center",
   componentStyle: () => ({}),

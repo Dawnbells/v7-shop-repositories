@@ -17,7 +17,7 @@ export const meta: ComponentMeta = {
       key: "description",
       label: "描述(静态)",
       type: "textarea",
-      defaultValue: "",
+      defaultValue: "这是一段示例文章描述，用于展示文章的摘要信息。在实际使用中会自动绑定文章的描述内容。",
       description: "留空则自动绑定文章描述",
     },
   ],
@@ -53,7 +53,7 @@ export const meta: ComponentMeta = {
   supportEvents: ["click"],
 
   defaultProps: {
-    description: "",
+    description: "这是一段示例文章描述，用于展示文章的摘要信息。在实际使用中会自动绑定文章的描述内容。",
   },
 
   defaultStyle: {
@@ -80,7 +80,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  description: "",
+  description: "这是一段示例文章描述，用于展示文章的摘要信息。在实际使用中会自动绑定文章的描述内容。",
   componentStyle: () => ({}),
   previewDevice: "",
 });

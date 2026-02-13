@@ -17,7 +17,8 @@ export const meta: ComponentMeta = {
       key: "content",
       label: "正文内容(静态)",
       type: "richtext",
-      defaultValue: "",
+      defaultValue:
+        '<h2>示例章节标题</h2><p>这是一段示例文章正文内容。在实际使用中会自动绑定文章的正文内容。这里可以展示文章的段落文本、<strong>加粗文字</strong>、<em>斜体文本</em>以及<a href="#">链接</a>等各种格式。</p><p>第二段示例内容，用于展示文章的段落结构。</p>',
       description: "留空则自动绑定文章正文",
     },
   ],
@@ -53,7 +54,8 @@ export const meta: ComponentMeta = {
   supportEvents: ["click"],
 
   defaultProps: {
-    content: "",
+    content:
+      '<h2>示例章节标题</h2><p>这是一段示例文章正文内容。在实际使用中会自动绑定文章的正文内容。这里可以展示文章的段落文本、<strong>加粗文字</strong>、<em>斜体文本</em>以及<a href="#">链接</a>等各种格式。</p><p>第二段示例内容，用于展示文章的段落结构。</p>',
   },
 
   defaultStyle: {
@@ -80,7 +82,8 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  content: "",
+  content:
+    '<h2>示例章节标题</h2><p>这是一段示例文章正文内容。在实际使用中会自动绑定文章的正文内容。这里可以展示文章的段落文本、<strong>加粗文字</strong>、<em>斜体文本</em>以及<a href="#">链接</a>等各种格式。</p><p>第二段示例内容，用于展示文章的段落结构。</p>',
   componentStyle: () => ({}),
   previewDevice: "",
 });
