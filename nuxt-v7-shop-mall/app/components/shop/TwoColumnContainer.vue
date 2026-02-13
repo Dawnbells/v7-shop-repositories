@@ -161,6 +161,11 @@ const props = withDefaults(defineProps<Props>(), {
   previewDevice: "",
 });
 
+// 事件定义
+const emit = defineEmits<{
+  "component-click": [component: ComponentNode];
+}>();
+
 // 编辑器状态
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
 
@@ -325,6 +330,7 @@ const isRightDropTarget = computed(() => {
           :global-style="{}"
           :preview-device="previewDevice"
           :is-editor="true"
+          @component-click="$emit('component-click', $event)"
         />
         <!-- 默认子组件也放在左边 -->
         <ComponentRenderer
@@ -334,6 +340,7 @@ const isRightDropTarget = computed(() => {
           :global-style="{}"
           :preview-device="previewDevice"
           :is-editor="true"
+          @component-click="$emit('component-click', $event)"
         />
         <!-- 空状态占位符 -->
         <div v-if="leftChildren.length === 0 && defaultChildren.length === 0" class="column-placeholder column-left-placeholder">
@@ -370,6 +377,7 @@ const isRightDropTarget = computed(() => {
           :global-style="{}"
           :preview-device="previewDevice"
           :is-editor="true"
+          @component-click="$emit('component-click', $event)"
         />
         <!-- 空状态占位符 -->
         <div v-if="rightChildren.length === 0" class="column-placeholder column-right-placeholder">
