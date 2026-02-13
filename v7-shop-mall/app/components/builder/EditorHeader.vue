@@ -10,6 +10,7 @@
  */
 
 import { useIframeAuth } from "@/composables/base/useIframeAuth";
+import TemplateSelectModal from "./TemplateSelectModal.vue";
 
 defineOptions({
   name: "EditorHeader",
@@ -30,6 +31,9 @@ const isSaving = ref(false);
 // 保存消息（暂存）
 const saveMessage = ref<{ type: string; text: string } | null>(null);
 
+// 模板选择弹窗状态
+const showTemplateSelect = ref(false);
+
 // 关闭事件（暂不实现）
 function handleClose() {
   console.log("Close editor");
@@ -40,9 +44,22 @@ function handleSave() {
   console.log("Save");
 }
 
-// 显示模板选择（暂不实现）
-function showTemplateSelect() {
-  console.log("Show template select");
+// 应用模板事件（暂不实现）
+function handleApplyTemplate(data: {
+  themeConfig: any;
+  variableSchema: any[];
+  siteConfig: any;
+  variableValues: any;
+}) {
+  console.log("Apply template:", data);
+  showTemplateSelect.value = false;
+  saveMessage.value = { type: "success", text: "模板应用成功" };
+  setTimeout(() => (saveMessage.value = null), 3000);
+}
+
+// 显示模板选择
+function openTemplateSelect() {
+  showTemplateSelect.value = true;
 }
 
 // 显示变量管理（暂不实现）
@@ -80,7 +97,7 @@ function showVariableValueEditor() {
         </span>
       </Transition>
 
-      <button class="btn btn-secondary" @click="showTemplateSelect">
+      <button class="btn btn-secondary" @click="openTemplateSelect">
         <span class="i-carbon-template mr-1"></span>
         应用模板
       </button>
@@ -99,6 +116,13 @@ function showVariableValueEditor() {
       </button>
     </div>
   </header>
+
+  <!-- 应用模板弹窗 -->
+  <TemplateSelectModal
+    :visible="showTemplateSelect"
+    @close="showTemplateSelect = false"
+    @apply="handleApplyTemplate"
+  />
 </template>
 
 <style scoped>
