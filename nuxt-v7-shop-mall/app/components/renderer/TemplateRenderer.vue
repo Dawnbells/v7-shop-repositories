@@ -21,11 +21,6 @@ const emit = defineEmits<{
   "component-click": [component: ComponentNode];
 }>();
 
-// 提供站点配置给子组件
-if (props.siteConfig) {
-  provide("siteConfig", computed(() => props.siteConfig));
-}
-
 // 生成全局样式 CSS 变量
 const globalStyleVars = computed(() => {
   const style = props.globalStyle;

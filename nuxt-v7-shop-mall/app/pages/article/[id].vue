@@ -36,10 +36,6 @@ useSiteTitle(computed(() => articleInfo.value?.title || "文章详情"));
 
 // 预览设备
 const previewDevice = ref(device);
-
-// 提供站点配置给子组件
-provide('siteConfig', siteConfig);
-provide('variableValues', variableValues);
 </script>
 
 <template>

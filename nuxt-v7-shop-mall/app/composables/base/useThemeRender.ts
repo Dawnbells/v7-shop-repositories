@@ -8,7 +8,12 @@
  * - variableValues: 变量实际值（用户自定义变量，来自 pageContext）
  */
 
-import type { ThemeSchema, GlobalStyle, PageSchema, LayoutSchema } from "~/types/builder";
+import type {
+  ThemeSchema,
+  GlobalStyle,
+  PageSchema,
+  LayoutSchema,
+} from "~/types/builder";
 import type { SiteConfig, VariableValues } from "~/types/data-context";
 
 /**
@@ -16,7 +21,11 @@ import type { SiteConfig, VariableValues } from "~/types/data-context";
  */
 export function useThemeRender() {
   // 从页面上下文获取渲染配置
-  const pageContext = usePageContext(["themeConfig", "siteConfig", "variableValues"]);
+  const pageContext = usePageContext([
+    "themeConfig",
+    "siteConfig",
+    "variableValues",
+  ]);
 
   // 调试日志：打印 pageContext 信息
   if (import.meta.dev) {
@@ -86,7 +95,9 @@ export function useThemeRender() {
   });
 
   // 获取指定页面类型的页面配置
-  function getPageSchema(pageType: "home" | "product" | "orderResult" | "article" | "checkout"): PageSchema | null {
+  function getPageSchema(
+    pageType: "home" | "product" | "orderResult" | "article" | "checkout"
+  ): PageSchema | null {
     if (!themeConfig.value) return null;
     return themeConfig.value.pages[pageType] || null;
   }
@@ -104,7 +115,9 @@ export function useThemeRender() {
   }
 
   // 获取页面使用的布局
-  function getPageLayout(pageType: "home" | "product" | "orderResult" | "article" | "checkout"): LayoutSchema | null {
+  function getPageLayout(
+    pageType: "home" | "product" | "orderResult" | "article" | "checkout"
+  ): LayoutSchema | null {
     const page = getPageSchema(pageType);
     if (!page) return null;
     return getLayout(page.layoutId);
@@ -113,7 +126,11 @@ export function useThemeRender() {
   // 获取默认布局
   const defaultLayout = computed<LayoutSchema | null>(() => {
     if (!themeConfig.value) return null;
-    return themeConfig.value.layouts.find((l) => l.name === "default") || themeConfig.value.layouts[0] || null;
+    return (
+      themeConfig.value.layouts.find((l) => l.name === "default") ||
+      themeConfig.value.layouts[0] ||
+      null
+    );
   });
 
   // 是否有主题配置
@@ -128,6 +145,17 @@ export function useThemeRender() {
     });
     useHead({ title });
   }
+
+  // 提供站点配置和变量值给子组件
+  provide("siteConfig", siteConfig);
+  provide("variableValues", variableValues);
+  provide("globalStyle", globalStyle);
+  provide("defaultLayout", defaultLayout);
+  provide("hasTheme", hasTheme);
+  provide("getPageSchema", getPageSchema);
+  provide("getCustomPageSchema", getCustomPageSchema);
+  provide("getLayout", getLayout);
+  provide("getPageLayout", getPageLayout);
 
   return {
     // 数据
