@@ -4,7 +4,7 @@
  * 根据组件类型动态渲染对应的组件
  */
 
-import type { ComponentNode, DeviceType, GlobalStyle, ResponsiveStyle } from "~/types/builder";
+import type { ComponentNode, DeviceType, EditorActions, GlobalStyle, ResponsiveStyle } from "~/types/builder";
 import type { VariableValues } from "~/types/data-context";
 import type { ProductInfo } from "~/types/page-context";
 import type { ArticleInfo } from "~~/server/repositories/article.repository";
@@ -15,6 +15,7 @@ const props = defineProps<{
   globalStyle?: GlobalStyle;
   previewDevice: DeviceType;
   isEditor?: boolean;
+  editorActions?: EditorActions | null;
 }>();
 
 const emit = defineEmits<{
@@ -57,9 +58,12 @@ interface EditorActions {
   getComponentMeta: (type: string) => any;
 }
 
-const editorActions = props.isEditor
-  ? inject<EditorActions>('editorActions', null)
-  : null;
+// 编辑器操作（优先使用 props，否则使用 inject）
+const editorActions = computed(() => {
+  if (props.editorActions) return props.editorActions;
+  if (props.isEditor) return inject<EditorActions>('editorActions', null);
+  return null;
+});
 
 // 计算样式（用于 wrapper div）
 const computedStyle = computed(() => {
@@ -186,7 +190,12 @@ const resolvedProps = computed(() => {
   >
     <!-- 鼠标悬浮时显示的操作菜单 -->
     <div v-if="isHovered && editorActions" class="floating-toolbar">
-      <span v-if="componentMeta" class="toolbar-label">
+      <span
+        v-if="componentMeta"
+        class="toolbar-label"
+        title="点击编辑组件属性"
+        @click="handleClick"
+      >
         <span :class="componentMeta.icon" class="toolbar-icon"></span>
         {{ componentMeta.name }}
       </span>
@@ -293,6 +302,12 @@ const resolvedProps = computed(() => {
   color: #94a3b8;
   padding-right: 8px;
   border-right: 1px solid #334155;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.toolbar-label:hover {
+  color: #60a5fa;
 }
 
 .toolbar-icon {

@@ -102,6 +102,10 @@ const emit = defineEmits<{
 
 // 从父组件注入产品数据
 const productInfo = inject<Ref<ProductInfo | null>>('productInfo', ref(null));
+
+// 编辑器状态
+const isInEditor = inject<Ref<boolean>>('isInEditor', ref(false));
+
 const { buildImageUrl } = useIframeAuth();
 
 // 获取图片列表 - 优先使用 props，否则从 inject 获取
@@ -138,11 +142,15 @@ const aspectRatioStyle = computed(() => {
 
 // 选择图片
 function selectImage(index: number) {
+  // 在编辑器模式下不处理点击，让事件冒泡选中组件
+  if (isInEditor.value) return;
   currentIndex.value = index;
 }
 
 // 打开预览
 function openPreview() {
+  // 在编辑器模式下不处理点击，让事件冒泡选中组件
+  if (isInEditor.value) return;
   if (props.enableZoom) {
     showPreview.value = true;
   }

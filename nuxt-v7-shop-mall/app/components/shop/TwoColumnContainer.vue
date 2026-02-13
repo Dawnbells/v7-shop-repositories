@@ -135,7 +135,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import type { ComponentNode } from "~/types/builder";
+import type { ComponentNode, EditorActions } from "~/types/builder";
 
 interface Props {
   leftWidth?: string;
@@ -168,6 +168,9 @@ const emit = defineEmits<{
 
 // 编辑器状态
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
+// 编辑器操作（用于悬浮菜单）
+const editorActions = inject<EditorActions | null>("editorActions", null);
 
 // 拖拽状态
 const { isDragging, dragState, updateDropTarget } = useDragDrop();
@@ -330,6 +333,7 @@ const isRightDropTarget = computed(() => {
           :global-style="{}"
           :preview-device="previewDevice"
           :is-editor="true"
+          :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
         <!-- 默认子组件也放在左边 -->
@@ -340,6 +344,7 @@ const isRightDropTarget = computed(() => {
           :global-style="{}"
           :preview-device="previewDevice"
           :is-editor="true"
+          :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
         <!-- 空状态占位符 -->
@@ -377,6 +382,7 @@ const isRightDropTarget = computed(() => {
           :global-style="{}"
           :preview-device="previewDevice"
           :is-editor="true"
+          :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
         <!-- 空状态占位符 -->
