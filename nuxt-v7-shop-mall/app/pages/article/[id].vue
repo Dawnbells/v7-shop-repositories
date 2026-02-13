@@ -36,6 +36,13 @@ useSiteTitle(computed(() => articleInfo.value?.title || "文章详情"));
 
 // 预览设备
 const previewDevice = ref(device);
+
+// 返回上一页
+const goBack = () => {
+  if (import.meta.client) {
+    window.history.back();
+  }
+};
 </script>
 
 <template>

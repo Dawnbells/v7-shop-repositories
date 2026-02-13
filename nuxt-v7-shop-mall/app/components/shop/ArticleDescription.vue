@@ -119,8 +119,13 @@ const descStyle = computed(() => ({
 
 <style scoped>
 .article-description {
-  margin: 0;
+  margin: 0 auto;
   word-break: break-word;
+  font-size: 1rem;
+  color: #666;
+  line-height: 1.6;
+  text-align: center;
+  max-width: 100%;
 }
 
 .article-description-empty {
@@ -128,7 +133,9 @@ const descStyle = computed(() => ({
   align-items: center;
   justify-content: center;
   min-height: 40px;
-  color: #9ca3af;
-  font-size: 14px;
+  color: #ccc;
+  font-size: 0.875rem;
+  border: 1px dashed #e5e5e5;
+  border-radius: 4px;
 }
 </style>

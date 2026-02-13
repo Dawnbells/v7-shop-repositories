@@ -35,7 +35,7 @@ export const meta: ComponentMeta = {
       key: "align",
       label: "对齐方式",
       type: "select",
-      defaultValue: "left",
+      defaultValue: "center",
       options: [
         { label: "左对齐", value: "left" },
         { label: "居中", value: "center" },
@@ -84,7 +84,7 @@ export const meta: ComponentMeta = {
   defaultProps: {
     title: "",
     tag: "h1",
-    align: "left",
+    align: "center",
   },
 
   defaultStyle: {
@@ -115,13 +115,13 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   title: "",
   tag: "h1",
-  align: "left",
+  align: "center",
   componentStyle: () => ({}),
   previewDevice: "",
 });
 
 // 从父组件注入文章数据
-const articleInfo = inject<Ref<ArticleInfo | null>>('articleInfo', ref(null));
+const articleInfo = inject<Ref<ArticleInfo | null>>("articleInfo", ref(null));
 
 // 获取标题 - 优先使用 props，否则从 inject 获取
 const displayTitle = computed(() => {
@@ -160,17 +160,25 @@ const titleStyle = computed(() => ({
 
 <style scoped>
 .article-title {
-  margin: 0;
-  line-height: 1.4;
+  margin: 0 auto;
+  line-height: 1.25;
   word-break: break-word;
+  font-size: 2rem;
+  font-weight: 600;
+  color: #000;
+  letter-spacing: -0.03em;
+  text-align: center;
+  max-width: 100%;
 }
 
 .article-title-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 48px;
-  color: #9ca3af;
-  font-size: 14px;
+  min-height: 56px;
+  color: #ccc;
+  font-size: 0.875rem;
+  border: 1px dashed #e5e5e5;
+  border-radius: 4px;
 }
 </style>

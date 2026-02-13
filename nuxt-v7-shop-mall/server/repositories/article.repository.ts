@@ -14,6 +14,12 @@ export interface ArticleInfo {
   title: string;
   content: string;
   description: string;
+  // 扩展字段
+  author?: string;
+  publishDate?: string;
+  category?: string;
+  coverImage?: string;
+  tags?: string[];
 }
 
 /**
