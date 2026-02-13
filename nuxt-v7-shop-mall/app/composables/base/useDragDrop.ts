@@ -4,13 +4,21 @@
 
 import type { ComponentMeta, ComponentNode } from "~/types/builder";
 
+// 放置位置类型
+// before: 放在目标之前
+// after: 放在目标之后
+// inside: 放入目标内部
+// inside-left: 放入目标内部的左侧区域
+// inside-right: 放入目标内部的右侧区域
+export type DropPosition = "before" | "after" | "inside" | "inside-left" | "inside-right" | null;
+
 // 拖拽状态
 export interface DragState {
   isDragging: boolean;
   dragType: "new" | "move" | null;
   dragData: ComponentMeta | ComponentNode | null;
   dropTargetId: string | null;
-  dropPosition: "before" | "after" | "inside" | null;
+  dropPosition: DropPosition;
 }
 
 const dragState = ref<DragState>({
@@ -49,7 +57,7 @@ export function useDragDrop() {
   // 更新放置目标
   function updateDropTarget(
     targetId: string | null,
-    position: "before" | "after" | "inside" | null
+    position: DropPosition
   ) {
     dragState.value.dropTargetId = targetId;
     dragState.value.dropPosition = position;
@@ -60,6 +68,20 @@ export function useDragDrop() {
     const { dragType, dragData, dropTargetId, dropPosition } = dragState.value;
 
     if (dragData && dropPosition) {
+      // 如果是容器组件的插槽位置（inside-left 或 inside-right），容器组件已经在内部处理了添加逻辑
+      // 这里只需要简单返回，不需要重复添加
+      if (dropPosition === "inside-left" || dropPosition === "inside-right") {
+        // 容器组件已处理，清理状态即可
+        dragState.value = {
+          isDragging: false,
+          dragType: null,
+          dragData: null,
+          dropTargetId: null,
+          dropPosition: null,
+        };
+        return;
+      }
+
       if (dragType === "new" && "type" in dragData) {
         // 新增组件
         const meta = dragData as ComponentMeta;

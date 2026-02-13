@@ -121,6 +121,12 @@ export const meta: ComponentMeta = {
 
   // 支持子组件
   supportChildren: true,
+
+  // 定义插槽配置
+  slots: [
+    { key: "left", name: "左侧", description: "左侧区域内容" },
+    { key: "right", name: "右侧", description: "右侧区域内容" },
+  ],
 };
 
 export default {
@@ -129,6 +135,8 @@ export default {
 </script>
 
 <script setup lang="ts">
+import type { ComponentNode } from "~/types/builder";
+
 interface Props {
   leftWidth?: string;
   gap?: string;
@@ -138,6 +146,8 @@ interface Props {
   rightMinHeight?: string;
   componentStyle?: Record<string, any>;
   previewDevice?: string;
+  // 注入的子组件节点（编辑器模式）
+  node?: ComponentNode;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -150,6 +160,12 @@ const props = withDefaults(defineProps<Props>(), {
   componentStyle: () => ({}),
   previewDevice: "",
 });
+
+// 编辑器状态
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
+// 拖拽状态
+const { isDragging, dragState, updateDropTarget } = useDragDrop();
 
 // 合并样式
 const mergedStyle = computed(() => {
@@ -188,30 +204,181 @@ const rightStyle = computed(() => ({
   minHeight: props.rightMinHeight ? `${props.rightMinHeight}px` : "auto",
 }));
 
-// 响应式 - 在小屏幕上自动换行
-const isSmallScreen = computed(() => {
-  const deviceWidths: Record<string, number> = {
-    desktop: 1920,
-    laptop: 1440,
-    tablet: 1024,
-    mobile: 375,
-  };
-  return false; // 默认不自动换行，由 wrap 属性控制
+// 根据 slot 属性过滤子组件
+const leftChildren = computed(() => {
+  if (!props.node?.children) return [];
+  return props.node.children.filter((child: ComponentNode) => child.props?.slot === "left");
+});
+
+const rightChildren = computed(() => {
+  if (!props.node?.children) return [];
+  return props.node.children.filter((child: ComponentNode) => child.props?.slot === "right");
+});
+
+// 没有 slot 属性的子组件默认放在左边
+const defaultChildren = computed(() => {
+  if (!props.node?.children) return [];
+  return props.node.children.filter((child: ComponentNode) => !child.props?.slot);
+});
+
+// 拖拽进入左侧区域
+function handleLeftDragEnter(event: DragEvent) {
+  if (isInEditor && props.node) {
+    event.preventDefault();
+    updateDropTarget(props.node.id, "inside-left");
+  }
+}
+
+// 拖拽进入右侧区域
+function handleRightDragEnter(event: DragEvent) {
+  if (isInEditor && props.node) {
+    event.preventDefault();
+    updateDropTarget(props.node.id, "inside-right");
+  }
+}
+
+// 拖拽离开
+function handleDragLeave(event: DragEvent) {
+  if (isInEditor) {
+    // 只有真正离开容器才清除目标
+    const relatedTarget = event.relatedTarget as HTMLElement;
+    if (!relatedTarget?.closest(".two-column-container")) {
+      updateDropTarget(null, null);
+    }
+  }
+}
+
+// 放置处理
+function handleDrop(event: DragEvent, slot: "left" | "right") {
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (isInEditor && props.node && dragState.value.dragData) {
+    const { dragType, dragData } = dragState.value;
+
+    if (dragType === "new" && "type" in dragData) {
+      // 新增组件，添加 slot 属性
+      const meta = dragData as any;
+      const { addComponent } = useCurrentPage();
+      addComponent(
+        meta.type,
+        { ...meta.defaultProps, slot },
+        { ...meta.defaultStyle },
+        props.node.id
+      );
+    } else if (dragType === "move" && "id" in dragData) {
+      // 移动现有组件，更新 slot 属性
+      const component = dragData as ComponentNode;
+      const { updateComponentProps } = useCurrentPage();
+      updateComponentProps(component.id, { ...component.props, slot });
+    }
+
+    // 清除拖拽状态
+    updateDropTarget(null, null);
+  }
+}
+
+// 允许拖拽
+function handleDragOver(event: DragEvent) {
+  if (isInEditor) {
+    event.preventDefault();
+  }
+}
+
+// 检查当前拖拽目标是否是左侧
+const isLeftDropTarget = computed(() => {
+  return dragState.value.dropTargetId === props.node?.id &&
+    dragState.value.dropPosition === "inside-left";
+});
+
+// 检查当前拖拽目标是否是右侧
+const isRightDropTarget = computed(() => {
+  return dragState.value.dropTargetId === props.node?.id &&
+    dragState.value.dropPosition === "inside-right";
 });
 </script>
 
 <template>
-  <div class="two-column-container" :style="containerStyle">
-    <div class="column-left" :style="leftStyle">
-      <slot name="left">
+  <div
+    class="two-column-container"
+    :style="containerStyle"
+    @dragleave="handleDragLeave"
+    @dragover="handleDragOver"
+  >
+    <!-- 左侧区域 -->
+    <div
+      class="column-left"
+      :class="{
+        'drop-target': isInEditor && isDragging && isLeftDropTarget,
+        'drag-over': isInEditor && isDragging && isLeftDropTarget
+      }"
+      :style="leftStyle"
+      @dragenter="handleLeftDragEnter"
+      @drop="handleDrop($event, 'left')"
+    >
+      <!-- 编辑器模式：渲染左侧子组件 -->
+      <template v-if="isInEditor">
+        <ComponentRenderer
+          v-for="child in leftChildren"
+          :key="child.id"
+          :node="child"
+          :global-style="{}"
+          :preview-device="previewDevice"
+          :is-editor="true"
+        />
+        <!-- 默认子组件也放在左边 -->
+        <ComponentRenderer
+          v-for="child in defaultChildren"
+          :key="child.id"
+          :node="child"
+          :global-style="{}"
+          :preview-device="previewDevice"
+          :is-editor="true"
+        />
+        <!-- 空状态占位符 -->
+        <div v-if="leftChildren.length === 0 && defaultChildren.length === 0" class="column-placeholder column-left-placeholder">
+          <span class="i-carbon-text-align-left text-2xl text-gray-400 mb-2"></span>
+          <span class="text-gray-500">拖拽组件到此处</span>
+        </div>
+      </template>
+      <!-- 非编辑器模式：使用插槽 -->
+      <slot v-else name="left">
         <div class="column-placeholder column-left-placeholder">
           <span class="i-carbon-text-align-left text-2xl text-gray-400 mb-2"></span>
           <span class="text-gray-500">左侧内容区域</span>
         </div>
       </slot>
     </div>
-    <div class="column-right" :style="rightStyle">
-      <slot name="right">
+
+    <!-- 右侧区域 -->
+    <div
+      class="column-right"
+      :class="{
+        'drop-target': isInEditor && isDragging && isRightDropTarget,
+        'drag-over': isInEditor && isDragging && isRightDropTarget
+      }"
+      :style="rightStyle"
+      @dragenter="handleRightDragEnter"
+      @drop="handleDrop($event, 'right')"
+    >
+      <!-- 编辑器模式：渲染右侧子组件 -->
+      <template v-if="isInEditor">
+        <ComponentRenderer
+          v-for="child in rightChildren"
+          :key="child.id"
+          :node="child"
+          :global-style="{}"
+          :preview-device="previewDevice"
+          :is-editor="true"
+        />
+        <!-- 空状态占位符 -->
+        <div v-if="rightChildren.length === 0" class="column-placeholder column-right-placeholder">
+          <span class="i-carbon-text-align-right text-2xl text-gray-400 mb-2"></span>
+          <span class="text-gray-500">拖拽组件到此处</span>
+        </div>
+      </template>
+      <!-- 非编辑器模式：使用插槽 -->
+      <slot v-else name="right">
         <div class="column-placeholder column-right-placeholder">
           <span class="i-carbon-text-align-right text-2xl text-gray-400 mb-2"></span>
           <span class="text-gray-500">右侧内容区域</span>
@@ -229,6 +396,22 @@ const isSmallScreen = computed(() => {
 .column-left,
 .column-right {
   box-sizing: border-box;
+  position: relative;
+  min-height: 100px;
+  transition: all 0.2s ease;
+}
+
+/* 拖拽目标高亮 */
+.column-left.drop-target,
+.column-right.drop-target {
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+  background-color: rgba(59, 130, 246, 0.05);
+}
+
+.column-left.drag-over,
+.column-right.drag-over {
+  background-color: rgba(59, 130, 246, 0.1);
 }
 
 .column-placeholder {
@@ -241,6 +424,8 @@ const isSmallScreen = computed(() => {
   border: 2px dashed #e2e8f0;
   border-radius: 8px;
   background-color: #f8fafc;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .column-left-placeholder {

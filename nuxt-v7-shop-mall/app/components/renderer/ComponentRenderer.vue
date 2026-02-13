@@ -110,6 +110,15 @@ const componentMeta = computed(() => {
   return editorActions.getComponentMeta(props.node.type);
 });
 
+// 是否应该自动渲染子组件
+// 如果组件是容器组件（isContainer: true），则不自动渲染，由容器组件自己控制渲染
+const shouldRenderChildren = computed(() => {
+  // 如果没有元数据或不是容器组件，则自动渲染 children
+  if (!componentMeta.value) return true;
+  // 容器组件由自己控制 children 的渲染
+  return !componentMeta.value.isContainer;
+});
+
 // 处理点击
 function handleClick(event: MouseEvent) {
   if (props.isEditor) {
@@ -216,6 +225,7 @@ const resolvedProps = computed(() => {
       :global-style="globalStyle"
       :preview-device="previewDevice"
       :component-style="resolvedComponentStyle"
+      :node="node"
     />
 
     <!-- 未注册的组件显示占位 -->
@@ -224,8 +234,8 @@ const resolvedProps = computed(() => {
       <span class="placeholder-text">{{ node.type }}</span>
     </div>
 
-    <!-- 子组件渲染 -->
-    <template v-if="node.children && node.children.length > 0">
+    <!-- 子组件渲染 - 仅非容器组件自动渲染 -->
+    <template v-if="shouldRenderChildren && node.children && node.children.length > 0">
       <ComponentRenderer
         v-for="child in node.children"
         :key="child.id"

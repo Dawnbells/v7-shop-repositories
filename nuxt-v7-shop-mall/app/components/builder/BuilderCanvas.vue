@@ -151,6 +151,15 @@ function handleCanvasClick(event: MouseEvent) {
 function handleDrop(event: DragEvent) {
   event.preventDefault();
 
+  // 如果有特定的放置目标（如容器组件），则不处理
+  // 容器组件会自己处理放置逻辑
+  if (dragState.value.dropTargetId &&      
+ (dragState.value.dropPosition === "inside-left" || 
+       dragState.value.dropPosition === "inside-right")) {
+    endDrag();
+    return;
+  }
+
   if (dragState.value.dragData && dragState.value.dragType === "new") {
     const meta = dragState.value.dragData as any;
     addComponent(meta.type, { ...meta.defaultProps }, { ...meta.defaultStyle });
