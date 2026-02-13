@@ -65,8 +65,6 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useThemeSchema } from "~/composables";
-
 interface Props {
   value?: number;
   min?: number;
@@ -85,8 +83,8 @@ const emit = defineEmits<{
   (e: "change", quantity: number): void;
 }>();
 
-// 全局配置
-const { siteConfig } = useThemeSchema();
+// 全局配置（从 pageContext 获取）
+const { siteConfig } = useThemeRender();
 
 // 是否启用数量选择器
 const isEnabled = computed(() => {

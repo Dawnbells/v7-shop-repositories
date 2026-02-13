@@ -45,6 +45,7 @@ const previewDevice = ref<DeviceType>("pc");
       :page="homePageSchema"
       :layout="layout"
       :global-style="globalStyle"
+      :site-config="siteConfig"
       :preview-device="previewDevice"
       :is-editor="false"
     >

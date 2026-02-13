@@ -103,7 +103,12 @@ export function useThemeSchema() {
     }
     themeState.value = data.themeConfig;
     variableSchemaState.value = data.variableSchema || [];
-    siteConfigState.value = data.siteConfig || createDefaultSiteConfig();
+    // 如果 siteConfig 为空或空对象，使用默认值
+    const defaultSiteConfig = createDefaultSiteConfig();
+    const loadedSiteConfig = data.siteConfig || {};
+    siteConfigState.value = Object.keys(loadedSiteConfig).length > 0 
+      ? loadedSiteConfig 
+      : defaultSiteConfig;
     siteConfigI18nState.value = data.siteConfigI18n || {};
     variableValuesState.value = data.variableValues || {};
     variableValuesI18nState.value = data.variableValuesI18n || {};

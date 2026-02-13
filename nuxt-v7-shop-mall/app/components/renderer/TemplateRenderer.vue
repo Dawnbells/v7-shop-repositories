@@ -12,6 +12,7 @@ const props = defineProps<{
   page: PageSchema | null | undefined;
   layout?: LayoutSchema | null;
   globalStyle?: GlobalStyle;
+  siteConfig?: Record<string, any>;
   previewDevice?: DeviceType;
   isEditor?: boolean;
 }>();
@@ -19,6 +20,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   "component-click": [component: ComponentNode];
 }>();
+
+// 提供站点配置给子组件
+if (props.siteConfig) {
+  provide("siteConfig", computed(() => props.siteConfig));
+}
 
 // 生成全局样式 CSS 变量
 const globalStyleVars = computed(() => {
@@ -70,6 +76,7 @@ function handleComponentClick(component: ComponentNode) {
       :layout="layout!"
       :page="page!"
       :global-style="globalStyle"
+      :site-config="siteConfig"
       :preview-device="previewDevice || 'pc'"
       :is-editor="isEditor"
       @component-click="handleComponentClick"
@@ -80,6 +87,7 @@ function handleComponentClick(component: ComponentNode) {
       v-else-if="hasValidPage"
       :schema="page!"
       :global-style="globalStyle"
+      :site-config="siteConfig"
       :preview-device="previewDevice || 'pc'"
       :is-editor="isEditor"
       @component-click="handleComponentClick"

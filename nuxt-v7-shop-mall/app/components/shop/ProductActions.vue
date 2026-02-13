@@ -84,8 +84,6 @@ export default {
 </script>
 
 <script setup lang="ts">
-import { useThemeSchema } from "~/composables";
-
 interface Props {
   cartText?: string;
   buyText?: string;
@@ -107,8 +105,8 @@ const emit = defineEmits<{
   (e: "buy"): void;
 }>();
 
-// 全局配置
-const { siteConfig } = useThemeSchema();
+// 全局配置（从 pageContext 获取）
+const { siteConfig } = useThemeRender();
 
 // 是否显示加购按钮 - 同时满足 props.showCart 和全局配置 enableCart
 const showCartButton = computed(() => {
