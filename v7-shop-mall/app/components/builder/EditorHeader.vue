@@ -11,6 +11,7 @@
 
 import { useIframeAuth } from "@/composables/base/useIframeAuth";
 import TemplateSelectModal from "./TemplateSelectModal.vue";
+import VariableManager from "./VariableManager.vue";
 
 defineOptions({
   name: "EditorHeader",
@@ -33,6 +34,9 @@ const saveMessage = ref<{ type: string; text: string } | null>(null);
 
 // 模板选择弹窗状态
 const showTemplateSelect = ref(false);
+
+// 变量管理弹窗状态
+const showVariableManager = ref(false);
 
 // 关闭事件（暂不实现）
 function handleClose() {
@@ -62,10 +66,12 @@ function openTemplateSelect() {
   showTemplateSelect.value = true;
 }
 
-// 显示变量管理（暂不实现）
-function showVariableManager() {
-  console.log("Show variable manager");
+// 显示变量管理
+function openVariableManager() {
+  showVariableManager.value = true;
 }
+
+// 显示变量值编辑（暂不实现）
 
 // 显示变量值编辑（暂不实现）
 function showVariableValueEditor() {
@@ -101,7 +107,7 @@ function showVariableValueEditor() {
         <span class="i-carbon-template mr-1"></span>
         应用模板
       </button>
-      <button class="btn btn-secondary" @click="showVariableManager">
+      <button class="btn btn-secondary" @click="openVariableManager">
         <span class="i-carbon-parameter mr-1"></span>
         变量管理
       </button>
@@ -110,7 +116,10 @@ function showVariableValueEditor() {
         变量值
       </button>
       <button class="btn btn-primary" :disabled="isSaving" @click="handleSave">
-        <span v-if="isSaving" class="i-carbon-circle-dash animate-spin mr-1"></span>
+        <span
+          v-if="isSaving"
+          class="i-carbon-circle-dash animate-spin mr-1"
+        ></span>
         <span v-else class="i-carbon-save mr-1"></span>
         {{ isSaving ? "保存中..." : "保存" }}
       </button>
@@ -122,6 +131,12 @@ function showVariableValueEditor() {
     :visible="showTemplateSelect"
     @close="showTemplateSelect = false"
     @apply="handleApplyTemplate"
+  />
+
+  <!-- 变量管理弹窗 -->
+  <VariableManager
+    :visible="showVariableManager"
+    @close="showVariableManager = false"
   />
 </template>
 
