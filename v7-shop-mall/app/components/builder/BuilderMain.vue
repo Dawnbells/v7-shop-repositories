@@ -9,6 +9,7 @@
 
 import { useIframeAuth } from "@/composables/base/useIframeAuth";
 import PageTabs from "./PageTabs.vue";
+import EditorHeader from "./EditorHeader.vue";
 
 defineOptions({
   name: "BuilderMain",
@@ -112,19 +113,7 @@ function startResize(side: "left" | "right", e: PointerEvent) {
 <template>
   <div class="builder-layout">
     <!-- 标题区 -->
-    <header class="builder-header">
-      <div class="header-left">
-        <h1 class="header-title">主题编辑器</h1>
-        <span v-if="contextName" class="header-context" :title="contextName">
-          {{ contextName }}
-        </span>
-      </div>
-      <div class="header-right">
-        <span class="header-mode">{{
-          isTemplateMode ? "模板编辑" : "落地页编辑"
-        }}</span>
-      </div>
-    </header>
+    <EditorHeader />
 
     <!-- 页面 Tab 切换 -->
     <PageTabs />
@@ -175,57 +164,6 @@ function startResize(side: "left" | "right", e: PointerEvent) {
   display: flex;
   flex-direction: column;
   height: 100%;
-}
-
-/* 标题区 */
-.builder-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 56px;
-  padding: 0 16px;
-  background-color: #1e293b;
-  border-bottom: 1px solid #334155;
-  flex-shrink: 0;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.header-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #f1f5f9;
-}
-
-.header-context {
-  padding: 4px 10px;
-  font-size: 12px;
-  color: #94a3b8;
-  background-color: #334155;
-  border-radius: 4px;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-mode {
-  padding: 4px 12px;
-  font-size: 12px;
-  color: #94a3b8;
-  background-color: #334155;
-  border-radius: 4px;
 }
 
 /* 编辑区 */
