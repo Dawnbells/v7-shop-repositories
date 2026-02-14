@@ -271,8 +271,12 @@ const shouldRenderChildren = computed(() => {
 
 // 处理点击
 function handleClick(event: MouseEvent) {
+  event.stopPropagation();
   if (isInEditor.value) {
-    event.stopPropagation();
+    // 优先使用 selectComponent 方法
+    if (editorActions.value?.selectComponent) {
+      editorActions.value.selectComponent(props.node.id);
+    }
     emit("component-click", props.node);
   }
 }
