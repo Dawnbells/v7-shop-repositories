@@ -103,9 +103,15 @@ const isSelected = computed(() => {
 
 // 组件包装器引用
 const wrapperRef = ref<HTMLElement | null>(null);
+const toolbarRef = ref<HTMLElement | null>(null);
 
 // 是否处于 hover 状态（用于显示悬浮菜单）
 const isHovered = ref(false);
+const showToolbar = ref(false);
+
+// 延迟显示/隐藏定时器
+let showTimer: ReturnType<typeof setTimeout> | null = null;
+let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
 // 悬浮工具栏位置
 const toolbarStyle = computed(() => {
@@ -121,13 +127,48 @@ const toolbarStyle = computed(() => {
 // 鼠标进入
 function handleMouseEnter() {
   if (isInEditor.value) {
-    isHovered.value = true;
+    // 清除隐藏定时器
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
+    // 延迟显示工具栏
+    showTimer = setTimeout(() => {
+      isHovered.value = true;
+      showToolbar.value = true;
+    }, 100);
   }
 }
 
 // 鼠标离开
 function handleMouseLeave() {
+  // 清除显示定时器
+  if (showTimer) {
+    clearTimeout(showTimer);
+    showTimer = null;
+  }
+  // 延迟隐藏，给鼠标移动到工具栏的时间
+  hideTimer = setTimeout(() => {
+    isHovered.value = false;
+    showToolbar.value = false;
+  }, 100);
+}
+
+// 鼠标进入工具栏
+function handleToolbarMouseEnter() {
+  // 清除隐藏定时器
+  if (hideTimer) {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+  isHovered.value = true;
+  showToolbar.value = true;
+}
+
+// 鼠标离开工具栏
+function handleToolbarMouseLeave() {
   isHovered.value = false;
+  showToolbar.value = false;
 }
 
 // 是否可以上移
@@ -226,9 +267,12 @@ const resolvedProps = computed(() => {
     <!-- 鼠标悬浮时显示的操作菜单 (Teleport 到 body 避免被裁剪) -->
     <Teleport to="body">
       <div
-        v-if="isHovered && editorActions"
+        v-if="showToolbar && editorActions"
+        ref="toolbarRef"
         class="floating-toolbar"
         :style="toolbarStyle"
+        @mouseenter="handleToolbarMouseEnter"
+        @mouseleave="handleToolbarMouseLeave"
       >
         <span
           v-if="componentMeta"
