@@ -135,7 +135,7 @@ export default {
 </script>
 
 <script setup lang="ts">
-import type { ComponentNode, EditorActions } from "~/types/builder";
+import type { ComponentNode } from "~/types/builder";
 
 interface Props {
   leftWidth?: string;
@@ -172,8 +172,26 @@ const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
 // 提供给子组件的编辑器状态
 provide("isInEditor", isInEditor);
 
+// 提供父组件信息给子组件
+interface ParentComponentInfo {
+  id: string;
+  type: string;
+  name: string;
+}
+const parentComponentInfo = computed<ParentComponentInfo | null>(() => {
+  if (props.node) {
+    return {
+      id: props.node.id,
+      type: props.node.type,
+      name: "两列布局",
+    };
+  }
+  return null;
+});
+provide("parentComponent", parentComponentInfo);
+
 // 编辑器操作（用于悬浮菜单）
-const editorActions = inject<EditorActions | null>("editorActions", null);
+const editorActions = inject<any>("editorActions", null);
 
 // 拖拽状态
 const { isDragging, dragState, updateDropTarget } = useDragDrop();
@@ -373,7 +391,7 @@ const isRightDropTarget = computed(() => {
           class="i-carbon-text-align-left text-2xl text-gray-400 mb-2"
         ></span>
         <span class="text-gray-500">{{
-          isInEditor?.value ? "拖拽组件到此处" : "左侧内容区域"
+          isInEditor ? "拖拽组件到此处" : "左侧内容区域"
         }}</span>
       </div>
     </div>
@@ -410,7 +428,7 @@ const isRightDropTarget = computed(() => {
           class="i-carbon-text-align-right text-2xl text-gray-400 mb-2"
         ></span>
         <span class="text-gray-500">{{
-          isInEditor?.value ? "拖拽组件到此处" : "右侧内容区域"
+          isInEditor ? "拖拽组件到此处" : "右侧内容区域"
         }}</span>
       </div>
     </div>

@@ -29,6 +29,29 @@ const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
 // 提供给子组件
 provide("isInEditor", isInEditor);
 
+// 父组件信息
+interface ParentComponentInfo {
+  id: string;
+  type: string;
+  name: string;
+}
+
+// 为布局组件提供父组件信息
+const layoutParentInfo = computed<ParentComponentInfo | null>(() => ({
+  id: props.layout.id,
+  type: "layout",
+  name: "布局",
+}));
+
+// 为页面插槽内容提供父组件信息（page-slot）
+const pageSlotParentInfo = computed<ParentComponentInfo | null>(() => ({
+  id: "page-slot",
+  type: "page-slot",
+  name: "页面内容",
+}));
+
+provide("parentComponent", layoutParentInfo);
+
 // 生成全局样式 CSS 变量
 const globalStyleVars = computed(() => {
   if (!props.globalStyle) return {};
@@ -82,6 +105,7 @@ function isPageSlot(node: ComponentNode): boolean {
           :node="pageComponent"
           :global-style="globalStyle"
           :preview-device="previewDevice"
+          :parent-info="pageSlotParentInfo"
           @component-click="handleComponentClick"
         />
       </div>
@@ -105,6 +129,7 @@ function isPageSlot(node: ComponentNode): boolean {
           :node="pageComponent"
           :global-style="globalStyle"
           :preview-device="previewDevice"
+          :parent-info="pageSlotParentInfo"
           @component-click="handleComponentClick"
         />
       </div>

@@ -7,7 +7,6 @@
 import type {
   ComponentNode,
   DeviceType,
-  EditorActions,
   GlobalStyle,
   ResponsiveStyle,
 } from "~/types/builder";
@@ -21,6 +20,12 @@ const props = defineProps<{
   globalStyle?: GlobalStyle;
   previewDevice: DeviceType;
   editorActions?: EditorActions | null;
+  // 父组件信息（可选，用于编辑父容器）
+  parentInfo?: {
+    id: string;
+    type: string;
+    name: string;
+  } | null;
 }>();
 
 const emit = defineEmits<{
@@ -41,6 +46,9 @@ const articleInfo = inject<Ref<ArticleInfo | null>>("articleInfo", ref(null));
 // 注入编辑器状态（来自 BuilderCanvas 或容器组件）
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
 
+// 计算属性：是否在编辑器模式
+const isEditor = computed(() => isInEditor.value);
+
 // 提供给子组件的函数，用于隐藏当前组件的菜单
 const hideParentToolbar = () => {
   isHovered.value = false;
@@ -55,7 +63,7 @@ const hideParentToolbar = () => {
   }
 };
 // 注入父组件的 hideToolbar 函数
-const parentHideToolbar = inject<() => void>("hideToolbar", null);
+const parentHideToolbar = inject<() => void>("hideToolbar", () => {});
 // 提供给子组件的 hideToolbar 函数
 provide("hideToolbar", hideParentToolbar);
 
@@ -82,14 +90,31 @@ interface EditorActions {
   canMoveUp: (id: string) => boolean;
   canMoveDown: (id: string) => boolean;
   getComponentMeta: (type: string) => any;
+  selectComponent: (id: string | null) => void;
 }
 
 // 编辑器操作（优先使用 inject，否则使用 props）
 // 注意：props.editorActions 可能来自容器组件，不一定完整，所以优先使用 inject
 const injectedEditorActions = isInEditor.value
-  ? inject<EditorActions>("editorActions", null)
+  ? inject<any>("editorActions", null)
   : null;
 const editorActions = injectedEditorActions ?? props.editorActions ?? null;
+
+// 注入父组件信息（用于编辑父容器）
+interface ParentComponentInfo {
+  id: string;
+  type: string;
+  name: string;
+}
+// 注入父组件信息（用于编辑父容器）
+const injectedParentComponent = inject<Ref<ParentComponentInfo | null>>(
+  "parentComponent",
+  ref(null)
+);
+// 优先使用 props.parentInfo，否则使用 inject
+const parentComponent = computed(
+  () => props.parentInfo ?? injectedParentComponent?.value ?? null
+);
 
 // 计算样式（用于 wrapper div）
 const computedStyle = computed(() => {
@@ -272,6 +297,17 @@ function handleDelete(event: MouseEvent) {
   }
 }
 
+// 编辑父容器
+function handleEditParent(event: MouseEvent) {
+  event.stopPropagation();
+  if (parentComponent.value && editorActions) {
+    editorActions.selectComponent(parentComponent.value.id);
+    // 隐藏当前工具栏
+    showToolbar.value = false;
+    isHovered.value = false;
+  }
+}
+
 // 获取要渲染的组件（从注册表获取）
 const renderComponent = computed(() => {
   return getComponentInstance(props.node.type) || null;
@@ -326,6 +362,14 @@ const resolvedProps = computed(() => {
           {{ componentMeta.name }}
         </span>
         <div class="toolbar-buttons">
+          <button
+            v-if="parentComponent"
+            class="toolbar-btn"
+            title="编辑父容器"
+            @click="handleEditParent"
+          >
+            <span class="i-carbon-folder-parent"></span>
+          </button>
           <button
             class="toolbar-btn"
             :disabled="!canMoveUp"
