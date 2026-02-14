@@ -39,6 +39,11 @@ const productInfo = inject<Ref<ProductInfo | null>>("productInfo", ref(null));
 // 注入文章数据
 const articleInfo = inject<Ref<ArticleInfo | null>>("articleInfo", ref(null));
 
+// 注入编辑器状态（来自 BuilderCanvas 或容器组件）
+const injectedIsInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+// 优先使用 props.isEditor，否则使用 inject 的值
+const isInEditor = computed(() => props.isEditor ?? injectedIsInEditor.value);
+
 // 组件注册表
 const { getComponentInstance } = useComponentRegistry();
 
@@ -50,7 +55,7 @@ const pageDataContext = computed(() => ({
 
 // 当前页面状态（仅编辑器模式使用）
 // 使用条件调用避免在前端渲染时引入编辑器依赖
-const selectedComponentId = props.isEditor
+const selectedComponentId = isInEditor.value
   ? useCurrentPage().selectedComponentId
   : ref<string | null>(null);
 
@@ -66,7 +71,7 @@ interface EditorActions {
 
 // 编辑器操作（优先使用 inject，否则使用 props）
 // 注意：props.editorActions 可能来自容器组件，不一定完整，所以优先使用 inject
-const injectedEditorActions = props.isEditor
+const injectedEditorActions = isInEditor.value
   ? inject<EditorActions>("editorActions", null)
   : null;
 const editorActions = injectedEditorActions ?? props.editorActions ?? null;
@@ -93,15 +98,29 @@ const resolvedComponentStyle = computed<ResponsiveStyle | undefined>(() => {
 
 // 是否选中
 const isSelected = computed(() => {
-  return props.isEditor && selectedComponentId.value === props.node.id;
+  return isInEditor.value && selectedComponentId.value === props.node.id;
 });
+
+// 组件包装器引用
+const wrapperRef = ref<HTMLElement | null>(null);
 
 // 是否处于 hover 状态（用于显示悬浮菜单）
 const isHovered = ref(false);
 
+// 悬浮工具栏位置
+const toolbarStyle = computed(() => {
+  if (!wrapperRef.value) return {};
+  const rect = wrapperRef.value.getBoundingClientRect();
+  return {
+    position: "fixed" as const,
+    top: `${rect.top + window.scrollY - 36}px`,
+    right: `${window.innerWidth - rect.right + window.scrollX}px`,
+  };
+});
+
 // 鼠标进入
 function handleMouseEnter() {
-  if (props.isEditor) {
+  if (isInEditor.value) {
     isHovered.value = true;
   }
 }
@@ -140,7 +159,7 @@ const shouldRenderChildren = computed(() => {
 
 // 处理点击
 function handleClick(event: MouseEvent) {
-  if (props.isEditor) {
+  if (isInEditor.value) {
     event.stopPropagation();
     emit("component-click", props.node);
   }
@@ -178,7 +197,7 @@ const renderComponent = computed(() => {
 // 解析后的 props（处理数据绑定表达式）
 const resolvedProps = computed(() => {
   // 编辑器模式下不解析绑定，直接显示原始值
-  if (props.isEditor) {
+  if (isInEditor.value) {
     return props.node.props;
   }
 
@@ -194,6 +213,7 @@ const resolvedProps = computed(() => {
 
 <template>
   <div
+    ref="wrapperRef"
     class="component-wrapper"
     :class="{ selected: isSelected, 'is-editor': isEditor }"
     :style="computedStyle"
@@ -203,43 +223,49 @@ const resolvedProps = computed(() => {
     @mouseenter="handleMouseEnter"
     @mouseleave="handleMouseLeave"
   >
-    <!-- 鼠标悬浮时显示的操作菜单 -->
-    <div v-if="isHovered && editorActions" class="floating-toolbar">
-      <span
-        v-if="componentMeta"
-        class="toolbar-label"
-        title="点击编辑组件属性"
-        @click="handleClick"
+    <!-- 鼠标悬浮时显示的操作菜单 (Teleport 到 body 避免被裁剪) -->
+    <Teleport to="body">
+      <div
+        v-if="isHovered && editorActions"
+        class="floating-toolbar"
+        :style="toolbarStyle"
       >
-        <span :class="componentMeta.icon" class="toolbar-icon"></span>
-        {{ componentMeta.name }}
-      </span>
-      <div class="toolbar-buttons">
-        <button
-          class="toolbar-btn"
-          :disabled="!canMoveUp"
-          title="上移"
-          @click="handleMoveUp"
+        <span
+          v-if="componentMeta"
+          class="toolbar-label"
+          title="点击编辑组件属性"
+          @click="handleClick"
         >
-          <span class="i-carbon-arrow-up"></span>
-        </button>
-        <button
-          class="toolbar-btn"
-          :disabled="!canMoveDown"
-          title="下移"
-          @click="handleMoveDown"
-        >
-          <span class="i-carbon-arrow-down"></span>
-        </button>
-        <button
-          class="toolbar-btn toolbar-btn-danger"
-          title="删除"
-          @click="handleDelete"
-        >
-          <span class="i-carbon-trash-can"></span>
-        </button>
+          <span :class="componentMeta.icon" class="toolbar-icon"></span>
+          {{ componentMeta.name }}
+        </span>
+        <div class="toolbar-buttons">
+          <button
+            class="toolbar-btn"
+            :disabled="!canMoveUp"
+            title="上移"
+            @click="handleMoveUp"
+          >
+            <span class="i-carbon-arrow-up"></span>
+          </button>
+          <button
+            class="toolbar-btn"
+            :disabled="!canMoveDown"
+            title="下移"
+            @click="handleMoveDown"
+          >
+            <span class="i-carbon-arrow-down"></span>
+          </button>
+          <button
+            class="toolbar-btn toolbar-btn-danger"
+            title="删除"
+            @click="handleDelete"
+          >
+            <span class="i-carbon-trash-can"></span>
+          </button>
+        </div>
       </div>
-    </div>
+    </Teleport>
 
     <!-- 动态组件渲染 -->
     <component
@@ -250,6 +276,7 @@ const resolvedProps = computed(() => {
       :preview-device="previewDevice"
       :component-style="resolvedComponentStyle"
       :node="node"
+      v-on="$attrs"
     />
 
     <!-- 未注册的组件显示占位 -->
@@ -282,9 +309,6 @@ const resolvedProps = computed(() => {
 
 /* 悬浮操作菜单 */
 .floating-toolbar {
-  position: absolute;
-  top: 4px;
-  right: 4px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -292,7 +316,7 @@ const resolvedProps = computed(() => {
   background-color: #1e293b;
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 100;
+  z-index: 9999;
   white-space: nowrap;
 }
 

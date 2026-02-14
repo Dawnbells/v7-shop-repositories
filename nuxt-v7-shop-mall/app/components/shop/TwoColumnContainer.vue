@@ -344,7 +344,6 @@ const isRightDropTarget = computed(() => {
           :node="child"
           :global-style="{}"
           :preview-device="previewDevice"
-          :is-editor="isInEditor"
           :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
@@ -355,7 +354,6 @@ const isRightDropTarget = computed(() => {
           :node="child"
           :global-style="{}"
           :preview-device="previewDevice"
-          :is-editor="isInEditor"
           :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
@@ -372,7 +370,7 @@ const isRightDropTarget = computed(() => {
           class="i-carbon-text-align-left text-2xl text-gray-400 mb-2"
         ></span>
         <span class="text-gray-500">{{
-          isInEditor ? "拖拽组件到此处" : "左侧内容区域"
+          isInEditor?.value ? "拖拽组件到此处" : "左侧内容区域"
         }}</span>
       </div>
     </div>
@@ -396,7 +394,6 @@ const isRightDropTarget = computed(() => {
           :node="child"
           :global-style="{}"
           :preview-device="previewDevice"
-          :is-editor="isInEditor"
           :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
@@ -410,7 +407,7 @@ const isRightDropTarget = computed(() => {
           class="i-carbon-text-align-right text-2xl text-gray-400 mb-2"
         ></span>
         <span class="text-gray-500">{{
-          isInEditor ? "拖拽组件到此处" : "右侧内容区域"
+          isInEditor?.value ? "拖拽组件到此处" : "右侧内容区域"
         }}</span>
       </div>
     </div>
