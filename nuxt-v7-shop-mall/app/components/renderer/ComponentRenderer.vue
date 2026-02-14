@@ -93,12 +93,16 @@ interface EditorActions {
   selectComponent: (id: string | null) => void;
 }
 
-// 编辑器操作（优先使用 inject，否则使用 props）
-// 注意：props.editorActions 可能来自容器组件，不一定完整，所以优先使用 inject
-const injectedEditorActions = isInEditor.value
-  ? inject<any>("editorActions", null)
-  : null;
-const editorActions = injectedEditorActions ?? props.editorActions ?? null;
+// 编辑器操作（优先使用 inject 获取完整方法）
+// 注意：props.editorActions 可能来自容器组件，可能不完整
+const injectedEditorActions = inject<any>("editorActions", null);
+const editorActions = computed(() => {
+  // 优先使用 inject 获得的完整 editorActions
+  if (injectedEditorActions) {
+    return injectedEditorActions;
+  }
+  return props.editorActions ?? null;
+});
 
 // 注入父组件信息（用于编辑父容器）
 interface ParentComponentInfo {
@@ -240,20 +244,20 @@ function handleToolbarMouseLeave() {
 
 // 是否可以上移
 const canMoveUp = computed(() => {
-  if (!editorActions) return false;
-  return editorActions.canMoveUp(props.node.id);
+  if (!editorActions.value) return false;
+  return editorActions.value.canMoveUp(props.node.id);
 });
 
 // 是否可以下移
 const canMoveDown = computed(() => {
-  if (!editorActions) return false;
-  return editorActions.canMoveDown(props.node.id);
+  if (!editorActions.value) return false;
+  return editorActions.value.canMoveDown(props.node.id);
 });
 
 // 组件元数据
 const componentMeta = computed(() => {
-  if (!editorActions) return null;
-  return editorActions.getComponentMeta(props.node.type);
+  if (!editorActions.value) return null;
+  return editorActions.value.getComponentMeta(props.node.type);
 });
 
 // 是否应该自动渲染子组件
@@ -276,32 +280,32 @@ function handleClick(event: MouseEvent) {
 // 上移组件
 function handleMoveUp(event: MouseEvent) {
   event.stopPropagation();
-  if (editorActions) {
-    editorActions.moveComponentUp(props.node.id);
+  if (editorActions.value) {
+    editorActions.value.moveComponentUp(props.node.id);
   }
 }
 
 // 下移组件
 function handleMoveDown(event: MouseEvent) {
   event.stopPropagation();
-  if (editorActions) {
-    editorActions.moveComponentDown(props.node.id);
+  if (editorActions.value) {
+    editorActions.value.moveComponentDown(props.node.id);
   }
 }
 
 // 删除组件
 function handleDelete(event: MouseEvent) {
   event.stopPropagation();
-  if (editorActions && confirm("确定要删除这个组件吗？")) {
-    editorActions.removeComponent(props.node.id);
+  if (editorActions.value && confirm("确定要删除这个组件吗？")) {
+    editorActions.value.removeComponent(props.node.id);
   }
 }
 
 // 编辑父容器
 function handleEditParent(event: MouseEvent) {
   event.stopPropagation();
-  if (parentComponent.value && editorActions) {
-    editorActions.selectComponent(parentComponent.value.id);
+  if (parentComponent.value && editorActions.value) {
+    editorActions.value.selectComponent(parentComponent.value.id);
     // 隐藏当前工具栏
     showToolbar.value = false;
     isHovered.value = false;

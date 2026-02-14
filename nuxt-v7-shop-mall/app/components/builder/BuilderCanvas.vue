@@ -49,6 +49,7 @@ provide("editorActions", {
   canMoveUp,
   canMoveDown,
   getComponentMeta,
+  selectComponent,
 });
 
 // 画布容器引用
