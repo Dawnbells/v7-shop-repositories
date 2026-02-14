@@ -203,12 +203,12 @@ function handleDrop(event: DragEvent) {
       const meta = dragData as any;
       const { addComponent } = useCurrentPage();
       if (addComponent) {
-        const newComponent: Partial<ComponentNode> = {
-          type: meta.type,
-          props: meta.defaultProps || {},
-          style: meta.defaultStyle || {},
-        };
-        addComponent(props.node.id, newComponent);
+        addComponent(
+          meta.type,
+          meta.defaultProps || {},
+          meta.defaultStyle || {},
+          props.node.id
+        );
       }
     } else if (dragType === "move" && "id" in dragData) {
       // 移动现有组件
@@ -242,7 +242,6 @@ const dropPosition = computed(() => {
 
 <template>
   <div
-    v-if="props.node"
     class="vertical-container"
     :class="{
       'drop-target': isDropTarget,
@@ -254,8 +253,8 @@ const dropPosition = computed(() => {
     @dragover.prevent
     @drop="handleDrop"
   >
-    <!-- 子组件渲染区域 -->
-    <template v-if="children.length > 0">
+    <!-- 子组件渲染区域（编辑器模式） -->
+    <template v-if="props.node && children.length > 0">
       <ComponentRenderer
         v-for="child in children"
         :key="child.id"
@@ -269,7 +268,7 @@ const dropPosition = computed(() => {
 
     <!-- 空状态提示 -->
     <div
-      v-else
+      v-if="!props.node || children.length === 0"
       class="empty-placeholder"
       :style="{
         display: 'flex',
