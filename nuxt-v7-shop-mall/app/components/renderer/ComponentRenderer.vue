@@ -4,7 +4,13 @@
  * 根据组件类型动态渲染对应的组件
  */
 
-import type { ComponentNode, DeviceType, EditorActions, GlobalStyle, ResponsiveStyle } from "~/types/builder";
+import type {
+  ComponentNode,
+  DeviceType,
+  EditorActions,
+  GlobalStyle,
+  ResponsiveStyle,
+} from "~/types/builder";
 import type { VariableValues } from "~/types/data-context";
 import type { ProductInfo } from "~/types/page-context";
 import type { ArticleInfo } from "~~/server/repositories/article.repository";
@@ -26,12 +32,12 @@ const emit = defineEmits<{
 const { resolveStyle, resolveResponsiveStyleRefs } = useResponsive();
 
 // 注入变量值（由页面或编辑器提供）
-const variableValues = inject<Ref<VariableValues>>('variableValues', ref({}));
+const variableValues = inject<Ref<VariableValues>>("variableValues", ref({}));
 
 // 注入产品数据
-const productInfo = inject<Ref<ProductInfo | null>>('productInfo', ref(null));
+const productInfo = inject<Ref<ProductInfo | null>>("productInfo", ref(null));
 // 注入文章数据
-const articleInfo = inject<Ref<ArticleInfo | null>>('articleInfo', ref(null));
+const articleInfo = inject<Ref<ArticleInfo | null>>("articleInfo", ref(null));
 
 // 组件注册表
 const { getComponentInstance } = useComponentRegistry();
@@ -60,18 +66,29 @@ interface EditorActions {
 
 // 编辑器操作（优先使用 inject，否则使用 props）
 // 注意：props.editorActions 可能来自容器组件，不一定完整，所以优先使用 inject
-const injectedEditorActions = props.isEditor ? inject<EditorActions>('editorActions', null) : null;
+const injectedEditorActions = props.isEditor
+  ? inject<EditorActions>("editorActions", null)
+  : null;
 const editorActions = injectedEditorActions ?? props.editorActions ?? null;
 
 // 计算样式（用于 wrapper div）
 const computedStyle = computed(() => {
-  return resolveStyle(props.node.style, props.previewDevice, props.globalStyle, variableValues.value);
+  return resolveStyle(
+    props.node.style,
+    props.previewDevice,
+    props.globalStyle,
+    variableValues.value
+  );
 });
 
 // 解析后的组件样式（传递给子组件，所有引用已解析为实际值）
 const resolvedComponentStyle = computed<ResponsiveStyle | undefined>(() => {
   if (!props.node.style || !props.globalStyle) return props.node.style;
-  return resolveResponsiveStyleRefs(props.node.style, props.globalStyle, variableValues.value);
+  return resolveResponsiveStyleRefs(
+    props.node.style,
+    props.globalStyle,
+    variableValues.value
+  );
 });
 
 // 是否选中
@@ -240,20 +257,6 @@ const resolvedProps = computed(() => {
       <span class="placeholder-icon">📦</span>
       <span class="placeholder-text">{{ node.type }}</span>
     </div>
-
-    <!-- 子组件渲染 - 仅非容器组件自动渲染 -->
-    <template v-if="shouldRenderChildren && node.children && node.children.length > 0">
-      <ComponentRenderer
-        v-for="child in node.children"
-        :key="child.id"
-        :node="child"
-        :global-style="globalStyle"
-        :preview-device="previewDevice"
-        :is-editor="isEditor"
-        :editor-actions="editorActions"
-        @component-click="emit('component-click', $event)"
-      />
-    </template>
   </div>
 </template>
 
