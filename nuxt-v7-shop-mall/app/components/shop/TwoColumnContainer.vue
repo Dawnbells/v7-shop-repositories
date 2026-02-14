@@ -189,7 +189,9 @@ const containerStyle = computed(() => ({
   display: "flex",
   flexDirection: props.wrap ? "column" : "row",
   gap: props.gap,
-  alignItems: props.wrap ? "stretch" : props.verticalAlign === "center"
+  alignItems: props.wrap
+    ? "stretch"
+    : props.verticalAlign === "center"
     ? "center"
     : props.verticalAlign === "bottom"
     ? "flex-end"
@@ -215,18 +217,24 @@ const rightStyle = computed(() => ({
 // 根据 slot 属性过滤子组件
 const leftChildren = computed(() => {
   if (!props.node?.children) return [];
-  return props.node.children.filter((child: ComponentNode) => child.props?.slot === "left");
+  return props.node.children.filter(
+    (child: ComponentNode) => child.props?.slot === "left"
+  );
 });
 
 const rightChildren = computed(() => {
   if (!props.node?.children) return [];
-  return props.node.children.filter((child: ComponentNode) => child.props?.slot === "right");
+  return props.node.children.filter(
+    (child: ComponentNode) => child.props?.slot === "right"
+  );
 });
 
 // 没有 slot 属性的子组件默认放在左边
 const defaultChildren = computed(() => {
   if (!props.node?.children) return [];
-  return props.node.children.filter((child: ComponentNode) => !child.props?.slot);
+  return props.node.children.filter(
+    (child: ComponentNode) => !child.props?.slot
+  );
 });
 
 // 拖拽进入左侧区域
@@ -295,14 +303,18 @@ function handleDragOver(event: DragEvent) {
 
 // 检查当前拖拽目标是否是左侧
 const isLeftDropTarget = computed(() => {
-  return dragState.value.dropTargetId === props.node?.id &&
-    dragState.value.dropPosition === "inside-left";
+  return (
+    dragState.value.dropTargetId === props.node?.id &&
+    dragState.value.dropPosition === "inside-left"
+  );
 });
 
 // 检查当前拖拽目标是否是右侧
 const isRightDropTarget = computed(() => {
-  return dragState.value.dropTargetId === props.node?.id &&
-    dragState.value.dropPosition === "inside-right";
+  return (
+    dragState.value.dropTargetId === props.node?.id &&
+    dragState.value.dropPosition === "inside-right"
+  );
 });
 </script>
 
@@ -318,21 +330,21 @@ const isRightDropTarget = computed(() => {
       class="column-left"
       :class="{
         'drop-target': isInEditor && isDragging && isLeftDropTarget,
-        'drag-over': isInEditor && isDragging && isLeftDropTarget
+        'drag-over': isInEditor && isDragging && isLeftDropTarget,
       }"
       :style="leftStyle"
       @dragenter="handleLeftDragEnter"
       @drop="handleDrop($event, 'left')"
     >
-      <!-- 编辑器模式：渲染左侧子组件 -->
-      <template v-if="isInEditor">
+      <!-- 渲染左侧子组件（支持编辑器和前端渲染模式） -->
+      <template v-if="props.node">
         <ComponentRenderer
           v-for="child in leftChildren"
           :key="child.id"
           :node="child"
           :global-style="{}"
           :preview-device="previewDevice"
-          :is-editor="true"
+          :is-editor="isInEditor"
           :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
@@ -343,23 +355,26 @@ const isRightDropTarget = computed(() => {
           :node="child"
           :global-style="{}"
           :preview-device="previewDevice"
-          :is-editor="true"
+          :is-editor="isInEditor"
           :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
-        <!-- 空状态占位符 -->
-        <div v-if="leftChildren.length === 0 && defaultChildren.length === 0" class="column-placeholder column-left-placeholder">
-          <span class="i-carbon-text-align-left text-2xl text-gray-400 mb-2"></span>
-          <span class="text-gray-500">拖拽组件到此处</span>
-        </div>
       </template>
-      <!-- 非编辑器模式：使用插槽 -->
-      <slot v-else name="left">
-        <div class="column-placeholder column-left-placeholder">
-          <span class="i-carbon-text-align-left text-2xl text-gray-400 mb-2"></span>
-          <span class="text-gray-500">左侧内容区域</span>
-        </div>
-      </slot>
+      <!-- 空状态占位符 -->
+      <div
+        v-if="
+          !props.node ||
+          (leftChildren.length === 0 && defaultChildren.length === 0)
+        "
+        class="column-placeholder column-left-placeholder"
+      >
+        <span
+          class="i-carbon-text-align-left text-2xl text-gray-400 mb-2"
+        ></span>
+        <span class="text-gray-500">{{
+          isInEditor ? "拖拽组件到此处" : "左侧内容区域"
+        }}</span>
+      </div>
     </div>
 
     <!-- 右侧区域 -->
@@ -367,37 +382,37 @@ const isRightDropTarget = computed(() => {
       class="column-right"
       :class="{
         'drop-target': isInEditor && isDragging && isRightDropTarget,
-        'drag-over': isInEditor && isDragging && isRightDropTarget
+        'drag-over': isInEditor && isDragging && isRightDropTarget,
       }"
       :style="rightStyle"
       @dragenter="handleRightDragEnter"
       @drop="handleDrop($event, 'right')"
     >
-      <!-- 编辑器模式：渲染右侧子组件 -->
-      <template v-if="isInEditor">
+      <!-- 渲染右侧子组件（支持编辑器和前端渲染模式） -->
+      <template v-if="props.node">
         <ComponentRenderer
           v-for="child in rightChildren"
           :key="child.id"
           :node="child"
           :global-style="{}"
           :preview-device="previewDevice"
-          :is-editor="true"
+          :is-editor="isInEditor"
           :editor-actions="editorActions"
           @component-click="$emit('component-click', $event)"
         />
-        <!-- 空状态占位符 -->
-        <div v-if="rightChildren.length === 0" class="column-placeholder column-right-placeholder">
-          <span class="i-carbon-text-align-right text-2xl text-gray-400 mb-2"></span>
-          <span class="text-gray-500">拖拽组件到此处</span>
-        </div>
       </template>
-      <!-- 非编辑器模式：使用插槽 -->
-      <slot v-else name="right">
-        <div class="column-placeholder column-right-placeholder">
-          <span class="i-carbon-text-align-right text-2xl text-gray-400 mb-2"></span>
-          <span class="text-gray-500">右侧内容区域</span>
-        </div>
-      </slot>
+      <!-- 空状态占位符 -->
+      <div
+        v-if="!props.node || rightChildren.length === 0"
+        class="column-placeholder column-right-placeholder"
+      >
+        <span
+          class="i-carbon-text-align-right text-2xl text-gray-400 mb-2"
+        ></span>
+        <span class="text-gray-500">{{
+          isInEditor ? "拖拽组件到此处" : "右侧内容区域"
+        }}</span>
+      </div>
     </div>
   </div>
 </template>

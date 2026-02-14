@@ -58,12 +58,10 @@ interface EditorActions {
   getComponentMeta: (type: string) => any;
 }
 
-// 编辑器操作（优先使用 props，否则使用 inject）
-const editorActions = computed(() => {
-  if (props.editorActions) return props.editorActions;
-  if (props.isEditor) return inject<EditorActions>('editorActions', null);
-  return null;
-});
+// 编辑器操作（优先使用 inject，否则使用 props）
+// 注意：props.editorActions 可能来自容器组件，不一定完整，所以优先使用 inject
+const injectedEditorActions = props.isEditor ? inject<EditorActions>('editorActions', null) : null;
+const editorActions = injectedEditorActions ?? props.editorActions ?? null;
 
 // 计算样式（用于 wrapper div）
 const computedStyle = computed(() => {
@@ -252,6 +250,7 @@ const resolvedProps = computed(() => {
         :global-style="globalStyle"
         :preview-device="previewDevice"
         :is-editor="isEditor"
+        :editor-actions="editorActions"
         @component-click="emit('component-click', $event)"
       />
     </template>
