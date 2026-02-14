@@ -43,6 +43,9 @@ const goBack = () => {
     window.history.back();
   }
 };
+
+// 提供编辑器状态（非编辑器模式）
+provide("isInEditor", ref(false));
 </script>
 
 <template>
@@ -54,7 +57,6 @@ const goBack = () => {
       :global-style="globalStyle"
       :site-config="siteConfig"
       :preview-device="previewDevice"
-      :is-editor="false"
     >
       <!-- 无主题配置时的 fallback -->
       <template #fallback>

@@ -33,6 +33,9 @@ const layout = computed(() => getPageLayout("home"));
 
 // 预览设备（前端访问时使用桌面端）
 const previewDevice = ref<DeviceType>("pc");
+
+// 提供编辑器状态（非编辑器模式）
+provide("isInEditor", ref(false));
 </script>
 
 <template>
@@ -43,7 +46,6 @@ const previewDevice = ref<DeviceType>("pc");
       :global-style="globalStyle"
       :site-config="siteConfig"
       :preview-device="previewDevice"
-      :is-editor="false"
     >
       <!-- 无主题配置时的 fallback -->
       <template #fallback>

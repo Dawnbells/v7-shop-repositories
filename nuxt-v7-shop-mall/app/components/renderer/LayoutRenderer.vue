@@ -18,12 +18,16 @@ const props = defineProps<{
   globalStyle?: GlobalStyle;
   siteConfig?: Record<string, any>;
   previewDevice: DeviceType;
-  isEditor?: boolean;
 }>();
 
 const emit = defineEmits<{
   "component-click": [component: ComponentNode];
 }>();
+
+// 注入编辑器状态
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+// 提供给子组件
+provide("isInEditor", isInEditor);
 
 // 生成全局样式 CSS 变量
 const globalStyleVars = computed(() => {
@@ -78,7 +82,6 @@ function isPageSlot(node: ComponentNode): boolean {
           :node="pageComponent"
           :global-style="globalStyle"
           :preview-device="previewDevice"
-          :is-editor="isEditor"
           @component-click="handleComponentClick"
         />
       </div>
@@ -89,7 +92,6 @@ function isPageSlot(node: ComponentNode): boolean {
         :node="component"
         :global-style="globalStyle"
         :preview-device="previewDevice"
-        :is-editor="isEditor"
         @component-click="handleComponentClick"
       />
     </template>
@@ -103,7 +105,6 @@ function isPageSlot(node: ComponentNode): boolean {
           :node="pageComponent"
           :global-style="globalStyle"
           :preview-device="previewDevice"
-          :is-editor="isEditor"
           @component-click="handleComponentClick"
         />
       </div>

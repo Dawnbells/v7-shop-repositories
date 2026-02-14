@@ -235,7 +235,6 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
                   :schema="currentLayout"
                   :global-style="siteConfig?.globalStyle"
                   :preview-device="currentDevice"
-                  :is-editor="true"
                   @component-click="handleComponentClick"
                 />
               </template>
@@ -260,7 +259,6 @@ function handleWidthInputKeydown(event: KeyboardEvent) {
                   :schema="currentPage"
                   :global-style="siteConfig?.globalStyle"
                   :preview-device="currentDevice"
-                  :is-editor="true"
                   @component-click="handleComponentClick"
                 />
               </template>

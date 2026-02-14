@@ -169,6 +169,9 @@ const emit = defineEmits<{
 // 编辑器状态
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
 
+// 提供给子组件的编辑器状态
+provide("isInEditor", isInEditor);
+
 // 编辑器操作（用于悬浮菜单）
 const editorActions = inject<EditorActions | null>("editorActions", null);
 

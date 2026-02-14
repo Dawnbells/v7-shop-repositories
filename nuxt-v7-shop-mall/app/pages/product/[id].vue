@@ -37,6 +37,9 @@ useSiteTitle(computed(() => productInfo.value?.title || "商品详情"));
 
 // 预览设备
 const previewDevice = ref(device);
+
+// 提供编辑器状态（非编辑器模式）
+provide("isInEditor", ref(false));
 </script>
 
 <template>
@@ -48,7 +51,6 @@ const previewDevice = ref(device);
       :global-style="globalStyle"
       :site-config="siteConfig"
       :preview-device="previewDevice"
-      :is-editor="false"
     >
       <!-- 无主题配置时的 fallback -->
       <template #fallback>

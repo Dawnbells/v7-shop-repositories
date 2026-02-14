@@ -20,7 +20,6 @@ const props = defineProps<{
   node: ComponentNode;
   globalStyle?: GlobalStyle;
   previewDevice: DeviceType;
-  isEditor?: boolean;
   editorActions?: EditorActions | null;
 }>();
 
@@ -40,9 +39,25 @@ const productInfo = inject<Ref<ProductInfo | null>>("productInfo", ref(null));
 const articleInfo = inject<Ref<ArticleInfo | null>>("articleInfo", ref(null));
 
 // 注入编辑器状态（来自 BuilderCanvas 或容器组件）
-const injectedIsInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
-// 优先使用 props.isEditor，否则使用 inject 的值
-const isInEditor = computed(() => props.isEditor ?? injectedIsInEditor.value);
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
+// 提供给子组件的函数，用于隐藏当前组件的菜单
+const hideParentToolbar = () => {
+  isHovered.value = false;
+  showToolbar.value = false;
+  if (hideTimer) {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+  if (showTimer) {
+    clearTimeout(showTimer);
+    showTimer = null;
+  }
+};
+// 注入父组件的 hideToolbar 函数
+const parentHideToolbar = inject<() => void>("hideToolbar", null);
+// 提供给子组件的 hideToolbar 函数
+provide("hideToolbar", hideParentToolbar);
 
 // 组件注册表
 const { getComponentInstance } = useComponentRegistry();
@@ -125,23 +140,50 @@ const toolbarStyle = computed(() => {
 });
 
 // 鼠标进入
-function handleMouseEnter() {
-  if (isInEditor.value) {
-    // 清除隐藏定时器
-    if (hideTimer) {
-      clearTimeout(hideTimer);
-      hideTimer = null;
-    }
-    // 延迟显示工具栏
-    showTimer = setTimeout(() => {
-      isHovered.value = true;
-      showToolbar.value = true;
-    }, 100);
+function handleMouseEnter(e: MouseEvent) {
+  if (!isInEditor.value) return;
+
+  // 检查鼠标是否从子组件移入（如果是，则不处理）
+  const target = e.target as HTMLElement;
+  if (
+    wrapperRef.value &&
+    wrapperRef.value.contains(target) &&
+    target !== wrapperRef.value
+  ) {
+    // 鼠标是从子组件移入的，忽略此事件
+    return;
   }
+
+  // 通知父组件隐藏菜单
+  if (parentHideToolbar) {
+    parentHideToolbar();
+  }
+
+  // 清除隐藏定时器
+  if (hideTimer) {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+  // 延迟显示工具栏
+  showTimer = setTimeout(() => {
+    isHovered.value = true;
+    showToolbar.value = true;
+  }, 100);
 }
 
 // 鼠标离开
-function handleMouseLeave() {
+function handleMouseLeave(e: MouseEvent) {
+  // 检查鼠标是否移到了子组件上（如果是，则不隐藏当前组件的菜单）
+  const relatedTarget = e.relatedTarget as HTMLElement;
+  if (
+    wrapperRef.value &&
+    relatedTarget &&
+    wrapperRef.value.contains(relatedTarget)
+  ) {
+    // 鼠标移到了子组件上，不隐藏当前组件的菜单
+    return;
+  }
+
   // 清除显示定时器
   if (showTimer) {
     clearTimeout(showTimer);
