@@ -214,7 +214,7 @@ function handleDrop(event: DragEvent) {
       // 移动现有组件
       const { moveComponent } = useCurrentPage();
       if (moveComponent) {
-        moveComponent(dragData.id, props.node.id);
+        moveComponent(dragData.id, props.node.id, 0);
       }
     }
 
@@ -225,10 +225,7 @@ function handleDrop(event: DragEvent) {
 
 // 是否是拖拽目标
 const isDropTarget = computed(() => {
-  return (
-    isDragging.value &&
-    dragState.value.targetId === props.node?.id
-  );
+  return isDragging.value && dragState.value.targetId === props.node?.id;
 });
 
 // 拖拽在哪个位置
@@ -242,6 +239,7 @@ const dropPosition = computed(() => {
 
 <template>
   <div
+    v-if="props.node"
     class="vertical-container"
     :class="{
       'drop-target': isDropTarget,
@@ -254,7 +252,7 @@ const dropPosition = computed(() => {
     @drop="handleDrop"
   >
     <!-- 子组件渲染区域（编辑器模式） -->
-    <template v-if="props.node && children.length > 0">
+    <template v-if="children.length > 0">
       <ComponentRenderer
         v-for="child in children"
         :key="child.id"
@@ -268,7 +266,7 @@ const dropPosition = computed(() => {
 
     <!-- 空状态提示 -->
     <div
-      v-if="!props.node || children.length === 0"
+      v-if="children.length === 0"
       class="empty-placeholder"
       :style="{
         display: 'flex',
@@ -279,9 +277,7 @@ const dropPosition = computed(() => {
         width: '100%',
       }"
     >
-      <span
-        class="i-carbon-rows text-2xl text-gray-400 mb-2"
-      ></span>
+      <span class="i-carbon-rows text-2xl text-gray-400 mb-2"></span>
       <span class="text-gray-500">{{
         isInEditor ? "拖拽组件到此处" : "内容区域"
       }}</span>
