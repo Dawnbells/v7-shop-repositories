@@ -44,16 +44,10 @@ onMounted(() => {
         }
         // 停止 BUILDER_READY 重试
         stopReadyRetry()
-        // 通知父窗口认证失败
+        // 通知父窗口关闭 dialog
         if (window.parent !== window) {
-          window.parent.postMessage(
-            {
-              type: 'themeEditor',
-              action: 'authFailed',
-              message: '认证超时，请重试',
-            },
-            '*'
-          )
+          window.parent.postMessage({ type: 'themeEditor', action: 'close' }, '*')
+          console.log('[Builder] 认证超时，已通知父窗口关闭 dialog')
         }
       }
     }, 1000)

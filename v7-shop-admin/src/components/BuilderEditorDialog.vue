@@ -70,6 +70,7 @@ const $baseMessage = inject<any>('$baseMessage')
 // 状态
 const loading = ref(true)
 const iframeRef = ref<HTMLIFrameElement | null>(null)
+let authTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 
 // 计算弹窗可见性（v-model 支持）
 const dialogVisible = computed({
@@ -143,6 +144,10 @@ const handleMessage = (event: MessageEvent) => {
   if (event.data?.type === 'BUILDER_AUTHENTICATED') {
     console.log('[Admin] 收到 BUILDER_AUTHENTICATED，关闭 loading')
     loading.value = false
+    if (authTimeoutTimer) {
+      clearTimeout(authTimeoutTimer)
+      authTimeoutTimer = null
+    }
     return
   }
 
@@ -176,8 +181,20 @@ watch(
     if (visible) {
       loading.value = true
       window.addEventListener('message', handleMessage)
+      authTimeoutTimer = setTimeout(() => {
+        if (loading.value) {
+          console.log('[Admin] 认证超时 12 秒，自动关闭 dialog')
+          dialogVisible.value = false
+          emit('auth-failed', '主题编辑器加载超时，请重试')
+          $baseMessage?.('主题编辑器加载超时，请重试', 'error', 'hey')
+        }
+      }, 12000)
     } else {
       window.removeEventListener('message', handleMessage)
+      if (authTimeoutTimer) {
+        clearTimeout(authTimeoutTimer)
+        authTimeoutTimer = null
+      }
     }
   }
 )
@@ -185,6 +202,10 @@ watch(
 // 组件卸载时移除监听
 onUnmounted(() => {
   window.removeEventListener('message', handleMessage)
+  if (authTimeoutTimer) {
+    clearTimeout(authTimeoutTimer)
+    authTimeoutTimer = null
+  }
 })
 </script>
 
