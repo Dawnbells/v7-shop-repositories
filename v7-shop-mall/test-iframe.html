@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,40 +11,48 @@
       padding: 0;
       box-sizing: border-box;
     }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #1a1a2e;
       color: #eee;
       padding: 20px;
     }
+
     h1 {
       margin-bottom: 20px;
       color: #3b82f6;
     }
+
     .container {
       display: flex;
       gap: 20px;
       height: calc(100vh - 100px);
     }
+
     .panel {
       flex: 1;
       display: flex;
       flex-direction: column;
     }
+
     .panel h2 {
       margin-bottom: 10px;
       font-size: 16px;
       color: #94a3b8;
     }
+
     iframe {
       flex: 1;
       border: 2px solid #334155;
       border-radius: 8px;
       background: #0f172a;
     }
+
     .controls {
       margin-bottom: 20px;
     }
+
     button {
       padding: 10px 20px;
       margin-right: 10px;
@@ -54,15 +63,19 @@
       cursor: pointer;
       font-size: 14px;
     }
+
     button:hover {
       background: #2563eb;
     }
+
     button.success {
       background: #22c55e;
     }
+
     button.success:hover {
       background: #16a34a;
     }
+
     .log {
       flex: 1;
       background: #0f172a;
@@ -73,40 +86,47 @@
       font-family: monospace;
       font-size: 13px;
     }
+
     .log-entry {
       margin-bottom: 8px;
       padding: 8px;
       background: #1e293b;
       border-radius: 4px;
     }
+
     .log-entry.received {
       border-left: 3px solid #22c55e;
     }
+
     .log-entry.sent {
       border-left: 3px solid #3b82f6;
     }
+
     .log-entry .time {
       color: #64748b;
       font-size: 11px;
     }
+
     .log-entry .type {
       color: #f59e0b;
       font-weight: bold;
     }
   </style>
 </head>
+
 <body>
   <h1>PostMessage 交互测试 - Admin 模拟器</h1>
-  
+
   <div class="controls">
     <button onclick="sendBuilderInit()">发送 BUILDER_INIT (认证)</button>
+    <button id="autoAuthBtn" onclick="toggleAutoAuth()">自动认证: 开</button>
     <button onclick="clearLog()">清空日志</button>
   </div>
-  
+
   <div class="container">
     <div class="panel">
       <h2>Builder iframe (http://localhost:3001/builder)</h2>
-      <iframe id="builderFrame" src="http://localhost:3001/builder"></iframe>
+      <iframe id="builderFrame" src="http://localhost:3002/builder"></iframe>
     </div>
     <div class="panel">
       <h2>消息日志</h2>
@@ -117,6 +137,13 @@
   <script>
     const logEl = document.getElementById('log');
     const iframe = document.getElementById('builderFrame');
+    let autoAuth = true;
+
+    function toggleAutoAuth() {
+      autoAuth = !autoAuth;
+      document.getElementById('autoAuthBtn').textContent = `自动认证: ${autoAuth ? '开' : '关'}`;
+      log('config', 'sent', `自动认证已${autoAuth ? '开启' : '关闭'}`);
+    }
 
     function log(type, direction, data) {
       const entry = document.createElement('div');
@@ -137,14 +164,23 @@
     window.addEventListener('message', (event) => {
       console.log('收到消息:', event.data);
       log(event.data?.type || 'unknown', 'received', event.data);
-      
-      // 如果收到 BUILDER_READY，可以自动发送认证
+
+      // 如果收到 BUILDER_READY，自动发送认证
       if (event.data?.type === 'BUILDER_READY') {
-        log('info', 'received', 'Builder 已就绪，可以发送认证信息');
+        log('info', 'received', 'Builder 已就绪');
+        if (autoAuth) {
+          setTimeout(() => sendBuilderInit(), 100);
+        }
       }
-      
+
+      // 认证成功
       if (event.data?.type === 'BUILDER_AUTHENTICATED') {
         log('info', 'received', '✅ Builder 认证成功！');
+      }
+
+      // 处理关闭消息（认证超时）
+      if (event.data?.type === 'themeEditor' && event.data?.action === 'close') {
+        log('info', 'received', '⚠️ Builder 请求关闭 dialog（认证超时）');
       }
     });
 
@@ -165,10 +201,11 @@
           }
         }
       };
-      
+
       iframe.contentWindow.postMessage(payload, '*');
       log('BUILDER_INIT', 'sent', payload);
     }
   </script>
 </body>
+
 </html>
