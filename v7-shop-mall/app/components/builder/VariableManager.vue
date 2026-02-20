@@ -10,6 +10,7 @@ import type {
   VariableType,
   EnumOption,
   VariableFieldSchema,
+  I18nDefaultValue,
 } from '~/types/data-context'
 import { BASIC_VARIABLE_TYPES, ALL_VARIABLE_TYPES } from '~/types/data-context'
 
@@ -37,6 +38,8 @@ const editForm = ref<Partial<CustomVariable>>({
   defaultValue: '',
   description: '',
   i18n: false,
+  i18nLanguages: [],
+  i18nDefaults: [],
   enumOptions: [],
   itemType: 'string',
   itemSchema: [],
@@ -45,6 +48,102 @@ const editForm = ref<Partial<CustomVariable>>({
 
 const arrayItemIsComplex = ref(false)
 const showDefaultValueEditor = ref(false)
+
+// ============ Schema JSON 编辑模式 ============
+
+const schemaEditMode = ref<'visual' | 'json'>('visual')
+const schemaJsonText = ref('')
+const schemaJsonError = ref('')
+
+function switchSchemaEditMode(mode: 'visual' | 'json') {
+  if (mode === 'json' && schemaEditMode.value === 'visual') {
+    updateSchemaJsonText()
+  }
+  if (mode === 'visual' && schemaEditMode.value === 'json') {
+    try {
+      const parsed = JSON.parse(schemaJsonText.value)
+      applyJsonToForm(parsed)
+      schemaJsonError.value = ''
+    } catch (e) {
+      schemaJsonError.value = 'JSON 格式错误，无法切换到可视化模式'
+      return
+    }
+  }
+  schemaEditMode.value = mode
+}
+
+function updateSchemaJsonText() {
+  const schema: Partial<CustomVariable> = {
+    key: editForm.value.key || '',
+    label: editForm.value.label || '',
+    type: editForm.value.type || 'string',
+    defaultValue: editForm.value.defaultValue,
+    description: editForm.value.description || undefined,
+    i18n: editForm.value.i18n || undefined,
+  }
+  
+  if (schema.type === 'enum') {
+    schema.enumOptions = editForm.value.enumOptions
+  }
+  
+  if (schema.type === 'array') {
+    if (arrayItemIsComplex.value) {
+      schema.itemSchema = editForm.value.itemSchema
+    } else {
+      schema.itemType = editForm.value.itemType
+    }
+  }
+  
+  if (schema.type === 'object') {
+    schema.fields = editForm.value.fields
+  }
+  
+  // Remove undefined values
+  Object.keys(schema).forEach(key => {
+    if (schema[key as keyof typeof schema] === undefined) {
+      delete schema[key as keyof typeof schema]
+    }
+  })
+  
+  schemaJsonText.value = JSON.stringify(schema, null, 2)
+}
+
+function handleSchemaJsonChange(text: string) {
+  schemaJsonText.value = text
+  try {
+    JSON.parse(text)
+    schemaJsonError.value = ''
+  } catch (e) {
+    schemaJsonError.value = 'JSON 格式错误'
+  }
+}
+
+function formatSchemaJson() {
+  try {
+    const parsed = JSON.parse(schemaJsonText.value)
+    schemaJsonText.value = JSON.stringify(parsed, null, 2)
+    schemaJsonError.value = ''
+  } catch {
+    schemaJsonError.value = 'JSON 格式错误，无法格式化'
+  }
+}
+
+function applyJsonToForm(json: Partial<CustomVariable>) {
+  editForm.value.key = json.key || ''
+  editForm.value.label = json.label || ''
+  editForm.value.type = json.type || 'string'
+  editForm.value.defaultValue = json.defaultValue
+  editForm.value.description = json.description || ''
+  editForm.value.i18n = json.i18n || false
+  editForm.value.i18nLanguages = json.i18nLanguages ? [...json.i18nLanguages] : []
+  editForm.value.i18nDefaults = json.i18nDefaults ? JSON.parse(JSON.stringify(json.i18nDefaults)) : []
+  editForm.value.enumOptions = json.enumOptions ? JSON.parse(JSON.stringify(json.enumOptions)) : []
+  editForm.value.itemType = json.itemType || 'string'
+  editForm.value.itemSchema = json.itemSchema ? JSON.parse(JSON.stringify(json.itemSchema)) : []
+  editForm.value.fields = json.fields ? JSON.parse(JSON.stringify(json.fields)) : []
+  
+  arrayItemIsComplex.value = !!(json.itemSchema && json.itemSchema.length > 0)
+}
 
 // 变量类型选项
 const variableTypes: Array<{ value: VariableType; label: string; icon: string; description: string }> = [
@@ -117,6 +216,8 @@ function openEditModal(variable: CustomVariable) {
     defaultValue: variable.defaultValue,
     description: variable.description || '',
     i18n: variable.i18n || false,
+    i18nLanguages: variable.i18nLanguages ? [...variable.i18nLanguages] : [],
+    i18nDefaults: variable.i18nDefaults ? JSON.parse(JSON.stringify(variable.i18nDefaults)) : [],
     enumOptions: variable.enumOptions ? JSON.parse(JSON.stringify(variable.enumOptions)) : [],
     itemType: variable.itemType || 'string',
     itemSchema: variable.itemSchema ? JSON.parse(JSON.stringify(variable.itemSchema)) : [],
@@ -131,6 +232,9 @@ function closeEditModal() {
   showEditModal.value = false
   editMode.value = 'add'
   editingKey.value = null
+  schemaEditMode.value = 'visual'
+  schemaJsonText.value = ''
+  schemaJsonError.value = ''
   resetEditForm()
 }
 
@@ -142,6 +246,8 @@ function resetEditForm() {
     defaultValue: '',
     description: '',
     i18n: false,
+    i18nLanguages: [],
+    i18nDefaults: [],
     enumOptions: [],
     itemType: 'string',
     itemSchema: [],
@@ -296,6 +402,17 @@ function validateForm(): string | null {
 // ============ 保存变量 ============
 
 function handleSave() {
+  // 如果是 JSON 模式，先应用 JSON 到表单
+  if (schemaEditMode.value === 'json') {
+    try {
+      const parsed = JSON.parse(schemaJsonText.value)
+      applyJsonToForm(parsed)
+    } catch (e) {
+      alert('JSON 格式错误，请修正后再保存')
+      return
+    }
+  }
+  
   const error = validateForm()
   if (error) {
     alert(error)
@@ -309,6 +426,16 @@ function handleSave() {
     defaultValue: editForm.value.defaultValue,
     description: editForm.value.description || undefined,
     i18n: editForm.value.i18n || undefined,
+  }
+  
+  // 添加多语言数据
+  if (variable.i18n) {
+    const languages = editForm.value.i18nLanguages || []
+    const defaults = editForm.value.i18nDefaults || []
+    if (languages.length > 0) {
+      variable.i18nLanguages = languages
+      variable.i18nDefaults = defaults.filter(d => languages.includes(d.languageId))
+    }
   }
   
   if (variable.type === 'enum') {
@@ -357,6 +484,12 @@ function handleClose() {
 const defaultValueSummary = computed(() => {
   const type = editForm.value.type
   const value = editForm.value.defaultValue
+  const i18n = editForm.value.i18n
+  const i18nCount = editForm.value.i18nLanguages?.length || 0
+  
+  if (i18n && i18nCount > 0) {
+    return `已配置 ${i18nCount} 种语言`
+  }
   
   if (value === undefined || value === null || value === '') {
     return '未配置'
@@ -386,8 +519,16 @@ const defaultValueSummary = computed(() => {
 })
 
 // 处理默认值保存
-function handleDefaultValueSave(value: any) {
-  editForm.value.defaultValue = value
+function handleDefaultValueSave(data: {
+  defaultValue: any
+  i18n: boolean
+  i18nLanguages: number[]
+  i18nDefaults: I18nDefaultValue[]
+}) {
+  editForm.value.defaultValue = data.defaultValue
+  editForm.value.i18n = data.i18n
+  editForm.value.i18nLanguages = data.i18nLanguages
+  editForm.value.i18nDefaults = data.i18nDefaults
 }
 
 const editModalTitle = computed(() => {
@@ -487,13 +628,57 @@ const editModalTitle = computed(() => {
               <span :class="editMode === 'add' ? 'i-carbon-add' : 'i-carbon-edit'"></span>
               {{ editModalTitle }}
             </h3>
-            <button class="close-btn" @click="closeEditModal">
-              <span class="i-carbon-close"></span>
-            </button>
+            <div class="header-actions">
+              <div class="schema-mode-tabs">
+                <button
+                  class="schema-mode-tab"
+                  :class="{ active: schemaEditMode === 'visual' }"
+                  @click="switchSchemaEditMode('visual')"
+                >
+                  <span class="i-carbon-view"></span>
+                  可视化
+                </button>
+                <button
+                  class="schema-mode-tab"
+                  :class="{ active: schemaEditMode === 'json' }"
+                  @click="switchSchemaEditMode('json')"
+                >
+                  <span class="i-carbon-code"></span>
+                  JSON
+                </button>
+              </div>
+              <button class="close-btn" @click="closeEditModal">
+                <span class="i-carbon-close"></span>
+              </button>
+            </div>
           </div>
 
           <!-- 编辑弹窗内容 -->
           <div class="edit-modal-content">
+            <!-- JSON 编辑模式 -->
+            <div v-if="schemaEditMode === 'json'" class="json-editor-section">
+              <div class="json-editor-header">
+                <span class="json-hint">直接编辑变量的完整 Schema 定义</span>
+                <button class="format-btn" @click="formatSchemaJson">
+                  <span class="i-carbon-text-align-left"></span>
+                  格式化
+                </button>
+              </div>
+              <textarea
+                :value="schemaJsonText"
+                class="json-textarea"
+                placeholder="输入变量 Schema JSON..."
+                spellcheck="false"
+                @input="handleSchemaJsonChange(($event.target as HTMLTextAreaElement).value)"
+              ></textarea>
+              <div v-if="schemaJsonError" class="json-error">
+                <span class="i-carbon-warning"></span>
+                {{ schemaJsonError }}
+              </div>
+            </div>
+
+            <!-- 可视化编辑模式 -->
+            <template v-else>
             <!-- 基本信息 -->
             <div class="form-section">
               <div class="section-title">基本信息</div>
@@ -762,6 +947,7 @@ const editModalTitle = computed(() => {
                 </label>
               </div>
             </div>
+            </template>
           </div>
 
           <!-- 编辑弹窗底部 -->
@@ -781,6 +967,9 @@ const editModalTitle = computed(() => {
       :visible="showDefaultValueEditor"
       :type="editForm.type || 'string'"
       :value="editForm.defaultValue"
+      :i18n="editForm.i18n || false"
+      :i18n-languages="editForm.i18nLanguages || []"
+      :i18n-defaults="editForm.i18nDefaults || []"
       :enum-options="editForm.enumOptions"
       :item-type="editForm.itemType"
       :item-schema="editForm.itemSchema"
@@ -1081,11 +1270,139 @@ const editModalTitle = computed(() => {
   color: #3b82f6;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.schema-mode-tabs {
+  display: flex;
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.schema-mode-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+  background: rgba(30, 41, 59, 0.5);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.schema-mode-tab:not(:last-child) {
+  border-right: 1px solid rgba(71, 85, 105, 0.5);
+}
+
+.schema-mode-tab:hover {
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.schema-mode-tab.active {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.schema-mode-tab span:first-child {
+  font-size: 14px;
+}
+
 .edit-modal-content {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
   padding: 24px;
+}
+
+/* JSON 编辑器 */
+.json-editor-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 400px;
+}
+
+.json-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.json-hint {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.format-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.format-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.json-textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 350px;
+  padding: 16px;
+  font-size: 13px;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  line-height: 1.6;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 10px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.json-textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.json-textarea::placeholder {
+  color: #64748b;
+}
+
+.json-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+}
+
+.json-error span {
+  font-size: 16px;
 }
 
 .edit-modal-footer {
