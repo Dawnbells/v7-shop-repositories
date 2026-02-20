@@ -5,6 +5,47 @@
  */
 
 import type { TabItem } from './EditorTabs.vue'
+import { useIframeAuth } from '~/composables/useIframeAuth'
+
+// 获取 iframe 认证信息
+const { 
+  mode, 
+  contextName, 
+  query, 
+  isTemplateMode, 
+  isLandingMode 
+} = useIframeAuth()
+
+// 落地页类型标签映射
+const landingTypeLabels: Record<string, string> = {
+  'LAND': '落地页',
+  'CLOAK': '风险页',
+  'BLACKLISTED': '黑名单页',
+}
+
+// 动态计算主题名称
+const themeName = computed(() => {
+  if (isTemplateMode.value) {
+    return contextName.value || '主题模板'
+  }
+  return '主题编辑器'
+})
+
+// 动态计算上下文信息
+const contextInfo = computed(() => {
+  // 模板模式：显示模板名称
+  if (isTemplateMode.value && contextName.value) {
+    return contextName.value
+  }
+  
+  // 落地页模式：显示 "落地页类型 - 域名"
+  if (isLandingMode.value && query.value?.subDomainName) {
+    const typeLabel = landingTypeLabels[query.value.landingType || 'LAND'] || '落地页'
+    return `${typeLabel} - ${query.value.subDomainName}`
+  }
+  
+  return undefined
+})
 
 // 面板宽度配置
 const LEFT_MIN = 220
@@ -85,9 +126,7 @@ function startResize(side: 'left' | 'right', event: PointerEvent) {
   window.addEventListener('pointerup', onUp)
 }
 
-// 模拟数据
-const themeName = ref('我的主题')
-const contextInfo = ref('落地页 - 商品详情')
+// 编辑状态
 const hasUnsavedChanges = ref(true)
 const isSaving = ref(false)
 
