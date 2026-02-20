@@ -19,23 +19,11 @@ const {
 
 // 变量管理状态
 const showVariableManager = ref(false)
-const showVariableEditModal = ref(false)
-const editingVariable = ref<CustomVariable | null>(null)
 const customVariables = ref<CustomVariable[]>([])
 
 // 变量管理操作
 function handleOpenVariables() {
   showVariableManager.value = true
-}
-
-function handleAddVariable() {
-  editingVariable.value = null
-  showVariableEditModal.value = true
-}
-
-function handleEditVariable(variable: CustomVariable) {
-  editingVariable.value = variable
-  showVariableEditModal.value = true
 }
 
 function handleDeleteVariable(key: string) {
@@ -49,7 +37,6 @@ function handleSaveVariable(variable: CustomVariable) {
   } else {
     customVariables.value.push(variable)
   }
-  showVariableEditModal.value = false
 }
 
 // 落地页类型标签映射
@@ -274,17 +261,8 @@ function handleAddPage() {
       :visible="showVariableManager"
       :variables="customVariables"
       @close="showVariableManager = false"
-      @add="handleAddVariable"
-      @edit="handleEditVariable"
-      @delete="handleDeleteVariable"
-    />
-
-    <!-- 变量编辑弹窗 -->
-    <BuilderVariableEditModal
-      :visible="showVariableEditModal"
-      :variable="editingVariable"
-      @close="showVariableEditModal = false"
       @save="handleSaveVariable"
+      @delete="handleDeleteVariable"
     />
   </div>
 </template>

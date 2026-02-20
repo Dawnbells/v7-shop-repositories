@@ -178,8 +178,6 @@ function handleSave() {
   emit('save', localValue.value)
   emit('close')
 }
-
-const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'image']
 </script>
 
 <template>
@@ -189,8 +187,8 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
         <div class="value-editor">
           <div class="editor-header">
             <h3 class="editor-title">
-              <span class="i-carbon-edit"></span>
-              编辑默认值
+              <span class="i-carbon-settings-adjust"></span>
+              默认值配置
             </h3>
             <button class="close-btn" @click="emit('close')">
               <span class="i-carbon-close"></span>
@@ -312,7 +310,11 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
                     :class="{ active: localValue === option.value }"
                     @click="localValue = option.value"
                   >
-                    {{ option.label }}
+                    <span class="option-check">
+                      <span v-if="localValue === option.value" class="i-carbon-checkmark"></span>
+                    </span>
+                    <span class="option-label">{{ option.label }}</span>
+                    <span class="option-value">{{ option.value }}</span>
                   </button>
                 </div>
               </div>
@@ -328,7 +330,8 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
                 </div>
                 
                 <div v-if="!localValue?.length" class="empty-array">
-                  暂无元素，点击添加按钮
+                  <span class="i-carbon-list"></span>
+                  <span>暂无元素，点击添加按钮</span>
                 </div>
                 
                 <div v-else class="array-items">
@@ -337,7 +340,12 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
                     :key="index"
                     class="array-item"
                   >
-                    <div class="item-index">{{ index + 1 }}</div>
+                    <div class="item-header">
+                      <span class="item-index">{{ index + 1 }}</span>
+                      <button class="remove-item-btn" @click="removeArrayItem(index)">
+                        <span class="i-carbon-close"></span>
+                      </button>
+                    </div>
                     
                     <!-- Simple array -->
                     <div v-if="!itemSchema?.length" class="item-content simple">
@@ -415,10 +423,6 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
                         </div>
                       </div>
                     </div>
-                    
-                    <button class="remove-item-btn" @click="removeArrayItem(index)">
-                      <span class="i-carbon-close"></span>
-                    </button>
                   </div>
                 </div>
               </div>
@@ -428,7 +432,8 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
                 <label class="field-label">对象字段</label>
                 
                 <div v-if="!fields?.length" class="empty-object">
-                  未定义字段结构
+                  <span class="i-carbon-json"></span>
+                  <span>未定义字段结构</span>
                 </div>
                 
                 <div v-else class="object-fields">
@@ -523,7 +528,7 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .value-editor {
   display: flex;
   flex-direction: column;
-  width: 520px;
+  width: 600px;
   max-width: 90vw;
   max-height: 80vh;
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
@@ -537,7 +542,7 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 20px 24px;
   border-bottom: 1px solid rgba(71, 85, 105, 0.5);
   background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(30, 41, 59, 0.4) 100%);
 }
@@ -545,15 +550,15 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .editor-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 16px;
+  gap: 10px;
+  font-size: 18px;
   font-weight: 600;
   color: #f1f5f9;
   margin: 0;
 }
 
 .editor-title span {
-  font-size: 18px;
+  font-size: 20px;
   color: #3b82f6;
 }
 
@@ -561,12 +566,12 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   color: #94a3b8;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -579,7 +584,7 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 
 .mode-tabs {
   display: flex;
-  padding: 12px 20px;
+  padding: 16px 24px;
   gap: 8px;
   border-bottom: 1px solid rgba(71, 85, 105, 0.3);
 }
@@ -587,14 +592,14 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .mode-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  font-size: 13px;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
   font-weight: 500;
   color: #94a3b8;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -613,19 +618,19 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .editor-content {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 24px;
 }
 
 .visual-editor {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .field-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .field-label {
@@ -635,12 +640,12 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 }
 
 .field-input {
-  padding: 10px 14px;
+  padding: 12px 16px;
   font-size: 14px;
   color: #f1f5f9;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 8px;
+  border-radius: 10px;
   outline: none;
   transition: all 0.2s;
 }
@@ -651,13 +656,13 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 }
 
 .field-textarea {
-  padding: 10px 14px;
+  padding: 12px 16px;
   font-size: 14px;
   font-family: 'Monaco', 'Menlo', monospace;
   color: #f1f5f9;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 8px;
+  border-radius: 10px;
   outline: none;
   resize: vertical;
   min-height: 120px;
@@ -675,21 +680,21 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .toggle-btn {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
+  gap: 14px;
+  padding: 12px 18px;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .toggle-track {
   position: relative;
-  width: 44px;
-  height: 24px;
+  width: 48px;
+  height: 26px;
   background: #475569;
-  border-radius: 12px;
+  border-radius: 13px;
   transition: all 0.2s;
 }
 
@@ -699,8 +704,8 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 
 .toggle-thumb {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 3px;
+  left: 3px;
   width: 20px;
   height: 20px;
   background: #fff;
@@ -709,71 +714,75 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 }
 
 .toggle-btn.active .toggle-thumb {
-  left: 22px;
+  left: 25px;
 }
 
 .toggle-text {
   font-size: 14px;
+  font-weight: 500;
   color: #e2e8f0;
 }
 
 .color-picker {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
 .color-input {
-  width: 48px;
-  height: 40px;
+  width: 52px;
+  height: 44px;
   padding: 4px;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
 }
 
 .color-text {
   flex: 1;
-  padding: 10px 14px;
+  padding: 12px 16px;
   font-size: 14px;
   font-family: 'Monaco', 'Menlo', monospace;
   color: #f1f5f9;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 8px;
+  border-radius: 10px;
   outline: none;
 }
 
 .image-preview {
-  margin-top: 8px;
-  padding: 8px;
+  margin-top: 12px;
+  padding: 12px;
   background: rgba(15, 23, 42, 0.4);
   border: 1px solid rgba(71, 85, 105, 0.3);
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .image-preview img {
   max-width: 100%;
-  max-height: 150px;
-  border-radius: 4px;
+  max-height: 160px;
+  border-radius: 6px;
 }
 
 .enum-options {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
 }
 
 .enum-option {
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  font-size: 14px;
   color: #94a3b8;
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(71, 85, 105, 0.4);
-  border-radius: 6px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s;
+  text-align: left;
 }
 
 .enum-option:hover {
@@ -787,6 +796,34 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
   border-color: rgba(59, 130, 246, 0.4);
 }
 
+.option-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(51, 65, 85, 0.5);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.enum-option.active .option-check {
+  background: #3b82f6;
+}
+
+.option-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.option-value {
+  font-size: 12px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  color: #64748b;
+}
+
 .array-header {
   display: flex;
   align-items: center;
@@ -796,14 +833,14 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .add-item-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  font-size: 12px;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
   font-weight: 500;
   color: #3b82f6;
   background: rgba(59, 130, 246, 0.1);
   border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -814,63 +851,95 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 
 .empty-array,
 .empty-object {
-  padding: 24px;
-  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px;
+  font-size: 14px;
   color: #64748b;
   text-align: center;
   background: rgba(15, 23, 42, 0.4);
   border: 1px dashed rgba(71, 85, 105, 0.4);
-  border-radius: 8px;
+  border-radius: 12px;
+}
+
+.empty-array span:first-child,
+.empty-object span:first-child {
+  font-size: 32px;
+  color: #475569;
 }
 
 .array-items {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .array-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
+  padding: 16px;
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(71, 85, 105, 0.4);
-  border-radius: 8px;
+  border-radius: 12px;
+}
+
+.item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
 
 .item-index {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  font-size: 12px;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
   font-weight: 600;
-  color: #64748b;
+  color: #94a3b8;
   background: rgba(51, 65, 85, 0.5);
-  border-radius: 4px;
-  flex-shrink: 0;
+  border-radius: 6px;
 }
 
 .item-content {
-  flex: 1;
-  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .item-content.simple {
-  display: flex;
+  flex-direction: row;
   align-items: center;
 }
 
-.item-content.object {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.item-input {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #f1f5f9;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 8px;
+  outline: none;
 }
 
-.item-input {
-  width: 100%;
+.item-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.item-field-label {
+  width: 100px;
+  font-size: 13px;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.item-field-input {
+  flex: 1;
   padding: 8px 12px;
   font-size: 13px;
   color: #f1f5f9;
@@ -880,38 +949,14 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
   outline: none;
 }
 
-.item-field {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.item-field-label {
-  width: 80px;
-  font-size: 12px;
-  color: #94a3b8;
-  flex-shrink: 0;
-}
-
-.item-field-input {
-  flex: 1;
-  padding: 6px 10px;
-  font-size: 13px;
-  color: #f1f5f9;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 6px;
-  outline: none;
-}
-
 .mini-toggle {
-  padding: 4px 12px;
-  font-size: 12px;
+  padding: 6px 14px;
+  font-size: 13px;
   font-weight: 500;
   color: #94a3b8;
   background: rgba(51, 65, 85, 0.5);
   border: 1px solid rgba(71, 85, 105, 0.4);
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -927,23 +972,23 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 }
 
 .mini-color {
-  width: 32px;
-  height: 24px;
+  width: 36px;
+  height: 28px;
   padding: 2px;
   background: transparent;
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
 }
 
 .item-color {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .color-value {
-  font-size: 12px;
+  font-size: 13px;
   font-family: 'Monaco', 'Menlo', monospace;
   color: #94a3b8;
 }
@@ -952,8 +997,8 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   font-size: 14px;
   color: #64748b;
   background: transparent;
@@ -961,7 +1006,6 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
-  flex-shrink: 0;
 }
 
 .remove-item-btn:hover {
@@ -973,38 +1017,38 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .object-fields {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .object-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .object-field-label {
-  font-size: 12px;
+  font-size: 13px;
   color: #94a3b8;
 }
 
 .object-field-input {
-  padding: 8px 12px;
-  font-size: 13px;
+  padding: 10px 14px;
+  font-size: 14px;
   color: #f1f5f9;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 6px;
+  border-radius: 8px;
   outline: none;
 }
 
 .field-toggle {
-  padding: 8px 16px;
-  font-size: 13px;
+  padding: 10px 18px;
+  font-size: 14px;
   font-weight: 500;
   color: #94a3b8;
   background: rgba(51, 65, 85, 0.5);
   border: 1px solid rgba(71, 85, 105, 0.4);
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1018,21 +1062,21 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .field-color {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .field-color-input {
-  width: 40px;
-  height: 32px;
+  width: 44px;
+  height: 36px;
   padding: 3px;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
 }
 
 .field-color-value {
-  font-size: 13px;
+  font-size: 14px;
   font-family: 'Monaco', 'Menlo', monospace;
   color: #94a3b8;
 }
@@ -1040,7 +1084,7 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .json-editor {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .json-toolbar {
@@ -1051,14 +1095,14 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 .format-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
   font-weight: 500;
   color: #94a3b8;
   background: rgba(51, 65, 85, 0.4);
   border: 1px solid rgba(71, 85, 105, 0.4);
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1070,15 +1114,15 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 
 .json-textarea {
   width: 100%;
-  min-height: 200px;
-  padding: 14px;
-  font-size: 13px;
+  min-height: 240px;
+  padding: 16px;
+  font-size: 14px;
   font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-  line-height: 1.5;
+  line-height: 1.6;
   color: #f1f5f9;
   background: rgba(15, 23, 42, 0.8);
   border: 1px solid rgba(71, 85, 105, 0.5);
-  border-radius: 8px;
+  border-radius: 12px;
   outline: none;
   resize: vertical;
   transition: all 0.2s;
@@ -1089,7 +1133,7 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
 }
 
 .json-error {
-  font-size: 12px;
+  font-size: 13px;
   color: #ef4444;
   margin: 0;
 }
@@ -1098,7 +1142,7 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  padding: 16px 20px;
+  padding: 16px 24px;
   border-top: 1px solid rgba(71, 85, 105, 0.5);
   background: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(30, 41, 59, 0.8) 100%);
 }
@@ -1107,8 +1151,8 @@ const simpleTypes: VariableType[] = ['string', 'number', 'boolean', 'color', 'im
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 10px 18px;
+  gap: 8px;
+  padding: 10px 20px;
   font-size: 14px;
   font-weight: 500;
   border: none;
