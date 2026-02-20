@@ -16,6 +16,9 @@ dependencies:
     version: 4.6.4(vue@3.5.28)
 
 devDependencies:
+  '@iconify-json/carbon':
+    specifier: ^1.2.18
+    version: 1.2.18
   '@nuxt/devtools':
     specifier: ^3.2.1
     version: 3.2.1(vite@7.3.1)(vue@3.5.28)
@@ -598,6 +601,12 @@ packages:
     os: [win32]
     requiresBuild: true
     optional: true
+
+  /@iconify-json/carbon@1.2.18:
+    resolution: {integrity: sha512-Grb13E6r/RqTEV4Sqd/BQR2FUt57U2WLuticJ5H8JbTdHLop1LmdePu3EJJA3Xi8DcWRbD6OnC133hKfOwlgtg==}
+    dependencies:
+      '@iconify/types': 2.0.0
+    dev: true
 
   /@iconify/types@2.0.0:
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
