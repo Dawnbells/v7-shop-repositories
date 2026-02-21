@@ -6,4 +6,14 @@ export default defineNuxtConfig({
   modules: ['@unocss/nuxt'],
 
   css: ['@unocss/reset/tailwind.css'],
+
+  runtimeConfig: {
+    db: {
+      host: 'localhost',
+      port: 3306,
+      user: 'root',
+      password: '',
+      database: 'shop',
+    },
+  },
 })

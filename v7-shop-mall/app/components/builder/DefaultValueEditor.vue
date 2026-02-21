@@ -4,64 +4,71 @@
  * 支持可视化编辑和多语言配置
  */
 
-import type { VariableType, EnumOption, VariableFieldSchema, I18nDefaultValue } from '~/types/data-context'
+import type {
+  VariableType,
+  EnumOption,
+  VariableFieldSchema,
+  I18nDefaultValue,
+} from "~/types/data-context";
 
 interface LanguageItem {
-  id: number
-  code: string
-  name: string
-  cname: string
+  id: number;
+  code: string;
+  name: string;
+  cname: string;
 }
 
 const props = defineProps<{
-  visible: boolean
-  type: VariableType
-  value?: any
-  i18n?: boolean
-  i18nLanguages?: number[]
-  i18nDefaults?: I18nDefaultValue[]
-  enumOptions?: EnumOption[]
-  itemType?: VariableType
-  itemSchema?: VariableFieldSchema[]
-  fields?: VariableFieldSchema[]
-}>()
+  visible: boolean;
+  type: VariableType;
+  value?: any;
+  i18n?: boolean;
+  i18nLanguages?: number[];
+  i18nDefaults?: I18nDefaultValue[];
+  enumOptions?: EnumOption[];
+  itemType?: VariableType;
+  itemSchema?: VariableFieldSchema[];
+  fields?: VariableFieldSchema[];
+}>();
 
 const emit = defineEmits<{
-  close: []
-  save: [data: {
-    defaultValue: any
-    i18n: boolean
-    i18nLanguages: number[]
-    i18nDefaults: I18nDefaultValue[]
-  }]
-}>()
+  close: [];
+  save: [
+    data: {
+      defaultValue: any;
+      i18n: boolean;
+      i18nLanguages: number[];
+      i18nDefaults: I18nDefaultValue[];
+    },
+  ];
+}>();
 
 // 语言列表
-const languageList = ref<LanguageItem[]>([])
-const languageLoading = ref(false)
+const languageList = ref<LanguageItem[]>([]);
+const languageLoading = ref(false);
 
 // 本地编辑状态
-const localI18n = ref(false)
-const localDefaultValue = ref<any>(null)
-const localLanguages = ref<number[]>([])
-const localDefaults = ref<I18nDefaultValue[]>([])
+const localI18n = ref(false);
+const localDefaultValue = ref<any>(null);
+const localLanguages = ref<number[]>([]);
+const localDefaults = ref<I18nDefaultValue[]>([]);
 
 // 当前选中的语言 Tab
-const activeLanguageTab = ref<number | null>(null)
+const activeLanguageTab = ref<number | null>(null);
 
 // 获取语言列表
 async function fetchLanguages() {
-  if (languageList.value.length > 0) return
+  if (languageList.value.length > 0) return;
 
-  languageLoading.value = true
+  languageLoading.value = true;
   try {
-    const data = await $fetch<LanguageItem[]>('/api/languages/list')
-    languageList.value = data || []
+    const data = await $fetch<LanguageItem[]>("/api/languages/list");
+    languageList.value = data || [];
   } catch (error) {
-    console.error('获取语言列表失败:', error)
-    languageList.value = []
+    console.error("获取语言列表失败:", error);
+    languageList.value = [];
   } finally {
-    languageLoading.value = false
+    languageLoading.value = false;
   }
 }
 
@@ -70,209 +77,215 @@ watch(
   () => props.visible,
   (visible) => {
     if (visible) {
-      fetchLanguages()
-      localI18n.value = props.i18n || false
-      localDefaultValue.value = deepClone(props.value) ?? getDefaultValue()
-      localLanguages.value = props.i18nLanguages ? [...props.i18nLanguages] : []
-      localDefaults.value = deepClone(props.i18nDefaults) || []
+      fetchLanguages();
+      localI18n.value = props.i18n || false;
+      localDefaultValue.value = deepClone(props.value) ?? getDefaultValue();
+      localLanguages.value = props.i18nLanguages
+        ? [...props.i18nLanguages]
+        : [];
+      localDefaults.value = deepClone(props.i18nDefaults) || [];
 
       if (localLanguages.value.length > 0) {
-        activeLanguageTab.value = localLanguages.value[0] ?? null
+        activeLanguageTab.value = localLanguages.value[0] ?? null;
       } else {
-        activeLanguageTab.value = null
+        activeLanguageTab.value = null;
       }
     }
   },
-  { immediate: true }
-)
+  { immediate: true },
+);
 
 function deepClone<T>(obj: T): T {
-  if (obj === null || obj === undefined) return obj
-  return JSON.parse(JSON.stringify(obj))
+  if (obj === null || obj === undefined) return obj;
+  return JSON.parse(JSON.stringify(obj));
 }
 
 function getDefaultValue(): any {
   switch (props.type) {
-    case 'string':
-    case 'richtext':
-    case 'image':
-      return ''
-    case 'number':
-      return 0
-    case 'boolean':
-      return false
-    case 'color':
-      return '#3b82f6'
-    case 'enum':
-      return props.enumOptions?.[0]?.value || ''
-    case 'array':
-      return []
-    case 'object':
-      const obj: Record<string, any> = {}
+    case "string":
+    case "richtext":
+    case "image":
+      return "";
+    case "number":
+      return 0;
+    case "boolean":
+      return false;
+    case "color":
+      return "#3b82f6";
+    case "enum":
+      return props.enumOptions?.[0]?.value || "";
+    case "array":
+      return [];
+    case "object":
+      const obj: Record<string, any> = {};
       props.fields?.forEach((field) => {
-        obj[field.key] = getFieldDefaultValue(field.type)
-      })
-      return obj
+        obj[field.key] = getFieldDefaultValue(field.type);
+      });
+      return obj;
     default:
-      return undefined
+      return undefined;
   }
 }
 
 function getFieldDefaultValue(type: VariableType): any {
   switch (type) {
-    case 'string':
-    case 'richtext':
-    case 'image':
-      return ''
-    case 'number':
-      return 0
-    case 'boolean':
-      return false
-    case 'color':
-      return '#3b82f6'
+    case "string":
+    case "richtext":
+    case "image":
+      return "";
+    case "number":
+      return 0;
+    case "boolean":
+      return false;
+    case "color":
+      return "#3b82f6";
     default:
-      return ''
+      return "";
   }
 }
 
 // 切换多语言开关
 function toggleI18n(enabled: boolean) {
-  localI18n.value = enabled
+  localI18n.value = enabled;
   if (enabled && localLanguages.value.length === 0) {
-    const firstLang = languageList.value[0]
+    const firstLang = languageList.value[0];
     if (firstLang) {
-      localLanguages.value.push(firstLang.id)
+      localLanguages.value.push(firstLang.id);
       localDefaults.value.push({
         languageId: firstLang.id,
         languageCode: firstLang.code,
         languageName: firstLang.cname || firstLang.name,
         value: deepClone(localDefaultValue.value) ?? getDefaultValue(),
-      })
-      activeLanguageTab.value = firstLang.id
+      });
+      activeLanguageTab.value = firstLang.id;
     }
   }
 }
 
 // 切换语言选中状态
 function toggleLanguage(language: LanguageItem) {
-  const index = localLanguages.value.indexOf(language.id)
+  const index = localLanguages.value.indexOf(language.id);
 
   if (index > -1) {
-    localLanguages.value.splice(index, 1)
-    const defaultIndex = localDefaults.value.findIndex(d => d.languageId === language.id)
+    localLanguages.value.splice(index, 1);
+    const defaultIndex = localDefaults.value.findIndex(
+      (d) => d.languageId === language.id,
+    );
     if (defaultIndex > -1) {
-      localDefaults.value.splice(defaultIndex, 1)
+      localDefaults.value.splice(defaultIndex, 1);
     }
     if (activeLanguageTab.value === language.id) {
-      activeLanguageTab.value = localLanguages.value[0] ?? null
+      activeLanguageTab.value = localLanguages.value[0] ?? null;
     }
   } else {
-    localLanguages.value.push(language.id)
+    localLanguages.value.push(language.id);
     localDefaults.value.push({
       languageId: language.id,
       languageCode: language.code,
       languageName: language.cname || language.name,
       value: getDefaultValue(),
-    })
+    });
     if (localLanguages.value.length === 1) {
-      activeLanguageTab.value = language.id
+      activeLanguageTab.value = language.id;
     }
   }
 }
 
 function isLanguageSelected(languageId: number): boolean {
-  return localLanguages.value.includes(languageId)
+  return localLanguages.value.includes(languageId);
 }
 
 function getLanguageDefaultValue(languageId: number): any {
-  const item = localDefaults.value.find(d => d.languageId === languageId)
-  return item?.value
+  const item = localDefaults.value.find((d) => d.languageId === languageId);
+  return item?.value;
 }
 
 function setLanguageDefaultValue(languageId: number, value: any) {
-  const item = localDefaults.value.find(d => d.languageId === languageId)
+  const item = localDefaults.value.find((d) => d.languageId === languageId);
   if (item) {
-    item.value = value
+    item.value = value;
   }
 }
 
 // 选中的语言列表
 const selectedLanguages = computed(() => {
   return localLanguages.value
-    .map(id => languageList.value.find(lang => lang.id === id))
-    .filter((lang): lang is LanguageItem => !!lang)
-})
+    .map((id) => languageList.value.find((lang) => lang.id === id))
+    .filter((lang): lang is LanguageItem => !!lang);
+});
 
 // 当前编辑的值
 const currentEditValue = computed({
   get() {
     if (localI18n.value && activeLanguageTab.value) {
-      return getLanguageDefaultValue(activeLanguageTab.value)
+      return getLanguageDefaultValue(activeLanguageTab.value);
     }
-    return localDefaultValue.value
+    return localDefaultValue.value;
   },
   set(value: any) {
     if (localI18n.value && activeLanguageTab.value) {
-      setLanguageDefaultValue(activeLanguageTab.value, value)
+      setLanguageDefaultValue(activeLanguageTab.value, value);
     } else {
-      localDefaultValue.value = value
+      localDefaultValue.value = value;
     }
-  }
-})
+  },
+});
 
 // 数组操作
 function addArrayItem() {
-  const arr = currentEditValue.value as any[] || []
+  const arr = (currentEditValue.value as any[]) || [];
   if (props.itemSchema && props.itemSchema.length > 0) {
-    const newItem: Record<string, any> = {}
-    props.itemSchema.forEach(f => {
-      newItem[f.key] = getFieldDefaultValue(f.type)
-    })
-    arr.push(newItem)
+    const newItem: Record<string, any> = {};
+    props.itemSchema.forEach((f) => {
+      newItem[f.key] = getFieldDefaultValue(f.type);
+    });
+    arr.push(newItem);
   } else {
-    arr.push(getFieldDefaultValue(props.itemType || 'string'))
+    arr.push(getFieldDefaultValue(props.itemType || "string"));
   }
-  currentEditValue.value = arr
+  currentEditValue.value = arr;
 }
 
 function removeArrayItem(index: number) {
-  const arr = currentEditValue.value as any[] || []
-  arr.splice(index, 1)
-  currentEditValue.value = [...arr]
+  const arr = (currentEditValue.value as any[]) || [];
+  arr.splice(index, 1);
+  currentEditValue.value = [...arr];
 }
 
 function updateArrayItem(index: number, value: any) {
-  const arr = currentEditValue.value as any[] || []
-  arr[index] = value
-  currentEditValue.value = [...arr]
+  const arr = (currentEditValue.value as any[]) || [];
+  arr[index] = value;
+  currentEditValue.value = [...arr];
 }
 
 function updateArrayItemField(index: number, fieldKey: string, value: any) {
-  const arr = currentEditValue.value as any[] || []
+  const arr = (currentEditValue.value as any[]) || [];
   if (arr[index]) {
-    arr[index][fieldKey] = value
-    currentEditValue.value = [...arr]
+    arr[index][fieldKey] = value;
+    currentEditValue.value = [...arr];
   }
 }
 
 function updateObjectField(fieldKey: string, value: any) {
-  const obj = currentEditValue.value as Record<string, any> || {}
-  obj[fieldKey] = value
-  currentEditValue.value = { ...obj }
+  const obj = (currentEditValue.value as Record<string, any>) || {};
+  obj[fieldKey] = value;
+  currentEditValue.value = { ...obj };
 }
 
 function handleSave() {
-  emit('save', {
+  emit("save", {
     defaultValue: localDefaultValue.value,
     i18n: localI18n.value,
     i18nLanguages: localLanguages.value,
-    i18nDefaults: localDefaults.value.filter(d => localLanguages.value.includes(d.languageId)),
-  })
-  emit('close')
+    i18nDefaults: localDefaults.value.filter((d) =>
+      localLanguages.value.includes(d.languageId),
+    ),
+  });
+  emit("close");
 }
 
 function handleClose() {
-  emit('close')
+  emit("close");
 }
 </script>
 
@@ -298,14 +311,19 @@ function handleClose() {
                 <input
                   type="checkbox"
                   :checked="localI18n"
-                  @change="toggleI18n(($event.target as HTMLInputElement).checked)"
+                  @change="
+                    toggleI18n(($event.target as HTMLInputElement).checked)
+                  "
                 />
                 <span class="i-carbon-earth"></span>
                 <span>启用多语言</span>
               </label>
 
               <!-- 语言多选 -->
-              <div v-if="localI18n && !languageLoading && languageList.length > 0" class="language-select-inline">
+              <div
+                v-if="localI18n && !languageLoading && languageList.length > 0"
+                class="language-select-inline"
+              >
                 <span class="select-label">选择语言：</span>
                 <div class="language-checkboxes-inline">
                   <label
@@ -332,7 +350,10 @@ function handleClose() {
             </div>
 
             <!-- 空状态 -->
-            <div v-else-if="localI18n && languageList.length === 0" class="empty-config">
+            <div
+              v-else-if="localI18n && languageList.length === 0"
+              class="empty-config"
+            >
               暂无可用语言，请先配置语言
             </div>
 
@@ -340,10 +361,15 @@ function handleClose() {
             <div
               v-else
               class="editor-container"
-              :class="{ 'with-sidebar': localI18n && selectedLanguages.length > 0 }"
+              :class="{
+                'with-sidebar': localI18n && selectedLanguages.length > 0,
+              }"
             >
               <!-- 左侧语言 Tab -->
-              <div v-if="localI18n && selectedLanguages.length > 0" class="language-sidebar">
+              <div
+                v-if="localI18n && selectedLanguages.length > 0"
+                class="language-sidebar"
+              >
                 <div class="sidebar-title">语言</div>
                 <div class="language-tabs-vertical">
                   <button
@@ -361,7 +387,10 @@ function handleClose() {
 
               <!-- 右侧编辑区域 -->
               <div class="value-editor-section">
-                <div v-if="localI18n && selectedLanguages.length === 0" class="empty-hint">
+                <div
+                  v-if="localI18n && selectedLanguages.length === 0"
+                  class="empty-hint"
+                >
                   请先选择至少一种语言
                 </div>
 
@@ -400,7 +429,9 @@ function handleClose() {
                         <span class="toggle-track">
                           <span class="toggle-thumb"></span>
                         </span>
-                        <span class="toggle-text">{{ currentEditValue ? '开启' : '关闭' }}</span>
+                        <span class="toggle-text">{{
+                          currentEditValue ? "开启" : "关闭"
+                        }}</span>
                       </button>
                     </div>
                   </template>
@@ -460,7 +491,10 @@ function handleClose() {
                         @click="currentEditValue = option.value"
                       >
                         <span class="option-check">
-                          <span v-if="currentEditValue === option.value" class="i-carbon-checkmark"></span>
+                          <span
+                            v-if="currentEditValue === option.value"
+                            class="i-carbon-checkmark"
+                          ></span>
                         </span>
                         <span class="option-label">{{ option.label }}</span>
                         <span class="option-value">{{ option.value }}</span>
@@ -491,42 +525,71 @@ function handleClose() {
                       >
                         <div class="item-header">
                           <span class="item-index">{{ index + 1 }}</span>
-                          <button class="remove-item-btn" @click="removeArrayItem(index)">
+                          <button
+                            class="remove-item-btn"
+                            @click="removeArrayItem(index)"
+                          >
                             <span class="i-carbon-close"></span>
                           </button>
                         </div>
 
                         <!-- Simple array -->
-                        <div v-if="!itemSchema?.length" class="item-content simple">
+                        <div
+                          v-if="!itemSchema?.length"
+                          class="item-content simple"
+                        >
                           <input
                             v-if="itemType === 'string' || itemType === 'image'"
                             :value="item"
                             type="text"
                             class="item-input"
-                            @input="updateArrayItem(index, ($event.target as HTMLInputElement).value)"
+                            @input="
+                              updateArrayItem(
+                                index,
+                                ($event.target as HTMLInputElement).value,
+                              )
+                            "
                           />
                           <input
                             v-else-if="itemType === 'number'"
                             :value="item"
                             type="number"
                             class="item-input"
-                            @input="updateArrayItem(index, Number(($event.target as HTMLInputElement).value))"
+                            @input="
+                              updateArrayItem(
+                                index,
+                                Number(
+                                  ($event.target as HTMLInputElement).value,
+                                ),
+                              )
+                            "
                           />
-                          <div v-else-if="itemType === 'boolean'" class="item-toggle">
+                          <div
+                            v-else-if="itemType === 'boolean'"
+                            class="item-toggle"
+                          >
                             <button
                               class="mini-toggle"
                               :class="{ active: item }"
                               @click="updateArrayItem(index, !item)"
                             >
-                              {{ item ? '开' : '关' }}
+                              {{ item ? "开" : "关" }}
                             </button>
                           </div>
-                          <div v-else-if="itemType === 'color'" class="item-color">
+                          <div
+                            v-else-if="itemType === 'color'"
+                            class="item-color"
+                          >
                             <input
                               :value="item"
                               type="color"
                               class="mini-color"
-                              @input="updateArrayItem(index, ($event.target as HTMLInputElement).value)"
+                              @input="
+                                updateArrayItem(
+                                  index,
+                                  ($event.target as HTMLInputElement).value,
+                                )
+                              "
                             />
                             <span class="color-value">{{ item }}</span>
                           </div>
@@ -539,35 +602,69 @@ function handleClose() {
                             :key="field.key"
                             class="item-field"
                           >
-                            <span class="item-field-label">{{ field.label }}</span>
+                            <span class="item-field-label">{{
+                              field.label
+                            }}</span>
                             <input
-                              v-if="field.type === 'string' || field.type === 'image'"
+                              v-if="
+                                field.type === 'string' ||
+                                field.type === 'image'
+                              "
                               :value="item[field.key]"
                               type="text"
                               class="item-field-input"
-                              @input="updateArrayItemField(index, field.key, ($event.target as HTMLInputElement).value)"
+                              @input="
+                                updateArrayItemField(
+                                  index,
+                                  field.key,
+                                  ($event.target as HTMLInputElement).value,
+                                )
+                              "
                             />
                             <input
                               v-else-if="field.type === 'number'"
                               :value="item[field.key]"
                               type="number"
                               class="item-field-input"
-                              @input="updateArrayItemField(index, field.key, Number(($event.target as HTMLInputElement).value))"
+                              @input="
+                                updateArrayItemField(
+                                  index,
+                                  field.key,
+                                  Number(
+                                    ($event.target as HTMLInputElement).value,
+                                  ),
+                                )
+                              "
                             />
                             <button
                               v-else-if="field.type === 'boolean'"
                               class="mini-toggle"
                               :class="{ active: item[field.key] }"
-                              @click="updateArrayItemField(index, field.key, !item[field.key])"
+                              @click="
+                                updateArrayItemField(
+                                  index,
+                                  field.key,
+                                  !item[field.key],
+                                )
+                              "
                             >
-                              {{ item[field.key] ? '开' : '关' }}
+                              {{ item[field.key] ? "开" : "关" }}
                             </button>
-                            <div v-else-if="field.type === 'color'" class="mini-color-wrapper">
+                            <div
+                              v-else-if="field.type === 'color'"
+                              class="mini-color-wrapper"
+                            >
                               <input
                                 :value="item[field.key]"
                                 type="color"
                                 class="mini-color"
-                                @input="updateArrayItemField(index, field.key, ($event.target as HTMLInputElement).value)"
+                                @input="
+                                  updateArrayItemField(
+                                    index,
+                                    field.key,
+                                    ($event.target as HTMLInputElement).value,
+                                  )
+                                "
                               />
                             </div>
                           </div>
@@ -591,37 +688,66 @@ function handleClose() {
                         :key="field.key"
                         class="object-field"
                       >
-                        <label class="object-field-label">{{ field.label }}</label>
+                        <label class="object-field-label">{{
+                          field.label
+                        }}</label>
                         <input
-                          v-if="field.type === 'string' || field.type === 'image'"
+                          v-if="
+                            field.type === 'string' || field.type === 'image'
+                          "
                           :value="currentEditValue?.[field.key]"
                           type="text"
                           class="object-field-input"
-                          @input="updateObjectField(field.key, ($event.target as HTMLInputElement).value)"
+                          @input="
+                            updateObjectField(
+                              field.key,
+                              ($event.target as HTMLInputElement).value,
+                            )
+                          "
                         />
                         <input
                           v-else-if="field.type === 'number'"
                           :value="currentEditValue?.[field.key]"
                           type="number"
                           class="object-field-input"
-                          @input="updateObjectField(field.key, Number(($event.target as HTMLInputElement).value))"
+                          @input="
+                            updateObjectField(
+                              field.key,
+                              Number(($event.target as HTMLInputElement).value),
+                            )
+                          "
                         />
                         <button
                           v-else-if="field.type === 'boolean'"
                           class="field-toggle"
                           :class="{ active: currentEditValue?.[field.key] }"
-                          @click="updateObjectField(field.key, !currentEditValue?.[field.key])"
+                          @click="
+                            updateObjectField(
+                              field.key,
+                              !currentEditValue?.[field.key],
+                            )
+                          "
                         >
-                          {{ currentEditValue?.[field.key] ? '开启' : '关闭' }}
+                          {{ currentEditValue?.[field.key] ? "开启" : "关闭" }}
                         </button>
-                        <div v-else-if="field.type === 'color'" class="field-color">
+                        <div
+                          v-else-if="field.type === 'color'"
+                          class="field-color"
+                        >
                           <input
                             :value="currentEditValue?.[field.key]"
                             type="color"
                             class="field-color-input"
-                            @input="updateObjectField(field.key, ($event.target as HTMLInputElement).value)"
+                            @input="
+                              updateObjectField(
+                                field.key,
+                                ($event.target as HTMLInputElement).value,
+                              )
+                            "
                           />
-                          <span class="field-color-value">{{ currentEditValue?.[field.key] }}</span>
+                          <span class="field-color-value">{{
+                            currentEditValue?.[field.key]
+                          }}</span>
                         </div>
                       </div>
                     </div>
@@ -632,9 +758,7 @@ function handleClose() {
           </div>
 
           <div class="editor-footer">
-            <button class="btn btn-secondary" @click="handleClose">
-              取消
-            </button>
+            <button class="btn btn-secondary" @click="handleClose">取消</button>
             <button class="btn btn-primary" @click="handleSave">
               <span class="i-carbon-checkmark"></span>
               确定
@@ -661,7 +785,7 @@ function handleClose() {
 .value-editor {
   display: flex;
   flex-direction: column;
-  width: 700px;
+  width: 1080px;
   max-width: 90vw;
   max-height: 85vh;
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
@@ -677,7 +801,11 @@ function handleClose() {
   justify-content: space-between;
   padding: 20px 24px;
   border-bottom: 1px solid rgba(71, 85, 105, 0.5);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(30, 41, 59, 0.4) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(30, 41, 59, 0.8) 0%,
+    rgba(30, 41, 59, 0.4) 100%
+  );
 }
 
 .editor-title {
@@ -896,7 +1024,7 @@ function handleClose() {
 .tab-code {
   font-size: 11px;
   color: #64748b;
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: "Monaco", "Menlo", monospace;
 }
 
 .language-tab-vertical.active .tab-code {
@@ -938,7 +1066,7 @@ function handleClose() {
   width: 100%;
   padding: 12px 16px;
   font-size: 14px;
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: "Monaco", "Menlo", monospace;
   color: #f1f5f9;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
@@ -1022,7 +1150,7 @@ function handleClose() {
   flex: 1;
   padding: 12px 16px;
   font-size: 14px;
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: "Monaco", "Menlo", monospace;
   color: #f1f5f9;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.5);
@@ -1100,7 +1228,7 @@ function handleClose() {
 
 .option-value {
   font-size: 12px;
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: "Monaco", "Menlo", monospace;
   color: #64748b;
 }
 
@@ -1270,7 +1398,7 @@ function handleClose() {
 
 .color-value {
   font-size: 13px;
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: "Monaco", "Menlo", monospace;
   color: #94a3b8;
 }
 
@@ -1358,7 +1486,7 @@ function handleClose() {
 
 .field-color-value {
   font-size: 14px;
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: "Monaco", "Menlo", monospace;
   color: #94a3b8;
 }
 
@@ -1368,7 +1496,11 @@ function handleClose() {
   gap: 12px;
   padding: 16px 24px;
   border-top: 1px solid rgba(71, 85, 105, 0.5);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(30, 41, 59, 0.8) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(30, 41, 59, 0.4) 0%,
+    rgba(30, 41, 59, 0.8) 100%
+  );
 }
 
 .btn {
