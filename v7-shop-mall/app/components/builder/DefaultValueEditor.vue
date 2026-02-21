@@ -845,8 +845,10 @@ function handleClose() {
 
 .editor-content {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   padding: 24px;
+  overflow: hidden;
 }
 
 /* 多语言开关区域 */
@@ -960,18 +962,23 @@ function handleClose() {
 
 /* 编辑器容器 */
 .editor-container {
+  flex: 1;
   display: flex;
   gap: 20px;
+  min-height: 0;
 }
 
 .editor-container.with-sidebar {
-  min-height: 300px;
+  min-height: 0;
 }
 
 /* 语言侧边栏 */
 .language-sidebar {
   width: 140px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .sidebar-title {
@@ -985,9 +992,12 @@ function handleClose() {
 }
 
 .language-tabs-vertical {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .language-tab-vertical {
@@ -1035,6 +1045,8 @@ function handleClose() {
 .value-editor-section {
   flex: 1;
   min-width: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .field-label {
@@ -1569,5 +1581,36 @@ function handleClose() {
 
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+/* 自定义滚动条样式 - 暗色主题适配 */
+.language-tabs-vertical::-webkit-scrollbar,
+.value-editor-section::-webkit-scrollbar {
+  width: 6px;
+}
+
+.language-tabs-vertical::-webkit-scrollbar-track,
+.value-editor-section::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3);
+  border-radius: 3px;
+}
+
+.language-tabs-vertical::-webkit-scrollbar-thumb,
+.value-editor-section::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.5);
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+
+.language-tabs-vertical::-webkit-scrollbar-thumb:hover,
+.value-editor-section::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.8);
+}
+
+/* Firefox 滚动条样式 */
+.language-tabs-vertical,
+.value-editor-section {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(71, 85, 105, 0.5) rgba(15, 23, 42, 0.3);
 }
 </style>

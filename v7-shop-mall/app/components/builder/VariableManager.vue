@@ -11,276 +11,354 @@ import type {
   EnumOption,
   VariableFieldSchema,
   I18nDefaultValue,
-} from '~/types/data-context'
-import { BASIC_VARIABLE_TYPES, ALL_VARIABLE_TYPES } from '~/types/data-context'
+} from "~/types/data-context";
+import { BASIC_VARIABLE_TYPES, ALL_VARIABLE_TYPES } from "~/types/data-context";
 
 defineProps<{
-  visible: boolean
-  variables: CustomVariable[]
-}>()
+  visible: boolean;
+  variables: CustomVariable[];
+}>();
 
 const emit = defineEmits<{
-  close: []
-  save: [variable: CustomVariable]
-  delete: [key: string]
-}>()
+  close: [];
+  save: [variable: CustomVariable];
+  delete: [key: string];
+}>();
 
 // ============ 编辑弹窗状态 ============
 
-const showEditModal = ref(false)
-const editMode = ref<'add' | 'edit'>('add')
-const editingKey = ref<string | null>(null)
+const showEditModal = ref(false);
+const editMode = ref<"add" | "edit">("add");
+const editingKey = ref<string | null>(null);
 
 const editForm = ref<Partial<CustomVariable>>({
-  key: '',
-  label: '',
-  type: 'string',
-  defaultValue: '',
-  description: '',
+  key: "",
+  label: "",
+  type: "string",
+  defaultValue: "",
+  description: "",
   i18n: false,
   i18nLanguages: [],
   i18nDefaults: [],
   enumOptions: [],
-  itemType: 'string',
+  itemType: "string",
   itemSchema: [],
   fields: [],
-})
+});
 
-const arrayItemIsComplex = ref(false)
-const showDefaultValueEditor = ref(false)
+const arrayItemIsComplex = ref(false);
+const showDefaultValueEditor = ref(false);
 
 // ============ Schema JSON 编辑模式 ============
 
-const schemaEditMode = ref<'visual' | 'json'>('visual')
-const schemaJsonText = ref('')
-const schemaJsonError = ref('')
+const schemaEditMode = ref<"visual" | "json">("visual");
+const schemaJsonText = ref("");
+const schemaJsonError = ref("");
 
-function switchSchemaEditMode(mode: 'visual' | 'json') {
-  if (mode === 'json' && schemaEditMode.value === 'visual') {
-    updateSchemaJsonText()
+function switchSchemaEditMode(mode: "visual" | "json") {
+  if (mode === "json" && schemaEditMode.value === "visual") {
+    updateSchemaJsonText();
   }
-  if (mode === 'visual' && schemaEditMode.value === 'json') {
+  if (mode === "visual" && schemaEditMode.value === "json") {
     try {
-      const parsed = JSON.parse(schemaJsonText.value)
-      applyJsonToForm(parsed)
-      schemaJsonError.value = ''
+      const parsed = JSON.parse(schemaJsonText.value);
+      applyJsonToForm(parsed);
+      schemaJsonError.value = "";
     } catch (e) {
-      schemaJsonError.value = 'JSON 格式错误，无法切换到可视化模式'
-      return
+      schemaJsonError.value = "JSON 格式错误，无法切换到可视化模式";
+      return;
     }
   }
-  schemaEditMode.value = mode
+  schemaEditMode.value = mode;
 }
 
 function updateSchemaJsonText() {
   const schema: Partial<CustomVariable> = {
-    key: editForm.value.key || '',
-    label: editForm.value.label || '',
-    type: editForm.value.type || 'string',
+    key: editForm.value.key || "",
+    label: editForm.value.label || "",
+    type: editForm.value.type || "string",
     defaultValue: editForm.value.defaultValue,
     description: editForm.value.description || undefined,
     i18n: editForm.value.i18n || undefined,
+  };
+
+  if (schema.type === "enum") {
+    schema.enumOptions = editForm.value.enumOptions;
   }
-  
-  if (schema.type === 'enum') {
-    schema.enumOptions = editForm.value.enumOptions
-  }
-  
-  if (schema.type === 'array') {
+
+  if (schema.type === "array") {
     if (arrayItemIsComplex.value) {
-      schema.itemSchema = editForm.value.itemSchema
+      schema.itemSchema = editForm.value.itemSchema;
     } else {
-      schema.itemType = editForm.value.itemType
+      schema.itemType = editForm.value.itemType;
     }
   }
-  
-  if (schema.type === 'object') {
-    schema.fields = editForm.value.fields
+
+  if (schema.type === "object") {
+    schema.fields = editForm.value.fields;
   }
-  
+
   // Remove undefined values
-  Object.keys(schema).forEach(key => {
+  Object.keys(schema).forEach((key) => {
     if (schema[key as keyof typeof schema] === undefined) {
-      delete schema[key as keyof typeof schema]
+      delete schema[key as keyof typeof schema];
     }
-  })
-  
-  schemaJsonText.value = JSON.stringify(schema, null, 2)
+  });
+
+  schemaJsonText.value = JSON.stringify(schema, null, 2);
 }
 
 function handleSchemaJsonChange(text: string) {
-  schemaJsonText.value = text
+  schemaJsonText.value = text;
   try {
-    JSON.parse(text)
-    schemaJsonError.value = ''
+    JSON.parse(text);
+    schemaJsonError.value = "";
   } catch (e) {
-    schemaJsonError.value = 'JSON 格式错误'
+    schemaJsonError.value = "JSON 格式错误";
   }
 }
 
 function formatSchemaJson() {
   try {
-    const parsed = JSON.parse(schemaJsonText.value)
-    schemaJsonText.value = JSON.stringify(parsed, null, 2)
-    schemaJsonError.value = ''
+    const parsed = JSON.parse(schemaJsonText.value);
+    schemaJsonText.value = JSON.stringify(parsed, null, 2);
+    schemaJsonError.value = "";
   } catch {
-    schemaJsonError.value = 'JSON 格式错误，无法格式化'
+    schemaJsonError.value = "JSON 格式错误，无法格式化";
   }
 }
 
 function applyJsonToForm(json: Partial<CustomVariable>) {
-  editForm.value.key = json.key || ''
-  editForm.value.label = json.label || ''
-  editForm.value.type = json.type || 'string'
-  editForm.value.defaultValue = json.defaultValue
-  editForm.value.description = json.description || ''
-  editForm.value.i18n = json.i18n || false
-  editForm.value.i18nLanguages = json.i18nLanguages ? [...json.i18nLanguages] : []
-  editForm.value.i18nDefaults = json.i18nDefaults ? JSON.parse(JSON.stringify(json.i18nDefaults)) : []
-  editForm.value.enumOptions = json.enumOptions ? JSON.parse(JSON.stringify(json.enumOptions)) : []
-  editForm.value.itemType = json.itemType || 'string'
-  editForm.value.itemSchema = json.itemSchema ? JSON.parse(JSON.stringify(json.itemSchema)) : []
-  editForm.value.fields = json.fields ? JSON.parse(JSON.stringify(json.fields)) : []
-  
-  arrayItemIsComplex.value = !!(json.itemSchema && json.itemSchema.length > 0)
+  editForm.value.key = json.key || "";
+  editForm.value.label = json.label || "";
+  editForm.value.type = json.type || "string";
+  editForm.value.defaultValue = json.defaultValue;
+  editForm.value.description = json.description || "";
+  editForm.value.i18n = json.i18n || false;
+  editForm.value.i18nLanguages = json.i18nLanguages
+    ? [...json.i18nLanguages]
+    : [];
+  editForm.value.i18nDefaults = json.i18nDefaults
+    ? JSON.parse(JSON.stringify(json.i18nDefaults))
+    : [];
+  editForm.value.enumOptions = json.enumOptions
+    ? JSON.parse(JSON.stringify(json.enumOptions))
+    : [];
+  editForm.value.itemType = json.itemType || "string";
+  editForm.value.itemSchema = json.itemSchema
+    ? JSON.parse(JSON.stringify(json.itemSchema))
+    : [];
+  editForm.value.fields = json.fields
+    ? JSON.parse(JSON.stringify(json.fields))
+    : [];
+
+  arrayItemIsComplex.value = !!(json.itemSchema && json.itemSchema.length > 0);
 }
 
 // 变量类型选项
-const variableTypes: Array<{ value: VariableType; label: string; icon: string; description: string }> = [
-  { value: 'string', label: '文本', icon: 'i-carbon-text-font', description: '单行文本' },
-  { value: 'number', label: '数字', icon: 'i-carbon-hashtag', description: '数值' },
-  { value: 'boolean', label: '开关', icon: 'i-carbon-toggle-off', description: '是/否' },
-  { value: 'color', label: '颜色', icon: 'i-carbon-color-palette', description: '颜色值' },
-  { value: 'image', label: '图片', icon: 'i-carbon-image', description: '图片 URL' },
-  { value: 'richtext', label: '富文本', icon: 'i-carbon-text-align-left', description: '多行富文本' },
-  { value: 'enum', label: '枚举', icon: 'i-carbon-list-checked', description: '固定选项' },
-  { value: 'array', label: '数组', icon: 'i-carbon-list', description: '列表数据' },
-  { value: 'object', label: '对象', icon: 'i-carbon-json', description: '结构化数据' },
-]
+const variableTypes: Array<{
+  value: VariableType;
+  label: string;
+  icon: string;
+  description: string;
+}> = [
+  {
+    value: "string",
+    label: "文本",
+    icon: "i-carbon-text-font",
+    description: "单行文本",
+  },
+  {
+    value: "number",
+    label: "数字",
+    icon: "i-carbon-hashtag",
+    description: "数值",
+  },
+  {
+    value: "boolean",
+    label: "开关",
+    icon: "i-carbon-toggle-off",
+    description: "是/否",
+  },
+  {
+    value: "color",
+    label: "颜色",
+    icon: "i-carbon-color-palette",
+    description: "颜色值",
+  },
+  {
+    value: "image",
+    label: "图片",
+    icon: "i-carbon-image",
+    description: "图片 URL",
+  },
+  {
+    value: "richtext",
+    label: "富文本",
+    icon: "i-carbon-text-align-left",
+    description: "多行富文本",
+  },
+  {
+    value: "enum",
+    label: "枚举",
+    icon: "i-carbon-list-checked",
+    description: "固定选项",
+  },
+  {
+    value: "array",
+    label: "数组",
+    icon: "i-carbon-list",
+    description: "列表数据",
+  },
+  {
+    value: "object",
+    label: "对象",
+    icon: "i-carbon-json",
+    description: "结构化数据",
+  },
+];
 
 function getTypeInfo(type: VariableType) {
-  return variableTypes.find(t => t.value === type) ?? variableTypes[0]!
+  return variableTypes.find((t) => t.value === type) ?? variableTypes[0]!;
 }
 
 function getDefaultValueByType(type: VariableType): any {
   switch (type) {
-    case 'string': return ''
-    case 'number': return 0
-    case 'boolean': return false
-    case 'color': return '#3b82f6'
-    case 'image': return ''
-    case 'richtext': return ''
-    case 'enum': return ''
-    case 'array': return []
-    case 'object': return {}
-    default: return ''
+    case "string":
+      return "";
+    case "number":
+      return 0;
+    case "boolean":
+      return false;
+    case "color":
+      return "#3b82f6";
+    case "image":
+      return "";
+    case "richtext":
+      return "";
+    case "enum":
+      return "";
+    case "array":
+      return [];
+    case "object":
+      return {};
+    default:
+      return "";
   }
 }
 
 function getVariableExtraInfo(variable: CustomVariable): string {
-  if (variable.type === 'enum' && variable.enumOptions) {
-    return `${variable.enumOptions.length} 个选项`
+  if (variable.type === "enum" && variable.enumOptions) {
+    return `${variable.enumOptions.length} 个选项`;
   }
-  if (variable.type === 'array') {
+  if (variable.type === "array") {
     if (variable.itemSchema && variable.itemSchema.length > 0) {
-      return `对象数组 (${variable.itemSchema.length} 个字段)`
+      return `对象数组 (${variable.itemSchema.length} 个字段)`;
     }
     if (variable.itemType) {
-      const typeInfo = getTypeInfo(variable.itemType)
-      return `${typeInfo?.label || variable.itemType}数组`
+      const typeInfo = getTypeInfo(variable.itemType);
+      return `${typeInfo?.label || variable.itemType}数组`;
     }
   }
-  if (variable.type === 'object' && variable.fields) {
-    return `${variable.fields.length} 个字段`
+  if (variable.type === "object" && variable.fields) {
+    return `${variable.fields.length} 个字段`;
   }
-  return ''
+  return "";
 }
 
 // ============ 打开编辑弹窗 ============
 
 function openAddModal() {
-  editMode.value = 'add'
-  editingKey.value = null
-  resetEditForm()
-  showEditModal.value = true
+  editMode.value = "add";
+  editingKey.value = null;
+  resetEditForm();
+  showEditModal.value = true;
 }
 
 function openEditModal(variable: CustomVariable) {
-  editMode.value = 'edit'
-  editingKey.value = variable.key
-  
+  editMode.value = "edit";
+  editingKey.value = variable.key;
+
   editForm.value = {
     key: variable.key,
     label: variable.label,
     type: variable.type,
     defaultValue: variable.defaultValue,
-    description: variable.description || '',
+    description: variable.description || "",
     i18n: variable.i18n || false,
     i18nLanguages: variable.i18nLanguages ? [...variable.i18nLanguages] : [],
-    i18nDefaults: variable.i18nDefaults ? JSON.parse(JSON.stringify(variable.i18nDefaults)) : [],
-    enumOptions: variable.enumOptions ? JSON.parse(JSON.stringify(variable.enumOptions)) : [],
-    itemType: variable.itemType || 'string',
-    itemSchema: variable.itemSchema ? JSON.parse(JSON.stringify(variable.itemSchema)) : [],
+    i18nDefaults: variable.i18nDefaults
+      ? JSON.parse(JSON.stringify(variable.i18nDefaults))
+      : [],
+    enumOptions: variable.enumOptions
+      ? JSON.parse(JSON.stringify(variable.enumOptions))
+      : [],
+    itemType: variable.itemType || "string",
+    itemSchema: variable.itemSchema
+      ? JSON.parse(JSON.stringify(variable.itemSchema))
+      : [],
     fields: variable.fields ? JSON.parse(JSON.stringify(variable.fields)) : [],
-  }
-  
-  arrayItemIsComplex.value = !!(variable.itemSchema && variable.itemSchema.length > 0)
-  showEditModal.value = true
+  };
+
+  arrayItemIsComplex.value = !!(
+    variable.itemSchema && variable.itemSchema.length > 0
+  );
+  showEditModal.value = true;
 }
 
 function closeEditModal() {
-  showEditModal.value = false
-  editMode.value = 'add'
-  editingKey.value = null
-  schemaEditMode.value = 'visual'
-  schemaJsonText.value = ''
-  schemaJsonError.value = ''
-  resetEditForm()
+  showEditModal.value = false;
+  editMode.value = "add";
+  editingKey.value = null;
+  schemaEditMode.value = "visual";
+  schemaJsonText.value = "";
+  schemaJsonError.value = "";
+  resetEditForm();
 }
 
 function resetEditForm() {
   editForm.value = {
-    key: '',
-    label: '',
-    type: 'string',
-    defaultValue: '',
-    description: '',
+    key: "",
+    label: "",
+    type: "string",
+    defaultValue: "",
+    description: "",
     i18n: false,
     i18nLanguages: [],
     i18nDefaults: [],
     enumOptions: [],
-    itemType: 'string',
+    itemType: "string",
     itemSchema: [],
     fields: [],
-  }
-  arrayItemIsComplex.value = false
+  };
+  arrayItemIsComplex.value = false;
 }
 
 // ============ 类型变更处理 ============
 
 function handleTypeChange(type: VariableType) {
-  const oldType = editForm.value.type
-  editForm.value.type = type
-  
+  const oldType = editForm.value.type;
+  editForm.value.type = type;
+
   if (oldType !== type) {
-    editForm.value.defaultValue = getDefaultValueByType(type)
-    
-    if (type === 'enum') {
-      editForm.value.enumOptions = editForm.value.enumOptions?.length 
-        ? editForm.value.enumOptions 
-        : [{ value: '', label: '' }]
+    editForm.value.defaultValue = getDefaultValueByType(type);
+
+    if (type === "enum") {
+      editForm.value.enumOptions = editForm.value.enumOptions?.length
+        ? editForm.value.enumOptions
+        : [{ value: "", label: "" }];
     }
-    
-    if (type === 'array') {
-      arrayItemIsComplex.value = false
-      editForm.value.itemType = 'string'
-      editForm.value.itemSchema = []
+
+    if (type === "array") {
+      arrayItemIsComplex.value = false;
+      editForm.value.itemType = "string";
+      editForm.value.itemSchema = [];
     }
-    
-    if (type === 'object') {
-      editForm.value.fields = editForm.value.fields?.length 
-        ? editForm.value.fields 
-        : []
+
+    if (type === "object") {
+      editForm.value.fields = editForm.value.fields?.length
+        ? editForm.value.fields
+        : [];
     }
   }
 }
@@ -289,251 +367,259 @@ function handleTypeChange(type: VariableType) {
 
 function addEnumOption() {
   if (!editForm.value.enumOptions) {
-    editForm.value.enumOptions = []
+    editForm.value.enumOptions = [];
   }
-  editForm.value.enumOptions.push({ value: '', label: '' })
+  editForm.value.enumOptions.push({ value: "", label: "" });
 }
 
 function removeEnumOption(index: number) {
-  editForm.value.enumOptions?.splice(index, 1)
+  editForm.value.enumOptions?.splice(index, 1);
 }
 
 // ============ 数组元素类型管理 ============
 
 function handleArrayItemTypeChange(isComplex: boolean) {
-  arrayItemIsComplex.value = isComplex
+  arrayItemIsComplex.value = isComplex;
   if (isComplex) {
-    editForm.value.itemType = undefined
+    editForm.value.itemType = undefined;
     if (!editForm.value.itemSchema?.length) {
-      editForm.value.itemSchema = []
+      editForm.value.itemSchema = [];
     }
   } else {
-    editForm.value.itemType = 'string'
-    editForm.value.itemSchema = []
+    editForm.value.itemType = "string";
+    editForm.value.itemSchema = [];
   }
 }
 
 function addArrayItemField() {
   if (!editForm.value.itemSchema) {
-    editForm.value.itemSchema = []
+    editForm.value.itemSchema = [];
   }
   editForm.value.itemSchema.push({
-    key: '',
-    label: '',
-    type: 'string',
-  })
+    key: "",
+    label: "",
+    type: "string",
+  });
 }
 
 function removeArrayItemField(index: number) {
-  editForm.value.itemSchema?.splice(index, 1)
+  editForm.value.itemSchema?.splice(index, 1);
 }
 
 // ============ 对象字段管理 ============
 
 function addObjectField() {
   if (!editForm.value.fields) {
-    editForm.value.fields = []
+    editForm.value.fields = [];
   }
   editForm.value.fields.push({
-    key: '',
-    label: '',
-    type: 'string',
-  })
+    key: "",
+    label: "",
+    type: "string",
+  });
 }
 
 function removeObjectField(index: number) {
-  editForm.value.fields?.splice(index, 1)
+  editForm.value.fields?.splice(index, 1);
 }
 
 // ============ 表单验证 ============
 
 function validateForm(): string | null {
   if (!editForm.value.key) {
-    return '请填写变量键名'
+    return "请填写变量键名";
   }
-  
+
   if (!editForm.value.label) {
-    return '请填写显示名称'
+    return "请填写显示名称";
   }
-  
+
   if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(editForm.value.key)) {
-    return '键名只能包含字母、数字、下划线，且必须以字母开头'
+    return "键名只能包含字母、数字、下划线，且必须以字母开头";
   }
-  
-  if (editForm.value.type === 'enum') {
-    const options = editForm.value.enumOptions || []
+
+  if (editForm.value.type === "enum") {
+    const options = editForm.value.enumOptions || [];
     if (options.length === 0) {
-      return '枚举类型至少需要一个选项'
+      return "枚举类型至少需要一个选项";
     }
     for (const opt of options) {
       if (!opt.value || !opt.label) {
-        return '枚举选项的值和标签都不能为空'
+        return "枚举选项的值和标签都不能为空";
       }
     }
   }
-  
-  if (editForm.value.type === 'array' && arrayItemIsComplex.value) {
-    const schema = editForm.value.itemSchema || []
+
+  if (editForm.value.type === "array" && arrayItemIsComplex.value) {
+    const schema = editForm.value.itemSchema || [];
     if (schema.length === 0) {
-      return '数组元素结构至少需要一个字段'
+      return "数组元素结构至少需要一个字段";
     }
     for (const field of schema) {
       if (!field.key || !field.label) {
-        return '数组元素字段的键名和标签都不能为空'
+        return "数组元素字段的键名和标签都不能为空";
       }
     }
   }
-  
-  if (editForm.value.type === 'object') {
-    const fields = editForm.value.fields || []
+
+  if (editForm.value.type === "object") {
+    const fields = editForm.value.fields || [];
     if (fields.length === 0) {
-      return '对象类型至少需要一个字段'
+      return "对象类型至少需要一个字段";
     }
     for (const field of fields) {
       if (!field.key || !field.label) {
-        return '对象字段的键名和标签都不能为空'
+        return "对象字段的键名和标签都不能为空";
       }
     }
   }
-  
-  return null
+
+  return null;
 }
 
 // ============ 保存变量 ============
 
 function handleSave() {
   // 如果是 JSON 模式，先应用 JSON 到表单
-  if (schemaEditMode.value === 'json') {
+  if (schemaEditMode.value === "json") {
     try {
-      const parsed = JSON.parse(schemaJsonText.value)
-      applyJsonToForm(parsed)
+      const parsed = JSON.parse(schemaJsonText.value);
+      applyJsonToForm(parsed);
     } catch (e) {
-      alert('JSON 格式错误，请修正后再保存')
-      return
+      alert("JSON 格式错误，请修正后再保存");
+      return;
     }
   }
-  
-  const error = validateForm()
+
+  const error = validateForm();
   if (error) {
-    alert(error)
-    return
+    alert(error);
+    return;
   }
-  
+
   const variable: CustomVariable = {
     key: editForm.value.key!,
     label: editForm.value.label!,
-    type: editForm.value.type || 'string',
+    type: editForm.value.type || "string",
     defaultValue: editForm.value.defaultValue,
     description: editForm.value.description || undefined,
     i18n: editForm.value.i18n || undefined,
-  }
-  
+  };
+
   // 添加多语言数据
   if (variable.i18n) {
-    const languages = editForm.value.i18nLanguages || []
-    const defaults = editForm.value.i18nDefaults || []
+    const languages = editForm.value.i18nLanguages || [];
+    const defaults = editForm.value.i18nDefaults || [];
     if (languages.length > 0) {
-      variable.i18nLanguages = languages
-      variable.i18nDefaults = defaults.filter(d => languages.includes(d.languageId))
+      variable.i18nLanguages = languages;
+      variable.i18nDefaults = defaults.filter((d) =>
+        languages.includes(d.languageId),
+      );
     }
   }
-  
-  if (variable.type === 'enum') {
+
+  if (variable.type === "enum") {
     variable.enumOptions = editForm.value.enumOptions?.filter(
-      opt => opt.value && opt.label
-    )
-    if (variable.enumOptions && variable.enumOptions.length > 0 && !variable.defaultValue) {
-      variable.defaultValue = variable.enumOptions[0]?.value
+      (opt) => opt.value && opt.label,
+    );
+    if (
+      variable.enumOptions &&
+      variable.enumOptions.length > 0 &&
+      !variable.defaultValue
+    ) {
+      variable.defaultValue = variable.enumOptions[0]?.value;
     }
   }
-  
-  if (variable.type === 'array') {
+
+  if (variable.type === "array") {
     if (arrayItemIsComplex.value) {
       variable.itemSchema = editForm.value.itemSchema?.filter(
-        f => f.key && f.label
-      )
+        (f) => f.key && f.label,
+      );
     } else {
-      variable.itemType = editForm.value.itemType
+      variable.itemType = editForm.value.itemType;
     }
   }
-  
-  if (variable.type === 'object') {
-    variable.fields = editForm.value.fields?.filter(f => f.key && f.label)
+
+  if (variable.type === "object") {
+    variable.fields = editForm.value.fields?.filter((f) => f.key && f.label);
   }
-  
-  emit('save', variable)
-  closeEditModal()
+
+  emit("save", variable);
+  closeEditModal();
 }
 
 // ============ 删除变量 ============
 
 function handleDeleteVariable(key: string, label: string) {
   if (confirm(`确定要删除变量「${label}」吗？`)) {
-    emit('delete', key)
+    emit("delete", key);
   }
 }
 
 // ============ 关闭管理弹窗 ============
 
 function handleClose() {
-  closeEditModal()
-  emit('close')
+  closeEditModal();
+  emit("close");
 }
 
 // 默认值显示摘要
 const defaultValueSummary = computed(() => {
-  const type = editForm.value.type
-  const value = editForm.value.defaultValue
-  const i18n = editForm.value.i18n
-  const i18nCount = editForm.value.i18nLanguages?.length || 0
-  
+  const type = editForm.value.type;
+  const value = editForm.value.defaultValue;
+  const i18n = editForm.value.i18n;
+  const i18nCount = editForm.value.i18nLanguages?.length || 0;
+
   if (i18n && i18nCount > 0) {
-    return `已配置 ${i18nCount} 种语言`
+    return `已配置 ${i18nCount} 种语言`;
   }
-  
-  if (value === undefined || value === null || value === '') {
-    return '未配置'
+
+  if (value === undefined || value === null || value === "") {
+    return "未配置";
   }
-  
+
   switch (type) {
-    case 'string':
-    case 'image':
-    case 'richtext':
-      return String(value).length > 20 ? String(value).slice(0, 20) + '...' : String(value)
-    case 'number':
-      return String(value)
-    case 'boolean':
-      return value ? '是' : '否'
-    case 'color':
-      return value
-    case 'enum':
-      const opt = editForm.value.enumOptions?.find(o => o.value === value)
-      return opt ? opt.label : String(value)
-    case 'array':
-      return `${(value as any[])?.length || 0} 个元素`
-    case 'object':
-      return '已配置'
+    case "string":
+    case "image":
+    case "richtext":
+      return String(value).length > 20
+        ? String(value).slice(0, 20) + "..."
+        : String(value);
+    case "number":
+      return String(value);
+    case "boolean":
+      return value ? "是" : "否";
+    case "color":
+      return value;
+    case "enum":
+      const opt = editForm.value.enumOptions?.find((o) => o.value === value);
+      return opt ? opt.label : String(value);
+    case "array":
+      return `${(value as any[])?.length || 0} 个元素`;
+    case "object":
+      return "已配置";
     default:
-      return '已配置'
+      return "已配置";
   }
-})
+});
 
 // 处理默认值保存
 function handleDefaultValueSave(data: {
-  defaultValue: any
-  i18n: boolean
-  i18nLanguages: number[]
-  i18nDefaults: I18nDefaultValue[]
+  defaultValue: any;
+  i18n: boolean;
+  i18nLanguages: number[];
+  i18nDefaults: I18nDefaultValue[];
 }) {
-  editForm.value.defaultValue = data.defaultValue
-  editForm.value.i18n = data.i18n
-  editForm.value.i18nLanguages = data.i18nLanguages
-  editForm.value.i18nDefaults = data.i18nDefaults
+  editForm.value.defaultValue = data.defaultValue;
+  editForm.value.i18n = data.i18n;
+  editForm.value.i18nLanguages = data.i18nLanguages;
+  editForm.value.i18nDefaults = data.i18nDefaults;
 }
 
 const editModalTitle = computed(() => {
-  return editMode.value === 'add' ? '添加变量' : '编辑变量'
-})
+  return editMode.value === "add" ? "添加变量" : "编辑变量";
+});
 </script>
 
 <template>
@@ -579,11 +665,18 @@ const editModalTitle = computed(() => {
                       {{ variable.description }}
                     </div>
                     <div class="variable-meta">
-                      <span class="meta-tag">{{ getTypeInfo(variable.type).label }}</span>
-                      <span v-if="getVariableExtraInfo(variable)" class="meta-tag extra">
+                      <span class="meta-tag">{{
+                        getTypeInfo(variable.type).label
+                      }}</span>
+                      <span
+                        v-if="getVariableExtraInfo(variable)"
+                        class="meta-tag extra"
+                      >
                         {{ getVariableExtraInfo(variable) }}
                       </span>
-                      <span v-if="variable.i18n" class="meta-tag i18n">多语言</span>
+                      <span v-if="variable.i18n" class="meta-tag i18n"
+                        >多语言</span
+                      >
                     </div>
                   </div>
                 </div>
@@ -620,12 +713,18 @@ const editModalTitle = computed(() => {
 
     <!-- 编辑弹窗 -->
     <Transition name="modal">
-      <div v-if="showEditModal" class="modal-overlay edit-modal-overlay" @click.self="closeEditModal">
+      <div
+        v-if="showEditModal"
+        class="modal-overlay edit-modal-overlay"
+        @click.self="closeEditModal"
+      >
         <div class="edit-modal">
           <!-- 编辑弹窗头部 -->
           <div class="edit-modal-header">
             <h3 class="edit-modal-title">
-              <span :class="editMode === 'add' ? 'i-carbon-add' : 'i-carbon-edit'"></span>
+              <span
+                :class="editMode === 'add' ? 'i-carbon-add' : 'i-carbon-edit'"
+              ></span>
               {{ editModalTitle }}
             </h3>
             <div class="header-actions">
@@ -669,7 +768,11 @@ const editModalTitle = computed(() => {
                 class="json-textarea"
                 placeholder="输入变量 Schema JSON..."
                 spellcheck="false"
-                @input="handleSchemaJsonChange(($event.target as HTMLTextAreaElement).value)"
+                @input="
+                  handleSchemaJsonChange(
+                    ($event.target as HTMLTextAreaElement).value,
+                  )
+                "
               ></textarea>
               <div v-if="schemaJsonError" class="json-error">
                 <span class="i-carbon-warning"></span>
@@ -679,141 +782,219 @@ const editModalTitle = computed(() => {
 
             <!-- 可视化编辑模式 -->
             <template v-else>
-            <!-- 基本信息 -->
-            <div class="form-section">
-              <div class="section-title">基本信息</div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label>键名 <span class="required">*</span></label>
-                  <div class="input-with-prefix">
-                    <span class="input-prefix">site.</span>
+              <!-- 基本信息 -->
+              <div class="form-section">
+                <div class="section-title">基本信息</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>键名 <span class="required">*</span></label>
+                    <div class="input-with-prefix">
+                      <span class="input-prefix">site.</span>
+                      <input
+                        v-model="editForm.key"
+                        type="text"
+                        class="property-input"
+                        placeholder="如：logo"
+                        :disabled="editMode === 'edit'"
+                      />
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>显示名称 <span class="required">*</span></label>
                     <input
-                      v-model="editForm.key"
+                      v-model="editForm.label"
                       type="text"
                       class="property-input"
-                      placeholder="如：logo"
-                      :disabled="editMode === 'edit'"
+                      placeholder="如：网站 Logo"
                     />
                   </div>
                 </div>
-                <div class="form-group">
-                  <label>显示名称 <span class="required">*</span></label>
-                  <input
-                    v-model="editForm.label"
-                    type="text"
-                    class="property-input"
-                    placeholder="如：网站 Logo"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <!-- 变量类型 -->
-            <div class="form-section">
-              <div class="section-title">变量类型</div>
-              <div class="type-selector">
-                <button
-                  v-for="typeOption in variableTypes"
-                  :key="typeOption.value"
-                  class="type-btn"
-                  :class="{ active: editForm.type === typeOption.value }"
-                  :title="typeOption.description"
-                  @click="handleTypeChange(typeOption.value)"
-                >
-                  <span :class="typeOption.icon"></span>
-                  <span>{{ typeOption.label }}</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 类型配置区域 -->
-            <div v-if="['enum', 'array', 'object'].includes(editForm.type || '')" class="form-section">
-              <div class="section-title">
-                {{ editForm.type === 'enum' ? '枚举选项' : editForm.type === 'array' ? '数组配置' : '对象字段' }}
               </div>
 
-              <!-- 枚举类型配置 -->
-              <div v-if="editForm.type === 'enum'" class="type-config">
-                <div class="config-header">
-                  <span class="config-hint">定义枚举的可选值</span>
-                  <button class="add-item-btn" @click="addEnumOption">
-                    <span class="i-carbon-add"></span>
-                    添加选项
+              <!-- 变量类型 -->
+              <div class="form-section">
+                <div class="section-title">变量类型</div>
+                <div class="type-selector">
+                  <button
+                    v-for="typeOption in variableTypes"
+                    :key="typeOption.value"
+                    class="type-btn"
+                    :class="{ active: editForm.type === typeOption.value }"
+                    :title="typeOption.description"
+                    @click="handleTypeChange(typeOption.value)"
+                  >
+                    <span :class="typeOption.icon"></span>
+                    <span>{{ typeOption.label }}</span>
                   </button>
                 </div>
-                <div class="enum-options">
-                  <div class="enum-header">
-                    <span>值</span>
-                    <span>显示标签</span>
-                    <span></span>
-                  </div>
-                  <div
-                    v-for="(opt, index) in editForm.enumOptions"
-                    :key="index"
-                    class="enum-option-row"
-                  >
-                    <input
-                      v-model="opt.value"
-                      type="text"
-                      class="property-input"
-                      placeholder="如：light"
-                    />
-                    <input
-                      v-model="opt.label"
-                      type="text"
-                      class="property-input"
-                      placeholder="如：浅色模式"
-                    />
-                    <button
-                      class="remove-item-btn"
-                      :disabled="(editForm.enumOptions?.length || 0) <= 1"
-                      @click="removeEnumOption(index)"
-                    >
-                      <span class="i-carbon-close"></span>
+              </div>
+
+              <!-- 类型配置区域 -->
+              <div
+                v-if="['enum', 'array', 'object'].includes(editForm.type || '')"
+                class="form-section"
+              >
+                <div class="section-title">
+                  {{
+                    editForm.type === "enum"
+                      ? "枚举选项"
+                      : editForm.type === "array"
+                        ? "数组配置"
+                        : "对象字段"
+                  }}
+                </div>
+
+                <!-- 枚举类型配置 -->
+                <div v-if="editForm.type === 'enum'" class="type-config">
+                  <div class="config-header">
+                    <span class="config-hint">定义枚举的可选值</span>
+                    <button class="add-item-btn" @click="addEnumOption">
+                      <span class="i-carbon-add"></span>
+                      添加选项
                     </button>
                   </div>
-                  <div v-if="!editForm.enumOptions?.length" class="empty-config">
-                    点击"添加选项"定义枚举值
+                  <div class="enum-options">
+                    <div class="enum-header">
+                      <span>值</span>
+                      <span>显示标签</span>
+                      <span></span>
+                    </div>
+                    <div
+                      v-for="(opt, index) in editForm.enumOptions"
+                      :key="index"
+                      class="enum-option-row"
+                    >
+                      <input
+                        v-model="opt.value"
+                        type="text"
+                        class="property-input"
+                        placeholder="如：light"
+                      />
+                      <input
+                        v-model="opt.label"
+                        type="text"
+                        class="property-input"
+                        placeholder="如：浅色模式"
+                      />
+                      <button
+                        class="remove-item-btn"
+                        :disabled="(editForm.enumOptions?.length || 0) <= 1"
+                        @click="removeEnumOption(index)"
+                      >
+                        <span class="i-carbon-close"></span>
+                      </button>
+                    </div>
+                    <div
+                      v-if="!editForm.enumOptions?.length"
+                      class="empty-config"
+                    >
+                      点击"添加选项"定义枚举值
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <!-- 数组类型配置 -->
-              <div v-if="editForm.type === 'array'" class="type-config">
-                <div class="array-type-switch">
-                  <button
-                    class="type-switch-btn"
-                    :class="{ active: !arrayItemIsComplex }"
-                    @click="handleArrayItemTypeChange(false)"
-                  >
-                    <span class="i-carbon-string-text"></span>
-                    简单类型
-                  </button>
-                  <button
-                    class="type-switch-btn"
-                    :class="{ active: arrayItemIsComplex }"
-                    @click="handleArrayItemTypeChange(true)"
-                  >
-                    <span class="i-carbon-json"></span>
-                    对象类型
-                  </button>
+                <!-- 数组类型配置 -->
+                <div v-if="editForm.type === 'array'" class="type-config">
+                  <div class="array-type-switch">
+                    <button
+                      class="type-switch-btn"
+                      :class="{ active: !arrayItemIsComplex }"
+                      @click="handleArrayItemTypeChange(false)"
+                    >
+                      <span class="i-carbon-string-text"></span>
+                      简单类型
+                    </button>
+                    <button
+                      class="type-switch-btn"
+                      :class="{ active: arrayItemIsComplex }"
+                      @click="handleArrayItemTypeChange(true)"
+                    >
+                      <span class="i-carbon-json"></span>
+                      对象类型
+                    </button>
+                  </div>
+
+                  <!-- 简单类型选择 -->
+                  <div v-if="!arrayItemIsComplex" class="simple-type-select">
+                    <label>元素类型</label>
+                    <select v-model="editForm.itemType" class="property-input">
+                      <option
+                        v-for="t in BASIC_VARIABLE_TYPES"
+                        :key="t"
+                        :value="t"
+                      >
+                        {{ getTypeInfo(t).label }}
+                      </option>
+                    </select>
+                  </div>
+
+                  <!-- 对象类型字段定义 -->
+                  <div v-else class="object-fields-config">
+                    <div class="fields-header">
+                      <span class="config-hint">定义数组元素的字段结构</span>
+                      <button class="add-item-btn" @click="addArrayItemField">
+                        <span class="i-carbon-add"></span>
+                        添加字段
+                      </button>
+                    </div>
+                    <div class="fields-list">
+                      <div class="fields-list-header">
+                        <span>字段键名</span>
+                        <span>显示标签</span>
+                        <span>类型</span>
+                        <span></span>
+                      </div>
+                      <div
+                        v-for="(field, index) in editForm.itemSchema"
+                        :key="index"
+                        class="field-row"
+                      >
+                        <input
+                          v-model="field.key"
+                          type="text"
+                          class="property-input"
+                          placeholder="如：title"
+                        />
+                        <input
+                          v-model="field.label"
+                          type="text"
+                          class="property-input"
+                          placeholder="如：标题"
+                        />
+                        <select
+                          v-model="field.type"
+                          class="property-input field-type-select"
+                        >
+                          <option
+                            v-for="t in ALL_VARIABLE_TYPES"
+                            :key="t"
+                            :value="t"
+                          >
+                            {{ getTypeInfo(t).label }}
+                          </option>
+                        </select>
+                        <button
+                          class="remove-item-btn"
+                          @click="removeArrayItemField(index)"
+                        >
+                          <span class="i-carbon-close"></span>
+                        </button>
+                      </div>
+                      <div
+                        v-if="!editForm.itemSchema?.length"
+                        class="empty-config"
+                      >
+                        点击"添加字段"定义数组元素结构
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <!-- 简单类型选择 -->
-                <div v-if="!arrayItemIsComplex" class="simple-type-select">
-                  <label>元素类型</label>
-                  <select v-model="editForm.itemType" class="property-input">
-                    <option v-for="t in BASIC_VARIABLE_TYPES" :key="t" :value="t">
-                      {{ getTypeInfo(t).label }}
-                    </option>
-                  </select>
-                </div>
-
-                <!-- 对象类型字段定义 -->
-                <div v-else class="object-fields-config">
-                  <div class="fields-header">
-                    <span class="config-hint">定义数组元素的字段结构</span>
-                    <button class="add-item-btn" @click="addArrayItemField">
+                <!-- 对象类型配置 -->
+                <div v-if="editForm.type === 'object'" class="type-config">
+                  <div class="config-header">
+                    <span class="config-hint">定义对象的字段结构</span>
+                    <button class="add-item-btn" @click="addObjectField">
                       <span class="i-carbon-add"></span>
                       添加字段
                     </button>
@@ -826,7 +1007,7 @@ const editModalTitle = computed(() => {
                       <span></span>
                     </div>
                     <div
-                      v-for="(field, index) in editForm.itemSchema"
+                      v-for="(field, index) in editForm.fields"
                       :key="index"
                       class="field-row"
                     >
@@ -834,125 +1015,79 @@ const editModalTitle = computed(() => {
                         v-model="field.key"
                         type="text"
                         class="property-input"
-                        placeholder="如：title"
+                        placeholder="如：name"
                       />
                       <input
                         v-model="field.label"
                         type="text"
                         class="property-input"
-                        placeholder="如：标题"
+                        placeholder="如：名称"
                       />
-                      <select v-model="field.type" class="property-input field-type-select">
-                        <option v-for="t in ALL_VARIABLE_TYPES" :key="t" :value="t">
+                      <select
+                        v-model="field.type"
+                        class="property-input field-type-select"
+                      >
+                        <option
+                          v-for="t in ALL_VARIABLE_TYPES"
+                          :key="t"
+                          :value="t"
+                        >
                           {{ getTypeInfo(t).label }}
                         </option>
                       </select>
-                      <button class="remove-item-btn" @click="removeArrayItemField(index)">
+                      <button
+                        class="remove-item-btn"
+                        @click="removeObjectField(index)"
+                      >
                         <span class="i-carbon-close"></span>
                       </button>
                     </div>
-                    <div v-if="!editForm.itemSchema?.length" class="empty-config">
-                      点击"添加字段"定义数组元素结构
+                    <div v-if="!editForm.fields?.length" class="empty-config">
+                      点击"添加字段"定义对象结构
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- 对象类型配置 -->
-              <div v-if="editForm.type === 'object'" class="type-config">
-                <div class="config-header">
-                  <span class="config-hint">定义对象的字段结构</span>
-                  <button class="add-item-btn" @click="addObjectField">
-                    <span class="i-carbon-add"></span>
-                    添加字段
+              <!-- 默认值配置 -->
+              <div class="form-section">
+                <div class="section-title">默认值</div>
+                <div class="default-value-trigger">
+                  <button
+                    class="default-value-btn"
+                    :class="{ configured: defaultValueSummary !== '未配置' }"
+                    @click="showDefaultValueEditor = true"
+                  >
+                    <span class="i-carbon-settings-adjust"></span>
+                    <span class="default-value-summary">{{
+                      defaultValueSummary
+                    }}</span>
+                    <span class="i-carbon-chevron-right"></span>
                   </button>
                 </div>
-                <div class="fields-list">
-                  <div class="fields-list-header">
-                    <span>字段键名</span>
-                    <span>显示标签</span>
-                    <span>类型</span>
-                    <span></span>
-                  </div>
-                  <div
-                    v-for="(field, index) in editForm.fields"
-                    :key="index"
-                    class="field-row"
-                  >
-                    <input
-                      v-model="field.key"
-                      type="text"
-                      class="property-input"
-                      placeholder="如：name"
-                    />
-                    <input
-                      v-model="field.label"
-                      type="text"
-                      class="property-input"
-                      placeholder="如：名称"
-                    />
-                    <select v-model="field.type" class="property-input field-type-select">
-                      <option v-for="t in ALL_VARIABLE_TYPES" :key="t" :value="t">
-                        {{ getTypeInfo(t).label }}
-                      </option>
-                    </select>
-                    <button class="remove-item-btn" @click="removeObjectField(index)">
-                      <span class="i-carbon-close"></span>
-                    </button>
-                  </div>
-                  <div v-if="!editForm.fields?.length" class="empty-config">
-                    点击"添加字段"定义对象结构
-                  </div>
+              </div>
+
+              <!-- 其他选项 -->
+              <div class="form-section">
+                <div class="section-title">其他选项</div>
+                <div class="form-group">
+                  <label>描述</label>
+                  <input
+                    v-model="editForm.description"
+                    type="text"
+                    class="property-input"
+                    placeholder="变量用途说明（可选）"
+                  />
                 </div>
               </div>
-            </div>
-
-            <!-- 默认值配置 -->
-            <div class="form-section">
-              <div class="section-title">默认值</div>
-              <div class="default-value-trigger">
-                <button
-                  class="default-value-btn"
-                  :class="{ configured: defaultValueSummary !== '未配置' }"
-                  @click="showDefaultValueEditor = true"
-                >
-                  <span class="i-carbon-settings-adjust"></span>
-                  <span class="default-value-summary">{{ defaultValueSummary }}</span>
-                  <span class="i-carbon-chevron-right"></span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 其他选项 -->
-            <div class="form-section">
-              <div class="section-title">其他选项</div>
-              <div class="form-group">
-                <label>描述</label>
-                <input
-                  v-model="editForm.description"
-                  type="text"
-                  class="property-input"
-                  placeholder="变量用途说明（可选）"
-                />
-              </div>
-              <div class="form-group inline">
-                <label class="checkbox-label">
-                  <input
-                    v-model="editForm.i18n"
-                    type="checkbox"
-                    class="checkbox-input"
-                  />
-                  <span class="checkbox-custom"></span>
-                  <span class="checkbox-text">支持多语言</span>
-                </label>
-              </div>
-            </div>
             </template>
           </div>
 
           <!-- 编辑弹窗底部 -->
           <div class="edit-modal-footer">
-            <button class="btn btn-secondary" @click="closeEditModal">取消</button>
+            <button class="btn btn-secondary" @click="closeEditModal">
+              取消
+            </button>
             <button class="btn btn-primary" @click="handleSave">
               <span class="i-carbon-checkmark"></span>
               保存
@@ -1016,7 +1151,11 @@ const editModalTitle = computed(() => {
   justify-content: space-between;
   padding: 20px 24px;
   border-bottom: 1px solid rgba(71, 85, 105, 0.5);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(30, 41, 59, 0.4) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(30, 41, 59, 0.8) 0%,
+    rgba(30, 41, 59, 0.4) 100%
+  );
 }
 
 .manager-title {
@@ -1099,7 +1238,11 @@ const editModalTitle = computed(() => {
   align-items: center;
   justify-content: space-between;
   padding: 16px;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(15, 23, 42, 0.6) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(15, 23, 42, 0.8) 0%,
+    rgba(15, 23, 42, 0.6) 100%
+  );
   border: 1px solid rgba(71, 85, 105, 0.4);
   border-radius: 12px;
   transition: all 0.2s;
@@ -1107,7 +1250,11 @@ const editModalTitle = computed(() => {
 
 .variable-item:hover {
   border-color: rgba(59, 130, 246, 0.4);
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(15, 23, 42, 0.7) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(15, 23, 42, 0.9) 0%,
+    rgba(15, 23, 42, 0.7) 100%
+  );
 }
 
 .variable-info {
@@ -1126,7 +1273,11 @@ const editModalTitle = computed(() => {
   height: 42px;
   font-size: 20px;
   color: #3b82f6;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.15) 0%,
+    rgba(59, 130, 246, 0.05) 100%
+  );
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 10px;
   flex-shrink: 0;
@@ -1152,7 +1303,7 @@ const editModalTitle = computed(() => {
 
 .variable-key {
   font-size: 12px;
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: "Monaco", "Menlo", monospace;
   color: #64748b;
   padding: 2px 6px;
   background: rgba(51, 65, 85, 0.5);
@@ -1229,7 +1380,11 @@ const editModalTitle = computed(() => {
 .manager-footer {
   padding: 16px 24px;
   border-top: 1px solid rgba(71, 85, 105, 0.5);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(30, 41, 59, 0.8) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(30, 41, 59, 0.4) 0%,
+    rgba(30, 41, 59, 0.8) 100%
+  );
 }
 
 /* ============ 编辑弹窗 ============ */
@@ -1252,7 +1407,11 @@ const editModalTitle = computed(() => {
   justify-content: space-between;
   padding: 20px 24px;
   border-bottom: 1px solid rgba(71, 85, 105, 0.5);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(30, 41, 59, 0.4) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(30, 41, 59, 0.8) 0%,
+    rgba(30, 41, 59, 0.4) 100%
+  );
 }
 
 .edit-modal-title {
@@ -1368,7 +1527,7 @@ const editModalTitle = computed(() => {
   min-height: 350px;
   padding: 16px;
   font-size: 13px;
-  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-family: "Monaco", "Menlo", "Consolas", monospace;
   line-height: 1.6;
   color: #e2e8f0;
   background: rgba(15, 23, 42, 0.8);
@@ -1411,7 +1570,11 @@ const editModalTitle = computed(() => {
   gap: 12px;
   padding: 16px 24px;
   border-top: 1px solid rgba(71, 85, 105, 0.5);
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.4) 0%, rgba(30, 41, 59, 0.8) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(30, 41, 59, 0.4) 0%,
+    rgba(30, 41, 59, 0.8) 100%
+  );
 }
 
 /* 表单区块 */
@@ -1475,7 +1638,7 @@ const editModalTitle = computed(() => {
 .input-prefix {
   padding: 10px 12px;
   font-size: 14px;
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: "Monaco", "Menlo", monospace;
   color: #64748b;
   background: rgba(51, 65, 85, 0.5);
   border: 1px solid rgba(71, 85, 105, 0.5);
@@ -1826,7 +1989,7 @@ const editModalTitle = computed(() => {
 }
 
 .checkbox-input:checked + .checkbox-custom::after {
-  content: '';
+  content: "";
   position: absolute;
   left: 6px;
   top: 2px;
