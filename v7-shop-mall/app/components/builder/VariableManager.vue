@@ -80,23 +80,13 @@ function updateSchemaJsonText() {
     defaultValue: editForm.value.defaultValue,
     description: editForm.value.description || undefined,
     i18n: editForm.value.i18n || undefined,
+    i18nLanguages: editForm.value.i18n ? editForm.value.i18nLanguages : undefined,
+    i18nDefaults: editForm.value.i18n ? editForm.value.i18nDefaults : undefined,
+    enumOptions: editForm.value.enumOptions?.length ? editForm.value.enumOptions : undefined,
+    itemType: editForm.value.itemType || undefined,
+    itemSchema: editForm.value.itemSchema?.length ? editForm.value.itemSchema : undefined,
+    fields: editForm.value.fields?.length ? editForm.value.fields : undefined,
   };
-
-  if (schema.type === "enum") {
-    schema.enumOptions = editForm.value.enumOptions;
-  }
-
-  if (schema.type === "array") {
-    if (arrayItemIsComplex.value) {
-      schema.itemSchema = editForm.value.itemSchema;
-    } else {
-      schema.itemType = editForm.value.itemType;
-    }
-  }
-
-  if (schema.type === "object") {
-    schema.fields = editForm.value.fields;
-  }
 
   // Remove undefined values
   Object.keys(schema).forEach((key) => {

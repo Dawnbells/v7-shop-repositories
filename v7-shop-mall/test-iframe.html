@@ -31,7 +31,7 @@
     }
 
     .panel {
-      flex: 1;
+      flex: 3;
       display: flex;
       flex-direction: column;
     }
@@ -40,6 +40,12 @@
       margin-bottom: 10px;
       font-size: 16px;
       color: #94a3b8;
+    }
+
+    .log-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
     }
 
     iframe {
@@ -125,10 +131,10 @@
 
   <div class="container">
     <div class="panel">
-      <h2>Builder iframe (http://localhost:3003/builder)</h2>
-      <iframe id="builderFrame" src="http://localhost:3002/builder"></iframe>
+      <h2>Builder iframe (http://localhost:3001/builder)</h2>
+      <iframe id="builderFrame" src="http://localhost:3001/builder"></iframe>
     </div>
-    <div class="panel">
+    <div class="panel log-panel">
       <h2>消息日志</h2>
       <div id="log" class="log"></div>
     </div>
