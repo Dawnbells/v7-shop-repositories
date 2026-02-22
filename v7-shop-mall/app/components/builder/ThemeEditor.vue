@@ -14,12 +14,63 @@ const {
   contextName, 
   query, 
   isTemplateMode, 
-  isLandingMode 
+  isLandingMode,
+  isReady
 } = useIframeAuth()
 
 // 变量管理状态
 const showVariableManager = ref(false)
 const customVariables = ref<CustomVariable[]>([])
+
+// 数据加载状态
+const isLoading = ref(false)
+const loadError = ref<string | null>(null)
+
+// 从数据库加载主题配置
+async function loadThemeFromServer() {
+  if (!query.value?.subDomainId || !query.value?.spuId) {
+    console.log('[ThemeEditor] 缺少必要参数，跳过加载')
+    return
+  }
+
+  isLoading.value = true
+  loadError.value = null
+
+  try {
+    const params = new URLSearchParams({
+      subDomainId: query.value.subDomainId,
+      spuId: query.value.spuId,
+      landingType: query.value.landingType || 'LAND',
+    })
+
+    const response = await fetch(`/api/builder/load?${params}`)
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const result = await response.json()
+
+    if (result.success && result.data) {
+      customVariables.value = result.data.variableSchema || []
+      console.log('[ThemeEditor] 加载成功，变量数量:', customVariables.value.length)
+    } else {
+      console.log('[ThemeEditor] 无数据或加载失败:', result.message)
+    }
+  } catch (error: any) {
+    console.error('[ThemeEditor] 加载主题配置失败:', error)
+    loadError.value = error.message || '加载失败'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// 监听认证状态，准备好后加载数据
+watch(isReady, (ready) => {
+  if (ready && isLandingMode.value) {
+    loadThemeFromServer()
+  }
+}, { immediate: true })
 
 // 变量管理操作
 function handleOpenVariables() {
@@ -171,12 +222,43 @@ function handleClose() {
   window.parent.postMessage({ type: 'themeEditor', action: 'close' }, '*')
 }
 
-function handleSave() {
+async function handleSave() {
+  if (!query.value?.subDomainId || !query.value?.spuId) {
+    alert('缺少必要参数，无法保存')
+    return
+  }
+
   isSaving.value = true
-  setTimeout(() => {
+
+  try {
+    const response = await fetch('/api/builder/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subDomainId: query.value.subDomainId,
+        spuId: query.value.spuId,
+        landingType: query.value.landingType || 'LAND',
+        themeConfig: {},
+        variableSchema: customVariables.value,
+        siteConfig: {},
+        variableValues: {},
+      }),
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      hasUnsavedChanges.value = false
+      console.log('[ThemeEditor] 保存成功')
+    } else {
+      throw new Error(result.message || '保存失败')
+    }
+  } catch (error: any) {
+    console.error('[ThemeEditor] 保存失败:', error)
+    alert('保存失败: ' + (error.message || '未知错误'))
+  } finally {
     isSaving.value = false
-    hasUnsavedChanges.value = false
-  }, 1500)
+  }
 }
 
 function handleSwitchTab(key: string) {

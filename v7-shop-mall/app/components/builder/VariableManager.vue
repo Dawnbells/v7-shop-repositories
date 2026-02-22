@@ -326,30 +326,76 @@ function resetEditForm() {
 
 // ============ 类型变更处理 ============
 
+function checkHasDefaultValue(): boolean {
+  const type = editForm.value.type;
+  const value = editForm.value.defaultValue;
+  const i18n = editForm.value.i18n;
+  const i18nCount = editForm.value.i18nLanguages?.length || 0;
+
+  if (i18n && i18nCount > 0) {
+    return true;
+  }
+
+  switch (type) {
+    case "string":
+    case "image":
+    case "richtext":
+      return !!value && String(value).length > 0;
+    case "number":
+      return value !== undefined && value !== null && value !== 0;
+    case "boolean":
+      return value === true;
+    case "color":
+      return !!value && value !== "#3b82f6";
+    case "enum":
+      return !!value;
+    case "array":
+      return Array.isArray(value) && value.length > 0;
+    case "object":
+      return value && typeof value === "object" && Object.keys(value).length > 0;
+    default:
+      return false;
+  }
+}
+
 function handleTypeChange(type: VariableType) {
   const oldType = editForm.value.type;
+
+  if (oldType === type) {
+    return;
+  }
+
+  const hasDefaultValue = checkHasDefaultValue();
+
+  if (hasDefaultValue) {
+    if (!confirm("切换类型将清空已配置的默认值，是否继续？")) {
+      return;
+    }
+  }
+
   editForm.value.type = type;
+  editForm.value.defaultValue = getDefaultValueByType(type);
 
-  if (oldType !== type) {
-    editForm.value.defaultValue = getDefaultValueByType(type);
+  editForm.value.i18n = false;
+  editForm.value.i18nLanguages = [];
+  editForm.value.i18nDefaults = [];
 
-    if (type === "enum") {
-      editForm.value.enumOptions = editForm.value.enumOptions?.length
-        ? editForm.value.enumOptions
-        : [{ value: "", label: "" }];
-    }
+  if (type === "enum") {
+    editForm.value.enumOptions = editForm.value.enumOptions?.length
+      ? editForm.value.enumOptions
+      : [{ value: "", label: "" }];
+  }
 
-    if (type === "array") {
-      arrayItemIsComplex.value = false;
-      editForm.value.itemType = "string";
-      editForm.value.itemSchema = [];
-    }
+  if (type === "array") {
+    arrayItemIsComplex.value = false;
+    editForm.value.itemType = "string";
+    editForm.value.itemSchema = [];
+  }
 
-    if (type === "object") {
-      editForm.value.fields = editForm.value.fields?.length
-        ? editForm.value.fields
-        : [];
-    }
+  if (type === "object") {
+    editForm.value.fields = editForm.value.fields?.length
+      ? editForm.value.fields
+      : [];
   }
 }
 
