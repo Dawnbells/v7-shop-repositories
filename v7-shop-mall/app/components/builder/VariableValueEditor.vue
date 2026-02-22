@@ -61,7 +61,7 @@ const {
 const activeTab = ref<"site" | "globalStyle" | "variables">("site");
 
 // 当前选中的站点配置分组
-const activeSiteGroup = ref<string>("basic");
+const activeSiteGroup = ref<string>("globalConfig.basic");
 
 // 当前选中的全局皮肤分组
 const activeGlobalStyleGroup = ref<string>("globalStyle.color");

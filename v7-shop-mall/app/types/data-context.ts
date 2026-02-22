@@ -133,12 +133,46 @@ export interface VariableValuesData {
 // ============ 站点配置 ============
 
 /**
+ * 全局配置（业务配置）
+ * 包含基本信息、联系方式、页脚、社交媒体、SEO、功能设置等
+ */
+export interface GlobalConfig {
+  siteName?: string
+  logo?: string
+  favicon?: string
+  browserTabTitle?: string
+  slogan?: string
+  description?: string
+  contactEmail?: string
+  contactPhone?: string
+  whatsapp?: string
+  address?: string
+  businessHours?: string
+  copyright?: string
+  icp?: string
+  facebook?: string
+  twitter?: string
+  instagram?: string
+  youtube?: string
+  tiktok?: string
+  linkedin?: string
+  seoTitle?: string
+  seoDescription?: string
+  seoKeywords?: string
+  enableQuantitySelector?: boolean
+  enableCart?: boolean
+  [key: string]: any
+}
+
+/**
  * 站点配置（宽松类型，键值对形式）
- * 格式: { configKey: value }
- * 包含 globalStyle 嵌套对象
+ * 格式: { globalConfig: {...}, globalStyle: {...} }
+ * - globalConfig: 业务配置（基本信息、联系方式、SEO等）
+ * - globalStyle: 样式配置（颜色、字体、圆角、间距等）
  */
 export interface SiteConfig {
   [key: string]: any
+  globalConfig?: GlobalConfig
   globalStyle?: Partial<GlobalStyle>
 }
 

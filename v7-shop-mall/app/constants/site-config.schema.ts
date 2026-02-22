@@ -38,37 +38,37 @@ export interface SiteConfigGroup {
  */
 export const SITE_CONFIG_GROUPS: SiteConfigGroup[] = [
   {
-    key: "basic",
+    key: "globalConfig.basic",
     label: "基本信息",
     icon: "i-carbon-information",
     description: "网站基本信息配置",
   },
   {
-    key: "contact",
+    key: "globalConfig.contact",
     label: "联系方式",
     icon: "i-carbon-phone",
     description: "联系信息配置",
   },
   {
-    key: "footer",
+    key: "globalConfig.footer",
     label: "页脚信息",
     icon: "i-carbon-row-collapse",
     description: "页脚显示内容",
   },
   {
-    key: "social",
+    key: "globalConfig.social",
     label: "社交媒体",
     icon: "i-carbon-logo-twitter",
     description: "社交媒体链接",
   },
   {
-    key: "seo",
+    key: "globalConfig.seo",
     label: "SEO 设置",
     icon: "i-carbon-search",
     description: "搜索引擎优化",
   },
   {
-    key: "features",
+    key: "globalConfig.features",
     label: "功能设置",
     icon: "i-carbon-settings",
     description: "商城功能开关",
@@ -103,217 +103,217 @@ export const SITE_CONFIG_GROUPS: SiteConfigGroup[] = [
  * 站点配置字段 Schema 定义
  */
 export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
-  // ============ 基本信息 ============
+  // ============ 基本信息 (globalConfig.basic) ============
   {
-    key: "siteName",
+    key: "globalConfig.siteName",
     label: "网站名称",
     type: "text",
     defaultValue: "",
     placeholder: "输入网站/品牌名称",
-    group: "basic",
+    group: "globalConfig.basic",
     description: "显示在页头、页脚等位置的网站名称",
   },
   {
-    key: "logo",
+    key: "globalConfig.logo",
     label: "Logo",
     type: "image",
     defaultValue: "",
     placeholder: "上传或输入 Logo 图片 URL",
-    group: "basic",
+    group: "globalConfig.basic",
     description: "网站 Logo 图片",
   },
   {
-    key: "favicon",
+    key: "globalConfig.favicon",
     label: "网站图标",
     type: "image",
     defaultValue: "",
     placeholder: "Favicon 图标 URL",
-    group: "basic",
+    group: "globalConfig.basic",
     description: "浏览器标签页显示的小图标",
   },
   {
-    key: "browserTabTitle",
+    key: "globalConfig.browserTabTitle",
     label: "浏览器标签标题",
     type: "text",
     defaultValue: "",
     placeholder: "如：Vapsolo",
-    group: "basic",
+    group: "globalConfig.basic",
     description: "浏览器标签页标题后缀，格式：页面标题 - {此值}",
   },
   {
-    key: "slogan",
+    key: "globalConfig.slogan",
     label: "标语",
     type: "text",
     defaultValue: "",
     placeholder: "网站标语或口号",
-    group: "basic",
+    group: "globalConfig.basic",
     description: "简短的品牌标语",
   },
   {
-    key: "description",
+    key: "globalConfig.description",
     label: "网站描述",
     type: "textarea",
     defaultValue: "",
     placeholder: "简要描述网站内容",
-    group: "basic",
+    group: "globalConfig.basic",
     description: "用于 SEO 和品牌展示",
   },
 
-  // ============ 联系方式 ============
+  // ============ 联系方式 (globalConfig.contact) ============
   {
-    key: "contactEmail",
+    key: "globalConfig.contactEmail",
     label: "联系邮箱",
     type: "text",
     defaultValue: "",
     placeholder: "contact@example.com",
-    group: "contact",
+    group: "globalConfig.contact",
   },
   {
-    key: "contactPhone",
+    key: "globalConfig.contactPhone",
     label: "联系电话",
     type: "text",
     defaultValue: "",
     placeholder: "+86 123 4567 8900",
-    group: "contact",
+    group: "globalConfig.contact",
   },
   {
-    key: "whatsapp",
+    key: "globalConfig.whatsapp",
     label: "WhatsApp",
     type: "text",
     defaultValue: "",
     placeholder: "WhatsApp 号码",
-    group: "contact",
+    group: "globalConfig.contact",
   },
   {
-    key: "address",
+    key: "globalConfig.address",
     label: "地址",
     type: "textarea",
     defaultValue: "",
     placeholder: "公司/店铺地址",
-    group: "contact",
+    group: "globalConfig.contact",
   },
   {
-    key: "businessHours",
+    key: "globalConfig.businessHours",
     label: "营业时间",
     type: "text",
     defaultValue: "",
     placeholder: "如：周一至周五 9:00-18:00",
-    group: "contact",
+    group: "globalConfig.contact",
   },
 
-  // ============ 页脚信息 ============
+  // ============ 页脚信息 (globalConfig.footer) ============
   {
-    key: "copyright",
+    key: "globalConfig.copyright",
     label: "版权声明",
     type: "text",
     defaultValue: "© 2024 All rights reserved.",
     placeholder: "版权声明文字",
-    group: "footer",
+    group: "globalConfig.footer",
     description: "显示在页脚底部的版权信息",
   },
   {
-    key: "icp",
+    key: "globalConfig.icp",
     label: "ICP 备案号",
     type: "text",
     defaultValue: "",
     placeholder: "如：京ICP备xxxxxxxx号",
-    group: "footer",
+    group: "globalConfig.footer",
     description: "中国大陆网站备案号",
   },
 
-  // ============ 社交媒体 ============
+  // ============ 社交媒体 (globalConfig.social) ============
   {
-    key: "facebook",
+    key: "globalConfig.facebook",
     label: "Facebook",
     type: "text",
     defaultValue: "",
     placeholder: "Facebook 主页链接",
-    group: "social",
+    group: "globalConfig.social",
   },
   {
-    key: "twitter",
+    key: "globalConfig.twitter",
     label: "Twitter / X",
     type: "text",
     defaultValue: "",
     placeholder: "Twitter 主页链接",
-    group: "social",
+    group: "globalConfig.social",
   },
   {
-    key: "instagram",
+    key: "globalConfig.instagram",
     label: "Instagram",
     type: "text",
     defaultValue: "",
     placeholder: "Instagram 主页链接",
-    group: "social",
+    group: "globalConfig.social",
   },
   {
-    key: "youtube",
+    key: "globalConfig.youtube",
     label: "YouTube",
     type: "text",
     defaultValue: "",
     placeholder: "YouTube 频道链接",
-    group: "social",
+    group: "globalConfig.social",
   },
   {
-    key: "tiktok",
+    key: "globalConfig.tiktok",
     label: "TikTok",
     type: "text",
     defaultValue: "",
     placeholder: "TikTok 主页链接",
-    group: "social",
+    group: "globalConfig.social",
   },
   {
-    key: "linkedin",
+    key: "globalConfig.linkedin",
     label: "LinkedIn",
     type: "text",
     defaultValue: "",
     placeholder: "LinkedIn 主页链接",
-    group: "social",
+    group: "globalConfig.social",
   },
 
-  // ============ SEO 设置 ============
+  // ============ SEO 设置 (globalConfig.seo) ============
   {
-    key: "seoTitle",
+    key: "globalConfig.seoTitle",
     label: "SEO 标题",
     type: "text",
     defaultValue: "",
     placeholder: "搜索引擎显示的标题",
-    group: "seo",
+    group: "globalConfig.seo",
     description: "留空则使用网站名称",
   },
   {
-    key: "seoDescription",
+    key: "globalConfig.seoDescription",
     label: "SEO 描述",
     type: "textarea",
     defaultValue: "",
     placeholder: "搜索引擎显示的描述",
-    group: "seo",
+    group: "globalConfig.seo",
     description: "建议 150-160 字符",
   },
   {
-    key: "seoKeywords",
+    key: "globalConfig.seoKeywords",
     label: "SEO 关键词",
     type: "text",
     defaultValue: "",
     placeholder: "关键词，用逗号分隔",
-    group: "seo",
+    group: "globalConfig.seo",
   },
 
-  // ============ 功能设置 ============
+  // ============ 功能设置 (globalConfig.features) ============
   {
-    key: "enableQuantitySelector",
+    key: "globalConfig.enableQuantitySelector",
     label: "启用数量选择器",
     type: "switch",
     defaultValue: true,
-    group: "features",
+    group: "globalConfig.features",
     description: "产品页面显示数量选择器",
   },
   {
-    key: "enableCart",
+    key: "globalConfig.enableCart",
     label: "启用购物车功能",
     type: "switch",
     defaultValue: true,
-    group: "features",
+    group: "globalConfig.features",
     description: "启用购物车和加入购物车按钮",
   },
 
@@ -499,14 +499,15 @@ function setNestedValue(
   let current = obj;
 
   for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
+    const key = keys[i]!;
     if (!(key in current) || typeof current[key] !== "object") {
       current[key] = {};
     }
     current = current[key];
   }
 
-  current[keys[keys.length - 1]] = value;
+  const lastKey = keys[keys.length - 1]!;
+  current[lastKey] = value;
 }
 
 /**
