@@ -3,6 +3,8 @@
  * 包含变量定义、变量类型、变量值存储等
  */
 
+import type { GlobalStyle } from './theme'
+
 // ============ 变量类型 ============
 
 /**
@@ -127,3 +129,21 @@ export interface VariableValuesData {
   default: VariableValues
   i18n?: VariableValuesI18n
 }
+
+// ============ 站点配置 ============
+
+/**
+ * 站点配置（宽松类型，键值对形式）
+ * 格式: { configKey: value }
+ * 包含 globalStyle 嵌套对象
+ */
+export interface SiteConfig {
+  [key: string]: any
+  globalStyle?: Partial<GlobalStyle>
+}
+
+/**
+ * 多语言站点配置存储
+ * 格式: { languageId: { configKey: value } }
+ */
+export type SiteConfigI18n = Record<number, Record<string, any>>

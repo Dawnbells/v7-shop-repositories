@@ -7,6 +7,7 @@
 import type { TabItem } from './EditorTabs.vue'
 import type { CustomVariable } from '~/types/data-context'
 import { useIframeAuth } from '~/composables/useIframeAuth'
+import { useThemeSchema } from '~/composables/useThemeSchema'
 
 // 获取 iframe 认证信息
 const { 
@@ -18,9 +19,24 @@ const {
   isReady
 } = useIframeAuth()
 
+// 主题状态管理
+const {
+  variableSchema,
+  loadFullData,
+  exportFullData,
+  addGlobalVariable,
+  updateGlobalVariable,
+  removeGlobalVariable,
+  hasUnsavedChanges: themeHasUnsavedChanges,
+  markAsSaved,
+} = useThemeSchema()
+
 // 变量管理状态
 const showVariableManager = ref(false)
-const customVariables = ref<CustomVariable[]>([])
+const showVariableValueEditor = ref(false)
+
+// 兼容旧代码：customVariables 从 variableSchema 获取
+const customVariables = computed(() => variableSchema.value)
 
 // 数据加载状态
 const isLoading = ref(false)
@@ -52,8 +68,15 @@ async function loadThemeFromServer() {
     const result = await response.json()
 
     if (result.success && result.data) {
-      customVariables.value = result.data.variableSchema || []
-      console.log('[ThemeEditor] 加载成功，变量数量:', customVariables.value.length)
+      // 使用 loadFullData 加载所有数据
+      loadFullData({
+        variableSchema: result.data.variableSchema || [],
+        siteConfig: result.data.siteConfig || {},
+        siteConfigI18n: result.data.siteConfigI18n || {},
+        variableValues: result.data.variableValues || {},
+        variableValuesI18n: result.data.variableValuesI18n || {},
+      })
+      console.log('[ThemeEditor] 加载成功，变量数量:', variableSchema.value.length)
     } else {
       console.log('[ThemeEditor] 无数据或加载失败:', result.message)
     }
@@ -77,16 +100,21 @@ function handleOpenVariables() {
   showVariableManager.value = true
 }
 
+// 打开变量值设置弹窗
+function handleOpenVariableValues() {
+  showVariableValueEditor.value = true
+}
+
 function handleDeleteVariable(key: string) {
-  customVariables.value = customVariables.value.filter(v => v.key !== key)
+  removeGlobalVariable(key)
 }
 
 function handleSaveVariable(variable: CustomVariable) {
-  const existingIndex = customVariables.value.findIndex(v => v.key === variable.key)
+  const existingIndex = variableSchema.value.findIndex(v => v.key === variable.key)
   if (existingIndex >= 0) {
-    customVariables.value[existingIndex] = variable
+    updateGlobalVariable(variable.key, variable)
   } else {
-    customVariables.value.push(variable)
+    addGlobalVariable(variable)
   }
 }
 
@@ -201,7 +229,7 @@ function startResize(side: 'left' | 'right', event: PointerEvent) {
 }
 
 // 编辑状态
-const hasUnsavedChanges = ref(true)
+const hasUnsavedChanges = computed(() => themeHasUnsavedChanges.value)
 const isSaving = ref(false)
 
 const currentTabKey = ref('home')
@@ -231,6 +259,9 @@ async function handleSave() {
   isSaving.value = true
 
   try {
+    // 使用 exportFullData 导出所有数据
+    const fullData = exportFullData()
+    
     const response = await fetch('/api/builder/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -239,16 +270,18 @@ async function handleSave() {
         spuId: query.value.spuId,
         landingType: query.value.landingType || 'LAND',
         themeConfig: {},
-        variableSchema: customVariables.value,
-        siteConfig: {},
-        variableValues: {},
+        variableSchema: fullData.variableSchema,
+        siteConfig: fullData.siteConfig,
+        siteConfigI18n: fullData.siteConfigI18n,
+        variableValues: fullData.variableValues,
+        variableValuesI18n: fullData.variableValuesI18n,
       }),
     })
 
     const result = await response.json()
 
     if (result.success) {
-      hasUnsavedChanges.value = false
+      markAsSaved()
       console.log('[ThemeEditor] 保存成功')
     } else {
       throw new Error(result.message || '保存失败')
@@ -286,7 +319,7 @@ function handleAddPage() {
       @save="handleSave"
       @open-templates="() => {}"
       @open-variables="handleOpenVariables"
-      @open-variable-values="() => {}"
+      @open-variable-values="handleOpenVariableValues"
     />
 
     <!-- 页面 Tab 栏 -->
@@ -345,6 +378,12 @@ function handleAddPage() {
       @close="showVariableManager = false"
       @save="handleSaveVariable"
       @delete="handleDeleteVariable"
+    />
+
+    <!-- 变量值设置弹窗 -->
+    <BuilderVariableValueEditor
+      :visible="showVariableValueEditor"
+      @close="showVariableValueEditor = false"
     />
   </div>
 </template>

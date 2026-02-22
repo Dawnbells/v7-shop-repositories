@@ -3,3 +3,5 @@
  */
 
 export * from './data-context'
+export * from './component-meta'
+export * from './theme'
