@@ -1,15 +1,33 @@
 <script setup lang="ts">
 /**
  * PropertyPanel - 右侧属性面板
- * 用于编辑选中组件的属性，支持数据绑定
+ * 用于编辑选中组件的属性，支持数据绑定（类型匹配 + 全局数据）
  */
 
-import type { ComponentMeta, DataBinding } from '~/types/component-meta'
+import type { ComponentMeta, DataBinding, PropEditorType, StyleSchema } from '~/types/component-meta'
 import { useCanvasState } from '~/composables/useCanvasState'
 import { useBlockRegistry } from '~/composables/useBlockRegistry'
 import { useThemeSchema } from '~/composables/useThemeSchema'
+import { SITE_CONFIG_SCHEMA } from '~/constants/site-config.schema'
+import {
+  type BindableDataSource,
+  propTypeToVariableType,
+  filterCompatibleSources,
+} from '~/utils/type-matching'
 
 type TabType = 'props' | 'style' | 'action'
+
+// 样式分组配置（用于显示分组标题）
+const STYLE_GROUP_LABELS: Record<string, string> = {
+  size: '尺寸',
+  margin: '外边距',
+  padding: '内边距',
+  background: '背景',
+  text: '文字',
+  border: '边框',
+  layout: '布局',
+  effect: '效果',
+}
 
 const activeTab = ref<TabType>('props')
 
@@ -39,8 +57,57 @@ const componentName = computed(() => {
   return selectedNode.value.name || blockMeta.value?.name || selectedNode.value.type
 })
 
-// 可用变量列表
-const availableVariables = computed(() => variableSchema.value || [])
+// 合并所有可绑定数据源
+const allDataSources = computed<BindableDataSource[]>(() => {
+  const sources: BindableDataSource[] = []
+
+  // 1. 自定义变量
+  for (const variable of variableSchema.value || []) {
+    sources.push({
+      key: variable.key,
+      label: variable.label,
+      type: variable.type,
+      group: 'variable',
+      groupLabel: '自定义变量',
+      description: variable.description,
+    })
+  }
+
+  // 2. 全局配置（siteConfig）和全局皮肤变量（globalStyle）
+  for (const field of SITE_CONFIG_SCHEMA) {
+    const isGlobalStyle = field.group.startsWith('globalStyle')
+    sources.push({
+      key: field.key,
+      label: field.label,
+      type: propTypeToVariableType(field.type),
+      group: isGlobalStyle ? 'globalStyle' : 'siteConfig',
+      groupLabel: isGlobalStyle ? '全局皮肤' : '全局配置',
+      description: field.description,
+    })
+  }
+
+  return sources
+})
+
+// 属性面板数据源：全局配置 + 自定义变量
+const propDataSources = computed(() =>
+  allDataSources.value.filter(s => s.group === 'variable' || s.group === 'siteConfig')
+)
+
+// 样式面板数据源：全局皮肤 + 自定义变量
+const styleDataSources = computed(() =>
+  allDataSources.value.filter(s => s.group === 'variable' || s.group === 'globalStyle')
+)
+
+// 根据属性类型获取兼容的数据源（属性面板使用）
+function getCompatibleSourcesForProp(propType: PropEditorType): BindableDataSource[] {
+  return filterCompatibleSources(propDataSources.value, propType)
+}
+
+// 根据属性类型获取兼容的数据源（样式面板使用）
+function getCompatibleSourcesForStyle(propType: PropEditorType): BindableDataSource[] {
+  return filterCompatibleSources(styleDataSources.value, propType)
+}
 
 // 获取属性的绑定配置
 function getBindingForProp(propKey: string): DataBinding | null {
@@ -80,6 +147,94 @@ function updateBinding(propKey: string, binding: DataBinding | null) {
   // 直接更新 bindings 字段
   if (selectedNode.value) {
     selectedNode.value.bindings = newBindings
+  }
+}
+
+// 从组件 meta 获取样式 schema
+const styleSchema = computed<StyleSchema[]>(() => {
+  return blockMeta.value?.styleSchema || []
+})
+
+// 获取样式 schema 中的所有分组
+const styleGroups = computed<string[]>(() => {
+  const groups = new Set<string>()
+  for (const style of styleSchema.value) {
+    if (style.group) {
+      groups.add(style.group)
+    }
+  }
+  return Array.from(groups)
+})
+
+// 获取分组显示名称
+function getStyleGroupLabel(groupKey: string): string {
+  return STYLE_GROUP_LABELS[groupKey] || groupKey
+}
+
+// 根据分组获取样式属性
+function getStylePropsByGroup(groupKey: string): StyleSchema[] {
+  return styleSchema.value.filter(style => style.group === groupKey)
+}
+
+// 获取没有分组的样式属性
+const ungroupedStyles = computed<StyleSchema[]>(() => {
+  return styleSchema.value.filter(style => !style.group)
+})
+
+// 获取样式值
+function getStyleValue(styleKey: string): any {
+  if (!selectedNode.value?.style?.base) return undefined
+  return selectedNode.value.style.base[styleKey]
+}
+
+// 获取样式的绑定配置
+function getBindingForStyle(styleKey: string): DataBinding | null {
+  if (!selectedNode.value?.styleBindings) return null
+  return selectedNode.value.styleBindings.find(b => b.propKey === styleKey) || null
+}
+
+// 更新样式值
+function updateStyle(key: string, value: any) {
+  if (!selectedNodeId.value || !selectedNode.value) return
+  
+  const currentStyle = selectedNode.value.style || { base: {} }
+  const currentBase = currentStyle.base || {}
+  
+  updateNode(selectedNodeId.value, {
+    style: {
+      ...currentStyle,
+      base: {
+        ...currentBase,
+        [key]: value
+      }
+    }
+  })
+}
+
+// 更新样式绑定
+function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
+  if (!selectedNodeId.value || !selectedNode.value) return
+  
+  const currentBindings = selectedNode.value.styleBindings || []
+  let newBindings: DataBinding[]
+  
+  if (binding) {
+    // 添加或更新绑定
+    const existingIndex = currentBindings.findIndex(b => b.propKey === styleKey)
+    if (existingIndex >= 0) {
+      newBindings = [...currentBindings]
+      newBindings[existingIndex] = binding
+    } else {
+      newBindings = [...currentBindings, binding]
+    }
+  } else {
+    // 移除绑定
+    newBindings = currentBindings.filter(b => b.propKey !== styleKey)
+  }
+  
+  // 直接更新 styleBindings 字段
+  if (selectedNode.value) {
+    selectedNode.value.styleBindings = newBindings
   }
 }
 </script>
@@ -126,7 +281,7 @@ function updateBinding(propKey: string, binding: DataBinding | null) {
               :schema="prop"
               :model-value="selectedNode?.props[prop.key]"
               :binding="getBindingForProp(prop.key)"
-              :variables="availableVariables"
+              :data-sources="getCompatibleSourcesForProp(prop.type)"
               @update:model-value="updateProp(prop.key, $event)"
               @update:binding="updateBinding(prop.key, $event)"
             />
@@ -140,72 +295,72 @@ function updateBinding(propKey: string, binding: DataBinding | null) {
 
       <!-- 样式面板 -->
       <div v-else-if="activeTab === 'style'" class="tab-content">
-        <div class="property-section">
-          <div class="section-header">
-            <span class="section-title">尺寸</span>
-          </div>
-          <div class="property-grid">
-            <div class="property-item">
-              <label class="property-label">宽度</label>
-              <div class="property-input-group">
-                <input type="text" class="property-input" value="auto" />
-                <select class="property-unit">
-                  <option>px</option>
-                  <option>%</option>
-                  <option>auto</option>
-                </select>
+        <template v-if="styleSchema.length">
+          <!-- 有分组的样式 -->
+          <template v-for="group in styleGroups" :key="group">
+            <div class="property-section" v-if="getStylePropsByGroup(group).length > 0">
+              <div class="section-header">
+                <span class="section-title">{{ getStyleGroupLabel(group) }}</span>
+              </div>
+              <div class="props-list">
+                <BuilderPropertyField
+                  v-for="styleProp in getStylePropsByGroup(group)"
+                  :key="styleProp.key"
+                  :schema="styleProp"
+                  :model-value="getStyleValue(styleProp.key)"
+                  :binding="getBindingForStyle(styleProp.key)"
+                  :data-sources="getCompatibleSourcesForStyle(styleProp.type)"
+                  @update:model-value="updateStyle(styleProp.key, $event)"
+                  @update:binding="updateStyleBinding(styleProp.key, $event)"
+                />
               </div>
             </div>
-            <div class="property-item">
-              <label class="property-label">高度</label>
-              <div class="property-input-group">
-                <input type="text" class="property-input" value="auto" />
-                <select class="property-unit">
-                  <option>px</option>
-                  <option>%</option>
-                  <option>auto</option>
-                </select>
-              </div>
-            </div>
+          </template>
+          <!-- 无分组的样式 -->
+          <div v-if="ungroupedStyles.length > 0" class="props-list">
+            <BuilderPropertyField
+              v-for="styleProp in ungroupedStyles"
+              :key="styleProp.key"
+              :schema="styleProp"
+              :model-value="getStyleValue(styleProp.key)"
+              :binding="getBindingForStyle(styleProp.key)"
+              :data-sources="getCompatibleSourcesForStyle(styleProp.type)"
+              @update:model-value="updateStyle(styleProp.key, $event)"
+              @update:binding="updateStyleBinding(styleProp.key, $event)"
+            />
           </div>
-        </div>
-
-        <div class="property-section">
-          <div class="section-header">
-            <span class="section-title">边距</span>
-          </div>
-          <div class="spacing-editor">
-            <div class="spacing-box">
-              <input type="text" class="spacing-input top" placeholder="0" />
-              <input type="text" class="spacing-input right" placeholder="0" />
-              <input type="text" class="spacing-input bottom" placeholder="0" />
-              <input type="text" class="spacing-input left" placeholder="0" />
-              <div class="spacing-center">
-                <span class="spacing-label">margin</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="property-section">
-          <div class="section-header">
-            <span class="section-title">背景</span>
-          </div>
-          <div class="property-row">
-            <label class="property-label">颜色</label>
-            <div class="color-picker">
-              <div class="color-preview" style="background: #ffffff"></div>
-              <input type="text" class="color-input" value="#ffffff" />
-            </div>
-          </div>
+        </template>
+        <div v-else class="empty-state small">
+          <span class="i-carbon-paint-brush empty-icon-small"></span>
+          <p class="empty-text">该组件暂无可编辑样式</p>
         </div>
       </div>
 
       <!-- 交互面板 -->
       <div v-else-if="activeTab === 'action'" class="tab-content">
-        <div class="empty-state small">
+        <template v-if="blockMeta?.eventsSchema?.length">
+          <div class="events-list">
+            <div
+              v-for="eventSchema in blockMeta.eventsSchema"
+              :key="eventSchema.event"
+              class="event-item"
+            >
+              <div class="event-header">
+                <span class="event-name">{{ eventSchema.label }}</span>
+                <span v-if="eventSchema.description" class="event-desc">{{ eventSchema.description }}</span>
+              </div>
+              <div class="event-actions">
+                <button class="add-action-btn">
+                  <span class="i-carbon-add"></span>
+                  添加动作
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div v-else class="empty-state small">
           <span class="i-carbon-touch-interaction empty-icon-small"></span>
-          <p class="empty-text">暂无交互事件</p>
+          <p class="empty-text">该组件暂无可配置事件</p>
         </div>
       </div>
     </div>
@@ -513,6 +668,66 @@ function updateBinding(propKey: string, binding: DataBinding | null) {
   border: 1px solid rgba(71, 85, 105, 0.3);
   border-radius: 4px;
   outline: none;
+}
+
+/* 事件列表 */
+.events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.event-item {
+  background: rgba(15, 23, 42, 0.3);
+  border: 1px solid rgba(71, 85, 105, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.event-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: rgba(51, 65, 85, 0.2);
+  border-bottom: 1px solid rgba(71, 85, 105, 0.2);
+}
+
+.event-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.event-desc {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.event-actions {
+  padding: 12px;
+}
+
+.add-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px dashed rgba(139, 92, 246, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.add-action-btn:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
 }
 
 /* 自定义滚动条 */

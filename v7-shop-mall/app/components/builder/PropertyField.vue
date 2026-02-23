@@ -2,22 +2,27 @@
 /**
  * PropertyField - 属性字段编辑器
  * 根据 PropSchema.type 渲染对应的编辑器组件
- * 支持静态值和数据绑定两种模式
+ * 支持静态值和数据绑定两种模式（带分组显示）
  */
 
 import type { PropSchema, DataBinding } from '~/types/component-meta'
-import type { CustomVariable } from '~/types/data-context'
+import {
+  type BindableDataSource,
+  type DataSourceGroup,
+  DATA_SOURCE_GROUP_CONFIG,
+  groupDataSources,
+} from '~/utils/type-matching'
 
 interface Props {
   schema: PropSchema
   modelValue: any
   binding?: DataBinding | null
-  variables?: CustomVariable[]
+  dataSources?: BindableDataSource[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
   binding: null,
-  variables: () => [],
+  dataSources: () => [],
 })
 
 const emit = defineEmits<{
@@ -27,6 +32,18 @@ const emit = defineEmits<{
 
 // 是否处于绑定模式
 const isBindingMode = computed(() => !!props.binding)
+
+// 分组后的数据源
+const groupedSources = computed(() => groupDataSources(props.dataSources))
+
+// 获取有数据的分组
+const activeGroups = computed(() => {
+  const groups: DataSourceGroup[] = []
+  if (groupedSources.value.variable.length > 0) groups.push('variable')
+  if (groupedSources.value.siteConfig.length > 0) groups.push('siteConfig')
+  if (groupedSources.value.globalStyle.length > 0) groups.push('globalStyle')
+  return groups
+})
 
 // 当前绑定的变量 key
 const bindingVariableKey = computed({
@@ -48,11 +65,11 @@ function toggleBindingMode() {
   if (isBindingMode.value) {
     emit('update:binding', null)
   } else {
-    // 如果有可用变量，默认选择第一个
-    if (props.variables.length > 0) {
+    // 如果有可用数据源，默认选择第一个
+    if (props.dataSources.length > 0) {
       emit('update:binding', {
         propKey: props.schema.key,
-        variableKey: props.variables[0].key,
+        variableKey: props.dataSources[0].key,
       })
     }
   }
@@ -79,12 +96,24 @@ function handleSwitchToggle() {
 // 获取绑定变量的显示名称
 const boundVariableName = computed(() => {
   if (!props.binding) return ''
-  const variable = props.variables.find(v => v.key === props.binding?.variableKey)
-  return variable?.label || props.binding.variableKey
+  const source = props.dataSources.find(s => s.key === props.binding?.variableKey)
+  return source?.label || props.binding.variableKey
 })
 
-// 是否有可用变量
-const hasVariables = computed(() => props.variables.length > 0)
+// 获取绑定变量所属分组
+const boundVariableGroup = computed(() => {
+  if (!props.binding) return ''
+  const source = props.dataSources.find(s => s.key === props.binding?.variableKey)
+  return source?.groupLabel || ''
+})
+
+// 是否有可用数据源
+const hasDataSources = computed(() => props.dataSources.length > 0)
+
+// 获取分组配置
+function getGroupConfig(group: DataSourceGroup) {
+  return DATA_SOURCE_GROUP_CONFIG[group]
+}
 </script>
 
 <template>
@@ -97,7 +126,7 @@ const hasVariables = computed(() => props.variables.length > 0)
       
       <!-- 绑定切换按钮 -->
       <button
-        v-if="hasVariables"
+        v-if="hasDataSources"
         type="button"
         class="binding-toggle"
         :class="{ active: isBindingMode }"
@@ -109,20 +138,26 @@ const hasVariables = computed(() => props.variables.length > 0)
     </div>
     
     <div class="field-control">
-      <!-- 绑定模式：显示变量选择器 -->
+      <!-- 绑定模式：显示分组变量选择器 -->
       <div v-if="isBindingMode" class="binding-selector">
-        <span class="i-carbon-link binding-icon" />
         <select v-model="bindingVariableKey" class="binding-select">
-          <option value="" disabled>选择变量</option>
-          <option
-            v-for="variable in variables"
-            :key="variable.key"
-            :value="variable.key"
-          >
-            {{ variable.label }}
-          </option>
+          <option value="" disabled>选择数据源</option>
+          <template v-for="group in activeGroups" :key="group">
+            <optgroup :label="getGroupConfig(group).label">
+              <option
+                v-for="source in groupedSources[group]"
+                :key="source.key"
+                :value="source.key"
+              >
+                {{ source.label }}
+              </option>
+            </optgroup>
+          </template>
         </select>
-        <span class="binding-hint">已绑定: {{ boundVariableName }}</span>
+        <div class="binding-info">
+          <span class="binding-hint">已绑定: {{ boundVariableName }}</span>
+          <span v-if="boundVariableGroup" class="binding-group-tag">{{ boundVariableGroup }}</span>
+        </div>
       </div>
 
       <!-- 静态值模式 -->
@@ -376,9 +411,26 @@ const hasVariables = computed(() => props.variables.length > 0)
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
 }
 
+.binding-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .binding-hint {
   font-size: 11px;
   color: #3b82f6;
+}
+
+.binding-group-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.1);
+  border-radius: 4px;
 }
 
 .field-control {

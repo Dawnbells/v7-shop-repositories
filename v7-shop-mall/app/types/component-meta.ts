@@ -111,13 +111,16 @@ export interface PropSchema {
 
 /**
  * 样式 Schema - 定义组件可编辑样式的结构
+ * 使用与 PropSchema 相同的编辑器类型，便于复用 PropertyField 组件
  */
 export interface StyleSchema {
-  key: string                   // 样式键名
+  key: string                   // CSS 属性名（如 'backgroundColor'）
   label: string                 // 显示标签
-  type: StyleEditorType         // 编辑器类型
+  type: PropEditorType          // 使用与属性相同的编辑器类型
   defaultValue?: any            // 默认值
-  group?: string                // 样式分组
+  placeholder?: string          // 占位符
+  options?: SelectOption[]      // 用于 select 类型
+  group?: string                // 样式分组（如 'size', 'text', 'background'）
   responsive?: boolean          // 是否支持响应式
 }
 
@@ -156,7 +159,16 @@ export type ActionType =
   | "custom"     // 自定义 JS
 
 /**
- * 事件触发器 - 定义组件交互事件
+ * 事件 Schema - 定义组件支持的事件类型
+ */
+export interface EventSchema {
+  event: EventType              // 事件类型（click/hover/load/visible）
+  label: string                 // 显示名称
+  description?: string          // 事件描述
+}
+
+/**
+ * 事件触发器 - 定义组件交互事件配置
  */
 export interface EventTrigger {
   id: string                    // 事件 ID
@@ -187,7 +199,8 @@ export interface ComponentMeta {
   description?: string                // 组件描述
 
   propsSchema: PropSchema[]           // 可编辑属性定义
-  styleSchema?: StyleSchema[]         // 可编辑样式定义
+  styleSchema?: StyleSchema[]         // 可编辑样式定义（组件自定义）
+  eventsSchema?: EventSchema[]        // 可触发事件定义
 
   defaultProps?: Record<string, any>  // 默认属性值
   defaultStyle?: ResponsiveStyle      // 默认样式值
@@ -214,7 +227,8 @@ export interface ComponentNode {
   props: Record<string, any>     // 属性值
   style: ResponsiveStyle         // 样式值
 
-  bindings?: DataBinding[]       // 数据绑定
+  bindings?: DataBinding[]       // 属性数据绑定
+  styleBindings?: DataBinding[]  // 样式数据绑定
   events?: EventTrigger[]        // 事件配置
 
   children?: ComponentNode[]     // 子组件

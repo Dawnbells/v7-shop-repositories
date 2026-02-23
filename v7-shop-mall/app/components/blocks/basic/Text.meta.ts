@@ -57,6 +57,45 @@ export const meta: ComponentMeta = {
     align: 'left',
   },
 
+  styleSchema: [
+    // 文字样式
+    { key: 'fontSize', label: '字体大小', type: 'text', placeholder: '14px', group: 'text' },
+    { key: 'fontWeight', label: '字体粗细', type: 'select', options: [
+      { label: '正常', value: 'normal' },
+      { label: '粗体', value: 'bold' },
+      { label: '100', value: '100' },
+      { label: '200', value: '200' },
+      { label: '300', value: '300' },
+      { label: '400', value: '400' },
+      { label: '500', value: '500' },
+      { label: '600', value: '600' },
+      { label: '700', value: '700' },
+      { label: '800', value: '800' },
+      { label: '900', value: '900' },
+    ], group: 'text' },
+    { key: 'color', label: '文字颜色', type: 'color', group: 'text' },
+    { key: 'lineHeight', label: '行高', type: 'text', placeholder: '1.6', group: 'text' },
+    { key: 'letterSpacing', label: '字间距', type: 'text', placeholder: '0', group: 'text' },
+    { key: 'textDecoration', label: '文字装饰', type: 'select', options: [
+      { label: '无', value: 'none' },
+      { label: '下划线', value: 'underline' },
+      { label: '删除线', value: 'line-through' },
+    ], group: 'text' },
+    // 背景
+    { key: 'backgroundColor', label: '背景颜色', type: 'color', group: 'background' },
+    // 边距
+    { key: 'marginTop', label: '上边距', type: 'text', placeholder: '0', group: 'margin' },
+    { key: 'marginBottom', label: '下边距', type: 'text', placeholder: '0', group: 'margin' },
+    { key: 'paddingTop', label: '上内边距', type: 'text', placeholder: '0', group: 'padding' },
+    { key: 'paddingRight', label: '右内边距', type: 'text', placeholder: '0', group: 'padding' },
+    { key: 'paddingBottom', label: '下内边距', type: 'text', placeholder: '0', group: 'padding' },
+    { key: 'paddingLeft', label: '左内边距', type: 'text', placeholder: '0', group: 'padding' },
+  ],
+
+  eventsSchema: [
+    { event: 'click', label: '点击', description: '点击文本时触发' },
+  ],
+
   defaultStyle: {
     base: {
       fontSize: '14px',
