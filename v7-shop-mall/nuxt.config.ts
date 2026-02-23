@@ -7,6 +7,20 @@ export default defineNuxtConfig({
 
   css: ['@unocss/reset/tailwind.css'],
 
+  // 组件配置
+  components: {
+    dirs: [
+      // 默认组件目录
+      '~/components',
+      // blocks 组件目录，使用 Block 前缀，全局注册
+      {
+        path: '~/components/blocks',
+        prefix: 'Block',
+        global: true,
+      },
+    ],
+  },
+
   runtimeConfig: {
     db: {
       host: 'localhost',
