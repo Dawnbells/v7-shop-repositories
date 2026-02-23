@@ -1,8 +1,10 @@
 <script setup lang="ts">
 /**
  * BuilderCanvas - 中间画布区域
- * 用于预览和编辑页面
+ * 用于预览和编辑页面，支持拖放添加组件
  */
+
+import { useCanvasState } from '~/composables/useCanvasState'
 
 type DeviceType = 'desktop' | 'tablet' | 'mobile'
 
@@ -14,6 +16,19 @@ const deviceConfigs = {
   tablet: { width: '768px', icon: 'i-carbon-tablet', label: '平板' },
   mobile: { width: '375px', icon: 'i-carbon-mobile', label: '手机' }
 }
+
+// 画布状态
+const {
+  rootNodes,
+  isEmpty,
+  selectedNodeId,
+  createNode,
+  addNode,
+  selectNode,
+} = useCanvasState()
+
+// 拖放状态
+const isDragOver = ref(false)
 
 function setDevice(device: DeviceType) {
   currentDevice.value = device
@@ -34,6 +49,67 @@ function resetZoom() {
 const canvasWidth = computed(() => {
   return deviceConfigs[currentDevice.value].width
 })
+
+// 拖拽进入画布
+function onDragOver(event: DragEvent) {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+  isDragOver.value = true
+}
+
+// 拖拽离开画布
+function onDragLeave(event: DragEvent) {
+  // 确保是离开画布区域而不是进入子元素
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const x = event.clientX
+  const y = event.clientY
+  
+  if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+    isDragOver.value = false
+  }
+}
+
+// 放置组件
+function onDrop(event: DragEvent) {
+  event.preventDefault()
+  isDragOver.value = false
+
+  if (!event.dataTransfer) return
+
+  try {
+    const data = JSON.parse(event.dataTransfer.getData('application/json'))
+    
+    if (data && data.type) {
+      // 创建新节点
+      const newNode = createNode(
+        data.type,
+        data.defaultProps || {},
+        data.defaultStyle || {},
+        data.name
+      )
+      
+      // 添加到画布
+      addNode(newNode)
+      
+      // 选中新添加的节点
+      selectNode(newNode.id)
+      
+      console.log('[BuilderCanvas] 添加组件:', data.type, newNode.id)
+    }
+  } catch (error) {
+    console.error('[BuilderCanvas] 解析拖放数据失败:', error)
+  }
+}
+
+// 点击画布空白区域取消选中
+function onCanvasClick(event: MouseEvent) {
+  // 如果点击的是画布背景（不是组件节点），取消选中
+  if (event.target === event.currentTarget) {
+    selectNode(null)
+  }
+}
 </script>
 
 <template>
@@ -42,18 +118,42 @@ const canvasWidth = computed(() => {
     <div class="canvas-viewport">
       <div 
         class="canvas-frame"
+        :class="{ 'drag-over': isDragOver }"
         :style="{ 
           width: canvasWidth,
           transform: `scale(${zoom / 100})`
         }"
+        @dragover.prevent="onDragOver"
+        @dragleave="onDragLeave"
+        @drop="onDrop"
+        @click="onCanvasClick"
       >
         <!-- 空状态提示 -->
-        <div class="empty-state">
+        <div v-if="isEmpty" class="empty-state">
           <div class="empty-icon">
             <span class="i-carbon-add-large"></span>
           </div>
           <h3 class="empty-title">开始构建页面</h3>
           <p class="empty-desc">从左侧拖拽组件到此处，或点击组件添加</p>
+        </div>
+
+        <!-- 组件节点渲染 -->
+        <div v-else class="canvas-content">
+          <BuilderCanvasNode
+            v-for="node in rootNodes"
+            :key="node.id"
+            :node="node"
+            :selected-id="selectedNodeId"
+            @select="selectNode"
+          />
+        </div>
+
+        <!-- 拖放提示遮罩 -->
+        <div v-if="isDragOver" class="drop-overlay">
+          <div class="drop-hint">
+            <span class="i-carbon-add-large"></span>
+            <span>放置组件</span>
+          </div>
         </div>
       </div>
     </div>
@@ -121,6 +221,7 @@ const canvasWidth = computed(() => {
 }
 
 .canvas-frame {
+  position: relative;
   min-height: 600px;
   background: #fff;
   border-radius: 8px;
@@ -309,5 +410,43 @@ const canvasWidth = computed(() => {
 
 .canvas-viewport::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* 拖放相关样式 */
+.canvas-frame.drag-over {
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+}
+
+.canvas-content {
+  min-height: 600px;
+  padding: 0;
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(59, 130, 246, 0.1);
+  pointer-events: none;
+}
+
+.drop-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #3b82f6;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.drop-hint span[class^="i-"] {
+  font-size: 20px;
 }
 </style>
