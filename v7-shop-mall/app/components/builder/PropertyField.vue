@@ -576,6 +576,9 @@ function getGroupConfig(group: DataSourceGroup) {
 }
 
 .color-picker-native {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -583,8 +586,6 @@ function getGroupConfig(group: DataSourceGroup) {
   border-radius: 6px;
   cursor: pointer;
   opacity: 0;
-  position: absolute;
-  right: 0;
 }
 
 .field-color {
