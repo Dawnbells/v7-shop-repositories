@@ -3,14 +3,14 @@
  * 管理可渲染组件和组件元数据的注册与获取
  */
 
-import type { Component } from 'vue'
-import type { ComponentMeta } from '~/types/component-meta'
+import type { Component } from "vue";
+import type { ComponentMeta } from "~/types/component-meta";
 
 // 组件注册表（SSR + 客户端共享）
-const blockComponents = new Map<string, Component>()
+const blockComponents = new Map<string, Component>();
 
 // 元数据注册表（仅 /builder 客户端使用）
-const blockMetas = new Map<string, ComponentMeta>()
+const blockMetas = new Map<string, ComponentMeta>();
 
 /**
  * Block 组件注册表 composable
@@ -22,7 +22,7 @@ export function useBlockRegistry() {
    * @param component Vue 组件
    */
   function registerBlock(type: string, component: Component) {
-    blockComponents.set(type, component)
+    blockComponents.set(type, component);
   }
 
   /**
@@ -31,7 +31,7 @@ export function useBlockRegistry() {
    */
   function registerBlocks(blocks: Record<string, Component>) {
     for (const [type, component] of Object.entries(blocks)) {
-      registerBlock(type, component)
+      registerBlock(type, component);
     }
   }
 
@@ -41,7 +41,7 @@ export function useBlockRegistry() {
    * @returns Vue 组件或 undefined
    */
   function getBlock(type: string): Component | undefined {
-    return blockComponents.get(type)
+    return blockComponents.get(type);
   }
 
   /**
@@ -49,14 +49,14 @@ export function useBlockRegistry() {
    * @param type 组件类型标识
    */
   function hasBlock(type: string): boolean {
-    return blockComponents.has(type)
+    return blockComponents.has(type);
   }
 
   /**
    * 获取所有已注册的组件类型
    */
   function getAllBlockTypes(): string[] {
-    return Array.from(blockComponents.keys())
+    return Array.from(blockComponents.keys());
   }
 
   /**
@@ -64,7 +64,7 @@ export function useBlockRegistry() {
    * @param meta 组件元数据
    */
   function registerBlockMeta(meta: ComponentMeta) {
-    blockMetas.set(meta.type, meta)
+    blockMetas.set(meta.type, meta);
   }
 
   /**
@@ -73,7 +73,7 @@ export function useBlockRegistry() {
    */
   function registerBlockMetas(metas: ComponentMeta[]) {
     for (const meta of metas) {
-      registerBlockMeta(meta)
+      registerBlockMeta(meta);
     }
   }
 
@@ -83,7 +83,7 @@ export function useBlockRegistry() {
    * @returns 组件元数据或 undefined
    */
   function getBlockMeta(type: string): ComponentMeta | undefined {
-    return blockMetas.get(type)
+    return blockMetas.get(type);
   }
 
   /**
@@ -91,7 +91,7 @@ export function useBlockRegistry() {
    * @param type 组件类型标识
    */
   function hasBlockMeta(type: string): boolean {
-    return blockMetas.has(type)
+    return blockMetas.has(type);
   }
 
   /**
@@ -99,7 +99,7 @@ export function useBlockRegistry() {
    * @returns 元数据数组
    */
   function getAllBlockMetas(): ComponentMeta[] {
-    return Array.from(blockMetas.values())
+    return Array.from(blockMetas.values());
   }
 
   /**
@@ -107,8 +107,10 @@ export function useBlockRegistry() {
    * @param category 组件分类
    * @returns 该分类下的元数据数组
    */
-  function getBlockMetasByCategory(category: ComponentMeta['category']): ComponentMeta[] {
-    return getAllBlockMetas().filter(meta => meta.category === category)
+  function getBlockMetasByCategory(
+    category: ComponentMeta["category"],
+  ): ComponentMeta[] {
+    return getAllBlockMetas().filter((meta) => meta.category === category);
   }
 
   /**
@@ -116,14 +118,14 @@ export function useBlockRegistry() {
    * @returns 按分类分组的元数据
    */
   function getGroupedBlockMetas(): Record<string, ComponentMeta[]> {
-    const grouped: Record<string, ComponentMeta[]> = {}
+    const grouped: Record<string, ComponentMeta[]> = {};
     for (const meta of getAllBlockMetas()) {
       if (!grouped[meta.category]) {
-        grouped[meta.category] = []
+        grouped[meta.category] = [];
       }
-      grouped[meta.category].push(meta)
+      grouped[meta.category]!.push(meta);
     }
-    return grouped
+    return grouped;
   }
 
   return {
@@ -141,5 +143,5 @@ export function useBlockRegistry() {
     getAllBlockMetas,
     getBlockMetasByCategory,
     getGroupedBlockMetas,
-  }
+  };
 }

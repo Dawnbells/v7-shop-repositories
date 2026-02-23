@@ -2,42 +2,74 @@
 /**
  * ComponentPanel - 左侧组件面板
  * 用于展示可拖拽的组件列表
+ * 数据源：useBlockRegistry
  */
 
-const componentGroups = [
-  {
-    name: '基础组件',
-    icon: 'i-carbon-cube',
-    items: [
-      { name: '文本', icon: 'i-carbon-text-font' },
-      { name: '图片', icon: 'i-carbon-image' },
-      { name: '按钮', icon: 'i-carbon-touch-1' },
-      { name: '图标', icon: 'i-carbon-star' },
-    ]
-  },
-  {
-    name: '布局组件',
-    icon: 'i-carbon-grid',
-    items: [
-      { name: '容器', icon: 'i-carbon-box' },
-      { name: '栅格', icon: 'i-carbon-column' },
-      { name: '分割线', icon: 'i-carbon-subtract' },
-      { name: '间距', icon: 'i-carbon-arrows-vertical' },
-    ]
-  },
-  {
-    name: '业务组件',
-    icon: 'i-carbon-shopping-cart',
-    items: [
-      { name: '商品卡片', icon: 'i-carbon-product' },
-      { name: '轮播图', icon: 'i-carbon-carousel-horizontal' },
-      { name: '导航栏', icon: 'i-carbon-menu' },
-      { name: '页脚', icon: 'i-carbon-footer' },
-    ]
-  }
-]
+import type { ComponentMeta, ComponentCategory } from '~/types/component-meta'
+import { useBlockRegistry } from '~/composables/useBlockRegistry'
 
-const expandedGroups = ref<string[]>(['基础组件', '布局组件', '业务组件'])
+// 分类配置：显示名称和图标
+const CATEGORY_CONFIG: Record<ComponentCategory, { name: string; icon: string }> = {
+  basic: { name: '基础组件', icon: 'i-carbon-cube' },
+  layout: { name: '布局组件', icon: 'i-carbon-grid' },
+  business: { name: '业务组件', icon: 'i-carbon-shopping-cart' },
+  marketing: { name: '营销组件', icon: 'i-carbon-gift' },
+  form: { name: '表单组件', icon: 'i-carbon-text-input' },
+}
+
+// 分类显示顺序
+const CATEGORY_ORDER: ComponentCategory[] = ['basic', 'layout', 'business', 'marketing', 'form']
+
+// 从注册表获取组件元数据
+const { getGroupedBlockMetas } = useBlockRegistry()
+
+// 搜索关键词
+const searchQuery = ref('')
+
+// 按分类分组的组件元数据
+const groupedMetas = computed(() => getGroupedBlockMetas())
+
+// 组件分组（带搜索过滤）
+interface ComponentGroup {
+  key: ComponentCategory
+  name: string
+  icon: string
+  items: ComponentMeta[]
+}
+
+const componentGroups = computed<ComponentGroup[]>(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  const groups: ComponentGroup[] = []
+
+  for (const category of CATEGORY_ORDER) {
+    const config = CATEGORY_CONFIG[category]
+    const metas = groupedMetas.value[category] || []
+
+    // 过滤组件
+    const filteredMetas = query
+      ? metas.filter(meta => 
+          meta.name.toLowerCase().includes(query) ||
+          meta.type.toLowerCase().includes(query) ||
+          meta.tags?.some(tag => tag.toLowerCase().includes(query))
+        )
+      : metas
+
+    // 只添加有组件的分组
+    if (filteredMetas.length > 0) {
+      groups.push({
+        key: category,
+        name: config.name,
+        icon: config.icon,
+        items: filteredMetas,
+      })
+    }
+  }
+
+  return groups
+})
+
+// 默认展开所有分组
+const expandedGroups = ref<string[]>(Object.values(CATEGORY_CONFIG).map(c => c.name))
 
 function toggleGroup(name: string) {
   const index = expandedGroups.value.indexOf(name)
@@ -51,6 +83,19 @@ function toggleGroup(name: string) {
 function isExpanded(name: string) {
   return expandedGroups.value.includes(name)
 }
+
+// 拖拽开始事件
+function onDragStart(event: DragEvent, meta: ComponentMeta) {
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'copy'
+    event.dataTransfer.setData('application/json', JSON.stringify({
+      type: meta.type,
+      name: meta.name,
+      defaultProps: meta.defaultProps,
+      defaultStyle: meta.defaultStyle,
+    }))
+  }
+}
 </script>
 
 <template>
@@ -63,6 +108,7 @@ function isExpanded(name: string) {
     <div class="panel-search">
       <span class="i-carbon-search search-icon"></span>
       <input 
+        v-model="searchQuery"
         type="text" 
         class="search-input" 
         placeholder="搜索组件..."
@@ -92,9 +138,11 @@ function isExpanded(name: string) {
             <div class="component-grid">
               <div 
                 v-for="item in group.items"
-                :key="item.name"
+                :key="item.type"
                 class="component-item"
                 draggable="true"
+                :title="item.description"
+                @dragstart="onDragStart($event, item)"
               >
                 <div class="item-icon">
                   <span :class="item.icon"></span>
