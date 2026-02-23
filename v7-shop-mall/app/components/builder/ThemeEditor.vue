@@ -8,6 +8,7 @@ import type { TabItem } from './EditorTabs.vue'
 import type { CustomVariable } from '~/types/data-context'
 import { useIframeAuth } from '~/composables/useIframeAuth'
 import { useThemeSchema } from '~/composables/useThemeSchema'
+import { useCanvasState } from '~/composables/useCanvasState'
 
 // 获取 iframe 认证信息
 const { 
@@ -30,6 +31,22 @@ const {
   hasUnsavedChanges: themeHasUnsavedChanges,
   markAsSaved,
 } = useThemeSchema()
+
+// 画布状态管理
+const {
+  exportCanvasData,
+  importCanvasData,
+  currentPageId,
+  currentPageType,
+  allPagesInfo,
+  switchPage,
+  initializePages,
+  exportAllPagesData,
+  createPage,
+  createLayout,
+  removePage,
+  removeLayout,
+} = useCanvasState()
 
 // 变量管理状态
 const showVariableManager = ref(false)
@@ -76,9 +93,27 @@ async function loadThemeFromServer() {
         variableValues: result.data.variableValues || {},
         variableValuesI18n: result.data.variableValuesI18n || {},
       })
+      
+      // 加载画布数据（使用多页面初始化）
+      const themeConfig = result.data.themeConfig
+      if (themeConfig) {
+        // 使用 initializePages 初始化所有页面和布局
+        initializePages({
+          pages: themeConfig.pages || [],
+          layouts: themeConfig.layouts || [],
+        })
+        console.log('[ThemeEditor] 多页面数据加载成功')
+      } else {
+        // 没有数据时创建默认页面
+        initializePages({ pages: [], layouts: [] })
+        console.log('[ThemeEditor] 创建默认页面结构')
+      }
+      
       console.log('[ThemeEditor] 加载成功，变量数量:', variableSchema.value.length)
     } else {
-      console.log('[ThemeEditor] 无数据或加载失败:', result.message)
+      // 没有数据时创建默认页面
+      initializePages({ pages: [], layouts: [] })
+      console.log('[ThemeEditor] 无数据，创建默认页面结构')
     }
   } catch (error: any) {
     console.error('[ThemeEditor] 加载主题配置失败:', error)
@@ -232,15 +267,18 @@ function startResize(side: 'left' | 'right', event: PointerEvent) {
 const hasUnsavedChanges = computed(() => themeHasUnsavedChanges.value)
 const isSaving = ref(false)
 
-const currentTabKey = ref('home')
-const mockTabs: TabItem[] = [
-  { key: 'layout-default', label: '默认布局', type: 'layout' },
-  { key: 'home', label: '首页', type: 'page' },
-  { key: 'product', label: '商品详情', type: 'page' },
-  { key: 'orderResult', label: '订单结果', type: 'page' },
-  { key: 'article', label: '文章', type: 'page' },
-  { key: 'checkout', label: '收银台', type: 'page', removable: true },
-]
+// 从 useCanvasState 获取当前页面 ID
+const currentTabKey = computed(() => currentPageId.value)
+
+// 从 useCanvasState 获取 TAB 列表
+const tabs = computed<TabItem[]>(() => {
+  return allPagesInfo.value.map(info => ({
+    key: info.id,
+    label: info.name,
+    type: info.type,
+    removable: info.removable,
+  }))
+})
 
 // 事件处理
 function handleClose() {
@@ -262,6 +300,20 @@ async function handleSave() {
     // 使用 exportFullData 导出所有数据
     const fullData = exportFullData()
     
+    // 导出所有页面和布局数据
+    const { pages, layouts } = exportAllPagesData()
+    const now = new Date().toISOString()
+    
+    // 构建符合 ThemeConfig 类型的数据结构
+    const themeConfig = {
+      id: `theme_${query.value.spuId}`,
+      name: '落地页主题',
+      version: '1.0',
+      layouts,
+      pages,
+      updatedAt: now,
+    }
+    
     const response = await fetch('/api/builder/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -269,7 +321,7 @@ async function handleSave() {
         subDomainId: query.value.subDomainId,
         spuId: query.value.spuId,
         landingType: query.value.landingType || 'LAND',
-        themeConfig: {},
+        themeConfig,
         variableSchema: fullData.variableSchema,
         siteConfig: fullData.siteConfig,
         siteConfigI18n: fullData.siteConfigI18n,
@@ -295,15 +347,42 @@ async function handleSave() {
 }
 
 function handleSwitchTab(key: string) {
-  currentTabKey.value = key
+  // 根据 key 查找页面类型
+  const pageInfo = allPagesInfo.value.find(p => p.id === key)
+  if (pageInfo) {
+    switchPage(key, pageInfo.type)
+  }
 }
 
 function handleRemoveTab(key: string) {
-  console.log('Remove tab:', key)
+  const pageInfo = allPagesInfo.value.find(p => p.id === key)
+  if (!pageInfo) return
+
+  if (!confirm(`确定要删除"${pageInfo.name}"吗？`)) return
+
+  if (pageInfo.type === 'layout') {
+    removeLayout(key)
+  } else {
+    removePage(key)
+  }
 }
 
-function handleAddPage() {
-  console.log('Add page')
+function handleAddPage(type: 'checkout' | 'custom' | 'layout') {
+  const now = Date.now()
+  
+  if (type === 'layout') {
+    const layoutId = `layout_${now}`
+    createLayout(layoutId, '新布局')
+    switchPage(layoutId, 'layout')
+  } else if (type === 'checkout') {
+    const pageId = `checkout_${now}`
+    createPage(pageId, '收银台', 'checkout')
+    switchPage(pageId, 'page')
+  } else {
+    const pageId = `custom_${now}`
+    createPage(pageId, '自定义页面', 'custom')
+    switchPage(pageId, 'page')
+  }
 }
 </script>
 
@@ -324,7 +403,7 @@ function handleAddPage() {
 
     <!-- 页面 Tab 栏 -->
     <BuilderEditorTabs
-      :tabs="mockTabs"
+      :tabs="tabs"
       :active-key="currentTabKey"
       @switch="handleSwitchTab"
       @remove="handleRemoveTab"

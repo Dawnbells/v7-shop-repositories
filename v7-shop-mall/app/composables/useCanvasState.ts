@@ -1,16 +1,48 @@
 /**
  * 画布状态管理
- * 管理画布上的组件节点树、选中状态等
+ * 管理画布上的组件节点树、选中状态、多页面数据等
  */
 
-import type { ComponentNode, ResponsiveStyle } from '~/types/component-meta'
+import type { ComponentNode, ResponsiveStyle, PageData, LayoutData, ThemeConfig, PageType } from '~/types/component-meta'
+import { useBlockRegistry } from '~/composables/useBlockRegistry'
 
 // 生成唯一 ID
 function generateId(): string {
   return `node_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
 }
 
-// 画布组件节点树（根节点列表）
+// ============ 多页面数据存储 ============
+
+/**
+ * 页面信息（用于 TAB 显示）
+ */
+export interface PageInfo {
+  id: string
+  name: string
+  type: 'page' | 'layout'
+  pageType?: PageType
+  removable?: boolean
+}
+
+// 页面数据存储（key 为页面 ID）
+const pagesData = ref<Map<string, ComponentNode[]>>(new Map())
+
+// 布局数据存储（key 为布局 ID）
+const layoutsData = ref<Map<string, ComponentNode[]>>(new Map())
+
+// 页面元信息存储（用于生成 TAB）
+const pagesInfo = ref<Map<string, Omit<PageInfo, 'type'> & { pageType: PageType }>>(new Map())
+const layoutsInfo = ref<Map<string, { id: string; name: string; description?: string }>>(new Map())
+
+// 当前激活的页面/布局 ID
+const currentPageId = ref<string>('home')
+
+// 当前页面类型（page 或 layout）
+const currentPageType = ref<'page' | 'layout'>('page')
+
+// ============ 单页面状态 ============
+
+// 画布组件节点树（根节点列表）- 当前页面的节点
 const rootNodes = ref<ComponentNode[]>([])
 
 // 当前选中的节点 ID
@@ -51,7 +83,7 @@ export function useCanvasState() {
     parent: ComponentNode | null = null
   ): { parent: ComponentNode | null; index: number } | null {
     for (let i = 0; i < nodes.length; i++) {
-      const node = nodes[i]
+      const node = nodes[i]!
       if (node.id === nodeId) {
         return { parent, index: i }
       }
@@ -210,6 +242,378 @@ export function useCanvasState() {
   }
 
   /**
+   * 导出画布数据（用于保存到数据库）
+   * 非容器组件不保存 children 字段
+   */
+  function exportCanvasData(): ComponentNode[] {
+    const { getBlockMeta } = useBlockRegistry()
+    
+    function cleanNode(node: ComponentNode): ComponentNode {
+      const meta = getBlockMeta(node.type)
+      const isContainer = meta?.isContainer ?? false
+      
+      const cleaned: ComponentNode = {
+        id: node.id,
+        type: node.type,
+        name: node.name,
+        props: node.props,
+        style: node.style,
+        bindings: node.bindings,
+        styleBindings: node.styleBindings,
+        events: node.events,
+        locked: node.locked,
+        hidden: node.hidden,
+      }
+      
+      // 只有容器组件才保留 children
+      if (isContainer && node.children?.length) {
+        cleaned.children = node.children.map(cleanNode)
+      }
+      
+      // 移除 undefined 字段
+      return JSON.parse(JSON.stringify(cleaned))
+    }
+    
+    return rootNodes.value.map(cleanNode)
+  }
+
+  /**
+   * 导入画布数据（用于从数据库加载）
+   */
+  function importCanvasData(nodes: ComponentNode[]) {
+    rootNodes.value = nodes || []
+    selectedNodeId.value = null
+    hoveredNodeId.value = null
+  }
+
+  // ============ 多页面管理方法 ============
+
+  /**
+   * 保存当前页面数据到存储
+   */
+  function saveCurrentPage() {
+    const data = exportCanvasData()
+    if (currentPageType.value === 'layout') {
+      layoutsData.value.set(currentPageId.value, data)
+    } else {
+      pagesData.value.set(currentPageId.value, data)
+    }
+  }
+
+  /**
+   * 从存储加载指定页面数据到画布
+   */
+  function loadPageToCanvas(pageId: string, type: 'page' | 'layout') {
+    let nodes: ComponentNode[] = []
+    if (type === 'layout') {
+      nodes = layoutsData.value.get(pageId) || []
+    } else {
+      nodes = pagesData.value.get(pageId) || []
+    }
+    importCanvasData(JSON.parse(JSON.stringify(nodes)))
+  }
+
+  /**
+   * 切换页面
+   * 自动保存当前页面并加载目标页面
+   */
+  function switchPage(pageId: string, type: 'page' | 'layout') {
+    if (pageId === currentPageId.value && type === currentPageType.value) {
+      return
+    }
+
+    // 保存当前页面
+    saveCurrentPage()
+
+    // 更新当前页面标识
+    currentPageId.value = pageId
+    currentPageType.value = type
+
+    // 加载目标页面
+    loadPageToCanvas(pageId, type)
+
+    console.log(`[CanvasState] 切换到 ${type}: ${pageId}`)
+  }
+
+  /**
+   * 从 ThemeConfig 初始化所有页面数据
+   */
+  function initializePages(config: { pages?: PageData[]; layouts?: LayoutData[] }) {
+    // 清空现有数据
+    pagesData.value.clear()
+    layoutsData.value.clear()
+    pagesInfo.value.clear()
+    layoutsInfo.value.clear()
+
+    // 初始化布局数据
+    if (config.layouts?.length) {
+      for (const layout of config.layouts) {
+        const nodes = layout.root?.children || []
+        layoutsData.value.set(layout.id, nodes)
+        layoutsInfo.value.set(layout.id, {
+          id: layout.id,
+          name: layout.name,
+          description: layout.description,
+        })
+      }
+    }
+
+    // 初始化页面数据
+    if (config.pages?.length) {
+      for (const page of config.pages) {
+        const nodes = page.root?.children || []
+        pagesData.value.set(page.id, nodes)
+        pagesInfo.value.set(page.id, {
+          id: page.id,
+          name: page.name,
+          pageType: page.type,
+          removable: page.type === 'custom' || page.type === 'checkout',
+        })
+      }
+    }
+
+    // 如果没有任何页面，创建默认页面
+    if (pagesInfo.value.size === 0) {
+      createDefaultPages()
+    }
+
+    // 加载第一个页面（优先首页）
+    const homePageId = Array.from(pagesInfo.value.entries())
+      .find(([_, info]) => info.pageType === 'home')?.[0]
+    const firstPageId = homePageId || pagesInfo.value.keys().next().value || 'home'
+    
+    currentPageId.value = firstPageId
+    currentPageType.value = 'page'
+    loadPageToCanvas(firstPageId, 'page')
+
+    console.log('[CanvasState] 页面初始化完成:', {
+      layouts: layoutsInfo.value.size,
+      pages: pagesInfo.value.size,
+      currentPage: currentPageId.value,
+    })
+  }
+
+  /**
+   * 创建默认页面结构
+   */
+  function createDefaultPages() {
+    const defaultPages: Array<{ id: string; name: string; pageType: PageType; removable: boolean }> = [
+      { id: 'home', name: '首页', pageType: 'home', removable: false },
+      { id: 'product', name: '商品详情', pageType: 'product-detail', removable: false },
+      { id: 'orderResult', name: '订单结果', pageType: 'order-result', removable: false },
+      { id: 'article', name: '文章', pageType: 'article', removable: false },
+    ]
+
+    for (const page of defaultPages) {
+      pagesData.value.set(page.id, [])
+      pagesInfo.value.set(page.id, page)
+    }
+
+    // 创建默认布局
+    layoutsData.value.set('layout-default', [])
+    layoutsInfo.value.set('layout-default', {
+      id: 'layout-default',
+      name: '默认布局',
+    })
+  }
+
+  /**
+   * 导出所有页面/布局数据为 ThemeConfig 格式
+   */
+  function exportAllPagesData(): { pages: PageData[]; layouts: LayoutData[] } {
+    // 先保存当前页面
+    saveCurrentPage()
+
+    const { getBlockMeta } = useBlockRegistry()
+
+    function cleanNode(node: ComponentNode): ComponentNode {
+      const meta = getBlockMeta(node.type)
+      const isContainer = meta?.isContainer ?? false
+
+      const cleaned: ComponentNode = {
+        id: node.id,
+        type: node.type,
+        name: node.name,
+        props: node.props,
+        style: node.style,
+        bindings: node.bindings,
+        styleBindings: node.styleBindings,
+        events: node.events,
+        locked: node.locked,
+        hidden: node.hidden,
+      }
+
+      if (isContainer && node.children?.length) {
+        cleaned.children = node.children.map(cleanNode)
+      }
+
+      return JSON.parse(JSON.stringify(cleaned))
+    }
+
+    const now = new Date().toISOString()
+
+    // 导出页面
+    const pages: PageData[] = []
+    for (const [pageId, nodes] of pagesData.value.entries()) {
+      const info = pagesInfo.value.get(pageId)
+      if (!info) continue
+
+      pages.push({
+        id: pageId,
+        name: info.name,
+        type: info.pageType,
+        root: {
+          id: `root_${pageId}`,
+          type: 'container',
+          props: {},
+          style: {},
+          children: nodes.map(cleanNode),
+        },
+        updatedAt: now,
+      })
+    }
+
+    // 导出布局
+    const layouts: LayoutData[] = []
+    for (const [layoutId, nodes] of layoutsData.value.entries()) {
+      const info = layoutsInfo.value.get(layoutId)
+      if (!info) continue
+
+      layouts.push({
+        id: layoutId,
+        name: info.name,
+        description: info.description,
+        root: {
+          id: `root_${layoutId}`,
+          type: 'container',
+          props: {},
+          style: {},
+          children: nodes.map(cleanNode),
+        },
+        updatedAt: now,
+      })
+    }
+
+    return { pages, layouts }
+  }
+
+  /**
+   * 创建新页面
+   */
+  function createPage(pageId: string, name: string, pageType: PageType): boolean {
+    if (pagesData.value.has(pageId)) {
+      console.warn(`[CanvasState] 页面 ${pageId} 已存在`)
+      return false
+    }
+
+    pagesData.value.set(pageId, [])
+    pagesInfo.value.set(pageId, {
+      id: pageId,
+      name,
+      pageType,
+      removable: true,
+    })
+
+    console.log(`[CanvasState] 创建页面: ${pageId}`)
+    return true
+  }
+
+  /**
+   * 创建新布局
+   */
+  function createLayout(layoutId: string, name: string, description?: string): boolean {
+    if (layoutsData.value.has(layoutId)) {
+      console.warn(`[CanvasState] 布局 ${layoutId} 已存在`)
+      return false
+    }
+
+    layoutsData.value.set(layoutId, [])
+    layoutsInfo.value.set(layoutId, {
+      id: layoutId,
+      name,
+      description,
+    })
+
+    console.log(`[CanvasState] 创建布局: ${layoutId}`)
+    return true
+  }
+
+  /**
+   * 删除页面
+   */
+  function removePage(pageId: string): boolean {
+    const info = pagesInfo.value.get(pageId)
+    if (!info || !info.removable) {
+      console.warn(`[CanvasState] 页面 ${pageId} 不可删除`)
+      return false
+    }
+
+    pagesData.value.delete(pageId)
+    pagesInfo.value.delete(pageId)
+
+    // 如果删除的是当前页面，切换到首页
+    if (currentPageId.value === pageId && currentPageType.value === 'page') {
+      const homeId = 'home'
+      if (pagesData.value.has(homeId)) {
+        switchPage(homeId, 'page')
+      }
+    }
+
+    console.log(`[CanvasState] 删除页面: ${pageId}`)
+    return true
+  }
+
+  /**
+   * 删除布局
+   */
+  function removeLayout(layoutId: string): boolean {
+    if (!layoutsData.value.has(layoutId)) {
+      return false
+    }
+
+    layoutsData.value.delete(layoutId)
+    layoutsInfo.value.delete(layoutId)
+
+    // 如果删除的是当前布局，切换到首页
+    if (currentPageId.value === layoutId && currentPageType.value === 'layout') {
+      switchPage('home', 'page')
+    }
+
+    console.log(`[CanvasState] 删除布局: ${layoutId}`)
+    return true
+  }
+
+  /**
+   * 获取所有页面信息（用于 TAB 显示）
+   */
+  const allPagesInfo = computed<PageInfo[]>(() => {
+    const result: PageInfo[] = []
+
+    // 添加布局
+    for (const [id, info] of layoutsInfo.value.entries()) {
+      result.push({
+        id,
+        name: info.name,
+        type: 'layout',
+        removable: false,
+      })
+    }
+
+    // 添加页面
+    for (const [id, info] of pagesInfo.value.entries()) {
+      result.push({
+        id,
+        name: info.name,
+        type: 'page',
+        pageType: info.pageType,
+        removable: info.removable,
+      })
+    }
+
+    return result
+  })
+
+  /**
    * 获取选中的节点
    */
   const selectedNode = computed(() => {
@@ -223,14 +627,19 @@ export function useCanvasState() {
   const isEmpty = computed(() => rootNodes.value.length === 0)
 
   return {
-    // 状态
+    // 单页面状态
     rootNodes: readonly(rootNodes),
     selectedNodeId: readonly(selectedNodeId),
     hoveredNodeId: readonly(hoveredNodeId),
     selectedNode,
     isEmpty,
 
-    // 方法
+    // 多页面状态
+    currentPageId: readonly(currentPageId),
+    currentPageType: readonly(currentPageType),
+    allPagesInfo,
+
+    // 单页面方法
     createNode,
     addNode,
     removeNode,
@@ -240,5 +649,17 @@ export function useCanvasState() {
     moveNode,
     clearCanvas,
     findNodeById,
+    exportCanvasData,
+    importCanvasData,
+
+    // 多页面方法
+    switchPage,
+    initializePages,
+    exportAllPagesData,
+    createPage,
+    createLayout,
+    removePage,
+    removeLayout,
+    saveCurrentPage,
   }
 }

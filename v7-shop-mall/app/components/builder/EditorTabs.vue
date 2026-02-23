@@ -18,7 +18,7 @@ defineProps<{
 const emit = defineEmits<{
   'switch': [key: string]
   'remove': [key: string]
-  'add': []
+  'add': [type: 'checkout' | 'custom' | 'layout']
 }>()
 
 const showAddMenu = ref(false)
@@ -89,16 +89,16 @@ onUnmounted(() => {
 
       <Transition name="dropdown">
         <div v-if="showAddMenu" class="dropdown-menu">
-          <button class="dropdown-item" @click="emit('add'); showAddMenu = false">
+          <button class="dropdown-item" @click="emit('add', 'checkout'); showAddMenu = false">
             <span class="i-carbon-shopping-cart"></span>
             收银台
           </button>
-          <button class="dropdown-item" @click="emit('add'); showAddMenu = false">
+          <button class="dropdown-item" @click="emit('add', 'custom'); showAddMenu = false">
             <span class="i-carbon-document-add"></span>
             自定义页面
           </button>
           <div class="dropdown-divider"></div>
-          <button class="dropdown-item" @click="emit('add'); showAddMenu = false">
+          <button class="dropdown-item" @click="emit('add', 'layout'); showAddMenu = false">
             <span class="i-carbon-template"></span>
             添加布局
           </button>
