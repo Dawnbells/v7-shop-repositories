@@ -1,27 +1,95 @@
 <script setup lang="ts">
 /**
  * PropertyPanel - 右侧属性面板
- * 用于编辑选中组件的属性
+ * 用于编辑选中组件的属性，支持数据绑定
  */
 
-type TabType = 'style' | 'data' | 'action'
+import type { ComponentMeta, DataBinding } from '~/types/component-meta'
+import { useCanvasState } from '~/composables/useCanvasState'
+import { useBlockRegistry } from '~/composables/useBlockRegistry'
+import { useThemeSchema } from '~/composables/useThemeSchema'
 
-const activeTab = ref<TabType>('style')
+type TabType = 'props' | 'style' | 'action'
+
+const activeTab = ref<TabType>('props')
 
 const tabs: { key: TabType; label: string; icon: string }[] = [
+  { key: 'props', label: '属性', icon: 'i-carbon-settings-adjust' },
   { key: 'style', label: '样式', icon: 'i-carbon-paint-brush' },
-  { key: 'data', label: '数据', icon: 'i-carbon-data-base' },
   { key: 'action', label: '交互', icon: 'i-carbon-touch-interaction' }
 ]
 
-const hasSelection = ref(false)
+// 获取画布状态
+const { selectedNode, selectedNodeId, updateNode } = useCanvasState()
+const { getBlockMeta } = useBlockRegistry()
+const { variableSchema } = useThemeSchema()
+
+// 是否有选中组件
+const hasSelection = computed(() => !!selectedNode.value)
+
+// 选中组件的元数据
+const blockMeta = computed<ComponentMeta | null>(() => {
+  if (!selectedNode.value) return null
+  return getBlockMeta(selectedNode.value.type) || null
+})
+
+// 组件显示名称
+const componentName = computed(() => {
+  if (!selectedNode.value) return ''
+  return selectedNode.value.name || blockMeta.value?.name || selectedNode.value.type
+})
+
+// 可用变量列表
+const availableVariables = computed(() => variableSchema.value || [])
+
+// 获取属性的绑定配置
+function getBindingForProp(propKey: string): DataBinding | null {
+  if (!selectedNode.value?.bindings) return null
+  return selectedNode.value.bindings.find(b => b.propKey === propKey) || null
+}
+
+// 更新组件属性
+function updateProp(key: string, value: any) {
+  if (!selectedNodeId.value) return
+  updateNode(selectedNodeId.value, {
+    props: { [key]: value }
+  })
+}
+
+// 更新属性绑定
+function updateBinding(propKey: string, binding: DataBinding | null) {
+  if (!selectedNodeId.value || !selectedNode.value) return
+  
+  const currentBindings = selectedNode.value.bindings || []
+  let newBindings: DataBinding[]
+  
+  if (binding) {
+    // 添加或更新绑定
+    const existingIndex = currentBindings.findIndex(b => b.propKey === propKey)
+    if (existingIndex >= 0) {
+      newBindings = [...currentBindings]
+      newBindings[existingIndex] = binding
+    } else {
+      newBindings = [...currentBindings, binding]
+    }
+  } else {
+    // 移除绑定
+    newBindings = currentBindings.filter(b => b.propKey !== propKey)
+  }
+  
+  // 直接更新 bindings 字段
+  if (selectedNode.value) {
+    selectedNode.value.bindings = newBindings
+  }
+}
 </script>
 
 <template>
   <div class="property-panel">
     <div class="panel-header">
-      <span class="i-carbon-settings panel-icon"></span>
-      <span class="panel-title">属性</span>
+      <span v-if="blockMeta?.icon" :class="blockMeta.icon" class="panel-icon"></span>
+      <span v-else class="i-carbon-settings panel-icon"></span>
+      <span class="panel-title">{{ hasSelection ? componentName : '属性' }}</span>
     </div>
 
     <!-- Tab 切换 -->
@@ -46,6 +114,28 @@ const hasSelection = ref(false)
           <span class="i-carbon-cursor-1"></span>
         </div>
         <p class="empty-text">选择一个组件以编辑属性</p>
+      </div>
+
+      <!-- 属性面板 -->
+      <div v-else-if="activeTab === 'props'" class="tab-content">
+        <template v-if="blockMeta?.propsSchema?.length">
+          <div class="props-list">
+            <BuilderPropertyField
+              v-for="prop in blockMeta.propsSchema"
+              :key="prop.key"
+              :schema="prop"
+              :model-value="selectedNode?.props[prop.key]"
+              :binding="getBindingForProp(prop.key)"
+              :variables="availableVariables"
+              @update:model-value="updateProp(prop.key, $event)"
+              @update:binding="updateBinding(prop.key, $event)"
+            />
+          </div>
+        </template>
+        <div v-else class="empty-state small">
+          <span class="i-carbon-settings-adjust empty-icon-small"></span>
+          <p class="empty-text">该组件暂无可编辑属性</p>
+        </div>
       </div>
 
       <!-- 样式面板 -->
@@ -108,14 +198,6 @@ const hasSelection = ref(false)
               <input type="text" class="color-input" value="#ffffff" />
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- 数据面板 -->
-      <div v-else-if="activeTab === 'data'" class="tab-content">
-        <div class="empty-state small">
-          <span class="i-carbon-data-base empty-icon-small"></span>
-          <p class="empty-text">暂无数据绑定</p>
         </div>
       </div>
 
@@ -205,6 +287,13 @@ const hasSelection = ref(false)
 }
 
 .tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 属性列表 */
+.props-list {
   display: flex;
   flex-direction: column;
   gap: 16px;
