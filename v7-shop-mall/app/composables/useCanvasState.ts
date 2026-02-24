@@ -477,7 +477,7 @@ export function useCanvasState() {
         layoutId: info.layoutId,
         root: {
           id: `root_${pageId}`,
-          type: 'container',
+          type: 'column',
           props: {},
           style: {},
           children: nodes.map(cleanNode),
@@ -498,7 +498,7 @@ export function useCanvasState() {
         description: info.description,
         root: {
           id: `root_${layoutId}`,
-          type: 'container',
+          type: 'column',
           props: {},
           style: {},
           children: nodes.map(cleanNode),
