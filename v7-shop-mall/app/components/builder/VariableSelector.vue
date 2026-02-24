@@ -205,8 +205,8 @@ onUnmounted(() => {
               <!-- 展开的分组内容 -->
               <div v-show="expandedGroups.has(group.group)" class="tree-group-content">
                 <template v-for="category in group.categories" :key="category.key">
-                  <!-- 二级分类（如果只有一个分类且名称与分组相同，则不显示） -->
-                  <template v-if="group.categories.length > 1 || category.label !== group.label">
+                  <!-- 二级分类（如果只有一个分类且为默认分类 'other'，则不显示二级，直接展示字段） -->
+                  <template v-if="group.categories.length > 1 || (category.key !== 'other' && category.label !== group.label)">
                     <button
                       type="button"
                       class="tree-category-header"

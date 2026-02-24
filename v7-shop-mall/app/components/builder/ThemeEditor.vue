@@ -291,6 +291,12 @@ const hasCheckout = computed(() =>
   allPagesInfo.value.some(p => p.pageType === 'checkout')
 )
 
+// 获取当前页面的业务类型（用于加载预设数据）
+const currentPageBusinessType = computed<string>(() => {
+  const pageInfo = allPagesInfo.value.find(p => p.id === currentPageId.value)
+  return pageInfo?.pageType || 'home'
+})
+
 // 获取当前页面的预设数据集 ID 列表（用于自定义页面）
 const currentPagePresetIds = computed<string[]>(() => {
   const pageInfo = allPagesInfo.value.find(p => p.id === currentPageId.value)
@@ -508,7 +514,7 @@ function handlePageSettingsConfirm(layoutId: string | undefined) {
         class="panel-right"
         :style="{ width: `${rightPanelWidth}px` }"
       >
-        <BuilderPropertyPanel :page-type="currentPageType" :preset-ids="currentPagePresetIds" />
+        <BuilderPropertyPanel :page-type="currentPageBusinessType" :preset-ids="currentPagePresetIds" />
       </aside>
     </main>
 
