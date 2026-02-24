@@ -34,6 +34,13 @@ const emit = defineEmits<{
 // 弹出层状态
 const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
+const popoverRef = ref<HTMLElement | null>(null)
+
+// 弹出层位置
+const popoverStyle = ref({
+  top: '0px',
+  left: '0px',
+})
 
 // 搜索关键词
 const searchKeyword = ref('')
@@ -105,8 +112,41 @@ function clearSelection() {
 }
 
 // 打开弹出层
-function openPopover() {
+function openPopover(event: MouseEvent) {
+  // 计算弹出位置
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+  const popoverWidth = 360
+  const popoverMaxHeight = 480
+  
+  let left = event.clientX
+  let top = event.clientY + 8
+  
+  // 确保弹窗不超出右边界
+  if (left + popoverWidth > viewportWidth - 16) {
+    left = viewportWidth - popoverWidth - 16
+  }
+  
+  // 确保弹窗不超出左边界
+  if (left < 16) {
+    left = 16
+  }
+  
+  // 确保弹窗不超出下边界，如果超出则向上弹出
+  if (top + popoverMaxHeight > viewportHeight - 16) {
+    top = event.clientY - popoverMaxHeight - 8
+    if (top < 16) {
+      top = 16
+    }
+  }
+  
+  popoverStyle.value = {
+    top: `${top}px`,
+    left: `${left}px`,
+  }
+  
   isOpen.value = true
+  
   // 自动展开包含当前选中项的分组
   if (selectedSource.value) {
     expandedGroups.value.add(selectedSource.value.group)
@@ -125,7 +165,11 @@ function closePopover() {
 // 点击外部关闭
 function handleClickOutside(event: MouseEvent) {
   const target = event.target as HTMLElement
-  if (triggerRef.value && !triggerRef.value.contains(target)) {
+  // 检查点击是否在触发器或弹出层内
+  const isInsideTrigger = triggerRef.value?.contains(target)
+  const isInsidePopover = popoverRef.value?.contains(target)
+  
+  if (!isInsideTrigger && !isInsidePopover) {
     closePopover()
   }
 }
@@ -147,7 +191,7 @@ onUnmounted(() => {
       type="button"
       class="selector-trigger"
       :class="{ 'has-value': selectedSource }"
-      @click.stop="openPopover"
+      @click.stop="openPopover($event)"
     >
       <template v-if="selectedSource">
         <span class="selected-category">{{ selectedSource.categoryLabel || selectedSource.group }}</span>
@@ -170,7 +214,13 @@ onUnmounted(() => {
 
     <!-- 弹出层 -->
     <Teleport to="body">
-      <div v-if="isOpen" class="selector-popover" @click.stop>
+      <div
+        v-if="isOpen"
+        ref="popoverRef"
+        class="selector-popover"
+        :style="popoverStyle"
+        @click.stop
+      >
         <!-- 搜索框 -->
         <div class="search-box">
           <span class="search-icon i-carbon-search" />
@@ -357,19 +407,28 @@ onUnmounted(() => {
 /* 弹出层 */
 .selector-popover {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
   z-index: 9999;
   width: 360px;
   max-height: 480px;
   background: #1e293b;
   border: 1px solid rgba(71, 85, 105, 0.5);
   border-radius: 8px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: popoverFadeIn 0.15s ease-out;
+}
+
+@keyframes popoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 搜索框 */
@@ -405,6 +464,32 @@ onUnmounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
+}
+
+/* Webkit 滚动条样式 */
+.tree-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tree-container::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.tree-container::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 3px;
+  transition: background 0.15s ease;
+}
+
+.tree-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
+.tree-container::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* 分组 */
