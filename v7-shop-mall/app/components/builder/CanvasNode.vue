@@ -432,10 +432,11 @@ function onContainerDrop(event: DragEvent) {
   position: absolute;
   top: -24px;
   left: 0;
+  right: 0;
   z-index: 100;
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: space-between;
   pointer-events: none;
 }
 
