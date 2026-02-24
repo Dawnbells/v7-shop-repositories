@@ -14,9 +14,12 @@ import {
   useEditorDataContext,
   resolveExpression,
   getExpressionPreview,
-  generatePageContextFields,
-  generateVariableFields,
 } from "~/composables";
+import {
+  type BindableDataSource,
+  dataFieldTypeToVariableType,
+  filterCompatibleSources,
+} from "~/utils/type-matching";
 
 // Tab 类型
 type PanelTabKey = "props" | "style" | "events";
@@ -78,28 +81,32 @@ const styleForm = computed<Record<string, any>>(() => {
   };
 });
 
-// 页面预设数据字段
-const pageContextFields = computed(() => generatePageContextFields());
-
-// 自定义变量字段
-const variableFields = computed(() => {
-  const variables = variableSchema.value || [];
-  return generateVariableFields(variables);
+// 从编辑器上下文获取可绑定字段（已按页面类型生成）
+const bindableFields = computed(() => {
+  return editorDataContext.value.bindableFields || [];
 });
 
-// 可绑定字段（合并页面预设和自定义变量）
-const bindableFields = computed(() => {
-  return [...pageContextFields.value, ...variableFields.value];
+// 将 BindableField 转换为 BindableDataSource（用于 PropertyField）
+const bindableDataSources = computed((): BindableDataSource[] => {
+  return bindableFields.value.map(field => ({
+    key: field.path,
+    label: field.label,
+    type: dataFieldTypeToVariableType(field.type),
+    group: field.source === 'preset' ? 'preset' : field.source === 'variable' ? 'variable' : 'siteConfig',
+    groupLabel: field.categoryLabel || field.source,
+    description: field.description,
+    category: field.category,
+    categoryLabel: field.categoryLabel,
+  }));
 });
 
 // 是否有可绑定字段
 const hasBindableFields = computed(() => bindableFields.value.length > 0);
 
-// 是否有页面预设字段
-const hasPageContextFields = computed(() => pageContextFields.value.length > 0);
-
-// 是否有自定义变量字段
-const hasVariableFields = computed(() => variableFields.value.length > 0);
+// 根据属性类型获取兼容的数据源
+function getDataSourcesForProp(prop: { key: string; type: string }): BindableDataSource[] {
+  return filterCompatibleSources(bindableDataSources.value, prop.type as any);
+}
 
 // 初始化绑定模式
 watch(
@@ -485,38 +492,13 @@ function handleCopy() {
                       )
                     "
                   />
-                  <select
-                    class="property-input binding-select"
-                    :value="getPropExpression(prop.key)"
-                    @change="
-                      handleBindingChange(
-                        prop.key,
-                        ($event.target as HTMLSelectElement).value
-                      )
-                    "
-                  >
-                    <option value="">-- 选择数据字段 --</option>
-                    <!-- 页面预设数据 -->
-                    <optgroup v-if="hasPageContextFields" label="页面预设数据">
-                      <option
-                        v-for="field in pageContextFields"
-                        :key="field.path"
-                        :value="field.path"
-                      >
-                        {{ field.label }} ({{ field.path }})
-                      </option>
-                    </optgroup>
-                    <!-- 自定义变量 -->
-                    <optgroup v-if="hasVariableFields" label="自定义变量">
-                      <option
-                        v-for="field in variableFields"
-                        :key="field.path"
-                        :value="field.path"
-                      >
-                        {{ field.label }} ({{ field.path }})
-                      </option>
-                    </optgroup>
-                  </select>
+                  <!-- 使用层级变量选择器 -->
+                  <BuilderVariableSelector
+                    :model-value="getPropExpression(prop.key) || ''"
+                    :data-sources="getDataSourcesForProp(prop)"
+                    placeholder="选择数据源..."
+                    @update:model-value="(v: string) => handleBindingChange(prop.key, v)"
+                  />
                   <div
                     v-if="getPropExpression(prop.key)"
                     class="binding-preview"

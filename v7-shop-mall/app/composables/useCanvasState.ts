@@ -23,6 +23,7 @@ export interface PageInfo {
   pageType?: PageType
   removable?: boolean
   layoutId?: string
+  presetIds?: string[]
 }
 
 // 页面数据存储（key 为页面 ID）
@@ -32,7 +33,7 @@ const pagesData = ref<Map<string, ComponentNode[]>>(new Map())
 const layoutsData = ref<Map<string, ComponentNode[]>>(new Map())
 
 // 页面元信息存储（用于生成 TAB）
-const pagesInfo = ref<Map<string, Omit<PageInfo, 'type'> & { pageType: PageType; layoutId?: string }>>(new Map())
+const pagesInfo = ref<Map<string, Omit<PageInfo, 'type'> & { pageType: PageType; layoutId?: string; presetIds?: string[] }>>(new Map())
 const layoutsInfo = ref<Map<string, { id: string; name: string; description?: string }>>(new Map())
 
 // 当前激活的页面/布局 ID
@@ -545,7 +546,13 @@ export function useCanvasState() {
   /**
    * 创建新页面
    */
-  function createPage(pageId: string, name: string, pageType: PageType, layoutId?: string): boolean {
+  function createPage(
+    pageId: string,
+    name: string,
+    pageType: PageType,
+    layoutId?: string,
+    presetIds?: string[]
+  ): boolean {
     if (pagesData.value.has(pageId)) {
       console.warn(`[CanvasState] 页面 ${pageId} 已存在`)
       return false
@@ -558,10 +565,11 @@ export function useCanvasState() {
       pageType,
       removable: true,
       layoutId,
+      presetIds,
     })
 
     canvasDirty.value = true
-    console.log(`[CanvasState] 创建页面: ${pageId}`)
+    console.log(`[CanvasState] 创建页面: ${pageId}, presetIds: ${presetIds?.join(', ') || 'none'}`)
     return true
   }
 
@@ -658,6 +666,7 @@ export function useCanvasState() {
         pageType: info.pageType,
         removable: info.removable,
         layoutId: info.layoutId,
+        presetIds: info.presetIds,
       })
     }
 

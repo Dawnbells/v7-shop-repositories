@@ -236,41 +236,22 @@ export function getExpressionPreview(expression: string, context: Record<string,
   return String(value);
 }
 
-/**
- * 页面预设数据字段定义
- * 基于 PageContext 类型生成的可绑定字段列表
- */
-export const PAGE_CONTEXT_FIELDS: BindableField[] = [
-  // 域名信息
-  { path: "pageContext.domain.fullName", label: "完整域名", type: "string", source: "preset" },
-  { path: "pageContext.domain.name", label: "域名名称", type: "string", source: "preset" },
+// ============ 预设数据集相关（从 constants 导入） ============
 
-  // 国家信息
-  { path: "pageContext.country.code", label: "国家代码", type: "string", source: "preset" },
-  { path: "pageContext.country.name", label: "国家名称", type: "string", source: "preset" },
-  { path: "pageContext.country.phonePrefix", label: "电话前缀", type: "string", source: "preset" },
-
-  // 货币信息
-  { path: "pageContext.currency.code", label: "货币代码", type: "string", source: "preset" },
-  { path: "pageContext.currency.name", label: "货币名称", type: "string", source: "preset" },
-  { path: "pageContext.currency.symbol", label: "货币符号", type: "string", source: "preset" },
-  { path: "pageContext.currency.exchangeRate", label: "汇率", type: "number", source: "preset" },
-
-  // 语言信息
-  { path: "pageContext.languages[0].code", label: "当前语言代码", type: "string", source: "preset" },
-  { path: "pageContext.languages[0].name", label: "当前语言名称", type: "string", source: "preset" },
-
-  // 公司信息
-  { path: "pageContext.company.name", label: "公司名称", type: "string", source: "preset" },
-  { path: "pageContext.company.domain", label: "公司域名", type: "string", source: "preset" },
-];
+import {
+  PRESET_DATASETS,
+  getBindableFieldsForPageType,
+  getMockDataForPageType,
+  type BindableFieldExt,
+} from "~/constants/preset-datasets";
 
 /**
  * 生成页面预设数据的可绑定字段列表
+ * @deprecated 建议使用 getBindableFieldsForPageType
  * @returns 页面预设数据字段列表
  */
 export function generatePageContextFields(): BindableField[] {
-  return PAGE_CONTEXT_FIELDS;
+  return PRESET_DATASETS.pageContext.fields;
 }
 
 /**
@@ -286,57 +267,34 @@ export function generateVariableFields(
     label: v.label,
     type: v.type as any,
     source: "variable" as const,
+    category: "variable",
+    categoryLabel: "自定义变量",
   }));
 }
 
 /**
  * 合并所有可绑定字段（页面预设 + 自定义变量）
  * @param customVariables 自定义变量列表
+ * @param pageType 页面类型（可选，默认使用通用页面上下文）
  * @returns 合并后的可绑定字段列表
  */
 export function generateAllBindableFields(
-  customVariables: Array<{ key: string; label: string; type: string }> = []
+  customVariables: Array<{ key: string; label: string; type: string }> = [],
+  pageType?: string
 ): BindableField[] {
-  const pageContextFields = generatePageContextFields();
+  const presetFields = pageType
+    ? getBindableFieldsForPageType(pageType)
+    : PRESET_DATASETS.pageContext.fields;
   const variableFields = generateVariableFields(customVariables);
-  return [...pageContextFields, ...variableFields];
+  return [...presetFields, ...variableFields];
 }
-
-/**
- * 产品页可绑定字段列表
- */
-const PRODUCT_FIELDS: BindableField[] = [
-  { path: "product.id", label: "产品 ID", type: "number", source: "preset" },
-  { path: "product.spuId", label: "产品 SPU ID", type: "number", source: "preset" },
-  { path: "product.title", label: "产品标题", type: "string", source: "preset" },
-  { path: "product.merchandise", label: "商品名称", type: "string", source: "preset" },
-  { path: "product.introduction", label: "产品介绍", type: "string", source: "preset" },
-  { path: "product.summary", label: "产品摘要", type: "string", source: "preset" },
-  { path: "product.sellPrice", label: "销售价格", type: "number", source: "preset" },
-  { path: "product.originPrice", label: "原价", type: "number", source: "preset" },
-  { path: "product.isMultiSpecs", label: "是否多规格", type: "boolean", source: "preset" },
-  { path: "product.images", label: "产品图片列表", type: "array", source: "preset" },
-  { path: "product.images[0].relativePath", label: "首张图片路径", type: "string", source: "preset" },
-  { path: "product.specifications", label: "产品规格列表", type: "array", source: "preset" },
-];
-
-/**
- * 文章页可绑定字段列表
- */
-const ARTICLE_FIELDS: BindableField[] = [
-  { path: "article.id", label: "文章 ID", type: "number", source: "preset" },
-  { path: "article.title", label: "文章标题", type: "string", source: "preset" },
-  { path: "article.name", label: "文章名称", type: "string", source: "preset" },
-  { path: "article.description", label: "文章描述", type: "string", source: "preset" },
-  { path: "article.content", label: "文章内容", type: "string", source: "preset" },
-];
 
 /**
  * 生成产品页可绑定字段列表
  * @returns 产品页可绑定字段列表
  */
 export function generateProductFields(): BindableField[] {
-  return PRODUCT_FIELDS;
+  return PRESET_DATASETS.product.fields;
 }
 
 /**
@@ -344,5 +302,29 @@ export function generateProductFields(): BindableField[] {
  * @returns 文章页可绑定字段列表
  */
 export function generateArticleFields(): BindableField[] {
-  return ARTICLE_FIELDS;
+  return PRESET_DATASETS.article.fields;
+}
+
+/**
+ * 根据页面类型生成可绑定字段列表
+ * @param pageType 页面类型
+ * @param customVariables 自定义变量列表
+ * @returns 可绑定字段列表
+ */
+export function generateBindableFieldsForPage(
+  pageType: string,
+  customVariables: Array<{ key: string; label: string; type: string }> = []
+): BindableFieldExt[] {
+  const presetFields = getBindableFieldsForPageType(pageType);
+  const variableFields = generateVariableFields(customVariables) as BindableFieldExt[];
+  return [...presetFields, ...variableFields];
+}
+
+/**
+ * 根据页面类型获取 Mock 数据
+ * @param pageType 页面类型
+ * @returns Mock 数据
+ */
+export function getMockDataForPage(pageType: string): Record<string, any> {
+  return getMockDataForPageType(pageType);
 }

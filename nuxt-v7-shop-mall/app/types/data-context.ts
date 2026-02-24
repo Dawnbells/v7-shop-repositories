@@ -218,14 +218,22 @@ export interface GlobalDataContext {
 // ============ 可绑定字段 ============
 
 /**
+ * 数据来源类型
+ */
+export type BindableFieldSource = "preset" | "variable" | "siteConfig" | "globalStyle";
+
+/**
  * 可绑定字段信息
  */
 export interface BindableField {
   path: string;                         // 字段路径，如 "product.title"
   label: string;                        // 显示名称
   type: DataFieldType;                  // 字段类型
-  source: "preset" | "variable" | "global" | "site"; // 数据来源
-  dataSetId?: string;                   // 数据集 ID（如果来自数据集）
+  source: BindableFieldSource;          // 数据来源
+  category?: string;                    // 分类键（用于层级分组），如 "product"、"domain"
+  categoryLabel?: string;               // 分类显示名称，如 "产品信息"
+  description?: string;                 // 字段描述
+  presetId?: string;                    // 所属预设数据集 ID（如果来自预设数据集）
 }
 
 // ============ 站点配置 ============

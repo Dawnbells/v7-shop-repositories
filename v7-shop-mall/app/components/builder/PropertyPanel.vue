@@ -10,10 +10,26 @@ import { useBlockRegistry } from '~/composables/useBlockRegistry'
 import { useThemeSchema } from '~/composables/useThemeSchema'
 import { SITE_CONFIG_SCHEMA } from '~/constants/site-config.schema'
 import {
+  getBindableFieldsForPageType,
+  dataFieldTypeToVariableType,
+  getPresetDataSet,
+  type BindableFieldExt,
+} from '~/constants/preset-datasets'
+import {
   type BindableDataSource,
   propTypeToVariableType,
   filterCompatibleSources,
 } from '~/utils/type-matching'
+
+interface Props {
+  pageType?: string
+  presetIds?: string[]
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  pageType: 'landing',
+  presetIds: () => [],
+})
 
 type TabType = 'props' | 'style' | 'action'
 
@@ -57,11 +73,43 @@ const componentName = computed(() => {
   return selectedNode.value.name || blockMeta.value?.name || selectedNode.value.type
 })
 
+// 根据页面类型或自定义预设 ID 获取预设字段
+function getPresetFieldsForPage(): BindableFieldExt[] {
+  // 自定义页面使用 presetIds
+  if (props.pageType === 'custom' && props.presetIds.length > 0) {
+    const fields: BindableFieldExt[] = []
+    for (const presetId of props.presetIds) {
+      const preset = getPresetDataSet(presetId)
+      if (preset) {
+        fields.push(...preset.fields)
+      }
+    }
+    return fields
+  }
+  // 其他页面类型使用固定映射
+  return getBindableFieldsForPageType(props.pageType)
+}
+
 // 合并所有可绑定数据源
 const allDataSources = computed<BindableDataSource[]>(() => {
   const sources: BindableDataSource[] = []
 
-  // 1. 自定义变量
+  // 1. 页面预设数据（根据页面类型或自定义预设 ID 动态获取）
+  const presetFields = getPresetFieldsForPage()
+  for (const field of presetFields) {
+    sources.push({
+      key: field.path,
+      label: field.label,
+      type: dataFieldTypeToVariableType(field.type),
+      group: 'preset',
+      groupLabel: '页面预设数据',
+      description: field.description,
+      category: field.category,
+      categoryLabel: field.categoryLabel,
+    })
+  }
+
+  // 2. 自定义变量
   for (const variable of variableSchema.value || []) {
     sources.push({
       key: variable.key,
@@ -73,7 +121,7 @@ const allDataSources = computed<BindableDataSource[]>(() => {
     })
   }
 
-  // 2. 全局配置（siteConfig）和全局皮肤变量（globalStyle）
+  // 3. 全局配置（siteConfig）和全局皮肤变量（globalStyle）
   for (const field of SITE_CONFIG_SCHEMA) {
     const isGlobalStyle = field.group.startsWith('globalStyle')
     sources.push({
@@ -89,14 +137,14 @@ const allDataSources = computed<BindableDataSource[]>(() => {
   return sources
 })
 
-// 属性面板数据源：全局配置 + 自定义变量
+// 属性面板数据源：页面预设 + 全局配置 + 自定义变量
 const propDataSources = computed(() =>
-  allDataSources.value.filter(s => s.group === 'variable' || s.group === 'siteConfig')
+  allDataSources.value.filter(s => s.group === 'preset' || s.group === 'variable' || s.group === 'siteConfig')
 )
 
-// 样式面板数据源：全局皮肤 + 自定义变量
+// 样式面板数据源：页面预设 + 全局皮肤 + 自定义变量
 const styleDataSources = computed(() =>
-  allDataSources.value.filter(s => s.group === 'variable' || s.group === 'globalStyle')
+  allDataSources.value.filter(s => s.group === 'preset' || s.group === 'variable' || s.group === 'globalStyle')
 )
 
 // 根据属性类型获取兼容的数据源（属性面板使用）

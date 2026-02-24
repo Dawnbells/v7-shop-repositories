@@ -1,7 +1,10 @@
 <script setup lang="ts">
 /**
  * PageAddDialog - 添加页面/布局弹窗
+ * 支持自定义页面选择预设数据集
  */
+
+import { getPresetDataSetList, type PresetDataSet } from '~/constants/preset-datasets'
 
 const props = defineProps<{
   visible: boolean
@@ -11,7 +14,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'close': []
-  'confirm': [data: { name: string; path?: string; description?: string; layoutId?: string }]
+  'confirm': [data: { name: string; path?: string; description?: string; layoutId?: string; presetIds?: string[] }]
 }>()
 
 const formData = reactive({
@@ -19,7 +22,28 @@ const formData = reactive({
   path: '',
   description: '',
   layoutId: '',
+  presetIds: [] as string[],
 })
+
+// 获取所有可用的预设数据集
+const availablePresets = computed<PresetDataSet[]>(() => {
+  return getPresetDataSetList().filter(p => p.id !== 'landing')
+})
+
+// 切换预设选择
+function togglePreset(presetId: string) {
+  const index = formData.presetIds.indexOf(presetId)
+  if (index >= 0) {
+    formData.presetIds.splice(index, 1)
+  } else {
+    formData.presetIds.push(presetId)
+  }
+}
+
+// 检查预设是否被选中
+function isPresetSelected(presetId: string): boolean {
+  return formData.presetIds.includes(presetId)
+}
 
 const isCustomPage = computed(() => props.type === 'custom')
 const title = computed(() => isCustomPage.value ? '添加自定义页面' : '添加布局')
@@ -29,6 +53,7 @@ function resetForm() {
   formData.path = ''
   formData.description = ''
   formData.layoutId = ''
+  formData.presetIds = []
 }
 
 function handleClose() {
@@ -47,6 +72,7 @@ function handleConfirm() {
     path: isCustomPage.value ? formData.path.trim() || undefined : undefined,
     description: !isCustomPage.value ? formData.description.trim() || undefined : undefined,
     layoutId: isCustomPage.value && formData.layoutId ? formData.layoutId : undefined,
+    presetIds: isCustomPage.value && formData.presetIds.length > 0 ? [...formData.presetIds] : undefined,
   })
 
   resetForm()
@@ -119,6 +145,33 @@ watch(() => props.visible, (newVal) => {
                   {{ layout.name }}
                 </option>
               </select>
+            </div>
+
+            <div v-if="isCustomPage" class="form-group">
+              <label class="form-label">
+                预设数据集
+                <span class="form-hint">（可选，选择该页面可绑定的数据类型）</span>
+              </label>
+              <div class="preset-list">
+                <button
+                  v-for="preset in availablePresets"
+                  :key="preset.id"
+                  type="button"
+                  class="preset-item"
+                  :class="{ selected: isPresetSelected(preset.id) }"
+                  @click="togglePreset(preset.id)"
+                >
+                  <span :class="preset.icon || 'i-carbon-data-base'" class="preset-icon" />
+                  <div class="preset-info">
+                    <span class="preset-name">{{ preset.name }}</span>
+                    <span v-if="preset.description" class="preset-desc">{{ preset.description }}</span>
+                  </div>
+                  <span
+                    class="preset-check"
+                    :class="isPresetSelected(preset.id) ? 'i-carbon-checkmark-filled' : 'i-carbon-checkbox'"
+                  />
+                </button>
+              </div>
             </div>
 
             <div v-if="!isCustomPage" class="form-group">
@@ -312,6 +365,83 @@ watch(() => props.visible, (newVal) => {
 
 .input-with-prefix .form-input {
   border-radius: 0 8px 8px 0;
+}
+
+/* 预设数据集选择列表 */
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preset-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  font-size: 13px;
+  text-align: left;
+  color: #e2e8f0;
+  background: #0f172a;
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preset-item:hover {
+  background: rgba(51, 65, 85, 0.3);
+  border-color: rgba(71, 85, 105, 0.8);
+}
+
+.preset-item.selected {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.preset-icon {
+  flex-shrink: 0;
+  font-size: 18px;
+  color: #94a3b8;
+}
+
+.preset-item.selected .preset-icon {
+  color: #3b82f6;
+}
+
+.preset-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preset-name {
+  font-weight: 500;
+  color: #f1f5f9;
+}
+
+.preset-item.selected .preset-name {
+  color: #3b82f6;
+}
+
+.preset-desc {
+  font-size: 11px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-check {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: #64748b;
+}
+
+.preset-item.selected .preset-check {
+  color: #3b82f6;
 }
 
 .dialog-footer {

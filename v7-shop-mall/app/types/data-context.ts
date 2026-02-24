@@ -5,6 +5,20 @@
 
 import type { GlobalStyle } from './theme'
 
+// ============ 数据字段类型 ============
+
+/**
+ * 数据字段类型（用于预设数据和可绑定字段）
+ */
+export type DataFieldType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'object'
+  | 'array'
+  | 'image'
+  | 'richtext'
+
 // ============ 变量类型 ============
 
 /**

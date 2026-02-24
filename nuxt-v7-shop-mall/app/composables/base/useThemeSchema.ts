@@ -298,7 +298,11 @@ export function useThemeSchema() {
   }
 
   // 添加自定义页面
-  function addCustomPage(slug: string, name: string): CustomPageSchema {
+  function addCustomPage(
+    slug: string,
+    name: string,
+    options?: { presetIds?: string[] }
+  ): CustomPageSchema {
     if (!themeState.value) {
       throw new Error("Theme not initialized");
     }
@@ -310,6 +314,12 @@ export function useThemeSchema() {
       pageType: "custom",
       components: [],
       meta: { title: name },
+      dataContext: options?.presetIds?.length
+        ? {
+            presets: options.presetIds.map(id => ({ dataSetId: id })),
+            variables: [],
+          }
+        : undefined,
     };
 
     themeState.value.pages.custom.push(newPage);

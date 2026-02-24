@@ -291,6 +291,12 @@ const hasCheckout = computed(() =>
   allPagesInfo.value.some(p => p.pageType === 'checkout')
 )
 
+// 获取当前页面的预设数据集 ID 列表（用于自定义页面）
+const currentPagePresetIds = computed<string[]>(() => {
+  const pageInfo = allPagesInfo.value.find(p => p.id === currentPageId.value)
+  return pageInfo?.presetIds || []
+})
+
 // 添加页面弹窗状态
 const showAddDialog = ref(false)
 const addDialogType = ref<'custom' | 'layout'>('custom')
@@ -403,7 +409,7 @@ function handleAddPage(type: 'checkout' | 'custom' | 'layout') {
 }
 
 // 弹窗确认回调
-function handleDialogConfirm(data: { name: string; path?: string; description?: string; layoutId?: string }) {
+function handleDialogConfirm(data: { name: string; path?: string; description?: string; layoutId?: string; presetIds?: string[] }) {
   const now = Date.now()
 
   if (addDialogType.value === 'layout') {
@@ -412,7 +418,7 @@ function handleDialogConfirm(data: { name: string; path?: string; description?: 
     switchPage(layoutId, 'layout')
   } else {
     const pageId = `custom_${now}`
-    createPage(pageId, data.name, 'custom', data.layoutId)
+    createPage(pageId, data.name, 'custom', data.layoutId, data.presetIds)
     switchPage(pageId, 'page')
   }
 
@@ -502,7 +508,7 @@ function handlePageSettingsConfirm(layoutId: string | undefined) {
         class="panel-right"
         :style="{ width: `${rightPanelWidth}px` }"
       >
-        <BuilderPropertyPanel />
+        <BuilderPropertyPanel :page-type="currentPageType" :preset-ids="currentPagePresetIds" />
       </aside>
     </main>
 

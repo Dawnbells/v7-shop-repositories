@@ -3,8 +3,40 @@
  * 用于判断属性类型与变量类型是否兼容
  */
 
-import type { PropEditorType } from '~/types/component-meta'
-import type { VariableType, DataFieldType } from '~/types/data-context'
+import type { DataFieldType, BindableField } from '~/types/data-context'
+
+// 从 preset-datasets 导入类型
+import type { BindableFieldExt, BindableFieldSource } from '~/constants/preset-datasets'
+
+/**
+ * 变量类型
+ */
+export type VariableType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'color'
+  | 'image'
+  | 'richtext'
+  | 'enum'
+  | 'array'
+  | 'object'
+
+/**
+ * 属性编辑器类型
+ */
+export type PropEditorType =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'switch'
+  | 'color'
+  | 'image'
+  | 'richtext'
+  | 'select'
+  | 'radio'
+  | 'json'
+  | 'icon'
 
 /**
  * 可绑定数据源分组类型
@@ -13,16 +45,15 @@ export type DataSourceGroup = 'preset' | 'variable' | 'siteConfig' | 'globalStyl
 
 /**
  * 可绑定数据源接口
- * 统一表示自定义变量和全局配置
  */
 export interface BindableDataSource {
-  key: string              // 完整键名（如 globalConfig.siteName 或变量 key）
+  key: string              // 完整键名
   label: string            // 显示名称
   type: VariableType       // 数据类型
   group: DataSourceGroup   // 数据来源分组
   groupLabel: string       // 来源显示名称
   description?: string     // 描述说明
-  category?: string        // 分类键（用于层级分组）
+  category?: string        // 分类键
   categoryLabel?: string   // 分类显示名称
 }
 
@@ -40,9 +71,9 @@ export const DATA_SOURCE_GROUP_CONFIG: Record<DataSourceGroup, { label: string; 
  * 分类分组结构
  */
 export interface CategoryGroup {
-  key: string               // 分类键
-  label: string             // 分类显示名称
-  sources: BindableDataSource[]  // 该分类下的数据源
+  key: string
+  label: string
+  sources: BindableDataSource[]
 }
 
 /**
@@ -74,8 +105,6 @@ const TYPE_COMPATIBILITY_MAP: Record<PropEditorType, VariableType[]> = {
 
 /**
  * 获取与属性类型兼容的变量类型列表
- * @param propType 属性编辑器类型
- * @returns 兼容的变量类型数组
  */
 export function getCompatibleVariableTypes(propType: PropEditorType): VariableType[] {
   return TYPE_COMPATIBILITY_MAP[propType] || ['string']
@@ -83,9 +112,6 @@ export function getCompatibleVariableTypes(propType: PropEditorType): VariableTy
 
 /**
  * 判断属性类型与变量类型是否兼容
- * @param propType 属性编辑器类型
- * @param variableType 变量类型
- * @returns 是否兼容
  */
 export function isTypeCompatible(
   propType: PropEditorType,
@@ -96,33 +122,23 @@ export function isTypeCompatible(
 }
 
 /**
- * 将 PropEditorType 转换为对应的 VariableType
- * 用于将 SiteConfigSchema 的 type 转换为 VariableType
- * @param propType 属性编辑器类型
- * @returns 对应的变量类型
+ * DataFieldType 到 VariableType 的映射
  */
-export function propTypeToVariableType(propType: PropEditorType): VariableType {
-  const mapping: Record<PropEditorType, VariableType> = {
-    text: 'string',
-    textarea: 'string',
+export function dataFieldTypeToVariableType(fieldType: DataFieldType): VariableType {
+  const mapping: Record<DataFieldType, VariableType> = {
+    string: 'string',
     number: 'number',
-    switch: 'boolean',
-    color: 'color',
+    boolean: 'boolean',
+    object: 'object',
+    array: 'array',
     image: 'image',
     richtext: 'richtext',
-    select: 'string',
-    radio: 'string',
-    json: 'object',
-    icon: 'string',
   }
-  return mapping[propType] || 'string'
+  return mapping[fieldType] || 'string'
 }
 
 /**
  * 过滤出与属性类型兼容的数据源
- * @param sources 所有数据源
- * @param propType 属性编辑器类型
- * @returns 兼容的数据源列表
  */
 export function filterCompatibleSources(
   sources: BindableDataSource[],
@@ -133,8 +149,6 @@ export function filterCompatibleSources(
 
 /**
  * 按分组对数据源进行分组
- * @param sources 数据源列表
- * @returns 分组后的数据源
  */
 export function groupDataSources(
   sources: BindableDataSource[]
@@ -157,8 +171,6 @@ export function groupDataSources(
 
 /**
  * 按数据源和分类进行层级分组
- * @param sources 数据源列表
- * @returns 层级分组结构
  */
 export function groupDataSourcesHierarchically(
   sources: BindableDataSource[]
@@ -206,20 +218,4 @@ export function groupDataSourcesHierarchically(
   }
 
   return result
-}
-
-/**
- * DataFieldType 到 VariableType 的映射
- */
-export function dataFieldTypeToVariableType(fieldType: DataFieldType): VariableType {
-  const mapping: Record<DataFieldType, VariableType> = {
-    string: 'string',
-    number: 'number',
-    boolean: 'boolean',
-    object: 'object',
-    array: 'array',
-    image: 'image',
-    richtext: 'richtext',
-  }
-  return mapping[fieldType] || 'string'
 }

@@ -9,12 +9,11 @@ import {
 } from "~/types/theme";
 import {
   provideEditorDataContext,
-  generatePageContextFields,
-  generateVariableFields,
-  generateProductFields,
-  generateArticleFields,
+  generateBindableFieldsForPage,
+  getMockDataForPage,
 } from "~/composables";
 import { useIframeAuth } from "~/composables";
+import { getPresetDataSetList } from "~/constants/preset-datasets";
 
 // 获取 iframe 认证信息
 const { 
@@ -84,37 +83,37 @@ const currentPageType = computed(() => {
   const key = currentPageKey.value;
   if (key === 'product') return 'product';
   if (key === 'article') return 'article';
+  if (key === 'landing' || isLandingMode.value) return 'landing';
   if (key?.startsWith('home')) return 'home';
-  return 'general';
+  return 'home'; // 默认使用 home 类型，包含基础页面上下文
 });
 
 // 根据当前页面类型生成可绑定字段列表
 const bindableFields = computed(() => {
-  const fields: any[] = [];
-
-  // 根据页面类型添加对应字段
-  if (currentPageType.value === 'product') {
-    fields.push(...generateProductFields());
-  } else if (currentPageType.value === 'article') {
-    fields.push(...generateArticleFields());
-  }
-
-  // 通用页面预设字段
-  fields.push(...generatePageContextFields());
-
-  // 自定义变量字段
-  if (variableSchema.value.length > 0) {
-    fields.push(...generateVariableFields(variableSchema.value));
-  }
-
-  return fields;
+  return generateBindableFieldsForPage(
+    currentPageType.value,
+    variableSchema.value
+  );
 });
 
-// 提供编辑器数据上下文（供 PropertyPanel 等子组件使用）
-provideEditorDataContext({
-  mockData: {},
+// 根据当前页面类型获取 Mock 数据
+const mockData = computed(() => {
+  return getMockDataForPage(currentPageType.value);
+});
+
+// 编辑器数据上下文引用
+const editorDataContext = provideEditorDataContext({
+  mockData: mockData.value,
   bindableFields: bindableFields.value,
 });
+
+// 监听变化，更新上下文
+watch([bindableFields, mockData], ([fields, data]) => {
+  editorDataContext.value = {
+    mockData: data,
+    bindableFields: fields,
+  };
+}, { deep: true });
 
 // ============ 左/右面板宽度（可拖拽） ============
 const leftPanelWidth = ref(280);
@@ -204,6 +203,7 @@ const dropdownPosition = ref({ top: 0, left: 0 });
 const showAddPageModal = ref(false);
 const newPageName = ref("");
 const newPageSlug = ref("");
+const newPagePresets = ref<string[]>([]);
 
 // 添加布局弹窗
 const showAddLayoutModal = ref(false);
@@ -217,6 +217,9 @@ const showVariableValueEditor = ref(false);
 
 // 应用模板弹窗
 const showTemplateSelect = ref(false);
+
+// 预设数据集列表（用于自定义页面选择）
+const presetDataSetList = computed(() => getPresetDataSetList());
 
 // 布局选择下拉菜单
 const showLayoutSelectMenu = ref(false);
@@ -474,12 +477,25 @@ function handleApplyTemplate(templateData: {
 function handleAddCustomPage() {
   if (!newPageName.value || !newPageSlug.value) return;
 
-  const page = addCustomPage(newPageSlug.value, newPageName.value);
+  const page = addCustomPage(newPageSlug.value, newPageName.value, {
+    presetIds: newPagePresets.value.length > 0 ? newPagePresets.value : undefined,
+  });
   switchPage(`custom-${page.id}`);
 
   newPageName.value = "";
   newPageSlug.value = "";
+  newPagePresets.value = [];
   showAddPageModal.value = false;
+}
+
+// 切换预设选择
+function togglePresetSelection(presetId: string) {
+  const index = newPagePresets.value.indexOf(presetId);
+  if (index === -1) {
+    newPagePresets.value.push(presetId);
+  } else {
+    newPagePresets.value.splice(index, 1);
+  }
 }
 
 // 删除页面或布局
@@ -806,7 +822,7 @@ function getLayoutName(layoutId: string | undefined): string {
       class="modal-overlay"
       @click.self="showAddPageModal = false"
     >
-      <div class="modal-content">
+      <div class="modal-content modal-content-wide">
         <h3 class="modal-title">添加自定义页面</h3>
         <div class="form-group">
           <label>页面名称</label>
@@ -827,6 +843,24 @@ function getLayoutName(layoutId: string | undefined): string {
               class="property-input"
               placeholder="如：activity/double11"
             />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>预设数据（可选）</label>
+          <p class="form-description">选择页面需要的预设数据，以便在属性编辑时进行数据绑定</p>
+          <div class="preset-list">
+            <button
+              v-for="preset in presetDataSetList"
+              :key="preset.id"
+              type="button"
+              class="preset-item"
+              :class="{ active: newPagePresets.includes(preset.id) }"
+              @click="togglePresetSelection(preset.id)"
+            >
+              <span :class="preset.icon || 'i-carbon-data-base'" class="preset-icon"></span>
+              <span class="preset-name">{{ preset.name }}</span>
+              <span v-if="newPagePresets.includes(preset.id)" class="preset-check i-carbon-checkmark"></span>
+            </button>
           </div>
         </div>
         <div class="modal-actions">
@@ -1274,6 +1308,10 @@ function getLayoutName(layoutId: string | undefined): string {
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
 }
 
+.modal-content-wide {
+  width: 480px;
+}
+
 .modal-title {
   font-size: 18px;
   font-weight: 600;
@@ -1336,6 +1374,58 @@ function getLayoutName(layoutId: string | undefined): string {
 
 .property-input::placeholder {
   color: #64748b;
+}
+
+/* 预设数据列表 */
+.form-description {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preset-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #94a3b8;
+  background: rgba(51, 65, 85, 0.3);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preset-item:hover {
+  background: rgba(51, 65, 85, 0.5);
+  color: #e2e8f0;
+}
+
+.preset-item.active {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.preset-icon {
+  font-size: 14px;
+}
+
+.preset-name {
+  font-weight: 500;
+}
+
+.preset-check {
+  font-size: 12px;
+  color: #22c55e;
 }
 </style>
 

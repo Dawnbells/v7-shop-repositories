@@ -6,12 +6,7 @@
  */
 
 import type { PropSchema, DataBinding } from '~/types/component-meta'
-import {
-  type BindableDataSource,
-  type DataSourceGroup,
-  DATA_SOURCE_GROUP_CONFIG,
-  groupDataSources,
-} from '~/utils/type-matching'
+import type { BindableDataSource } from '~/utils/type-matching'
 
 interface Props {
   schema: PropSchema
@@ -33,18 +28,6 @@ const emit = defineEmits<{
 // 是否处于绑定模式
 const isBindingMode = computed(() => !!props.binding)
 
-// 分组后的数据源
-const groupedSources = computed(() => groupDataSources(props.dataSources))
-
-// 获取有数据的分组
-const activeGroups = computed(() => {
-  const groups: DataSourceGroup[] = []
-  if (groupedSources.value.variable.length > 0) groups.push('variable')
-  if (groupedSources.value.siteConfig.length > 0) groups.push('siteConfig')
-  if (groupedSources.value.globalStyle.length > 0) groups.push('globalStyle')
-  return groups
-})
-
 // 当前绑定的变量 key
 const bindingVariableKey = computed({
   get: () => props.binding?.variableKey || '',
@@ -65,14 +48,20 @@ function toggleBindingMode() {
   if (isBindingMode.value) {
     emit('update:binding', null)
   } else {
-    // 如果有可用数据源，默认选择第一个
-    if (props.dataSources.length > 0) {
-      emit('update:binding', {
-        propKey: props.schema.key,
-        variableKey: props.dataSources[0].key,
-      })
-    }
+    // 进入绑定模式，但不默认选择，让用户通过选择器选择
+    emit('update:binding', {
+      propKey: props.schema.key,
+      variableKey: '',
+    })
   }
+}
+
+// 处理变量选择
+function handleVariableSelect(source: BindableDataSource) {
+  emit('update:binding', {
+    propKey: props.schema.key,
+    variableKey: source.key,
+  })
 }
 
 // 本地值，用于双向绑定
@@ -93,27 +82,8 @@ function handleSwitchToggle() {
   emit('update:modelValue', !localValue.value)
 }
 
-// 获取绑定变量的显示名称
-const boundVariableName = computed(() => {
-  if (!props.binding) return ''
-  const source = props.dataSources.find(s => s.key === props.binding?.variableKey)
-  return source?.label || props.binding.variableKey
-})
-
-// 获取绑定变量所属分组
-const boundVariableGroup = computed(() => {
-  if (!props.binding) return ''
-  const source = props.dataSources.find(s => s.key === props.binding?.variableKey)
-  return source?.groupLabel || ''
-})
-
 // 是否有可用数据源
 const hasDataSources = computed(() => props.dataSources.length > 0)
-
-// 获取分组配置
-function getGroupConfig(group: DataSourceGroup) {
-  return DATA_SOURCE_GROUP_CONFIG[group]
-}
 </script>
 
 <template>
@@ -138,26 +108,14 @@ function getGroupConfig(group: DataSourceGroup) {
     </div>
     
     <div class="field-control">
-      <!-- 绑定模式：显示分组变量选择器 -->
+      <!-- 绑定模式：显示层级变量选择器 -->
       <div v-if="isBindingMode" class="binding-selector">
-        <select v-model="bindingVariableKey" class="binding-select">
-          <option value="" disabled>选择数据源</option>
-          <template v-for="group in activeGroups" :key="group">
-            <optgroup :label="getGroupConfig(group).label">
-              <option
-                v-for="source in groupedSources[group]"
-                :key="source.key"
-                :value="source.key"
-              >
-                {{ source.label }}
-              </option>
-            </optgroup>
-          </template>
-        </select>
-        <div class="binding-info">
-          <span class="binding-hint">已绑定: {{ boundVariableName }}</span>
-          <span v-if="boundVariableGroup" class="binding-group-tag">{{ boundVariableGroup }}</span>
-        </div>
+        <BuilderVariableSelector
+          v-model="bindingVariableKey"
+          :data-sources="dataSources"
+          placeholder="选择数据源..."
+          @select="handleVariableSelect"
+        />
       </div>
 
       <!-- 静态值模式 -->
@@ -376,61 +334,10 @@ function getGroupConfig(group: DataSourceGroup) {
 
 /* 绑定选择器 */
 .binding-selector {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
+  padding: 8px;
   background: rgba(59, 130, 246, 0.05);
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 6px;
-}
-
-.binding-icon {
-  display: none;
-}
-
-.binding-select {
-  width: 100%;
-  padding: 8px 10px;
-  font-size: 13px;
-  color: #e2e8f0;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 6px;
-  outline: none;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%233b82f6' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  padding-right: 28px;
-}
-
-.binding-select:focus {
-  border-color: rgba(59, 130, 246, 0.5);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-}
-
-.binding-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.binding-hint {
-  font-size: 11px;
-  color: #3b82f6;
-}
-
-.binding-group-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 6px;
-  font-size: 10px;
-  color: #94a3b8;
-  background: rgba(148, 163, 184, 0.1);
-  border-radius: 4px;
 }
 
 .field-control {

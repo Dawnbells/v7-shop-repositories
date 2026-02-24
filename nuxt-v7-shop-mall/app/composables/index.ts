@@ -18,6 +18,8 @@ export {
   generateAllBindableFields,
   generateProductFields,
   generateArticleFields,
+  generateBindableFieldsForPage,
+  getMockDataForPage,
 } from "./base/useDataContext";
 export { useDeviceDetect } from "./base/useDeviceDetect";
 export { useResponsive } from "./base/useResponsive";
