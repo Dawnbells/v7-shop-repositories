@@ -13,12 +13,14 @@ export interface TabItem {
 defineProps<{
   tabs: TabItem[]
   activeKey: string
+  hasCheckout?: boolean
 }>()
 
 const emit = defineEmits<{
   'switch': [key: string]
   'remove': [key: string]
   'add': [type: 'checkout' | 'custom' | 'layout']
+  'settings': [key: string]
 }>()
 
 const showAddMenu = ref(false)
@@ -61,6 +63,14 @@ onUnmounted(() => {
           <span v-if="tab.type === 'layout'" class="i-carbon-template tab-icon"></span>
           <span class="tab-label">{{ tab.label }}</span>
           <button
+            v-if="tab.type === 'page'"
+            class="tab-settings"
+            title="页面设置"
+            @click.stop="emit('settings', tab.key)"
+          >
+            <span class="i-carbon-settings"></span>
+          </button>
+          <button
             v-if="tab.removable"
             class="tab-close"
             @click.stop="emit('remove', tab.key)"
@@ -89,7 +99,11 @@ onUnmounted(() => {
 
       <Transition name="dropdown">
         <div v-if="showAddMenu" class="dropdown-menu">
-          <button class="dropdown-item" @click="emit('add', 'checkout'); showAddMenu = false">
+          <button 
+            v-if="!hasCheckout"
+            class="dropdown-item" 
+            @click="emit('add', 'checkout'); showAddMenu = false"
+          >
             <span class="i-carbon-shopping-cart"></span>
             收银台
           </button>
@@ -187,6 +201,29 @@ onUnmounted(() => {
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tab-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  font-size: 11px;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all 0.15s ease;
+}
+
+.tab-settings:hover {
+  opacity: 1;
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
 }
 
 .tab-close {

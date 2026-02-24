@@ -22,6 +22,7 @@ export interface PageInfo {
   type: 'page' | 'layout'
   pageType?: PageType
   removable?: boolean
+  layoutId?: string
 }
 
 // 页面数据存储（key 为页面 ID）
@@ -31,7 +32,7 @@ const pagesData = ref<Map<string, ComponentNode[]>>(new Map())
 const layoutsData = ref<Map<string, ComponentNode[]>>(new Map())
 
 // 页面元信息存储（用于生成 TAB）
-const pagesInfo = ref<Map<string, Omit<PageInfo, 'type'> & { pageType: PageType }>>(new Map())
+const pagesInfo = ref<Map<string, Omit<PageInfo, 'type'> & { pageType: PageType; layoutId?: string }>>(new Map())
 const layoutsInfo = ref<Map<string, { id: string; name: string; description?: string }>>(new Map())
 
 // 当前激活的页面/布局 ID
@@ -50,6 +51,9 @@ const selectedNodeId = ref<string | null>(null)
 
 // 悬停的节点 ID（用于拖拽提示）
 const hoveredNodeId = ref<string | null>(null)
+
+// 画布脏状态（是否有未保存的更改）
+const canvasDirty = ref(false)
 
 /**
  * 画布状态管理 composable
@@ -145,6 +149,7 @@ export function useCanvasState() {
         rootNodes.value.push(node)
       }
     }
+    canvasDirty.value = true
     return true
   }
 
@@ -167,6 +172,7 @@ export function useCanvasState() {
       selectedNodeId.value = null
     }
 
+    canvasDirty.value = true
     return true
   }
 
@@ -196,6 +202,7 @@ export function useCanvasState() {
       node.hidden = updates.hidden
     }
 
+    canvasDirty.value = true
     return true
   }
 
@@ -239,6 +246,7 @@ export function useCanvasState() {
     rootNodes.value = []
     selectedNodeId.value = null
     hoveredNodeId.value = null
+    canvasDirty.value = true
   }
 
   /**
@@ -368,6 +376,7 @@ export function useCanvasState() {
           name: page.name,
           pageType: page.type,
           removable: page.type === 'custom' || page.type === 'checkout',
+          layoutId: page.layoutId,
         })
       }
     }
@@ -385,6 +394,9 @@ export function useCanvasState() {
     currentPageId.value = firstPageId
     currentPageType.value = 'page'
     loadPageToCanvas(firstPageId, 'page')
+
+    // 初始化后重置脏状态
+    canvasDirty.value = false
 
     console.log('[CanvasState] 页面初始化完成:', {
       layouts: layoutsInfo.value.size,
@@ -462,6 +474,7 @@ export function useCanvasState() {
         id: pageId,
         name: info.name,
         type: info.pageType,
+        layoutId: info.layoutId,
         root: {
           id: `root_${pageId}`,
           type: 'container',
@@ -500,7 +513,7 @@ export function useCanvasState() {
   /**
    * 创建新页面
    */
-  function createPage(pageId: string, name: string, pageType: PageType): boolean {
+  function createPage(pageId: string, name: string, pageType: PageType, layoutId?: string): boolean {
     if (pagesData.value.has(pageId)) {
       console.warn(`[CanvasState] 页面 ${pageId} 已存在`)
       return false
@@ -512,8 +525,10 @@ export function useCanvasState() {
       name,
       pageType,
       removable: true,
+      layoutId,
     })
 
+    canvasDirty.value = true
     console.log(`[CanvasState] 创建页面: ${pageId}`)
     return true
   }
@@ -534,6 +549,7 @@ export function useCanvasState() {
       description,
     })
 
+    canvasDirty.value = true
     console.log(`[CanvasState] 创建布局: ${layoutId}`)
     return true
   }
@@ -559,6 +575,7 @@ export function useCanvasState() {
       }
     }
 
+    canvasDirty.value = true
     console.log(`[CanvasState] 删除页面: ${pageId}`)
     return true
   }
@@ -579,6 +596,7 @@ export function useCanvasState() {
       switchPage('home', 'page')
     }
 
+    canvasDirty.value = true
     console.log(`[CanvasState] 删除布局: ${layoutId}`)
     return true
   }
@@ -607,11 +625,43 @@ export function useCanvasState() {
         type: 'page',
         pageType: info.pageType,
         removable: info.removable,
+        layoutId: info.layoutId,
       })
     }
 
     return result
   })
+
+  /**
+   * 获取可用布局列表（用于页面选择布局）
+   */
+  const availableLayouts = computed<Array<{ id: string; name: string }>>(() => {
+    const result: Array<{ id: string; name: string }> = []
+    for (const [id, info] of layoutsInfo.value.entries()) {
+      result.push({ id, name: info.name })
+    }
+    return result
+  })
+
+  /**
+   * 更新页面的布局选择
+   */
+  function updatePageLayout(pageId: string, layoutId: string | undefined): boolean {
+    const info = pagesInfo.value.get(pageId)
+    if (!info) {
+      console.warn(`[CanvasState] 页面 ${pageId} 不存在`)
+      return false
+    }
+
+    pagesInfo.value.set(pageId, {
+      ...info,
+      layoutId,
+    })
+
+    canvasDirty.value = true
+    console.log(`[CanvasState] 更新页面 ${pageId} 的布局为: ${layoutId || '无'}`)
+    return true
+  }
 
   /**
    * 获取选中的节点
@@ -626,6 +676,18 @@ export function useCanvasState() {
    */
   const isEmpty = computed(() => rootNodes.value.length === 0)
 
+  /**
+   * 画布是否有未保存的更改
+   */
+  const canvasHasUnsavedChanges = computed(() => canvasDirty.value)
+
+  /**
+   * 标记画布为已保存状态
+   */
+  function markCanvasSaved() {
+    canvasDirty.value = false
+  }
+
   return {
     // 单页面状态
     rootNodes: readonly(rootNodes),
@@ -638,6 +700,7 @@ export function useCanvasState() {
     currentPageId: readonly(currentPageId),
     currentPageType: readonly(currentPageType),
     allPagesInfo,
+    availableLayouts,
 
     // 单页面方法
     createNode,
@@ -661,5 +724,10 @@ export function useCanvasState() {
     removePage,
     removeLayout,
     saveCurrentPage,
+    updatePageLayout,
+
+    // 未保存状态
+    canvasHasUnsavedChanges,
+    markCanvasSaved,
   }
 }

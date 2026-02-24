@@ -39,6 +39,7 @@ const {
   currentPageId,
   currentPageType,
   allPagesInfo,
+  availableLayouts,
   switchPage,
   initializePages,
   exportAllPagesData,
@@ -46,6 +47,9 @@ const {
   createLayout,
   removePage,
   removeLayout,
+  updatePageLayout,
+  canvasHasUnsavedChanges,
+  markCanvasSaved,
 } = useCanvasState()
 
 // 变量管理状态
@@ -263,8 +267,10 @@ function startResize(side: 'left' | 'right', event: PointerEvent) {
   window.addEventListener('pointerup', onUp)
 }
 
-// 编辑状态
-const hasUnsavedChanges = computed(() => themeHasUnsavedChanges.value)
+// 编辑状态（合并主题配置和画布状态的未保存状态）
+const hasUnsavedChanges = computed(() => 
+  themeHasUnsavedChanges.value || canvasHasUnsavedChanges.value
+)
 const isSaving = ref(false)
 
 // 从 useCanvasState 获取当前页面 ID
@@ -279,6 +285,21 @@ const tabs = computed<TabItem[]>(() => {
     removable: info.removable,
   }))
 })
+
+// 检查是否已存在收银台页面
+const hasCheckout = computed(() =>
+  allPagesInfo.value.some(p => p.pageType === 'checkout')
+)
+
+// 添加页面弹窗状态
+const showAddDialog = ref(false)
+const addDialogType = ref<'custom' | 'layout'>('custom')
+
+// 页面设置弹窗状态
+const showPageSettings = ref(false)
+const settingsPageId = ref('')
+const settingsPageName = ref('')
+const settingsCurrentLayoutId = ref<string | undefined>(undefined)
 
 // 事件处理
 function handleClose() {
@@ -334,6 +355,7 @@ async function handleSave() {
 
     if (result.success) {
       markAsSaved()
+      markCanvasSaved()
       console.log('[ThemeEditor] 保存成功')
     } else {
       throw new Error(result.message || '保存失败')
@@ -368,21 +390,53 @@ function handleRemoveTab(key: string) {
 }
 
 function handleAddPage(type: 'checkout' | 'custom' | 'layout') {
-  const now = Date.now()
-  
-  if (type === 'layout') {
-    const layoutId = `layout_${now}`
-    createLayout(layoutId, '新布局')
-    switchPage(layoutId, 'layout')
-  } else if (type === 'checkout') {
-    const pageId = `checkout_${now}`
+  if (type === 'checkout') {
+    // 收银台直接添加
+    const pageId = `checkout_${Date.now()}`
     createPage(pageId, '收银台', 'checkout')
     switchPage(pageId, 'page')
   } else {
+    // 自定义页面和布局需要弹窗输入信息
+    addDialogType.value = type
+    showAddDialog.value = true
+  }
+}
+
+// 弹窗确认回调
+function handleDialogConfirm(data: { name: string; path?: string; description?: string; layoutId?: string }) {
+  const now = Date.now()
+
+  if (addDialogType.value === 'layout') {
+    const layoutId = `layout_${now}`
+    createLayout(layoutId, data.name, data.description)
+    switchPage(layoutId, 'layout')
+  } else {
     const pageId = `custom_${now}`
-    createPage(pageId, '自定义页面', 'custom')
+    createPage(pageId, data.name, 'custom', data.layoutId)
     switchPage(pageId, 'page')
   }
+
+  showAddDialog.value = false
+}
+
+// 页面设置图标点击
+function handlePageSettings(key: string) {
+  const pageInfo = allPagesInfo.value.find(p => p.id === key)
+  if (!pageInfo || pageInfo.type !== 'page') return
+
+  settingsPageId.value = key
+  settingsPageName.value = pageInfo.name
+  settingsCurrentLayoutId.value = pageInfo.layoutId
+  showPageSettings.value = true
+}
+
+// 页面设置确认回调
+function handlePageSettingsConfirm(layoutId: string | undefined) {
+  if (settingsPageId.value) {
+    updatePageLayout(settingsPageId.value, layoutId)
+    console.log(`[ThemeEditor] 更新页面 ${settingsPageId.value} 的布局为: ${layoutId || '无'}`)
+  }
+  showPageSettings.value = false
 }
 </script>
 
@@ -405,9 +459,11 @@ function handleAddPage(type: 'checkout' | 'custom' | 'layout') {
     <BuilderEditorTabs
       :tabs="tabs"
       :active-key="currentTabKey"
+      :has-checkout="hasCheckout"
       @switch="handleSwitchTab"
       @remove="handleRemoveTab"
       @add="handleAddPage"
+      @settings="handlePageSettings"
     />
 
     <!-- 编辑器主体 -->
@@ -463,6 +519,25 @@ function handleAddPage(type: 'checkout' | 'custom' | 'layout') {
     <BuilderVariableValueEditor
       :visible="showVariableValueEditor"
       @close="showVariableValueEditor = false"
+    />
+
+    <!-- 添加页面/布局弹窗 -->
+    <BuilderPageAddDialog
+      :visible="showAddDialog"
+      :type="addDialogType"
+      :layouts="availableLayouts"
+      @close="showAddDialog = false"
+      @confirm="handleDialogConfirm"
+    />
+
+    <!-- 页面设置弹窗 -->
+    <BuilderPageSettingsDialog
+      :visible="showPageSettings"
+      :page-name="settingsPageName"
+      :current-layout-id="settingsCurrentLayoutId"
+      :layouts="availableLayouts"
+      @close="showPageSettings = false"
+      @confirm="handlePageSettingsConfirm"
     />
   </div>
 </template>
