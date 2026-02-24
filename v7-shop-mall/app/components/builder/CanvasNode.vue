@@ -25,7 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const { getBlock, getBlockMeta } = useBlockRegistry()
-const { createNode, addNode, selectNode } = useCanvasState()
+const { createNode, addNode, selectNode, removeNode, moveNode, findParentNode, rootNodes } = useCanvasState()
 
 // 获取组件
 const blockComponent = computed(() => {
@@ -73,6 +73,157 @@ function onNodeClick(event: MouseEvent) {
 const displayName = computed(() => {
   return props.node.name || blockMeta.value?.name || props.node.type
 })
+
+// ============ 节点排序和删除逻辑 ============
+
+// 获取当前节点在父容器中的位置信息
+const nodePosition = computed(() => {
+  const result = findParentNode(props.node.id)
+  if (!result) return null
+  const siblings = result.parent?.children || rootNodes.value
+  return {
+    index: result.index,
+    total: siblings.length,
+    parentId: result.parent?.id || null
+  }
+})
+
+// 是否可以上移
+const canMoveUp = computed(() => {
+  return nodePosition.value !== null && nodePosition.value.index > 0
+})
+
+// 是否可以下移
+const canMoveDown = computed(() => {
+  return nodePosition.value !== null && nodePosition.value.index < nodePosition.value.total - 1
+})
+
+// 上移节点
+function onMoveUp() {
+  if (!nodePosition.value || !canMoveUp.value) return
+  moveNode(props.node.id, nodePosition.value.parentId, nodePosition.value.index - 1)
+}
+
+// 下移节点（moveNode 先移除再插入，移除后下方元素索引减1，所以 +1 即可）
+function onMoveDown() {
+  if (!nodePosition.value || !canMoveDown.value) return
+  moveNode(props.node.id, nodePosition.value.parentId, nodePosition.value.index + 1)
+}
+
+// 删除节点
+function onDeleteNode() {
+  removeNode(props.node.id)
+}
+
+// ============ 节点拖拽排序逻辑 ============
+
+const isDragging = ref(false)
+const dropPosition = ref<'before' | 'after' | null>(null)
+
+// 开始拖拽节点
+function onNodeDragStart(event: DragEvent) {
+  if (!props.isEditMode || props.node.locked) {
+    event.preventDefault()
+    return
+  }
+  
+  isDragging.value = true
+  
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('application/json', JSON.stringify({
+      action: 'move',
+      nodeId: props.node.id,
+      parentId: nodePosition.value?.parentId || null
+    }))
+  }
+}
+
+// 结束拖拽
+function onNodeDragEnd() {
+  isDragging.value = false
+}
+
+// 节点上拖拽经过
+function onNodeDragOver(event: DragEvent) {
+  if (!props.isEditMode) return
+  
+  // 检查是否是移动操作
+  try {
+    const types = event.dataTransfer?.types || []
+    if (!types.includes('application/json')) return
+  } catch {
+    return
+  }
+  
+  event.preventDefault()
+  event.stopPropagation()
+  
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  
+  // 计算拖放位置（上半部 = before，下半部 = after）
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const midY = rect.top + rect.height / 2
+  dropPosition.value = event.clientY < midY ? 'before' : 'after'
+}
+
+// 离开节点
+function onNodeDragLeave(event: DragEvent) {
+  // 检查是否真的离开了元素（而不是进入子元素）
+  const relatedTarget = event.relatedTarget as Node | null
+  const currentTarget = event.currentTarget as Node
+  if (relatedTarget && currentTarget.contains(relatedTarget)) {
+    return
+  }
+  dropPosition.value = null
+}
+
+// 在节点上放置
+function onNodeDrop(event: DragEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  
+  const currentDropPosition = dropPosition.value
+  dropPosition.value = null
+  
+  if (!event.dataTransfer || !currentDropPosition) return
+  
+  try {
+    const data = JSON.parse(event.dataTransfer.getData('application/json'))
+    
+    // 处理移动操作
+    if (data.action === 'move' && data.nodeId) {
+      // 不能拖到自己身上
+      if (data.nodeId === props.node.id) return
+      
+      // 计算目标位置
+      const targetPosition = nodePosition.value
+      if (!targetPosition) return
+      
+      let targetIndex = targetPosition.index
+      if (currentDropPosition === 'after') {
+        targetIndex += 1
+      }
+      
+      // 如果是从同一个父容器内移动，且源位置在目标位置之前，需要调整索引
+      if (data.parentId === targetPosition.parentId) {
+        const sourceResult = findParentNode(data.nodeId)
+        if (sourceResult && sourceResult.index < targetIndex) {
+          targetIndex -= 1
+        }
+      }
+      
+      moveNode(data.nodeId, targetPosition.parentId, targetIndex)
+      selectNode(data.nodeId)
+      
+      console.log('[CanvasNode] 移动组件:', data.nodeId, '-> 位置:', targetIndex)
+    }
+  } catch (error) {
+    console.error('[CanvasNode] 解析拖放数据失败:', error)
+  }
+}
 
 // ============ 容器拖放逻辑 ============
 
@@ -129,16 +280,50 @@ function onContainerDrop(event: DragEvent) {
       'is-selected': isSelected,
       'is-container': isContainer,
       'is-locked': node.locked,
+      'is-dragging': isDragging,
     }"
     :data-node-id="node.id"
     :data-node-type="node.type"
+    :draggable="isEditMode && !node.locked"
     @click="onNodeClick"
+    @dragstart="onNodeDragStart"
+    @dragend="onNodeDragEnd"
+    @dragover="onNodeDragOver"
+    @dragleave="onNodeDragLeave"
+    @drop="onNodeDrop"
   >
+    <!-- 拖放位置指示器 - 上方 -->
+    <div v-if="dropPosition === 'before'" class="drop-indicator top" />
     <!-- 选中边框与操作栏 -->
     <div v-if="isSelected" class="node-selection-frame">
       <div class="node-label">
         <span v-if="blockMeta?.icon" :class="blockMeta.icon" class="node-icon" />
         <span class="node-name">{{ displayName }}</span>
+      </div>
+      <div class="node-actions">
+        <button 
+          class="action-btn" 
+          :disabled="!canMoveUp" 
+          title="上移" 
+          @click.stop="onMoveUp"
+        >
+          <span class="i-carbon-arrow-up" />
+        </button>
+        <button 
+          class="action-btn" 
+          :disabled="!canMoveDown" 
+          title="下移" 
+          @click.stop="onMoveDown"
+        >
+          <span class="i-carbon-arrow-down" />
+        </button>
+        <button 
+          class="action-btn delete-btn" 
+          title="删除" 
+          @click.stop="onDeleteNode"
+        >
+          <span class="i-carbon-trash-can" />
+        </button>
       </div>
     </div>
 
@@ -189,6 +374,9 @@ function onContainerDrop(event: DragEvent) {
       <span class="i-carbon-warning-alt" />
       <span>组件未找到: {{ node.type }}</span>
     </div>
+
+    <!-- 拖放位置指示器 - 下方 -->
+    <div v-if="dropPosition === 'after'" class="drop-indicator bottom" />
   </div>
 </template>
 
@@ -214,12 +402,40 @@ function onContainerDrop(event: DragEvent) {
   opacity: 0.7;
 }
 
+/* 拖拽中状态 */
+.canvas-node.is-dragging {
+  opacity: 0.5;
+}
+
+/* 拖放位置指示器 */
+.drop-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #3b82f6;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.drop-indicator.top {
+  top: -2px;
+}
+
+.drop-indicator.bottom {
+  bottom: -2px;
+}
+
 /* 选中框标签 */
 .node-selection-frame {
   position: absolute;
   top: -24px;
   left: 0;
   z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   pointer-events: none;
 }
 
@@ -244,6 +460,42 @@ function onContainerDrop(event: DragEvent) {
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 节点操作按钮组 */
+.node-actions {
+  display: flex;
+  gap: 2px;
+  pointer-events: auto;
+}
+
+.node-actions .action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.node-actions .action-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.node-actions .action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.node-actions .action-btn.delete-btn:hover:not(:disabled) {
+  background: #ef4444;
 }
 
 /* 组件内容 */

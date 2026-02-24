@@ -712,6 +712,7 @@ export function useCanvasState() {
     moveNode,
     clearCanvas,
     findNodeById,
+    findParentNode,
     exportCanvasData,
     importCanvasData,
 
