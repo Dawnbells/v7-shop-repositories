@@ -129,9 +129,24 @@ export function useCanvasState() {
     parentId?: string,
     index?: number
   ): boolean {
+    console.log('[useCanvasState] addNode 调用:', { 
+      nodeId: node.id, 
+      nodeType: node.type, 
+      parentId, 
+      index 
+    })
+    
     if (parentId) {
       const parent = findNodeById(parentId)
-      if (!parent) return false
+      if (!parent) {
+        console.log('[useCanvasState] addNode 失败: 找不到父节点', parentId)
+        return false
+      }
+      console.log('[useCanvasState] addNode 找到父节点:', { 
+        parentId: parent.id, 
+        parentType: parent.type,
+        currentChildrenCount: parent.children?.length || 0
+      })
 
       if (!parent.children) {
         parent.children = []
@@ -139,15 +154,19 @@ export function useCanvasState() {
 
       if (index !== undefined && index >= 0 && index <= parent.children.length) {
         parent.children.splice(index, 0, node)
+        console.log('[useCanvasState] addNode 插入到索引:', index)
       } else {
         parent.children.push(node)
+        console.log('[useCanvasState] addNode 添加到末尾')
       }
+      console.log('[useCanvasState] addNode 完成, 新子节点数量:', parent.children.length)
     } else {
       if (index !== undefined && index >= 0 && index <= rootNodes.value.length) {
         rootNodes.value.splice(index, 0, node)
       } else {
         rootNodes.value.push(node)
       }
+      console.log('[useCanvasState] addNode 添加到根节点, 总数:', rootNodes.value.length)
     }
     canvasDirty.value = true
     return true
@@ -228,15 +247,28 @@ export function useCanvasState() {
     newParentId: string | null,
     newIndex: number
   ): boolean {
+    console.log('[useCanvasState] moveNode 调用:', { nodeId, newParentId, newIndex })
+    
     const node = findNodeById(nodeId)
-    if (!node) return false
+    if (!node) {
+      console.log('[useCanvasState] moveNode 失败: 找不到节点', nodeId)
+      return false
+    }
+    console.log('[useCanvasState] moveNode 找到节点:', { id: node.id, type: node.type })
 
     // 先移除节点
     const removed = removeNode(nodeId)
-    if (!removed) return false
+    if (!removed) {
+      console.log('[useCanvasState] moveNode 失败: 移除节点失败')
+      return false
+    }
+    console.log('[useCanvasState] moveNode 节点已移除')
 
     // 添加到新位置
-    return addNode(node, newParentId || undefined, newIndex)
+    const addResult = addNode(node, newParentId || undefined, newIndex)
+    console.log('[useCanvasState] moveNode addNode 结果:', addResult)
+    
+    return addResult
   }
 
   /**

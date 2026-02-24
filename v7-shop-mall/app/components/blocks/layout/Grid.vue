@@ -25,9 +25,15 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const gridStyle = computed(() => {
-  const columnsValue = typeof props.columns === 'number'
-    ? `repeat(${props.columns}, 1fr)`
-    : props.columns
+  let columnsValue: string
+
+  if (typeof props.columns === 'number') {
+    columnsValue = `repeat(${props.columns}, 1fr)`
+  } else if (/^\d+$/.test(props.columns)) {
+    columnsValue = `repeat(${props.columns}, 1fr)`
+  } else {
+    columnsValue = props.columns
+  }
 
   return {
     display: 'grid',

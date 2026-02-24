@@ -25,7 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const { getBlock, getBlockMeta } = useBlockRegistry()
-const { createNode, addNode, selectNode, removeNode, moveNode, findParentNode, rootNodes } = useCanvasState()
+const { createNode, addNode, selectNode, removeNode, moveNode, findParentNode, findNodeById, rootNodes } = useCanvasState()
 
 // 获取组件
 const blockComponent = computed(() => {
@@ -61,6 +61,11 @@ const isEmptyContainer = computed(() => {
 const nodeStyle = computed(() => {
   const style = props.node.style
   return style?.base || {}
+})
+
+// 计算节点属性（确保响应式追踪）
+const nodeProps = computed(() => {
+  return { ...props.node.props }
 })
 
 // 点击选中节点
@@ -102,12 +107,14 @@ const canMoveDown = computed(() => {
 function onMoveUp() {
   if (!nodePosition.value || !canMoveUp.value) return
   moveNode(props.node.id, nodePosition.value.parentId, nodePosition.value.index - 1)
+  selectNode(props.node.id)
 }
 
 // 下移节点（moveNode 先移除再插入，移除后下方元素索引减1，所以 +1 即可）
 function onMoveDown() {
   if (!nodePosition.value || !canMoveDown.value) return
   moveNode(props.node.id, nodePosition.value.parentId, nodePosition.value.index + 1)
+  selectNode(props.node.id)
 }
 
 // 删除节点
@@ -122,6 +129,9 @@ const dropPosition = ref<'before' | 'after' | null>(null)
 
 // 开始拖拽节点
 function onNodeDragStart(event: DragEvent) {
+  // 阻止事件冒泡，确保只有实际被拖拽的组件触发事件
+  event.stopPropagation()
+  
   if (!props.isEditMode || props.node.locked) {
     event.preventDefault()
     return
@@ -129,13 +139,22 @@ function onNodeDragStart(event: DragEvent) {
   
   isDragging.value = true
   
+  const dragData = {
+    action: 'move',
+    nodeId: props.node.id,
+    parentId: nodePosition.value?.parentId || null
+  }
+  
+  console.log('[CanvasNode] 开始拖拽节点:', {
+    nodeId: props.node.id,
+    nodeType: props.node.type,
+    parentId: dragData.parentId,
+    dragData
+  })
+  
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('application/json', JSON.stringify({
-      action: 'move',
-      nodeId: props.node.id,
-      parentId: nodePosition.value?.parentId || null
-    }))
+    event.dataTransfer.setData('application/json', JSON.stringify(dragData))
   }
 }
 
@@ -188,15 +207,45 @@ function onNodeDrop(event: DragEvent) {
   const currentDropPosition = dropPosition.value
   dropPosition.value = null
   
-  if (!event.dataTransfer || !currentDropPosition) return
+  console.log('[CanvasNode] onNodeDrop 被调用:', {
+    targetNodeId: props.node.id,
+    targetNodeType: props.node.type,
+    currentDropPosition,
+    hasDataTransfer: !!event.dataTransfer
+  })
+  
+  if (!event.dataTransfer || !currentDropPosition) {
+    console.log('[CanvasNode] onNodeDrop 提前返回: dataTransfer=', !!event.dataTransfer, 'dropPosition=', currentDropPosition)
+    return
+  }
   
   try {
     const data = JSON.parse(event.dataTransfer.getData('application/json'))
+    console.log('[CanvasNode] onNodeDrop 解析数据:', data)
     
     // 处理移动操作
     if (data.action === 'move' && data.nodeId) {
       // 不能拖到自己身上
-      if (data.nodeId === props.node.id) return
+      if (data.nodeId === props.node.id) {
+        console.log('[CanvasNode] onNodeDrop 阻止: 不能拖到自己身上')
+        return
+      }
+      
+      // 检查目标节点是否是被拖拽节点的后代（防止循环引用）
+      // 如果把父节点拖到子节点旁边，会导致父节点被移除后子节点也消失
+      const isTargetDescendantOfDragged = (targetId: string, draggedId: string): boolean => {
+        let current = findParentNode(targetId)
+        while (current) {
+          if (current.parent?.id === draggedId) return true
+          current = current.parent ? findParentNode(current.parent.id) : null
+        }
+        return false
+      }
+      
+      if (isTargetDescendantOfDragged(props.node.id, data.nodeId)) {
+        console.warn('[CanvasNode] onNodeDrop 阻止: 不能将父节点移动到其子节点旁边')
+        return
+      }
       
       // 计算目标位置
       const targetPosition = nodePosition.value
@@ -248,12 +297,77 @@ function onContainerDrop(event: DragEvent) {
   event.stopPropagation()
   isContainerDragOver.value = false
 
-  if (!event.dataTransfer) return
+  console.log('[CanvasNode] onContainerDrop 被调用:', {
+    containerId: props.node.id,
+    containerType: props.node.type,
+    childrenCount: props.node.children?.length || 0,
+    hasDataTransfer: !!event.dataTransfer
+  })
+
+  if (!event.dataTransfer) {
+    console.log('[CanvasNode] onContainerDrop 提前返回: 没有 dataTransfer')
+    return
+  }
 
   try {
-    const data = JSON.parse(event.dataTransfer.getData('application/json'))
+    const rawData = event.dataTransfer.getData('application/json')
+    console.log('[CanvasNode] onContainerDrop 原始数据:', rawData)
     
+    const data = JSON.parse(rawData)
+    console.log('[CanvasNode] onContainerDrop 解析数据:', data)
+    
+    // 处理移动现有组件到容器
+    if (data.action === 'move' && data.nodeId) {
+      console.log('[CanvasNode] 检测到移动操作，目标节点:', data.nodeId)
+      
+      // 不能拖到自己内部
+      if (data.nodeId === props.node.id) {
+        console.log('[CanvasNode] 阻止：不能拖到自己内部')
+        return
+      }
+      
+      // 检查是否是拖拽到自己的子节点（避免循环引用）
+      const draggedNode = findNodeById(data.nodeId)
+      console.log('[CanvasNode] 查找被拖拽节点:', draggedNode ? '找到' : '未找到')
+      
+      if (draggedNode) {
+        // 检查当前容器是否是被拖拽节点的后代
+        const isDescendant = (nodeId: string, ancestorId: string): boolean => {
+          let current = findParentNode(nodeId)
+          while (current) {
+            if (current.parent?.id === ancestorId) return true
+            current = current.parent ? findParentNode(current.parent.id) : null
+          }
+          return false
+        }
+        
+        if (isDescendant(props.node.id, data.nodeId)) {
+          console.warn('[CanvasNode] 阻止：不能将节点移动到其子节点内')
+          return
+        }
+      }
+      
+      // 移动到容器末尾（传入当前子节点数量作为索引，添加到末尾）
+      const targetIndex = props.node.children?.length || 0
+      console.log('[CanvasNode] 执行 moveNode:', {
+        nodeId: data.nodeId,
+        targetContainerId: props.node.id,
+        targetIndex
+      })
+      
+      const moveResult = moveNode(data.nodeId, props.node.id, targetIndex)
+      console.log('[CanvasNode] moveNode 结果:', moveResult)
+      
+      selectNode(data.nodeId)
+      
+      console.log('[CanvasNode] 移动组件到容器完成:', data.nodeId, '-> 容器:', props.node.id)
+      return
+    }
+    
+    // 处理添加新组件
     if (data && data.type) {
+      console.log('[CanvasNode] 检测到添加新组件操作，类型:', data.type)
+      
       const newNode = createNode(
         data.type,
         data.defaultProps || {},
@@ -265,6 +379,8 @@ function onContainerDrop(event: DragEvent) {
       selectNode(newNode.id)
       
       console.log('[CanvasNode] 添加组件到容器:', data.type, '-> 容器:', props.node.id)
+    } else {
+      console.log('[CanvasNode] 未识别的拖放数据格式:', data)
     }
   } catch (error) {
     console.error('[CanvasNode] 解析拖放数据失败:', error)
@@ -331,7 +447,7 @@ function onContainerDrop(event: DragEvent) {
     <component
       :is="blockComponent"
       v-if="blockComponent"
-      v-bind="node.props"
+      v-bind="nodeProps"
       :style="nodeStyle"
       class="node-content"
       @dragover="isContainer && isEditMode ? onContainerDragOver($event) : undefined"
