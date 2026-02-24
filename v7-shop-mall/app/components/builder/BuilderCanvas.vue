@@ -144,6 +144,7 @@ function onCanvasClick(event: MouseEvent) {
             :key="node.id"
             :node="node"
             :selected-id="selectedNodeId"
+            :is-edit-mode="true"
             @select="selectNode"
           />
         </div>

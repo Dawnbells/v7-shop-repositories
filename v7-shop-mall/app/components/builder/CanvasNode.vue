@@ -1,20 +1,23 @@
 <script setup lang="ts">
 /**
  * CanvasNode - 递归渲染画布组件节点
- * 支持选中高亮、嵌套子组件
+ * 支持选中高亮、嵌套子组件、容器拖放
  */
 
 import type { ComponentNode } from '~/types/component-meta'
 import { useBlockRegistry } from '~/composables/useBlockRegistry'
+import { useCanvasState } from '~/composables/useCanvasState'
 
 interface Props {
   node: ComponentNode
   selectedId: string | null
   depth?: number
+  isEditMode?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   depth: 0,
+  isEditMode: true,
 })
 
 const emit = defineEmits<{
@@ -22,6 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const { getBlock, getBlockMeta } = useBlockRegistry()
+const { createNode, addNode, selectNode } = useCanvasState()
 
 // 获取组件
 const blockComponent = computed(() => {
@@ -48,6 +52,11 @@ const isHidden = computed(() => {
   return props.node.hidden ?? false
 })
 
+// 容器是否为空
+const isEmptyContainer = computed(() => {
+  return isContainer.value && (!props.node.children || props.node.children.length === 0)
+})
+
 // 计算节点样式（使用 base 样式，后续可扩展响应式）
 const nodeStyle = computed(() => {
   const style = props.node.style
@@ -64,6 +73,52 @@ function onNodeClick(event: MouseEvent) {
 const displayName = computed(() => {
   return props.node.name || blockMeta.value?.name || props.node.type
 })
+
+// ============ 容器拖放逻辑 ============
+
+const isContainerDragOver = ref(false)
+
+function onContainerDragOver(event: DragEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'copy'
+  }
+  isContainerDragOver.value = true
+}
+
+function onContainerDragLeave(event: DragEvent) {
+  event.stopPropagation()
+  isContainerDragOver.value = false
+}
+
+function onContainerDrop(event: DragEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  isContainerDragOver.value = false
+
+  if (!event.dataTransfer) return
+
+  try {
+    const data = JSON.parse(event.dataTransfer.getData('application/json'))
+    
+    if (data && data.type) {
+      const newNode = createNode(
+        data.type,
+        data.defaultProps || {},
+        data.defaultStyle || {},
+        data.name
+      )
+      
+      addNode(newNode, props.node.id)
+      selectNode(newNode.id)
+      
+      console.log('[CanvasNode] 添加组件到容器:', data.type, '-> 容器:', props.node.id)
+    }
+  } catch (error) {
+    console.error('[CanvasNode] 解析拖放数据失败:', error)
+  }
+}
 </script>
 
 <template>
@@ -94,17 +149,38 @@ const displayName = computed(() => {
       v-bind="node.props"
       :style="nodeStyle"
       class="node-content"
+      @dragover="isContainer && isEditMode ? onContainerDragOver($event) : undefined"
+      @dragleave="isContainer && isEditMode ? onContainerDragLeave($event) : undefined"
+      @drop="isContainer && isEditMode ? onContainerDrop($event) : undefined"
     >
       <!-- 容器组件渲染子节点 -->
-      <template v-if="isContainer && node.children?.length">
+      <template v-if="isContainer">
+        <!-- 渲染所有子节点 -->
         <BuilderCanvasNode
           v-for="child in node.children"
           :key="child.id"
           :node="child"
           :selected-id="selectedId"
           :depth="depth + 1"
+          :is-edit-mode="isEditMode"
           @select="emit('select', $event)"
         />
+        
+        <!-- 编辑模式下显示拖放区域（有子组件时默认隐藏） -->
+        <div
+          v-if="isEditMode"
+          class="container-drop-zone"
+          :class="{ 
+            'drag-over': isContainerDragOver,
+            'is-empty': !node.children?.length 
+          }"
+          @dragover="onContainerDragOver"
+          @dragleave="onContainerDragLeave"
+          @drop="onContainerDrop"
+        >
+          <span class="i-carbon-add drop-zone-icon" />
+          <span v-if="!node.children?.length" class="drop-zone-text">拖拽组件到此处</span>
+        </div>
       </template>
     </component>
 
@@ -197,5 +273,68 @@ const displayName = computed(() => {
 .canvas-node.is-container > .node-content {
   min-height: 60px;
   padding: 8px;
+}
+
+/* 容器拖放区域 - 有子组件时默认隐藏 */
+.container-drop-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #94a3b8;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  cursor: default;
+  /* 默认隐藏（有子组件时） */
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  opacity: 0;
+  overflow: hidden;
+}
+
+/* 拖拽悬停时显示 */
+.container-drop-zone.drag-over {
+  min-height: 32px;
+  padding: 8px 16px;
+  border: 1px dashed #3b82f6;
+  opacity: 1;
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* 空容器时始终显示占位区域 */
+.container-drop-zone.is-empty {
+  flex-direction: column;
+  min-height: 80px;
+  padding: 24px;
+  border: 2px dashed #cbd5e1;
+  background: rgba(148, 163, 184, 0.05);
+  opacity: 1;
+}
+
+.container-drop-zone.is-empty:hover {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: #94a3b8;
+}
+
+.container-drop-zone.is-empty.drag-over {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: #3b82f6;
+}
+
+.drop-zone-icon {
+  font-size: 16px;
+}
+
+.container-drop-zone.is-empty .drop-zone-icon {
+  font-size: 24px;
+}
+
+.drop-zone-text {
+  font-size: 13px;
+  font-weight: 500;
 }
 </style>
