@@ -695,7 +695,7 @@ const editModalTitle = computed(() => {
                   <div class="variable-details">
                     <div class="variable-name">
                       <span class="variable-label">{{ variable.label }}</span>
-                      <span class="variable-key">site.{{ variable.key }}</span>
+                      <span class="variable-key">custom.{{ variable.key }}</span>
                     </div>
                     <div v-if="variable.description" class="variable-desc">
                       {{ variable.description }}
@@ -825,7 +825,7 @@ const editModalTitle = computed(() => {
                   <div class="form-group">
                     <label>键名 <span class="required">*</span></label>
                     <div class="input-with-prefix">
-                      <span class="input-prefix">site.</span>
+                      <span class="input-prefix">custom.</span>
                       <input
                         v-model="editForm.key"
                         type="text"

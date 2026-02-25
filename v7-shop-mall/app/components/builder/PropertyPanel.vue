@@ -112,7 +112,7 @@ const allDataSources = computed<BindableDataSource[]>(() => {
   // 2. 自定义变量
   for (const variable of variableSchema.value || []) {
     sources.push({
-      key: variable.key,
+      key: `custom.${variable.key}`,
       label: variable.label,
       type: variable.type,
       group: 'variable',

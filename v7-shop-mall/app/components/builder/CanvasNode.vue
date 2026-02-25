@@ -7,6 +7,8 @@
 import type { ComponentNode } from '~/types/component-meta'
 import { useBlockRegistry } from '~/composables/useBlockRegistry'
 import { useCanvasState } from '~/composables/useCanvasState'
+import { useBindingResolver, type BindingContext } from '~/composables/useBindingResolver'
+import { useThemeSchema } from '~/composables/useThemeSchema'
 
 interface Props {
   node: ComponentNode
@@ -26,6 +28,24 @@ const emit = defineEmits<{
 
 const { getBlock, getBlockMeta } = useBlockRegistry()
 const { createNode, addNode, selectNode, removeNode, moveNode, findParentNode, findNodeById, rootNodes } = useCanvasState()
+
+// ============ 绑定解析（客户端渲染时使用） ============
+
+const { variableValues, siteConfig } = useThemeSchema()
+const { resolveNodeBindings, resolveNodeStyleBindings } = useBindingResolver()
+
+// 注入页面数据（由页面级组件 provide）
+const productData = inject<Ref<Record<string, any>>>('productData', ref({}))
+const articleData = inject<Ref<Record<string, any>>>('articleData', ref({}))
+
+// 构建绑定解析上下文
+const bindingContext = computed<BindingContext>(() => ({
+  custom: variableValues.value || {},
+  siteConfig: siteConfig.value?.globalConfig || siteConfig.value || {},
+  globalStyle: siteConfig.value?.globalStyle || {},
+  product: productData.value,
+  article: articleData.value,
+}))
 
 // 获取组件
 const blockComponent = computed(() => {
@@ -57,15 +77,32 @@ const isEmptyContainer = computed(() => {
   return isContainer.value && (!props.node.children || props.node.children.length === 0)
 })
 
-// 计算节点样式（使用 base 样式，后续可扩展响应式）
+// 计算节点样式（编辑模式显示原值，渲染模式解析绑定）
 const nodeStyle = computed(() => {
-  const style = props.node.style
-  return style?.base || {}
+  const baseStyle = props.node.style?.base || {}
+  
+  // 编辑模式不解析绑定，直接显示原始值
+  if (props.isEditMode) {
+    return baseStyle
+  }
+  
+  // 渲染模式：解析样式绑定并合并（绑定值覆盖静态值）
+  const boundStyle = resolveNodeStyleBindings(props.node, bindingContext.value)
+  return { ...baseStyle, ...boundStyle }
 })
 
-// 计算节点属性（确保响应式追踪）
+// 计算节点属性（编辑模式显示原值，渲染模式解析绑定）
 const nodeProps = computed(() => {
-  return { ...props.node.props }
+  const baseProps = { ...props.node.props }
+  
+  // 编辑模式不解析绑定，直接显示原始值
+  if (props.isEditMode) {
+    return baseProps
+  }
+  
+  // 渲染模式：解析属性绑定并合并（绑定值覆盖静态值）
+  const boundProps = resolveNodeBindings(props.node, bindingContext.value)
+  return { ...baseProps, ...boundProps }
 })
 
 // 点击选中节点

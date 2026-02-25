@@ -93,9 +93,7 @@ async function loadThemeFromServer() {
       loadFullData({
         variableSchema: result.data.variableSchema || [],
         siteConfig: result.data.siteConfig || {},
-        siteConfigI18n: result.data.siteConfigI18n || {},
         variableValues: result.data.variableValues || {},
-        variableValuesI18n: result.data.variableValuesI18n || {},
       })
       
       // 加载画布数据（使用多页面初始化）
@@ -357,9 +355,7 @@ async function handleSave() {
         themeConfig,
         variableSchema: fullData.variableSchema,
         siteConfig: fullData.siteConfig,
-        siteConfigI18n: fullData.siteConfigI18n,
         variableValues: fullData.variableValues,
-        variableValuesI18n: fullData.variableValuesI18n,
       }),
     })
 

@@ -13,9 +13,7 @@ import type {
 import type {
   CustomVariable,
   SiteConfig,
-  SiteConfigI18n,
   VariableValues,
-  VariableValuesI18n,
 } from "~/types/data-context";
 import { createDefaultGlobalStyle } from "~/types/theme";
 import { createDefaultSiteConfig } from "~/constants/site-config.schema";
@@ -25,11 +23,9 @@ const variableSchemaState = ref<CustomVariable[]>([]);
 
 // 站点配置值
 const siteConfigState = ref<SiteConfig>({});
-const siteConfigI18nState = ref<SiteConfigI18n>({});
 
 // 变量实际值
 const variableValuesState = ref<VariableValues>({});
-const variableValuesI18nState = ref<VariableValuesI18n>({});
 
 // 是否有未保存的更改
 const hasUnsavedChanges = ref(false);
@@ -43,19 +39,15 @@ export function useThemeSchema() {
 
   // 获取站点配置
   const siteConfig = computed(() => siteConfigState.value);
-  const siteConfigI18n = computed(() => siteConfigI18nState.value);
 
   // 获取变量值
   const variableValues = computed(() => variableValuesState.value);
-  const variableValuesI18n = computed(() => variableValuesI18nState.value);
 
   // 加载完整数据（包含独立字段）
   interface LoadFullDataParams {
     variableSchema?: CustomVariable[];
     siteConfig?: SiteConfig;
-    siteConfigI18n?: SiteConfigI18n;
     variableValues?: VariableValues;
-    variableValuesI18n?: VariableValuesI18n;
   }
 
   function loadFullData(data: LoadFullDataParams) {
@@ -66,9 +58,7 @@ export function useThemeSchema() {
     siteConfigState.value = Object.keys(loadedSiteConfig).length > 0 
       ? loadedSiteConfig 
       : defaultSiteConfig;
-    siteConfigI18nState.value = data.siteConfigI18n || {};
     variableValuesState.value = data.variableValues || {};
-    variableValuesI18nState.value = data.variableValuesI18n || {};
     hasUnsavedChanges.value = false;
   }
 
@@ -76,18 +66,14 @@ export function useThemeSchema() {
   interface ExportFullDataResult {
     variableSchema: CustomVariable[];
     siteConfig: SiteConfig;
-    siteConfigI18n: SiteConfigI18n;
     variableValues: VariableValues;
-    variableValuesI18n: VariableValuesI18n;
   }
 
   function exportFullData(): ExportFullDataResult {
     return {
       variableSchema: variableSchemaState.value,
       siteConfig: siteConfigState.value,
-      siteConfigI18n: siteConfigI18nState.value,
       variableValues: variableValuesState.value,
-      variableValuesI18n: variableValuesI18nState.value,
     };
   }
 
@@ -141,13 +127,6 @@ export function useThemeSchema() {
       variableSchemaState.value.splice(index, 1);
       // 同时删除对应的变量值
       delete variableValuesState.value[key];
-      // 删除多语言值
-      for (const langId in variableValuesI18nState.value) {
-        const langValues = variableValuesI18nState.value[langId];
-        if (langValues) {
-          delete langValues[key];
-        }
-      }
       hasUnsavedChanges.value = true;
     }
   }
@@ -166,15 +145,6 @@ export function useThemeSchema() {
     hasUnsavedChanges.value = true;
   }
 
-  // 更新站点配置多语言值
-  function updateSiteConfigI18n(languageId: number, key: string, value: any) {
-    if (!siteConfigI18nState.value[languageId]) {
-      siteConfigI18nState.value[languageId] = {};
-    }
-    siteConfigI18nState.value[languageId][key] = value;
-    hasUnsavedChanges.value = true;
-  }
-
   // ============ 变量值操作 ============
 
   // 更新变量值
@@ -189,32 +159,13 @@ export function useThemeSchema() {
     hasUnsavedChanges.value = true;
   }
 
-  // 更新变量多语言值
-  function updateVariableValueI18n(languageId: number, key: string, value: any) {
-    if (!variableValuesI18nState.value[languageId]) {
-      variableValuesI18nState.value[languageId] = {};
-    }
-    variableValuesI18nState.value[languageId][key] = value;
-    hasUnsavedChanges.value = true;
-  }
-
-  // 获取变量的实际值（考虑多语言）
-  function getVariableValue(key: string, languageId?: number): any {
-    // 如果指定了语言且有多语言值，返回多语言值
-    if (languageId && variableValuesI18nState.value[languageId]?.[key] !== undefined) {
-      return variableValuesI18nState.value[languageId][key];
-    }
-    // 否则返回默认值
+  // 获取变量的实际值
+  function getVariableValue(key: string): any {
     return variableValuesState.value[key];
   }
 
-  // 获取站点配置的实际值（考虑多语言）
-  function getSiteConfigValue(key: string, languageId?: number): any {
-    // 如果指定了语言且有多语言值，返回多语言值
-    if (languageId && siteConfigI18nState.value[languageId]?.[key] !== undefined) {
-      return siteConfigI18nState.value[languageId][key];
-    }
-    // 否则返回默认值
+  // 获取站点配置的实际值
+  function getSiteConfigValue(key: string): any {
     return siteConfigState.value[key];
   }
 
@@ -227,9 +178,7 @@ export function useThemeSchema() {
   function clearAll() {
     variableSchemaState.value = [];
     siteConfigState.value = {};
-    siteConfigI18nState.value = {};
     variableValuesState.value = {};
-    variableValuesI18nState.value = {};
     hasUnsavedChanges.value = false;
   }
 
@@ -241,9 +190,7 @@ export function useThemeSchema() {
     // 独立状态
     variableSchema,
     siteConfig,
-    siteConfigI18n,
     variableValues,
-    variableValuesI18n,
 
     // 数据操作
     loadFullData,
@@ -261,13 +208,11 @@ export function useThemeSchema() {
     // 站点配置操作
     updateSiteConfig,
     updateSiteConfigBatch,
-    updateSiteConfigI18n,
     getSiteConfigValue,
 
     // 变量值操作
     updateVariableValue,
     updateVariableValuesBatch,
-    updateVariableValueI18n,
     getVariableValue,
 
     // 其他

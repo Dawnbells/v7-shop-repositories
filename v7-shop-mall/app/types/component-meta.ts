@@ -316,7 +316,7 @@ export interface LayoutData {
  *
  * 注意：不包含以下内容（这些单独存储和管理）：
  * - 自定义变量定义和值（variables, variableValues）
- * - 站点配置（siteConfig, siteConfigI18n）
+ * - 站点配置（siteConfig）
  */
 export interface ThemeConfig {
   id: string              // 主题 ID

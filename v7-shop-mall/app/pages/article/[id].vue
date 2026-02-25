@@ -46,6 +46,9 @@ const goBack = () => {
 
 // 提供编辑器状态（非编辑器模式）
 provide("isInEditor", ref(false));
+
+// 提供文章数据给组件绑定解析使用
+provide("articleData", articleInfo);
 </script>
 
 <template>
