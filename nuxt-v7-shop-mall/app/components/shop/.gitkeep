@@ -1,4 +1,0 @@
-# 商城组件目录
-# 此目录下的组件会被自动注册到组件注册表
-# 组件命名规则：PascalCase.vue -> kebab-case
-# 例如：NoticeBar.vue -> notice-bar

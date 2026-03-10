@@ -1,93 +1,74 @@
 <script setup lang="ts">
-import { useArticlePage } from "~/composables/useArticlePage";
+/**
+ * 文章详情页
+ * 
+ * SSR 完整渲染：
+ * - 主题数据由中间件加载，通过 usePageContext 获取
+ * - 文章数据通过 useAsyncData 在服务端获取
+ * - 绑定解析和组件渲染在服务端完成
+ * - 浏览器收到完整渲染的 HTML
+ */
 
-const route = useRoute();
-const articleId = computed(() => route.params.id as string);
-
-// 只传递需要的字段到客户端
-const pageContext = usePageContext([
-  "cloak.page",
-  "cloak.isAdmin",
-  "themeConfig",
-  "siteConfig",
-  "variableValues",
-  "languages",
-]);
-
-// 文章页面专用 composable
+// 使用文章页 composable（SSR 时所有数据在服务端获取）
 const {
   articleInfo,
-  articlePending,
-  themeConfig,
-  globalStyle,
-  globalStyleVars,
-  hasTheme,
-  siteConfig,
-  variableValues,
+  isLoading,
+  error,
+  cssVariables,
   pageSchema,
   layoutSchema,
-  useThemeRenderer,
-  device,
+  hasTheme,
   useSiteTitle,
-} = useArticlePage();
+} = useArticlePage()
 
 // 设置浏览器标签页标题
-useSiteTitle(computed(() => articleInfo.value?.title || "文章详情"));
-
-// 预览设备
-const previewDevice = ref(device);
-
-// 返回上一页
-const goBack = () => {
-  if (import.meta.client) {
-    window.history.back();
-  }
-};
+useSiteTitle(computed(() => articleInfo.value?.title || '文章详情'))
 
 // 提供编辑器状态（非编辑器模式）
-provide("isInEditor", ref(false));
+provide('isInEditor', ref(false))
 
-// 提供文章数据给组件绑定解析使用
-provide("articleData", articleInfo);
+// 提供页面数据供 NodeRenderer 绑定解析使用
+provide('pageData', computed(() => ({
+  article: articleInfo.value,
+})))
 </script>
 
 <template>
-  <div class="article-page" :style="globalStyleVars">
-    <!-- 使用 TemplateRenderer 统一渲染 -->
-    <TemplateRenderer
+  <div class="article-page" :style="cssVariables">
+    <!-- 有主题配置时使用 PageRenderer -->
+    <RendererPageRenderer
+      v-if="hasTheme && pageSchema"
       :page="pageSchema"
       :layout="layoutSchema"
-      :global-style="globalStyle"
-      :site-config="siteConfig"
-      :preview-device="previewDevice"
-    >
-      <!-- 无主题配置时的 fallback -->
-      <template #fallback>
-        <template v-if="articlePending">
-          <div class="article-loading">加载中...</div>
-        </template>
-        <template v-else-if="articleInfo">
-          <div class="default-article-page">
-            <h1 class="article-default-title">{{ articleInfo.title }}</h1>
-            <p
-              v-if="articleInfo.description"
-              class="article-default-description"
-            >
-              {{ articleInfo.description }}
-            </p>
-            <div
-              class="article-default-content"
-              v-html="articleInfo.content"
-            ></div>
-          </div>
-        </template>
-        <template v-else>
-          <div class="article-not-found">
-            <p>文章不存在或已被删除</p>
-          </div>
-        </template>
-      </template>
-    </TemplateRenderer>
+    />
+
+    <!-- 无主题配置时的 fallback -->
+    <template v-else>
+      <!-- 加载中 -->
+      <div v-if="isLoading" class="article-loading">
+        加载中...
+      </div>
+
+      <!-- 加载错误 -->
+      <div v-else-if="error" class="article-error">
+        <p>加载文章失败</p>
+        <p class="error-detail">{{ error.message }}</p>
+      </div>
+
+      <!-- 文章内容 -->
+      <div v-else-if="articleInfo" class="default-article-page">
+        <h1 class="article-default-title">{{ articleInfo.title }}</h1>
+        <p v-if="articleInfo.description" class="article-default-description">
+          {{ articleInfo.description }}
+        </p>
+        <div class="article-default-content" v-html="articleInfo.content"></div>
+      </div>
+
+      <!-- 文章不存在 -->
+      <div v-else class="article-not-found">
+        <p>文章不存在或已被删除</p>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -98,7 +79,7 @@ provide("articleData", articleInfo);
   color: var(--text-color, #1e293b);
   font-family: var(
     --font-family,
-    "Inter",
+    'Inter',
     -apple-system,
     BlinkMacSystemFont,
     sans-serif
@@ -180,21 +161,27 @@ provide("articleData", articleInfo);
   background: #f9fafb;
 }
 
-.article-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
-  color: #9ca3af;
-  font-size: 14px;
-}
-
+.article-loading,
+.article-error,
 .article-not-found {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 200px;
+  min-height: 300px;
   color: #9ca3af;
   font-size: 16px;
+  text-align: center;
+  padding: 24px;
+}
+
+.article-error {
+  color: #ef4444;
+}
+
+.error-detail {
+  font-size: 14px;
+  color: #9ca3af;
+  margin-top: 8px;
 }
 </style>
