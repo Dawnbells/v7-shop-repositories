@@ -1,0 +1,124 @@
+/**
+ * 产品页 Composable
+ * 
+ * 整合产品页所需的所有数据：
+ * - 主题数据（从 usePageContext 获取）
+ * - 产品数据（通过 useAsyncData 获取）
+ * - 页面和布局 schema
+ * 
+ * SSR 时所有数据在服务端获取，客户端仅做 hydration
+ */
+
+interface ProductImage {
+  id: number
+  relativePath: string
+  name: string
+}
+
+interface ProductSpecification {
+  id: number
+  skuId: number
+  sellPrice: number
+  originPrice: number
+  stockQuantity: number
+  attributes: Array<{ name: string; value: string }>
+}
+
+interface ProductInfo {
+  id: number
+  spuId: number
+  title: string
+  merchandise: string | null
+  introduction: string | null
+  summary: string | null
+  sellPrice: number
+  originPrice: number | null
+  isMultiSpecs: boolean
+  images: ProductImage[]
+  specifications: ProductSpecification[]
+}
+
+export function useProductPage() {
+  const route = useRoute()
+  const productId = computed(() => route.params.id as string)
+
+  // 初始化主题数据（SSR 时从 event.context 读取）
+  const { themeConfig, siteConfig, variableValues } = usePageContext()
+
+  // 获取主题相关的计算属性和方法
+  const { getPageSchema, getLayoutSchema, globalStyle, globalConfig, cssVariables } = usePageTheme()
+
+  // 获取产品数据（SSR 时在服务端执行，直接调用 handler，无 HTTP）
+  const { data: productData, status, error } = useAsyncData(
+    `product-${productId.value}`,
+    async () => {
+      const response = await $fetch<{ success: boolean; data: ProductInfo }>('/api/product/info', {
+        query: { id: productId.value },
+      })
+      return response.data
+    },
+    {
+      watch: [productId],
+    }
+  )
+
+  // 产品信息
+  const productInfo = computed(() => productData.value)
+
+  // 是否正在加载
+  const isLoading = computed(() => status.value === 'pending')
+
+  // 从 themeConfig 提取产品详情页的 schema
+  const pageSchema = computed(() => getPageSchema('product-detail'))
+
+  // 从 themeConfig 提取布局 schema
+  const layoutSchema = computed(() => {
+    const layoutId = pageSchema.value?.layoutId
+    return layoutId ? getLayoutSchema(layoutId) : undefined
+  })
+
+  // 是否有主题配置
+  const hasTheme = computed(() => !!pageSchema.value)
+
+  // 设置页面标题
+  function useSiteTitle(title: Ref<string> | ComputedRef<string>) {
+    useHead({
+      title,
+    })
+  }
+
+  // 格式化价格
+  function formatPrice(price: number | null | undefined): string {
+    if (price == null) return ''
+    return `$${price.toFixed(2)}`
+  }
+
+  return {
+    // 路由参数
+    productId,
+
+    // 产品数据
+    productInfo,
+    isLoading,
+    error,
+
+    // 主题数据
+    themeConfig,
+    siteConfig,
+    variableValues,
+    globalStyle,
+    globalConfig,
+    cssVariables,
+
+    // 页面配置
+    pageSchema,
+    layoutSchema,
+    hasTheme,
+
+    // 工具方法
+    useSiteTitle,
+    formatPrice,
+    getPageSchema,
+    getLayoutSchema,
+  }
+}

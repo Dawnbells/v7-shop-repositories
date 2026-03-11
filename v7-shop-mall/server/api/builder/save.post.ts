@@ -13,7 +13,7 @@
  * - variable_values: 变量实际值（前端渲染 + 编辑器）
  */
 
-import { getPool } from '../../utils/db'
+import { saveLandingPageConfig } from '../../repositories/landingPageRepository'
 
 const VALID_LANDING_TYPES = ['LAND', 'CLOAK', 'BLACKLISTED'] as const
 type LandingPageType = (typeof VALID_LANDING_TYPES)[number]
@@ -86,8 +86,6 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const pool = getPool()
-
   const filledVariableValues = fillVariableDefaults(
     body.variableValues,
     body.variableSchema
@@ -101,31 +99,16 @@ export default defineEventHandler(async (event) => {
   const variableValuesJson = JSON.stringify(filledVariableValues)
 
   try {
-    const sql = `
-      INSERT INTO t_sub_domain_spu_landing_pages 
-        (landing_page_type, spu_id, sub_domain_id, landing_page_product_id, 
-         theme_config, variable_schema, site_config, variable_values,
-         created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-      ON DUPLICATE KEY UPDATE 
-        landing_page_product_id = VALUES(landing_page_product_id),
-        theme_config = VALUES(theme_config),
-        variable_schema = VALUES(variable_schema),
-        site_config = VALUES(site_config),
-        variable_values = VALUES(variable_values),
-        updated_at = NOW()
-    `
-
-    await pool.execute(sql, [
-      body.landingType,
-      spuId.toString(),
-      subDomainId.toString(),
-      landingPageProductId?.toString() ?? null,
-      themeConfigJson,
-      variableSchemaJson,
-      siteConfigJson,
-      variableValuesJson,
-    ])
+    await saveLandingPageConfig({
+      subDomainId,
+      spuId,
+      landingType: body.landingType,
+      landingPageProductId,
+      themeConfig: themeConfigJson,
+      variableSchema: variableSchemaJson,
+      siteConfig: siteConfigJson,
+      variableValues: variableValuesJson,
+    })
 
     return {
       success: true,

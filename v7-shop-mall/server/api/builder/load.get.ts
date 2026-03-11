@@ -9,25 +9,7 @@
  * - variableValues: 变量实际值
  */
 
-import { getPool } from '../../utils/db'
-
-function parseJsonField(value: any, defaultValue: any = null): any {
-  if (value === null || value === undefined) {
-    return defaultValue
-  }
-  if (typeof value === 'object') {
-    return value
-  }
-  if (typeof value === 'string') {
-    try {
-      return JSON.parse(value)
-    } catch {
-      console.warn('[Builder API] Failed to parse JSON field')
-      return defaultValue
-    }
-  }
-  return defaultValue
-}
+import { findLandingPageConfig } from '../../repositories/landingPageRepository'
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
@@ -43,20 +25,14 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const pool = getPool()
-
   try {
-    const sql = `
-      SELECT theme_config, variable_schema, site_config, variable_values
-      FROM t_sub_domain_spu_landing_pages
-      WHERE sub_domain_id = ? AND spu_id = ? AND landing_page_type = ?
-      LIMIT 1
-    `
+    const config = await findLandingPageConfig(
+      parseInt(subDomainId, 10),
+      parseInt(spuId, 10),
+      landingType
+    )
 
-    const [rows] = await pool.execute(sql, [subDomainId, spuId, landingType])
-    const result = rows as any[]
-
-    if (result.length === 0) {
+    if (!config) {
       return {
         success: true,
         data: null,
@@ -64,15 +40,13 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    const row = result[0]
-
     return {
       success: true,
       data: {
-        themeConfig: parseJsonField(row.theme_config, null),
-        variableSchema: parseJsonField(row.variable_schema, []),
-        siteConfig: parseJsonField(row.site_config, {}),
-        variableValues: parseJsonField(row.variable_values, {}),
+        themeConfig: config.themeConfig,
+        variableSchema: config.variableSchema,
+        siteConfig: config.siteConfig,
+        variableValues: config.variableValues,
       },
     }
   } catch (error: any) {
