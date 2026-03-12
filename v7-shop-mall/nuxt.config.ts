@@ -31,5 +31,9 @@ export default defineNuxtConfig({
     },
     // 开发环境模拟域名（本地调试时使用此域名查询商城信息）
     devDomain: '',
+    // 风控服务地址
+    riskServiceUrl: '',
+    // HTTP 代理（用于开发环境或需要代理的场景）
+    httpProxy: '',
   },
 })
