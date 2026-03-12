@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
 
   // 跳过不需要域名解析的路由
   if (
-    path.startsWith("/api/builder/") ||
+    path.startsWith("/api/") ||
     path.startsWith("/builder") ||
     path.startsWith("/_nuxt") ||
     path.startsWith("/__nuxt")

@@ -1,11 +1,5 @@
 /**
  * 安全页面类型
+ * 从共享类型重新导出，供服务器端使用
  */
-export enum SafePageType {
-  /** 店铺已关闭 */
-  SHOP_CLOSED = "SHOP_CLOSED",
-  /** 店铺不存在 */
-  SHOP_NOT_FOUND = "SHOP_NOT_FOUND",
-  /** 产品不存在 */
-  PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND",
-}
+export { SafePageType } from '../../app/types/safe-page'

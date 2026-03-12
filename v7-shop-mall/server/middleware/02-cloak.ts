@@ -265,8 +265,13 @@ async function performCloakCheck(
 export default defineEventHandler(async (event) => {
   const path = event.path || "";
 
-  // 跳过 builder 路由（编辑器不需要经过 middleware）
-  if (path.startsWith("/builder")) {
+  // 跳过不需要斗篷检查的路由
+  if (
+    path.startsWith("/api/") ||
+    path.startsWith("/builder") ||
+    path.startsWith("/_nuxt") ||
+    path.startsWith("/__nuxt")
+  ) {
     return;
   }
 
