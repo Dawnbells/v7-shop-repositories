@@ -1,6 +1,7 @@
 /**
  * 域名解析中间件
  * 从请求中提取 host，查询数据库获取域名和公司信息
+ * 解析 URL 路径中的 spuId（产品页写入 Cookie，其他页面从 Cookie 读取）
  * 设置 PageContext 中的域名相关实体
  *
  * 本地开发时可通过 NUXT_DEV_DOMAIN 环境变量指定模拟域名
@@ -11,6 +12,10 @@ import { findDomainByFullName } from "../repositories/domainRepository";
 import { getPageContext, updatePageContext } from "../utils/page-context";
 import { showSafePage, SafePageType } from "../utils/safe-page";
 import { logger } from "../utils/logger";
+
+// spuId Cookie 配置
+const SPU_ID_COOKIE = "_spuId";
+const SPU_ID_MAX_AGE = 30 * 24 * 60 * 60; // 30 天
 
 export default defineEventHandler(async (event) => {
   const path = event.path;
@@ -54,6 +59,29 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // 获取 spuId：产品页从 URL 解析并写入 Cookie，其他页面从 Cookie 读取
+  let spuId: number | null = null;
+  const pathParts = path.split("/").filter(Boolean);
+
+  if (pathParts[0] === "product" && pathParts[1]) {
+    // 产品页：从 URL 解析 spuId
+    spuId = parseInt(pathParts[1], 10) || null;
+
+    // 写入或更新 Cookie
+    if (spuId) {
+      setCookie(event, SPU_ID_COOKIE, String(spuId), {
+        maxAge: SPU_ID_MAX_AGE,
+        path: "/",
+      });
+    }
+  } else {
+    // 其他页面：从 Cookie 读取 spuId
+    const cookieValue = getCookie(event, SPU_ID_COOKIE);
+    if (cookieValue) {
+      spuId = parseInt(cookieValue, 10) || null;
+    }
+  }
+
   try {
     const result = await findDomainByFullName(queryDomain);
     logger.log("[01-domain] result:", result, queryDomain, host, isLocalDev);
@@ -71,6 +99,7 @@ export default defineEventHandler(async (event) => {
         currency: result.currency,
         company: result.company,
         salesUser: result.salesUser,
+        spuId,
       });
     } else {
       logger.warn(`[01-domain] Domain not found: ${queryDomain}`);

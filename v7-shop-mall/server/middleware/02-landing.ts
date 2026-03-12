@@ -35,27 +35,21 @@ export default defineEventHandler(async (event) => {
   }
 
   const subDomainId = pageContext.subDomain.id
+  const spuId = pageContext.spuId
 
   try {
-    // 从 URL 路径解析页面类型和 spuId
-    // /product/123 -> landingType = 'PRODUCT', spuId = 123
-    // /article/456 -> landingType = 'ARTICLE', 需要另外处理
+    // 从 URL 路径解析页面类型
+    // /product/123 -> landingType = 'PRODUCT'
+    // /article/456 -> landingType = 'ARTICLE'
     // / -> landingType = 'HOME'
     let landingType = 'HOME'
-    let spuId: number | null = null
 
     const pathParts = path.split('/').filter(Boolean)
     
     if (pathParts[0] === 'product' && pathParts[1]) {
       landingType = 'PRODUCT'
-      spuId = parseInt(pathParts[1], 10) || null
     } else if (pathParts[0] === 'article') {
       landingType = 'ARTICLE'
-    }
-
-    // 将 spuId 存入 PageContext
-    if (spuId) {
-      updatePageContext(event, { spuId })
     }
 
     // 查询主题配置
