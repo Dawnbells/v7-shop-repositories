@@ -336,10 +336,9 @@ export default defineEventHandler(async (event) => {
 
   // BLACKLISTED 显示安全页面
   if (cloakResult.page === CloakPage.BLACKLISTED) {
-    showSafePage(event, SafePageType.SHOP_NOT_FOUND, {
+    showSafePage(SafePageType.SHOP_NOT_FOUND, {
       trackingId: cloakResult.pdVal,
     });
-    return;
   }
 
   // 正常访问，将 cloak 结果注入到 context

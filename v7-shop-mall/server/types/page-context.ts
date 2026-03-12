@@ -5,7 +5,6 @@
 
 import type { SubDomain, TopLevelDomain, Country, Currency, Company, SalesUser } from './domain'
 import type { CloakCheckResponse } from './cloak'
-import type { SafePageType } from './safe-page'
 import type { ThemeConfig, SiteConfig, VariableValues } from '../../app/types/builder'
 
 /**
@@ -49,12 +48,6 @@ export interface PageContext {
   // 从 URL 解析
   /** 产品 SPU ID */
   spuId: number | null
-
-  // 安全页面
-  /** 安全页面类型（设置后显示安全页面而非正常内容） */
-  safePageType: SafePageType | null
-  /** 追踪 ID（用于风控追踪） */
-  trackingId: string | null
 }
 
 /**
@@ -72,7 +65,5 @@ export function createEmptyPageContext(): PageContext {
     fingerprint: null,
     pageTheme: null,
     spuId: null,
-    safePageType: null,
-    trackingId: null,
   }
 }

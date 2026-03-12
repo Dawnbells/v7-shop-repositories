@@ -9,7 +9,7 @@
  */
 
 import { findDomainByFullName } from "../repositories/domainRepository";
-import { getPageContext, updatePageContext } from "../utils/page-context";
+import { updatePageContext } from "../utils/page-context";
 import { showSafePage, SafePageType } from "../utils/safe-page";
 import { logger } from "../utils/logger";
 
@@ -35,8 +35,7 @@ export default defineEventHandler(async (event) => {
 
   if (!host) {
     logger.warn("[01-domain] No host found in request");
-    showSafePage(event, SafePageType.SHOP_NOT_FOUND);
-    return;
+    showSafePage(SafePageType.SHOP_NOT_FOUND);
   }
 
   // 判断是否为本地开发环境
@@ -54,8 +53,7 @@ export default defineEventHandler(async (event) => {
     } else {
       // 未配置开发域名，无法确定店铺
       logger.warn("[01-domain] No devDomain configured for local development");
-      showSafePage(event, SafePageType.SHOP_NOT_FOUND);
-      return;
+      showSafePage(SafePageType.SHOP_NOT_FOUND);
     }
   }
 
@@ -103,10 +101,10 @@ export default defineEventHandler(async (event) => {
       });
     } else {
       logger.warn(`[01-domain] Domain not found: ${queryDomain}`);
-      showSafePage(event, SafePageType.SHOP_NOT_FOUND);
+      showSafePage(SafePageType.SHOP_NOT_FOUND);
     }
   } catch (error) {
     logger.error("[01-domain] Error querying domain:", error);
-    showSafePage(event, SafePageType.SHOP_NOT_FOUND);
+    showSafePage(SafePageType.SHOP_NOT_FOUND);
   }
 });

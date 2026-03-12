@@ -8,11 +8,8 @@
 
 import type { ThemeConfig } from '~/types/component-meta'
 import type { SiteConfig, VariableValues } from '~/types/data-context'
-import type { SafePageType } from '~/types/safe-page'
 
 interface PageContext {
-  safePageType: SafePageType | null
-  trackingId: string | null
   pageTheme: PageThemeContext | null
 }
 
@@ -25,21 +22,10 @@ interface PageThemeContext {
 export function usePageContext() {
   const { themeConfig, siteConfig, variableValues } = usePageTheme()
 
-  // 安全页面类型
-  const safePageType = useState<SafePageType | null>('safePageType', () => null)
-  // 追踪 ID
-  const trackingId = useState<string | null>('trackingId', () => null)
-
   // SSR 时：从 event.context.pageContext 读取中间件注入的数据
   if (import.meta.server) {
     const event = useRequestEvent()
     const pageContext = event?.context?.pageContext as PageContext | null | undefined
-
-    // 读取安全页面类型和追踪 ID
-    if (pageContext?.safePageType) {
-      safePageType.value = pageContext.safePageType
-      trackingId.value = pageContext.trackingId ?? null
-    }
 
     const pageTheme = pageContext?.pageTheme as PageThemeContext | null | undefined
 
@@ -60,7 +46,5 @@ export function usePageContext() {
     themeConfig,
     siteConfig,
     variableValues,
-    safePageType,
-    trackingId,
   }
 }

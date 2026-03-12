@@ -1,13 +1,22 @@
 <script setup lang="ts">
-import { SafePageType } from '~/types/safe-page'
+import { computed } from 'vue'
+import { SafePageType } from './types/safe-page'
 
 const props = defineProps<{
-  type: SafePageType
-  trackingId?: string | null
+  error: {
+    statusCode: number
+    message: string
+    data?: {
+      type?: SafePageType
+      trackingId?: string
+    }
+  }
 }>()
 
 const config = computed(() => {
-  switch (props.type) {
+  const type = props.error.data?.type
+
+  switch (type) {
     case SafePageType.SHOP_CLOSED:
       return {
         emoji: '🔒',
@@ -33,11 +42,13 @@ const config = computed(() => {
       return {
         emoji: 'ℹ️',
         title: 'Page Not Available',
-        message: 'Sorry, this page is not available.',
+        message: props.error.message || 'Sorry, this page is not available.',
         submessage: 'Please try again later.',
       }
   }
 })
+
+const trackingId = computed(() => props.error.data?.trackingId)
 </script>
 
 <template>
