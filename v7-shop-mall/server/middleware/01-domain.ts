@@ -1,13 +1,15 @@
 /**
  * 域名解析中间件
  * 从请求中提取 host，查询数据库获取域名和公司信息
- * 设置 event.context.domain
+ * 设置 PageContext 中的域名相关实体
  * 
  * 本地开发时可通过 NUXT_DEV_DOMAIN 环境变量指定模拟域名
- * 未配置域名或域名不存在时 domain 为 null，前端显示"店铺不存在"
+ * 未配置域名或域名不存在时显示"店铺不存在"
  */
 
-import { findDomainByFullName, type DomainInfo } from '../repositories/domainRepository'
+import { findDomainByFullName } from '../repositories/domainRepository'
+import { getPageContext, updatePageContext } from '../utils/page-context'
+import { showSafePage, SafePageType } from '../utils/safe-page'
 
 export default defineEventHandler(async (event) => {
   const path = event.path
@@ -27,7 +29,7 @@ export default defineEventHandler(async (event) => {
   
   if (!host) {
     console.warn('[01-domain] No host found in request')
-    event.context.domain = null
+    showSafePage(event, SafePageType.SHOP_NOT_FOUND)
     return
   }
 
@@ -45,25 +47,36 @@ export default defineEventHandler(async (event) => {
       queryDomain = devDomain
     } else {
       // 未配置开发域名，无法确定店铺
-      event.context.domain = null
+      console.warn('[01-domain] No devDomain configured for local development')
+      showSafePage(event, SafePageType.SHOP_NOT_FOUND)
       return
     }
   }
 
   try {
-    const domainInfo = await findDomainByFullName(queryDomain)
+    const result = await findDomainByFullName(queryDomain)
 
-    if (domainInfo) {
+    if (result) {
+      // 本地开发时替换 fullName 为实际 host
       if (isLocalDev) {
-        domainInfo.fullName = host
+        result.subDomain.fullName = host
       }
-      event.context.domain = domainInfo
+
+      // 将所有实体存入 PageContext
+      updatePageContext(event, {
+        subDomain: result.subDomain,
+        topLevelDomain: result.topLevelDomain,
+        country: result.country,
+        currency: result.currency,
+        company: result.company,
+        salesUser: result.salesUser,
+      })
     } else {
       console.warn(`[01-domain] Domain not found: ${queryDomain}`)
-      event.context.domain = null
+      showSafePage(event, SafePageType.SHOP_NOT_FOUND)
     }
   } catch (error) {
     console.error('[01-domain] Error querying domain:', error)
-    event.context.domain = null
+    showSafePage(event, SafePageType.SHOP_NOT_FOUND)
   }
 })

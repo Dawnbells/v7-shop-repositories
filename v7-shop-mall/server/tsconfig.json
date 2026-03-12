@@ -1,0 +1,14 @@
+{
+  "extends": "../.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "../.nuxt/types/nitro-imports"
+    ]
+  },
+  "include": [
+    "./**/*",
+    "../.nuxt/types/nitro.d.ts",
+    "../.nuxt/types/nitro-imports.d.ts",
+    "../.nuxt/types/nitro-nuxt.d.ts"
+  ]
+}

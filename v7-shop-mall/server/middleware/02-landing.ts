@@ -1,7 +1,7 @@
 /**
  * 主题配置加载中间件
  * 从数据库加载 themeConfig、siteConfig、variableValues
- * 设置 event.context.pageTheme
+ * 设置 PageContext.pageTheme
  */
 
 import {
@@ -10,13 +10,8 @@ import {
   findHomeLandingPageConfig,
   type LandingPageConfig,
 } from '../repositories/landingPageRepository'
-import type { ThemeConfig, SiteConfig, VariableValues } from '../../app/types/builder'
-
-interface PageTheme {
-  themeConfig: ThemeConfig | null
-  siteConfig: SiteConfig
-  variableValues: VariableValues
-}
+import { getPageContext, updatePageContext } from '../utils/page-context'
+import type { PageTheme } from '../types/page-context'
 
 export default defineEventHandler(async (event) => {
   const path = event.path
@@ -31,13 +26,14 @@ export default defineEventHandler(async (event) => {
     return
   }
 
-  const domain = event.context.domain
+  const pageContext = getPageContext(event)
 
-  // 没有域名信息时跳过
-  if (!domain?.subDomainId) {
-    event.context.pageTheme = null
+  // 没有子域名信息时跳过
+  if (!pageContext.subDomain) {
     return
   }
+
+  const subDomainId = pageContext.subDomain.id
 
   try {
     // 从 URL 路径解析页面类型和 spuId
@@ -56,38 +52,44 @@ export default defineEventHandler(async (event) => {
       landingType = 'ARTICLE'
     }
 
+    // 将 spuId 存入 PageContext
+    if (spuId) {
+      updatePageContext(event, { spuId })
+    }
+
     // 查询主题配置
     // 优先查找特定 spuId 的配置，否则查找默认配置
     let config: LandingPageConfig | null = null
 
     if (spuId) {
-      config = await findLandingPageConfig(domain.subDomainId, spuId, landingType)
+      config = await findLandingPageConfig(subDomainId, spuId, landingType)
     } else {
-      config = await findDefaultLandingPageConfig(domain.subDomainId, landingType)
+      config = await findDefaultLandingPageConfig(subDomainId, landingType)
     }
 
     if (config) {
-      event.context.pageTheme = {
-        themeConfig: config.themeConfig,
-        siteConfig: config.siteConfig,
-        variableValues: config.variableValues,
-      } as PageTheme
+      updatePageContext(event, {
+        pageTheme: {
+          themeConfig: config.themeConfig,
+          siteConfig: config.siteConfig,
+          variableValues: config.variableValues,
+        } as PageTheme,
+      })
     } else {
       // 没有找到特定配置，尝试查找 HOME 默认配置
-      const homeConfig = await findHomeLandingPageConfig(domain.subDomainId)
+      const homeConfig = await findHomeLandingPageConfig(subDomainId)
 
       if (homeConfig) {
-        event.context.pageTheme = {
-          themeConfig: homeConfig.themeConfig,
-          siteConfig: homeConfig.siteConfig,
-          variableValues: homeConfig.variableValues,
-        } as PageTheme
-      } else {
-        event.context.pageTheme = null
+        updatePageContext(event, {
+          pageTheme: {
+            themeConfig: homeConfig.themeConfig,
+            siteConfig: homeConfig.siteConfig,
+            variableValues: homeConfig.variableValues,
+          } as PageTheme,
+        })
       }
     }
   } catch (error) {
     console.error('[02-landing] Error loading theme config:', error)
-    event.context.pageTheme = null
   }
 })
