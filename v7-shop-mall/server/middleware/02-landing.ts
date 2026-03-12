@@ -12,6 +12,7 @@ import {
 } from '../repositories/landingPageRepository'
 import { getPageContext, updatePageContext } from '../utils/page-context'
 import type { PageTheme } from '../types/page-context'
+import { logger } from '../utils/logger'
 
 export default defineEventHandler(async (event) => {
   const path = event.path
@@ -90,6 +91,6 @@ export default defineEventHandler(async (event) => {
       }
     }
   } catch (error) {
-    console.error('[02-landing] Error loading theme config:', error)
+    logger.error('[02-landing] Error loading theme config:', error)
   }
 })
