@@ -90,26 +90,25 @@ function serializeCloakResult(result: CloakCheckResponse): string {
 function deserializeCloakResult(value: string): CloakCheckResponse | null {
   const parts = value.split("-");
   if (parts.length < 4) return null;
-  const [remote, page, isAdmin, ...pdValParts] = parts;
-  const pageNum = parseInt(page, 10);
-  if (!(pageNum in NUM_TO_CLOAK_PAGE)) return null;
+  const [remote, pageStr, isAdmin, ...pdValParts] = parts;
+  if (!pageStr) return null;
+  const pageNum = parseInt(pageStr, 10);
+  const cloakPage = NUM_TO_CLOAK_PAGE[pageNum];
+  if (!cloakPage) return null;
   return {
     remote: remote === "1",
-    page: NUM_TO_CLOAK_PAGE[pageNum],
+    page: cloakPage,
     isAdmin: isAdmin === "1",
-    pdVal: pdValParts.join("-"), // pdVal 可能包含 "-"
+    pdVal: pdValParts.join("-"),
   };
 }
 
 /**
  * 生成随机 UUID
+ * 使用 Node.js 内置的 crypto.randomUUID()
  */
 function generateUUID(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return crypto.randomUUID();
 }
 
 /**
