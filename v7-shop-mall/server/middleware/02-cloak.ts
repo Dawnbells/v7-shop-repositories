@@ -233,7 +233,7 @@ async function performCloakCheck(
       headers: {
         "Content-Type": "application/json",
       },
-      timeout: 5000,
+      timeout: 3000,
     };
 
     // 如果配置了代理，使用代理
@@ -320,17 +320,14 @@ export default defineEventHandler(async (event) => {
       );
     }
     if (!cloakResult) {
-      // 没有 cookie，使用降级策略
-      logger.log(
-        "[Cloak Middleware] No cookie, using fallback:",
-        fallbackPage,
-      );
+      // 没有经过/product路由检测，一律使用CLOAK作为fallbackPage
       cloakResult = {
         remote: false,
-        page: fallbackPage,
-        pdVal: "",
+        page: CloakPage.CLOAK,
+        pdVal: "CLOAK",
         isAdmin: false,
       };
+      logger.log("[Cloak Middleware] No cookie, using fallback:", cloakResult);
     }
   }
 
@@ -339,8 +336,12 @@ export default defineEventHandler(async (event) => {
     showSafePage(SafePageType.SHOP_NOT_FOUND, {
       trackingId: cloakResult.pdVal,
     });
+    return;
   }
 
-  // 正常访问，将 cloak 结果注入到 context
-  updatePageContext(event, { cloak: cloakResult });
+  // 获取 fingerprint（在 buildCloakRequest 中已设置，或需要单独获取）
+  const fingerprint = getOrCreateFingerprint(event);
+
+  // 正常访问，将 cloak 结果和 fingerprint 注入到 context
+  updatePageContext(event, { cloak: cloakResult, fingerprint });
 });

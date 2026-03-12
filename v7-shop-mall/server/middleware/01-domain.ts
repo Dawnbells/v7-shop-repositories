@@ -83,26 +83,61 @@ export default defineEventHandler(async (event) => {
   try {
     const result = await findDomainByFullName(queryDomain);
     logger.log("[01-domain] result:", result, queryDomain, host, isLocalDev);
-    if (result) {
-      // 本地开发时替换 fullName 为实际 host
-      if (isLocalDev) {
-        result.subDomain.fullName = host;
-      }
-
-      // 将所有实体存入 PageContext
-      updatePageContext(event, {
-        subDomain: result.subDomain,
-        topLevelDomain: result.topLevelDomain,
-        country: result.country,
-        currency: result.currency,
-        company: result.company,
-        salesUser: result.salesUser,
-        spuId,
-      });
-    } else {
+    if (!result) {
       logger.warn(`[01-domain] Domain not found: ${queryDomain}`);
       showSafePage(SafePageType.SHOP_NOT_FOUND);
+      return;
     }
+
+    // 检查所有必需字段是否存在
+    const { subDomain, topLevelDomain, country, currency, company, salesUser } = result;
+    
+    if (!subDomain) {
+      logger.warn(`[01-domain] SubDomain is null for: ${queryDomain}`);
+      showSafePage(SafePageType.SHOP_NOT_FOUND);
+      return;
+    }
+    if (!topLevelDomain) {
+      logger.warn(`[01-domain] TopLevelDomain is null for: ${queryDomain}`);
+      showSafePage(SafePageType.SHOP_NOT_FOUND);
+      return;
+    }
+    if (!country) {
+      logger.warn(`[01-domain] Country is null for: ${queryDomain}`);
+      showSafePage(SafePageType.SHOP_NOT_FOUND);
+      return;
+    }
+    if (!currency) {
+      logger.warn(`[01-domain] Currency is null for: ${queryDomain}`);
+      showSafePage(SafePageType.SHOP_NOT_FOUND);
+      return;
+    }
+    if (!company) {
+      logger.warn(`[01-domain] Company is null for: ${queryDomain}`);
+      showSafePage(SafePageType.SHOP_NOT_FOUND);
+      return;
+    }
+    if (!salesUser) {
+      logger.warn(`[01-domain] SalesUser is null for: ${queryDomain}`);
+      showSafePage(SafePageType.SHOP_NOT_FOUND);
+      return;
+    }
+
+    // 本地开发时替换 fullName 为实际 host
+    if (isLocalDev) {
+      subDomain.fullName = host;
+    }
+
+    // 将所有实体存入 PageContext
+    updatePageContext(event, {
+      subDomain,
+      topLevelDomain,
+      country,
+      currency,
+      company,
+      salesUser,
+      spuId,
+    });
   } catch (error) {
     logger.error("[01-domain] Error querying domain:", error);
     showSafePage(SafePageType.SHOP_NOT_FOUND);
