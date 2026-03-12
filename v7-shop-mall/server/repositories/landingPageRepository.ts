@@ -3,20 +3,34 @@
  * 封装主题配置相关的数据库查询和保存操作
  */
 
-import { query, queryOne, getPool } from '../utils/db'
+import { queryOne, getPool } from '../utils/db'
+
+export type LandingPageType = 'LAND' | 'CLOAK' | 'BLACKLISTED'
 
 export interface LandingPageConfig {
+  landingPageType: LandingPageType
+  spuId: number
+  subDomainId: number
+  landingSpuId: number | null
   themeConfig: any
   variableSchema: any[]
   siteConfig: Record<string, any>
   variableValues: Record<string, any>
+  protocolPlaceholderValues: Record<string, any>
+  protocolId: number | null
 }
 
 export interface LandingPageRow {
+  landing_page_type: string
+  spu_id: number
+  sub_domain_id: number
+  landing_spu_id: number | null
   theme_config: string | null
   variable_schema: string | null
   site_config: string | null
   variable_values: string | null
+  protocol_placeholder_values: string | null
+  protocol_id: number | null
 }
 
 /**
@@ -40,76 +54,54 @@ function parseJsonField(value: any, defaultValue: any = null): any {
 }
 
 /**
- * 根据 subDomainId、spuId、landingType 查询主题配置
+ * 根据 subDomainId、spuId、landingPageType 查询落地页配置
  */
 export async function findLandingPageConfig(
   subDomainId: number,
   spuId: number,
-  landingType: string
+  landingPageType: LandingPageType
 ): Promise<LandingPageConfig | null> {
   const sql = `
-    SELECT theme_config, variable_schema, site_config, variable_values
+    SELECT 
+      landing_page_type,
+      spu_id,
+      sub_domain_id,
+      landing_spu_id,
+      theme_config,
+      variable_schema,
+      site_config,
+      variable_values,
+      protocol_placeholder_values,
+      protocol_id
     FROM t_sub_domain_spu_landing_pages
     WHERE sub_domain_id = ? AND spu_id = ? AND landing_page_type = ?
     LIMIT 1
   `
 
-  const row = await queryOne<LandingPageRow>(sql, [subDomainId, spuId, landingType])
+  const row = await queryOne<LandingPageRow>(sql, [subDomainId, spuId, landingPageType])
 
   if (!row) {
     return null
   }
 
   return {
+    landingPageType: row.landing_page_type as LandingPageType,
+    spuId: row.spu_id,
+    subDomainId: row.sub_domain_id,
+    landingSpuId: row.landing_spu_id,
     themeConfig: parseJsonField(row.theme_config, null),
     variableSchema: parseJsonField(row.variable_schema, []),
     siteConfig: parseJsonField(row.site_config, {}),
     variableValues: parseJsonField(row.variable_values, {}),
+    protocolPlaceholderValues: parseJsonField(row.protocol_placeholder_values, {}),
+    protocolId: row.protocol_id,
   }
-}
-
-/**
- * 查询默认主题配置（spu_id = 0 或 null）
- */
-export async function findDefaultLandingPageConfig(
-  subDomainId: number,
-  landingType: string
-): Promise<LandingPageConfig | null> {
-  const sql = `
-    SELECT theme_config, variable_schema, site_config, variable_values
-    FROM t_sub_domain_spu_landing_pages
-    WHERE sub_domain_id = ? AND (spu_id = 0 OR spu_id IS NULL) AND landing_page_type = ?
-    LIMIT 1
-  `
-
-  const row = await queryOne<LandingPageRow>(sql, [subDomainId, landingType])
-
-  if (!row) {
-    return null
-  }
-
-  return {
-    themeConfig: parseJsonField(row.theme_config, null),
-    variableSchema: parseJsonField(row.variable_schema, []),
-    siteConfig: parseJsonField(row.site_config, {}),
-    variableValues: parseJsonField(row.variable_values, {}),
-  }
-}
-
-/**
- * 查询 HOME 类型的默认主题配置
- */
-export async function findHomeLandingPageConfig(
-  subDomainId: number
-): Promise<LandingPageConfig | null> {
-  return findDefaultLandingPageConfig(subDomainId, 'HOME')
 }
 
 export interface SaveLandingPageParams {
   subDomainId: bigint
   spuId: bigint
   landingType: string
-  landingPageProductId: bigint | null
   themeConfig: string
   variableSchema: string
   siteConfig: string
@@ -124,12 +116,11 @@ export async function saveLandingPageConfig(params: SaveLandingPageParams): Prom
 
   const sql = `
     INSERT INTO t_sub_domain_spu_landing_pages 
-      (landing_page_type, spu_id, sub_domain_id, landing_page_product_id, 
+      (landing_page_type, spu_id, sub_domain_id,
        theme_config, variable_schema, site_config, variable_values,
        created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+    VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     ON DUPLICATE KEY UPDATE 
-      landing_page_product_id = VALUES(landing_page_product_id),
       theme_config = VALUES(theme_config),
       variable_schema = VALUES(variable_schema),
       site_config = VALUES(site_config),
@@ -141,7 +132,6 @@ export async function saveLandingPageConfig(params: SaveLandingPageParams): Prom
     params.landingType,
     params.spuId.toString(),
     params.subDomainId.toString(),
-    params.landingPageProductId?.toString() ?? null,
     params.themeConfig,
     params.variableSchema,
     params.siteConfig,

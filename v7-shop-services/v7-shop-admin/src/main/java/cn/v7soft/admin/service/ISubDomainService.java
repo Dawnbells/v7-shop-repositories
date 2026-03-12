@@ -112,19 +112,19 @@ public interface ISubDomainService extends IBaseService<SubDomain> {
     void unbindSpuPixel(Long subDomainId, Long spuId, Long pixelId);
 
     /**
-     * 绑定落地页SPU到子域名SPU（个性化配置）
+     * 绑定落地页SPU到子域名SPU（仅支持 CLOAK 类型）
      * @param subDomainId 子域名ID
      * @param spuId SPU ID
-     * @param landingPageSpuId 落地页SPU ID
-     * @param landingPageType 落地页类型
+     * @param landingSpuId 落地页显示的SPU ID
+     * @param landingPageType 落地页类型（仅支持 CLOAK）
      */
-    void bindLandingPageSpu(Long subDomainId, Long spuId, Long landingPageSpuId, cn.v7soft.dao.enums.LandingPageType landingPageType);
+    void bindLandingPageSpu(Long subDomainId, Long spuId, Long landingSpuId, cn.v7soft.dao.enums.LandingPageType landingPageType);
 
     /**
-     * 解绑落地页SPU（删除个性化配置，使用默认配置）
+     * 解绑落地页SPU（仅支持 CLOAK 类型）
      * @param subDomainId 子域名ID
      * @param spuId SPU ID
-     * @param landingPageType 落地页类型
+     * @param landingPageType 落地页类型（仅支持 CLOAK）
      */
     void unbindLandingPageSpu(Long subDomainId, Long spuId, cn.v7soft.dao.enums.LandingPageType landingPageType);
 

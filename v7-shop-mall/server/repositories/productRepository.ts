@@ -136,3 +136,22 @@ export async function findProductDetail(id: string | number): Promise<ProductDet
     specifications,
   }
 }
+
+/**
+ * 根据 SPU ID 和国家 ID 查询产品 ID
+ */
+export async function findProductBySpuAndCountry(
+  spuId: number,
+  countryId: number
+): Promise<number | null> {
+  const sql = `
+    SELECT id
+    FROM t_products
+    WHERE spu_id = ? AND country_id = ? AND status = 'ACTIVE'
+    LIMIT 1
+  `
+
+  const row = await queryOne<{ id: number }>(sql, [spuId, countryId])
+
+  return row?.id ?? null
+}

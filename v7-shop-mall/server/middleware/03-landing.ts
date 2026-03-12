@@ -1,67 +1,62 @@
 /**
  * 主题配置加载中间件
- * 从数据库加载 themeConfig、siteConfig、variableValues
+ * 根据 cloak.page 结果从数据库加载对应的 themeConfig、siteConfig、variableValues
  * 设置 PageContext.pageTheme
  */
 
-import {
-  findLandingPageConfig,
-  findDefaultLandingPageConfig,
-  findHomeLandingPageConfig,
-  type LandingPageConfig,
-} from '../repositories/landingPageRepository'
-import { getPageContext, updatePageContext } from '../utils/page-context'
-import type { PageTheme } from '../types/page-context'
-import { logger } from '../utils/logger'
+import { findLandingPageConfig } from "../repositories/landingPageRepository";
+import { getPageContext, updatePageContext } from "../utils/page-context";
+import type { PageTheme } from "../types/page-context";
+import { CloakPage } from "../types/cloak";
+import { logger } from "../utils/logger";
+
+type LandingPageType = "LAND" | "CLOAK" | "BLACKLISTED";
+
+/**
+ * 将 CloakPage 映射为数据库中的 landing_page_type
+ * CRAWLER 和 RISK 映射为 CLOAK
+ */
+function mapCloakPageToLandingType(cloakPage: CloakPage): LandingPageType {
+  switch (cloakPage) {
+    case CloakPage.LAND:
+      return "LAND";
+    case CloakPage.CLOAK:
+    case CloakPage.CRAWLER:
+    case CloakPage.RISK:
+      return "CLOAK";
+    case CloakPage.BLACKLISTED:
+      return "BLACKLISTED";
+    default:
+      return "CLOAK";
+  }
+}
 
 export default defineEventHandler(async (event) => {
-  const path = event.path
+  const path = event.path;
 
   // 跳过 API 路由和编辑器路由
   if (
-    path.startsWith('/api/') ||
-    path.startsWith('/builder') ||
-    path.startsWith('/_nuxt') ||
-    path.startsWith('/__nuxt')
+    path.startsWith("/api/") ||
+    path.startsWith("/builder") ||
+    path.startsWith("/_nuxt") ||
+    path.startsWith("/__nuxt")
   ) {
-    return
+    return;
   }
 
-  const pageContext = getPageContext(event)
+  const pageContext = getPageContext(event);
 
-  // 没有子域名信息时跳过
-  if (!pageContext.subDomain) {
-    return
-  }
-
-  const subDomainId = pageContext.subDomain.id
-  const spuId = pageContext.spuId
+  const subDomainId = pageContext.subDomain.id;
+  const spuId = pageContext.spuId ?? 0;
+  const landingPageType = mapCloakPageToLandingType(pageContext.cloak.page);
 
   try {
-    // 从 URL 路径解析页面类型
-    // /product/123 -> landingType = 'PRODUCT'
-    // /article/456 -> landingType = 'ARTICLE'
-    // / -> landingType = 'HOME'
-    let landingType = 'HOME'
-
-    const pathParts = path.split('/').filter(Boolean)
-    
-    if (pathParts[0] === 'product' && pathParts[1]) {
-      landingType = 'PRODUCT'
-    } else if (pathParts[0] === 'article') {
-      landingType = 'ARTICLE'
-    }
-
-    // 查询主题配置
-    // 优先查找特定 spuId 的配置，否则查找默认配置
-    let config: LandingPageConfig | null = null
-
-    if (spuId) {
-      config = await findLandingPageConfig(subDomainId, spuId, landingType)
-    } else {
-      config = await findDefaultLandingPageConfig(subDomainId, landingType)
-    }
-
+    const config = await findLandingPageConfig(
+      subDomainId,
+      spuId,
+      landingPageType,
+    );
+    logger.log("[03-landing] config:", config);
     if (config) {
       updatePageContext(event, {
         pageTheme: {
@@ -69,22 +64,9 @@ export default defineEventHandler(async (event) => {
           siteConfig: config.siteConfig,
           variableValues: config.variableValues,
         } as PageTheme,
-      })
-    } else {
-      // 没有找到特定配置，尝试查找 HOME 默认配置
-      const homeConfig = await findHomeLandingPageConfig(subDomainId)
-
-      if (homeConfig) {
-        updatePageContext(event, {
-          pageTheme: {
-            themeConfig: homeConfig.themeConfig,
-            siteConfig: homeConfig.siteConfig,
-            variableValues: homeConfig.variableValues,
-          } as PageTheme,
-        })
-      }
+      });
     }
   } catch (error) {
-    logger.error('[02-landing] Error loading theme config:', error)
+    logger.error("[03-landing] Error loading theme config:", error);
   }
-})
+});

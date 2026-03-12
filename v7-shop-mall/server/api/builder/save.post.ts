@@ -27,7 +27,6 @@ interface SaveThemeRequest {
   subDomainId: string | number
   spuId: string | number
   landingType: string
-  landingPageProductId?: string | number | null
   themeConfig: object
   variableSchema?: VariableDefinition[]
   siteConfig?: object
@@ -75,9 +74,6 @@ export default defineEventHandler(async (event) => {
 
   const subDomainId = BigInt(body.subDomainId)
   const spuId = BigInt(body.spuId)
-  const landingPageProductId = body.landingPageProductId
-    ? BigInt(body.landingPageProductId)
-    : null
 
   if (typeof body.themeConfig !== 'object' || body.themeConfig === null) {
     throw createError({
@@ -103,7 +99,6 @@ export default defineEventHandler(async (event) => {
       subDomainId,
       spuId,
       landingType: body.landingType,
-      landingPageProductId,
       themeConfig: themeConfigJson,
       variableSchema: variableSchemaJson,
       siteConfig: siteConfigJson,
@@ -121,7 +116,7 @@ export default defineEventHandler(async (event) => {
       throw createError({
         statusCode: 400,
         statusMessage:
-          'Invalid reference: subDomainId, spuId, or landingPageProductId does not exist',
+          'Invalid reference: subDomainId or spuId does not exist',
       })
     }
 

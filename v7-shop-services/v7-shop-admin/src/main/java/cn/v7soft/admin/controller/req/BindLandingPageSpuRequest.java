@@ -26,9 +26,9 @@ public class BindLandingPageSpuRequest {
     @Schema(title = "SPU ID")
     private Long spuId;
 
-    @NotNull(message = "落地页SPU ID不能为空")
-    @Schema(title = "落地页SPU ID")
-    private Long landingPageSpuId;
+    @NotNull(message = "落地页显示的SPU ID不能为空")
+    @Schema(title = "落地页显示的SPU ID")
+    private Long landingSpuId;
 
     @NotNull(message = "落地页类型不能为空")
     @Schema(title = "落地页类型", description = "LAND: 真实落地页, CLOAK: 风险用户落地页, BLACKLISTED: 黑名单落地页")

@@ -15,18 +15,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import cn.v7soft.core.enums.ClientResponseEnum;
-import cn.v7soft.dao.enums.LandingPageType;
 import jakarta.validation.Valid;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.v7soft.admin.controller.req.BindLandingPageProtocolRequest;
-import cn.v7soft.admin.controller.req.BindLandingPageSpuRequest;
+import cn.v7soft.admin.controller.req   .BindLandingPageSpuRequest;
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
 import cn.v7soft.admin.controller.req.BindSpuPixelRequest;
 import cn.v7soft.admin.controller.req.EditSubDomainRequest;
-import cn.v7soft.admin.controller.req.UnbindLandingPageSpuRequest;
 import cn.v7soft.admin.controller.req.QuerySubDomainRequest;
+import cn.v7soft.admin.controller.req.UnbindLandingPageSpuRequest;
+import cn.v7soft.core.enums.ClientResponseEnum;
+import cn.v7soft.dao.enums.LandingPageType;
 import cn.v7soft.admin.controller.resp.SubDomainResponse;
 import cn.v7soft.admin.controller.resp.SubDomainSpuDetailResponse;
 import cn.v7soft.admin.controller.resp.SubDomainSpuResponse;
@@ -188,16 +188,17 @@ public class SubDomainController extends BaseController<SubDomain, ISubDomainSer
     }
 
     @PostMapping("/bindLandingPageSpu")
-    @Operation(summary = "绑定落地页SPU到子域名SPU（个性化配置）")
+    @Operation(summary = "绑定落地页SPU到子域名SPU（仅支持 CLOAK 类型）")
     public void bindLandingPageSpu(@Valid @RequestBody BindLandingPageSpuRequest request) {
-        ClientResponseEnum.PARAMETER_ILLEGAL.notEquals(request.getLandingPageType(), LandingPageType.LAND, "不支持修改真实落地页");
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(request.getLandingPageType() == LandingPageType.CLOAK, "仅支持设置风险用户落地页(CLOAK)的SPU");
         service.bindLandingPageSpu(request.getSubDomainId(), request.getSpuId(),
-                request.getLandingPageSpuId(), request.getLandingPageType());
+                request.getLandingSpuId(), request.getLandingPageType());
     }
 
     @PostMapping("/unbindLandingPageSpu")
-    @Operation(summary = "解绑落地页SPU（删除个性化配置，使用默认配置）")
+    @Operation(summary = "解绑落地页SPU（仅支持 CLOAK 类型）")
     public void unbindLandingPageSpu(@Valid @RequestBody UnbindLandingPageSpuRequest request) {
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(request.getLandingPageType() == LandingPageType.CLOAK, "仅支持设置风险用户落地页(CLOAK)的SPU");
         service.unbindLandingPageSpu(request.getSubDomainId(), request.getSpuId(), request.getLandingPageType());
     }
 

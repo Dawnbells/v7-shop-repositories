@@ -283,7 +283,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
                         .subDomainId(subDomainId)
                         .spuId(spuId)
                         .landingPageType(type)
-                        .landingPageProductId(null)  // 所有类型 landingPageProductId 初始为 NULL
+                        .landingSpuId(type == LandingPageType.LAND ? spuId : null)
                         .createdAt(now)
                         .updatedAt(now)
                         .build();
@@ -315,12 +315,13 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         Spu spu = spuService.getById(spuId);
         Long countryId = subDomain.getCountry() != null ? subDomain.getCountry().getId() : null;
 
-        // 查询个性化落地页配置，转换为 Map<LandingPageType, Long>（存储 productId）
-        // 使用 HashMap 收集，因为 landingPageProductId 可能为 null（Collectors.toMap 不允许 null 值）
+        // 查询落地页配置
         List<SubDomainSpuLandingPage> landingPageBindings = subDomainSpuLandingPageRepository.findBySubDomainIdAndSpuId(subDomainId, spuId);
-        java.util.Map<LandingPageType, Long> customLandingPageProductMap = new java.util.HashMap<>();
+
+        // 构建落地页类型到配置的映射
+        java.util.Map<LandingPageType, SubDomainSpuLandingPage> landingPageMap = new java.util.HashMap<>();
         for (SubDomainSpuLandingPage lp : landingPageBindings) {
-            customLandingPageProductMap.put(lp.getLandingPageType(), lp.getLandingPageProductId());
+            landingPageMap.put(lp.getLandingPageType(), lp);
         }
 
         // 检查SPU是否支持当前国家
@@ -329,27 +330,25 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         // 构建真实落地页SPU（始终使用当前SPU）
         SpuSimpleWithCountryResponse realLandingPageSpu = SpuSimpleWithCountryResponse.convertEntity(spu, spuSupportsCountry);
 
-        // 构建风险用户落地页SPU（从 productId 反查 SPU）
+        // 构建风险用户落地页SPU（从 landingSpuId 获取）
         SpuSimpleWithCountryResponse riskUserLandingPageSpu = null;
-        Long customRiskProductId = customLandingPageProductMap.get(LandingPageType.CLOAK);
-        if (customRiskProductId != null) {
-            Product customRiskProduct = productRepository.findById(customRiskProductId).orElse(null);
-            if (customRiskProduct != null && customRiskProduct.getSpu() != null) {
-                Spu customRiskSpu = customRiskProduct.getSpu();
-                boolean customRiskSupports = checkSpuSupportsCountry(customRiskSpu, countryId);
-                riskUserLandingPageSpu = SpuSimpleWithCountryResponse.convertEntity(customRiskSpu, customRiskSupports);
+        SubDomainSpuLandingPage cloakLandingPage = landingPageMap.get(LandingPageType.CLOAK);
+        if (cloakLandingPage != null && cloakLandingPage.getLandingSpuId() != null) {
+            Spu cloakSpu = spuService.getById(cloakLandingPage.getLandingSpuId());
+            if (cloakSpu != null) {
+                boolean cloakSupportsCountry = checkSpuSupportsCountry(cloakSpu, countryId);
+                riskUserLandingPageSpu = SpuSimpleWithCountryResponse.convertEntity(cloakSpu, cloakSupportsCountry);
             }
         }
 
-        // 构建黑名单落地页SPU（从 productId 反查 SPU）
+        // 构建黑名单落地页SPU（从 landingSpuId 获取）
         SpuSimpleWithCountryResponse blacklistLandingPageSpu = null;
-        Long customBlackProductId = customLandingPageProductMap.get(LandingPageType.BLACKLISTED);
-        if (customBlackProductId != null) {
-            Product customBlackProduct = productRepository.findById(customBlackProductId).orElse(null);
-            if (customBlackProduct != null && customBlackProduct.getSpu() != null) {
-                Spu customBlackSpu = customBlackProduct.getSpu();
-                boolean customBlackSupports = checkSpuSupportsCountry(customBlackSpu, countryId);
-                blacklistLandingPageSpu = SpuSimpleWithCountryResponse.convertEntity(customBlackSpu, customBlackSupports);
+        SubDomainSpuLandingPage blacklistLandingPage = landingPageMap.get(LandingPageType.BLACKLISTED);
+        if (blacklistLandingPage != null && blacklistLandingPage.getLandingSpuId() != null) {
+            Spu blacklistSpu = spuService.getById(blacklistLandingPage.getLandingSpuId());
+            if (blacklistSpu != null) {
+                boolean blacklistSupportsCountry = checkSpuSupportsCountry(blacklistSpu, countryId);
+                blacklistLandingPageSpu = SpuSimpleWithCountryResponse.convertEntity(blacklistSpu, blacklistSupportsCountry);
             }
         }
 
@@ -432,31 +431,26 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
 
     @Override
     @Transactional
-    public void bindLandingPageSpu(Long subDomainId, Long spuId, Long landingPageSpuId, LandingPageType landingPageType) {
-        // 获取子域名的语言，根据 SPU + 语言 解析出对应的 Product
-        SubDomain subDomain = getById(subDomainId);
-        Long languageId = subDomain.getLanguage() != null ? subDomain.getLanguage().getId() : null;
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(languageId, "子域名未配置语言");
+    public void bindLandingPageSpu(Long subDomainId, Long spuId, Long landingSpuId, LandingPageType landingPageType) {
+        SubDomainSpuLandingPageId id = new SubDomainSpuLandingPageId(subDomainId, spuId, landingPageType);
+        SubDomainSpuLandingPage landingPage = subDomainSpuLandingPageRepository.findById(id)
+                .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("落地页配置不存在"));
 
-        // 根据 SPU ID + 语言 ID 查询对应的 Product
-        Product product = productRepository.findBySameCountryLanguageForUser(
-                landingPageSpuId, null, null, null, languageId);
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(product, 
-                "该 SPU 在当前语言下没有对应的产品，请先创建对应语言的产品");
-
-        SubDomainSpuLandingPage binding = SubDomainSpuLandingPage.builder()
-                .subDomainId(subDomainId)
-                .spuId(spuId)
-                .landingPageProductId(product.getId())  // 保存解析后的 productId
-                .landingPageType(landingPageType)
-                .build();
-        subDomainSpuLandingPageRepository.save(binding);
+        landingPage.setLandingSpuId(landingSpuId);
+        landingPage.setUpdatedAt(LocalDateTime.now());
+        subDomainSpuLandingPageRepository.save(landingPage);
     }
 
     @Override
     @Transactional
     public void unbindLandingPageSpu(Long subDomainId, Long spuId, LandingPageType landingPageType) {
-        subDomainSpuLandingPageRepository.deleteById(new SubDomainSpuLandingPageId(subDomainId, spuId, landingPageType));
+        SubDomainSpuLandingPageId id = new SubDomainSpuLandingPageId(subDomainId, spuId, landingPageType);
+        SubDomainSpuLandingPage landingPage = subDomainSpuLandingPageRepository.findById(id)
+                .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("落地页配置不存在"));
+
+        landingPage.setLandingSpuId(null);
+        landingPage.setUpdatedAt(LocalDateTime.now());
+        subDomainSpuLandingPageRepository.save(landingPage);
     }
 
     @Override
