@@ -33,6 +33,17 @@ const props = withDefaults(defineProps<Props>(), {
 
 type TabType = 'props' | 'style' | 'action'
 
+// 样式设备类型
+type StyleDeviceType = 'base' | 'desktop' | 'tablet' | 'mobile'
+
+// 设备选项配置
+const styleDeviceOptions: { key: StyleDeviceType; label: string; icon: string }[] = [
+  { key: 'base', label: '通用', icon: 'i-carbon-settings' },
+  { key: 'desktop', label: 'PC', icon: 'i-carbon-laptop' },
+  { key: 'tablet', label: '平板', icon: 'i-carbon-tablet' },
+  { key: 'mobile', label: '移动', icon: 'i-carbon-mobile' },
+]
+
 // 样式分组配置（用于显示分组标题）
 const STYLE_GROUP_LABELS: Record<string, string> = {
   size: '尺寸',
@@ -46,6 +57,7 @@ const STYLE_GROUP_LABELS: Record<string, string> = {
 }
 
 const activeTab = ref<TabType>('props')
+const activeStyleDevice = ref<StyleDeviceType>('base')
 
 const tabs: { key: TabType; label: string; icon: string }[] = [
   { key: 'props', label: '属性', icon: 'i-carbon-settings-adjust' },
@@ -229,10 +241,30 @@ const ungroupedStyles = computed<StyleSchema[]>(() => {
   return styleSchema.value.filter(style => !style.group)
 })
 
-// 获取样式值
+// 获取样式值（根据当前选中的设备类型）
 function getStyleValue(styleKey: string): any {
+  if (!selectedNode.value?.style) return undefined
+  const deviceStyles = selectedNode.value.style[activeStyleDevice.value]
+  return deviceStyles?.[styleKey]
+}
+
+// 获取通用样式值（用于非通用设备的继承提示）
+function getBaseStyleValue(styleKey: string): any {
   if (!selectedNode.value?.style?.base) return undefined
   return selectedNode.value.style.base[styleKey]
+}
+
+// 是否显示继承提示（非通用设备且当前设备无值）
+function shouldShowInheritedHint(styleKey: string): boolean {
+  if (activeStyleDevice.value === 'base') return false
+  const currentValue = getStyleValue(styleKey)
+  return currentValue === undefined || currentValue === null || currentValue === ''
+}
+
+// 获取继承值（非通用设备时返回通用值）
+function getInheritedValue(styleKey: string): any {
+  if (activeStyleDevice.value === 'base') return undefined
+  return getBaseStyleValue(styleKey)
 }
 
 // 获取样式的绑定配置
@@ -241,18 +273,18 @@ function getBindingForStyle(styleKey: string): DataBinding | null {
   return selectedNode.value.styleBindings.find(b => b.propKey === styleKey) || null
 }
 
-// 更新样式值
+// 更新样式值（根据当前选中的设备类型）
 function updateStyle(key: string, value: any) {
   if (!selectedNodeId.value || !selectedNode.value) return
   
-  const currentStyle = selectedNode.value.style || { base: {} }
-  const currentBase = currentStyle.base || {}
+  const currentStyle = selectedNode.value.style || {}
+  const currentDeviceStyle = currentStyle[activeStyleDevice.value] || {}
   
   updateNode(selectedNodeId.value, {
     style: {
       ...currentStyle,
-      base: {
-        ...currentBase,
+      [activeStyleDevice.value]: {
+        ...currentDeviceStyle,
         [key]: value
       }
     }
@@ -344,6 +376,20 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
       <!-- 样式面板 -->
       <div v-else-if="activeTab === 'style'" class="tab-content">
         <template v-if="styleSchema.length">
+          <!-- 设备切换器 -->
+          <div class="device-switcher">
+            <button
+              v-for="device in styleDeviceOptions"
+              :key="device.key"
+              class="device-btn"
+              :class="{ active: activeStyleDevice === device.key }"
+              :title="device.label"
+              @click="activeStyleDevice = device.key"
+            >
+              <span :class="device.icon"></span>
+              <span class="device-label">{{ device.label }}</span>
+            </button>
+          </div>
           <!-- 有分组的样式 -->
           <template v-for="group in styleGroups" :key="group">
             <div class="property-section" v-if="getStylePropsByGroup(group).length > 0">
@@ -358,6 +404,8 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
                   :model-value="getStyleValue(styleProp.key)"
                   :binding="getBindingForStyle(styleProp.key)"
                   :data-sources="getCompatibleSourcesForStyle(styleProp.type)"
+                  :inherited-value="getInheritedValue(styleProp.key)"
+                  :show-inherited-hint="shouldShowInheritedHint(styleProp.key)"
                   @update:model-value="updateStyle(styleProp.key, $event)"
                   @update:binding="updateStyleBinding(styleProp.key, $event)"
                 />
@@ -373,6 +421,8 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
               :model-value="getStyleValue(styleProp.key)"
               :binding="getBindingForStyle(styleProp.key)"
               :data-sources="getCompatibleSourcesForStyle(styleProp.type)"
+              :inherited-value="getInheritedValue(styleProp.key)"
+              :show-inherited-hint="shouldShowInheritedHint(styleProp.key)"
               @update:model-value="updateStyle(styleProp.key, $event)"
               @update:binding="updateStyleBinding(styleProp.key, $event)"
             />
@@ -493,6 +543,58 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* 设备切换器 */
+.device-switcher {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(71, 85, 105, 0.2);
+  border-radius: 8px;
+}
+
+.device-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.device-btn:hover {
+  color: #94a3b8;
+  background: rgba(51, 65, 85, 0.3);
+}
+
+.device-btn.active {
+  color: #f1f5f9;
+  background: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+}
+
+.device-btn span:first-child {
+  font-size: 14px;
+}
+
+.device-label {
+  display: none;
+}
+
+@media (min-width: 360px) {
+  .device-label {
+    display: inline;
+  }
 }
 
 /* 属性列表 */

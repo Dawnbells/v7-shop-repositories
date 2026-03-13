@@ -13,11 +13,15 @@ interface Props {
   modelValue: any
   binding?: DataBinding | null
   dataSources?: BindableDataSource[]
+  inheritedValue?: any
+  showInheritedHint?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   binding: null,
   dataSources: () => [],
+  inheritedValue: undefined,
+  showInheritedHint: false,
 })
 
 const emit = defineEmits<{
@@ -68,6 +72,30 @@ function handleVariableSelect(source: BindableDataSource) {
 const localValue = computed({
   get: () => props.modelValue ?? props.schema.defaultValue ?? '',
   set: (value) => emit('update:modelValue', value)
+})
+
+// 计算实际的 placeholder：优先使用继承值，否则使用 schema.placeholder
+const effectivePlaceholder = computed(() => {
+  if (props.inheritedValue !== undefined && props.inheritedValue !== null && props.inheritedValue !== '') {
+    return String(props.inheritedValue)
+  }
+  return props.schema.placeholder || ''
+})
+
+// 是否有有效的继承值（用于显示继承提示）
+const hasInheritedValue = computed(() => {
+  return props.inheritedValue !== undefined && props.inheritedValue !== null && props.inheritedValue !== ''
+})
+
+// 用于预览显示的值：优先使用本地值，其次使用继承值
+const displayValue = computed(() => {
+  if (localValue.value !== undefined && localValue.value !== null && localValue.value !== '') {
+    return localValue.value
+  }
+  if (props.inheritedValue !== undefined && props.inheritedValue !== null && props.inheritedValue !== '') {
+    return props.inheritedValue
+  }
+  return ''
 })
 
 // 处理数字输入
@@ -201,7 +229,7 @@ onUnmounted(() => {
           v-model="localValue"
           type="text"
           class="field-input"
-          :placeholder="schema.placeholder"
+          :placeholder="effectivePlaceholder"
         />
 
       <!-- 多行文本 -->
@@ -209,7 +237,7 @@ onUnmounted(() => {
         v-else-if="schema.type === 'textarea'"
         v-model="localValue"
         class="field-textarea"
-        :placeholder="schema.placeholder"
+        :placeholder="effectivePlaceholder"
         rows="3"
       />
 
@@ -219,7 +247,7 @@ onUnmounted(() => {
         :value="localValue"
         type="number"
         class="field-input"
-        :placeholder="schema.placeholder"
+        :placeholder="effectivePlaceholder"
         :min="schema.min"
         :max="schema.max"
         :step="schema.step || 1"
@@ -247,7 +275,7 @@ onUnmounted(() => {
           @click.stop="isSelectOpen ? closeSelect() : openSelect()"
         >
           <span v-if="selectedOptionLabel" class="select-value">{{ selectedOptionLabel }}</span>
-          <span v-else class="select-placeholder">{{ schema.placeholder || '请选择' }}</span>
+          <span v-else class="select-placeholder">{{ effectivePlaceholder || '请选择' }}</span>
           <span class="select-arrow i-carbon-chevron-down" />
         </button>
         
@@ -299,13 +327,13 @@ onUnmounted(() => {
       <div v-else-if="schema.type === 'color'" class="field-color">
         <div
           class="color-preview"
-          :style="{ background: localValue || '#ffffff' }"
+          :style="{ background: displayValue || '#ffffff' }"
         />
         <input
           v-model="localValue"
           type="text"
           class="color-input"
-          :placeholder="schema.placeholder || '#ffffff'"
+          :placeholder="effectivePlaceholder || '#ffffff'"
         />
         <input
           v-model="localValue"
@@ -320,7 +348,7 @@ onUnmounted(() => {
           v-model="localValue"
           type="text"
           class="field-input"
-          :placeholder="schema.placeholder || '输入图片URL'"
+          :placeholder="effectivePlaceholder || '输入图片URL'"
         />
         <div v-if="localValue" class="image-preview">
           <img :src="localValue" alt="preview" />
@@ -332,7 +360,7 @@ onUnmounted(() => {
         v-else-if="schema.type === 'richtext'"
         v-model="localValue"
         class="field-textarea richtext"
-        :placeholder="schema.placeholder"
+        :placeholder="effectivePlaceholder"
         rows="4"
       />
 
@@ -341,7 +369,7 @@ onUnmounted(() => {
         v-else-if="schema.type === 'json'"
         v-model="localValue"
         class="field-textarea json"
-        :placeholder="schema.placeholder || '{}'"
+        :placeholder="effectivePlaceholder || '{}'"
         rows="4"
       />
 
@@ -352,7 +380,7 @@ onUnmounted(() => {
           v-model="localValue"
           type="text"
           class="field-input"
-          :placeholder="schema.placeholder || 'i-carbon-xxx'"
+          :placeholder="effectivePlaceholder || 'i-carbon-xxx'"
         />
       </div>
 
@@ -362,9 +390,15 @@ onUnmounted(() => {
           v-model="localValue"
           type="text"
           class="field-input"
-          :placeholder="schema.placeholder"
+          :placeholder="effectivePlaceholder"
         />
       </template>
+    </div>
+
+    <!-- 继承提示 -->
+    <div v-if="showInheritedHint && hasInheritedValue" class="inherited-hint">
+      <span class="inherited-icon">←</span>
+      <span class="inherited-text">通用: {{ inheritedValue }}</span>
     </div>
 
     <!-- 描述说明 -->
@@ -379,6 +413,28 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* 继承提示 */
+.inherited-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.inherited-icon {
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.inherited-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .field-header {

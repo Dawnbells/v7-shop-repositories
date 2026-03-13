@@ -126,6 +126,8 @@ export const meta: ComponentMeta = {
       borderBottomWidth: "1px",
       borderBottomStyle: "solid",
       borderBottomColor: "#e2e8f0",
+      paddingLeft: "16px",
+      paddingRight: "16px",
     },
   },
 

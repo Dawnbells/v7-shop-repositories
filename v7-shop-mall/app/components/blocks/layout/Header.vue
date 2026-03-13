@@ -66,7 +66,6 @@ const headerStyle = computed(() => ({
   align-items: center;
   width: 100%;
   box-sizing: border-box;
-  padding: 0 16px;
 }
 
 .header-left {
