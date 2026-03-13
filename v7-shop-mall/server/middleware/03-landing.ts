@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
       spuId,
       landingPageType,
     );
-    logger.log("[03-landing] config:", config);
+    logger.log("[03-landing] config:", JSON.stringify(config, null, 2));
     if (config) {
       updatePageContext(event, {
         pageTheme: {
