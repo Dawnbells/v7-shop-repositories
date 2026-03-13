@@ -84,6 +84,81 @@ function handleSwitchToggle() {
 
 // 是否有可用数据源
 const hasDataSources = computed(() => props.dataSources.length > 0)
+
+// ============ 自定义下拉框逻辑 ============
+const isSelectOpen = ref(false)
+const selectTriggerRef = ref<HTMLElement | null>(null)
+const selectPopoverRef = ref<HTMLElement | null>(null)
+const selectPopoverStyle = ref({
+  top: '0px',
+  left: '0px',
+  width: '0px',
+})
+
+// 当前选中的选项标签
+const selectedOptionLabel = computed(() => {
+  if (!props.schema.options) return ''
+  const option = props.schema.options.find(opt => opt.value === localValue.value)
+  return option?.label || ''
+})
+
+// 打开下拉框
+function openSelect() {
+  if (!selectTriggerRef.value) return
+  
+  const rect = selectTriggerRef.value.getBoundingClientRect()
+  const viewportHeight = window.innerHeight
+  const popoverMaxHeight = 240
+  
+  let top = rect.bottom + 4
+  
+  // 如果下方空间不足，向上弹出
+  if (top + popoverMaxHeight > viewportHeight - 16) {
+    top = rect.top - popoverMaxHeight - 4
+    if (top < 16) {
+      top = 16
+    }
+  }
+  
+  selectPopoverStyle.value = {
+    top: `${top}px`,
+    left: `${rect.left}px`,
+    width: `${rect.width}px`,
+  }
+  
+  isSelectOpen.value = true
+}
+
+// 关闭下拉框
+function closeSelect() {
+  isSelectOpen.value = false
+}
+
+// 选择选项
+function selectOption(value: any) {
+  localValue.value = value
+  closeSelect()
+}
+
+// 点击外部关闭
+function handleSelectClickOutside(event: MouseEvent) {
+  const target = event.target as HTMLElement
+  const isInsideTrigger = selectTriggerRef.value?.contains(target)
+  const isInsidePopover = selectPopoverRef.value?.contains(target)
+  
+  if (!isInsideTrigger && !isInsidePopover) {
+    closeSelect()
+  }
+}
+
+// 监听点击外部
+onMounted(() => {
+  document.addEventListener('click', handleSelectClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleSelectClickOutside)
+})
 </script>
 
 <template>
@@ -163,22 +238,44 @@ const hasDataSources = computed(() => props.dataSources.length > 0)
       </button>
 
       <!-- 下拉选择 -->
-      <select
-        v-else-if="schema.type === 'select'"
-        v-model="localValue"
-        class="field-select"
-      >
-        <option v-if="schema.placeholder" value="" disabled>
-          {{ schema.placeholder }}
-        </option>
-        <option
-          v-for="option in schema.options"
-          :key="option.value"
-          :value="option.value"
+      <div v-else-if="schema.type === 'select'" class="field-select-wrapper">
+        <button
+          ref="selectTriggerRef"
+          type="button"
+          class="field-select-trigger"
+          :class="{ open: isSelectOpen }"
+          @click.stop="isSelectOpen ? closeSelect() : openSelect()"
         >
-          {{ option.label }}
-        </option>
-      </select>
+          <span v-if="selectedOptionLabel" class="select-value">{{ selectedOptionLabel }}</span>
+          <span v-else class="select-placeholder">{{ schema.placeholder || '请选择' }}</span>
+          <span class="select-arrow i-carbon-chevron-down" />
+        </button>
+        
+        <!-- 下拉弹出层 -->
+        <Teleport to="body">
+          <div
+            v-if="isSelectOpen"
+            ref="selectPopoverRef"
+            class="select-popover"
+            :style="selectPopoverStyle"
+            @click.stop
+          >
+            <div class="select-options">
+              <button
+                v-for="option in schema.options"
+                :key="option.value"
+                type="button"
+                class="select-option"
+                :class="{ active: localValue === option.value }"
+                @click="selectOption(option.value)"
+              >
+                <span class="option-label">{{ option.label }}</span>
+                <span v-if="localValue === option.value" class="option-check i-carbon-checkmark" />
+              </button>
+            </div>
+          </div>
+        </Teleport>
+      </div>
 
       <!-- 单选 -->
       <div v-else-if="schema.type === 'radio'" class="field-radio-group">
@@ -378,13 +475,153 @@ const hasDataSources = computed(() => props.dataSources.length > 0)
   font-size: 12px;
 }
 
-.field-select {
+/* 自定义下拉框样式 */
+.field-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.field-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(71, 85, 105, 0.3);
+  border-radius: 6px;
   cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%2394a3b8' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  padding-right: 28px;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field-select-trigger:hover {
+  border-color: rgba(71, 85, 105, 0.5);
+}
+
+.field-select-trigger:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  outline: none;
+}
+
+.field-select-trigger.open {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.select-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-placeholder {
+  flex: 1;
+  color: #64748b;
+}
+
+.select-arrow {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #64748b;
+  transition: transform 0.2s ease;
+}
+
+.field-select-trigger.open .select-arrow {
+  transform: rotate(180deg);
+}
+
+/* 下拉弹出层 */
+.select-popover {
+  position: fixed;
+  z-index: 9999;
+  max-height: 240px;
+  background: #1e293b;
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  animation: selectPopoverFadeIn 0.15s ease-out;
+}
+
+@keyframes selectPopoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.select-options {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
+}
+
+.select-options::-webkit-scrollbar {
+  width: 6px;
+}
+
+.select-options::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.select-options::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 3px;
+}
+
+.select-options::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #cbd5e1;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.select-option:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: #e2e8f0;
+}
+
+.select-option.active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.option-check {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #3b82f6;
+  margin-left: 8px;
 }
 
 /* 开关样式 */
