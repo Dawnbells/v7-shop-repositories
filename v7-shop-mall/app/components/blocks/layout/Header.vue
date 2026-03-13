@@ -6,12 +6,14 @@
 
 interface Props {
   layout?: 'left' | 'center'
+  showSiteName?: boolean
   showCart?: boolean
   height?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   layout: 'left',
+  showSiteName: true,
   showCart: true,
   height: '60px',
 })
@@ -35,10 +37,10 @@ const headerStyle = computed(() => ({
     <div class="header-left">
       <template v-if="layout === 'left'">
         <img v-if="logo" :src="logo" alt="Logo" class="header-logo" />
-        <span v-if="siteName" class="header-site-name">{{ siteName }}</span>
+        <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
       </template>
       <template v-else>
-        <span v-if="siteName" class="header-site-name">{{ siteName }}</span>
+        <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
       </template>
     </div>
 

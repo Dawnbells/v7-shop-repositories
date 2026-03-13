@@ -24,6 +24,13 @@ export const meta: ComponentMeta = {
       description: "控制 Logo 的位置",
     },
     {
+      key: "showSiteName",
+      label: "显示网站名称",
+      type: "switch",
+      defaultValue: true,
+      description: "是否显示网站名称",
+    },
+    {
       key: "showCart",
       label: "显示购物车",
       type: "switch",
@@ -42,6 +49,7 @@ export const meta: ComponentMeta = {
 
   defaultProps: {
     layout: "left",
+    showSiteName: true,
     showCart: true,
     height: "60px",
   },
