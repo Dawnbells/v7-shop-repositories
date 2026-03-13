@@ -146,7 +146,9 @@
                                 class="spu-link unsupported clickable"
                                 @click="handlePreviewLanding('LAND')"
                               >
-                                {{ spuDetail.realLandingPageSpu.code }}-{{ spuDetail.realLandingPageSpu.name }}
+                                {{ spuDetail.realLandingPageSpu.code }}-{{
+                                  spuDetail.realLandingPageSpu.name
+                                }}
                               </span>
                             </el-tooltip>
                             <span
@@ -154,7 +156,9 @@
                               class="spu-link clickable"
                               @click="handlePreviewLanding('LAND')"
                             >
-                              {{ spuDetail.realLandingPageSpu.code }}-{{ spuDetail.realLandingPageSpu.name }}
+                              {{ spuDetail.realLandingPageSpu.code }}-{{
+                                spuDetail.realLandingPageSpu.name
+                              }}
                             </span>
                             <el-button
                               :icon="Link"
@@ -165,7 +169,13 @@
                               广告
                             </el-button>
                           </template>
-                          <span v-else class="spu-link closed clickable" @click="handlePreviewLanding('LAND')">店铺已关闭</span>
+                          <span
+                            v-else
+                            class="spu-link closed clickable"
+                            @click="handlePreviewLanding('LAND')"
+                          >
+                            店铺已关闭
+                          </span>
                           <el-button
                             :icon="Brush"
                             link
@@ -175,7 +185,11 @@
                             主题
                           </el-button>
                           <el-tooltip
-                            :content="spuDetail.realLandingPageProtocol ? '已绑定：' + spuDetail.realLandingPageProtocol.protocolName : '未绑定协议'"
+                            :content="
+                              spuDetail.realLandingPageProtocol
+                                ? '已绑定：' + spuDetail.realLandingPageProtocol.protocolName
+                                : '未绑定协议'
+                            "
                             placement="top"
                           >
                             <el-button
@@ -218,7 +232,9 @@
                                 class="spu-link unsupported clickable"
                                 @click="handlePreviewLanding('CLOAK')"
                               >
-                                {{ spuDetail.riskUserLandingPageSpu.code }}-{{ spuDetail.riskUserLandingPageSpu.name }}
+                                {{ spuDetail.riskUserLandingPageSpu.code }}-{{
+                                  spuDetail.riskUserLandingPageSpu.name
+                                }}
                               </span>
                             </el-tooltip>
                             <span
@@ -226,10 +242,18 @@
                               class="spu-link clickable"
                               @click="handlePreviewLanding('CLOAK')"
                             >
-                              {{ spuDetail.riskUserLandingPageSpu.code }}-{{ spuDetail.riskUserLandingPageSpu.name }}
+                              {{ spuDetail.riskUserLandingPageSpu.code }}-{{
+                                spuDetail.riskUserLandingPageSpu.name
+                              }}
                             </span>
                           </template>
-                          <span v-else class="spu-link closed clickable" @click="handlePreviewLanding('CLOAK')">店铺已关闭</span>
+                          <span
+                            v-else
+                            class="spu-link closed clickable"
+                            @click="handlePreviewLanding('CLOAK')"
+                          >
+                            店铺已关闭
+                          </span>
                           <el-button
                             :icon="Setting"
                             link
@@ -247,7 +271,11 @@
                             主题
                           </el-button>
                           <el-tooltip
-                            :content="spuDetail.riskUserLandingPageProtocol ? '已绑定：' + spuDetail.riskUserLandingPageProtocol.protocolName : '未绑定协议'"
+                            :content="
+                              spuDetail.riskUserLandingPageProtocol
+                                ? '已绑定：' + spuDetail.riskUserLandingPageProtocol.protocolName
+                                : '未绑定协议'
+                            "
                             placement="top"
                           >
                             <el-button
@@ -290,7 +318,9 @@
                                 class="spu-link unsupported clickable"
                                 @click="handlePreviewLanding('BLACKLISTED')"
                               >
-                                {{ spuDetail.blacklistLandingPageSpu.code }}-{{ spuDetail.blacklistLandingPageSpu.name }}
+                                {{ spuDetail.blacklistLandingPageSpu.code }}-{{
+                                  spuDetail.blacklistLandingPageSpu.name
+                                }}
                               </span>
                             </el-tooltip>
                             <span
@@ -298,10 +328,18 @@
                               class="spu-link clickable"
                               @click="handlePreviewLanding('BLACKLISTED')"
                             >
-                              {{ spuDetail.blacklistLandingPageSpu.code }}-{{ spuDetail.blacklistLandingPageSpu.name }}
+                              {{ spuDetail.blacklistLandingPageSpu.code }}-{{
+                                spuDetail.blacklistLandingPageSpu.name
+                              }}
                             </span>
                           </template>
-                          <span v-else class="spu-link closed clickable" @click="handlePreviewLanding('BLACKLISTED')">店铺已关闭</span>
+                          <span
+                            v-else
+                            class="spu-link closed clickable"
+                            @click="handlePreviewLanding('BLACKLISTED')"
+                          >
+                            店铺已关闭
+                          </span>
                           <el-button
                             :icon="Setting"
                             link
@@ -320,7 +358,11 @@
                             主题
                           </el-button>
                           <el-tooltip
-                            :content="spuDetail.blacklistLandingPageProtocol ? '已绑定：' + spuDetail.blacklistLandingPageProtocol.protocolName : '未绑定协议'"
+                            :content="
+                              spuDetail.blacklistLandingPageProtocol
+                                ? '已绑定：' + spuDetail.blacklistLandingPageProtocol.protocolName
+                                : '未绑定协议'
+                            "
                             placement="top"
                           >
                             <el-button
@@ -529,10 +571,7 @@
   />
 
   <!-- 落地页协议绑定弹窗 -->
-  <BindLandingPageProtocolEdit
-    ref="protocolEditRef"
-    @fetch-data="loadSpuDetail(activeSpuTab)"
-  />
+  <BindLandingPageProtocolEdit ref="protocolEditRef" @fetch-data="loadSpuDetail(activeSpuTab)" />
 
   <!-- 站点配置弹窗 -->
   <schema-form-dialog
@@ -549,11 +588,7 @@
     width="600px"
     append-to-body
   >
-    <el-alert
-      type="warning"
-      :closable="false"
-      style="margin-bottom: 16px"
-    >
+    <el-alert type="warning" :closable="false" style="margin-bottom: 16px">
       应用模板后将覆盖当前落地页的主题配置，此操作不可撤销。
     </el-alert>
     <el-form label-width="100px">
@@ -614,7 +649,7 @@ import {
   Plus,
   Refresh,
   Search,
-  Setting
+  Setting,
 } from '@element-plus/icons-vue'
 import SchemaFormDialog from './SchemaFormDialog.vue'
 import BindLandingPageProtocolEdit from './BindLandingPageProtocolEdit.vue'
@@ -729,9 +764,7 @@ const themeEditorDialogVisible = ref<boolean>(false)
 
 // 当前 SPU 名称（用于传递给 BuilderEditorDialog）
 const currentSpuName = computed(() => {
-  const currentSpu = boundSpuList.value.find(
-    (spu) => String(spu.id) === activeSpuTab.value
-  )
+  const currentSpu = boundSpuList.value.find((spu) => String(spu.id) === activeSpuTab.value)
   return currentSpu?.name || ''
 })
 
@@ -1115,7 +1148,7 @@ const handleApplyTemplateConfirm = async () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`,
+          Authorization: `Bearer ${getToken()}`,
         },
         body: JSON.stringify({
           subDomainId: subDomainId.value,
@@ -1125,9 +1158,9 @@ const handleApplyTemplateConfirm = async () => {
         }),
       }
     )
-    
+
     const result = await response.json()
-    
+
     if (result.success) {
       $baseMessage('模板应用成功', 'success', 'hey')
       applyTemplateDialogVisible.value = false
@@ -1313,10 +1346,9 @@ const confirmBindLandingPageSpu = async () => {
     const { msg }: any = await bindLandingPageSpu({
       subDomainId: subDomainId.value,
       spuId: activeSpuTab.value,
-      landingPageSpuId: selectedLandingPageSpuId.value,
+      landingSpuId: selectedLandingPageSpuId.value,
       landingPageType: currentLandingPageType.value,
     })
-
 
     $baseMessage(msg || '配置成功', 'success', 'hey')
 
@@ -1344,7 +1376,6 @@ const handleUseDefaultConfig = () => {
           spuId: activeSpuTab.value,
           landingPageType: currentLandingPageType.value,
         })
-
 
         $baseMessage(msg || '已恢复默认配置', 'success', 'hey')
 
@@ -1473,6 +1504,15 @@ const handleUseDefaultConfig = () => {
     .spu-name {
       font-weight: 500;
       color: var(--el-color-primary);
+
+      &.unsupported {
+        color: var(--el-color-danger);
+      }
+    }
+
+    &:has(.spu-name.unsupported) {
+      background: var(--el-color-danger-light-9);
+      border-color: var(--el-color-danger-light-5);
     }
   }
 }

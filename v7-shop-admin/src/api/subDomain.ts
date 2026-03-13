@@ -96,7 +96,11 @@ export function getBoundSpuDetail(subDomainId: number | string, spuId: number | 
  * 绑定像素到子域名SPU
  * @param data { subDomainId, spuId, pixelId }
  */
-export function bindSpuPixel(data: { subDomainId: number | string; spuId: number | string; pixelId: number | string }) {
+export function bindSpuPixel(data: {
+  subDomainId: number | string
+  spuId: number | string
+  pixelId: number | string
+}) {
   return request({
     url: '/sub-domain/bindSpuPixel',
     method: 'post',
@@ -108,7 +112,11 @@ export function bindSpuPixel(data: { subDomainId: number | string; spuId: number
  * 解绑子域名SPU的像素
  * @param data { subDomainId, spuId, pixelId }
  */
-export function unbindSpuPixel(data: { subDomainId: number | string; spuId: number | string; pixelId: number | string }) {
+export function unbindSpuPixel(data: {
+  subDomainId: number | string
+  spuId: number | string
+  pixelId: number | string
+}) {
   return request({
     url: '/sub-domain/unbindSpuPixel',
     method: 'post',
@@ -121,13 +129,13 @@ export function unbindSpuPixel(data: { subDomainId: number | string; spuId: numb
  * @param data 绑定参数
  * - subDomainId: 子域名ID
  * - spuId: 当前绑定的SPU ID
- * - landingPageSpuId: 落地页SPU ID
+ * - landingSpuId: 落地页SPU ID
  * - landingPageType: 落地页类型 ('LAND' | 'CLOAK' | 'BLACKLISTED')
  */
 export function bindLandingPageSpu(data: {
   subDomainId: number | string
   spuId: number | string
-  landingPageSpuId: number | string
+  landingSpuId: number | string
   landingPageType: 'LAND' | 'CLOAK' | 'BLACKLISTED'
 }) {
   return request({
