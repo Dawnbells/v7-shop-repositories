@@ -9,6 +9,7 @@ import { useBlockRegistry } from '~/composables/useBlockRegistry'
 import { useCanvasState } from '~/composables/useCanvasState'
 import { useBindingResolver, type BindingContext } from '~/composables/useBindingResolver'
 import { useThemeSchema } from '~/composables/useThemeSchema'
+import { normalizeStyle } from '~/utils/style-normalizer'
 
 interface Props {
   node: ComponentNode
@@ -79,16 +80,31 @@ const isEmptyContainer = computed(() => {
 
 // 计算节点样式（编辑模式显示原值，渲染模式解析绑定）
 const nodeStyle = computed(() => {
-  const baseStyle = props.node.style?.base || {}
+  // 获取组件默认样式作为回退
+  const defaultBaseStyle = blockMeta.value?.defaultStyle?.base || {}
+  // 合并：默认样式 + 节点样式（节点样式优先）
+  const baseStyle = { ...defaultBaseStyle, ...(props.node.style?.base || {}) }
+  
+  // 调试：输出编辑器中的样式数据（仅 header 组件）
+  if (props.node.type === 'header') {
+    console.log(`[CanvasNode:${props.node.type}] node.style (full):`, JSON.stringify(props.node.style))
+    console.log(`[CanvasNode:${props.node.type}] node.style.base:`, JSON.stringify(props.node.style?.base))
+    console.log(`[CanvasNode:${props.node.type}] defaultBaseStyle:`, JSON.stringify(defaultBaseStyle))
+    console.log(`[CanvasNode:${props.node.type}] baseStyle (merged):`, JSON.stringify(baseStyle))
+  }
   
   // 编辑模式不解析绑定，直接显示原始值
   if (props.isEditMode) {
-    return baseStyle
+    // 规范化样式（为纯数字值添加 px 单位，处理 CSS 变量等）
+    return normalizeStyle(baseStyle)
   }
   
   // 渲染模式：解析样式绑定并合并（绑定值覆盖静态值）
   const boundStyle = resolveNodeStyleBindings(props.node, bindingContext.value)
-  return { ...baseStyle, ...boundStyle }
+  const finalStyle = { ...baseStyle, ...boundStyle }
+  
+  // 规范化样式
+  return normalizeStyle(finalStyle)
 })
 
 // 计算节点属性（编辑模式显示原值，渲染模式解析绑定）

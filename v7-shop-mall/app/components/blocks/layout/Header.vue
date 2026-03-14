@@ -68,6 +68,8 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   align-items: center;
   width: 100%;
   box-sizing: border-box;
+  background-color: var(--surface-color, #ffffff);
+  border-bottom-color: var(--border-color, #e2e8f0);
 }
 
 .header-left {
@@ -101,7 +103,7 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   font-size: var(--header-site-name-size, 18px);
   font-weight: 600;
   white-space: nowrap;
-  color: var(--header-text-color, #1a1a1a);
+  color: var(--header-text-color, var(--text-color, #1e293b));
 }
 
 .header-cart {
@@ -110,7 +112,7 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   justify-content: center;
   width: 40px;
   height: 40px;
-  color: var(--header-cart-color, #1a1a1a);
+  color: var(--header-cart-color, var(--text-color, #1e293b));
   text-decoration: none;
   border-radius: 50%;
   transition: background-color 0.2s;
