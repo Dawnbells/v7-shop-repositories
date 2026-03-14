@@ -125,4 +125,24 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
 .header-cart i {
   font-size: var(--header-cart-size, 24px);
 }
+
+/* 移动端响应式 */
+@media (max-width: 640px) {
+  .header-site-name {
+    display: none;
+  }
+  
+  .header-logo {
+    height: var(--header-logo-size-mobile, var(--header-logo-size, 28px));
+  }
+  
+  .header-cart {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .header-cart i {
+    font-size: var(--header-cart-size-mobile, var(--header-cart-size, 20px));
+  }
+}
 </style>

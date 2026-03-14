@@ -192,6 +192,13 @@ export const meta: ComponentMeta = {
       paddingLeft: "16px",
       paddingRight: "16px",
     },
+    mobile: {
+      height: "50px",
+      "--header-logo-size": "28px",
+      "--header-cart-size": "20px",
+      paddingLeft: "12px",
+      paddingRight: "12px",
+    },
   },
 
   isContainer: false,

@@ -317,6 +317,25 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
     selectedNode.value.styleBindings = newBindings
   }
 }
+
+// 重置组件为默认配置
+function resetToDefault() {
+  if (!selectedNodeId.value || !blockMeta.value) return
+  
+  const defaultProps = blockMeta.value.defaultProps || {}
+  const defaultStyle = blockMeta.value.defaultStyle || {}
+  
+  updateNode(selectedNodeId.value, {
+    props: defaultProps,
+    style: defaultStyle,
+  })
+  
+  // 清除绑定
+  if (selectedNode.value) {
+    selectedNode.value.bindings = []
+    selectedNode.value.styleBindings = []
+  }
+}
 </script>
 
 <template>
@@ -325,6 +344,14 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
       <span v-if="blockMeta?.icon" :class="blockMeta.icon" class="panel-icon"></span>
       <span v-else class="i-carbon-settings panel-icon"></span>
       <span class="panel-title">{{ hasSelection ? componentName : '属性' }}</span>
+      <button 
+        v-if="hasSelection" 
+        class="reset-btn" 
+        title="恢复默认配置"
+        @click="resetToDefault"
+      >
+        <span class="i-carbon-reset"></span>
+      </button>
     </div>
 
     <!-- Tab 切换 -->
@@ -489,6 +516,28 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
   font-size: 14px;
   font-weight: 600;
   color: #f1f5f9;
+}
+
+.reset-btn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.reset-btn:hover {
+  color: #f1f5f9;
+  background: rgba(51, 65, 85, 0.5);
 }
 
 /* Tab 切换 */

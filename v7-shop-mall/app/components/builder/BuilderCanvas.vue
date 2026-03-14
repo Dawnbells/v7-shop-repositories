@@ -6,15 +6,21 @@
 
 import { useCanvasState } from '~/composables/useCanvasState'
 
-type DeviceType = 'desktop' | 'tablet' | 'mobile'
+type DeviceType = 'desktop' | 'tablet' | 'mobile' | 'custom'
 
 const currentDevice = ref<DeviceType>('desktop')
 const zoom = ref(100)
+const customWidth = ref(800)
+const isResizing = ref(false)
+const resizeStartX = ref(0)
+const resizeStartWidth = ref(0)
+const canvasViewportRef = ref<HTMLElement | null>(null)
 
 const deviceConfigs = {
   desktop: { width: '100%', icon: 'i-carbon-laptop', label: '桌面' },
   tablet: { width: '768px', icon: 'i-carbon-tablet', label: '平板' },
-  mobile: { width: '375px', icon: 'i-carbon-mobile', label: '手机' }
+  mobile: { width: '375px', icon: 'i-carbon-mobile', label: '手机' },
+  custom: { width: 'custom', icon: 'i-carbon-fit-to-width', label: '自定义' }
 }
 
 // 画布状态
@@ -47,8 +53,61 @@ function resetZoom() {
 }
 
 const canvasWidth = computed(() => {
+  if (currentDevice.value === 'custom') {
+    return `${customWidth.value}px`
+  }
   return deviceConfigs[currentDevice.value].width
 })
+
+const maxCanvasWidth = computed(() => {
+  if (!canvasViewportRef.value) return 1200
+  return canvasViewportRef.value.clientWidth - 80
+})
+
+function startResize(event: MouseEvent, side: 'left' | 'right') {
+  event.preventDefault()
+  isResizing.value = true
+  resizeStartX.value = event.clientX
+  
+  if (currentDevice.value === 'custom') {
+    resizeStartWidth.value = customWidth.value
+  } else {
+    const config = deviceConfigs[currentDevice.value]
+    if (config.width === '100%') {
+      resizeStartWidth.value = maxCanvasWidth.value
+    } else {
+      resizeStartWidth.value = parseInt(config.width)
+    }
+  }
+  
+  const onMouseMove = (e: MouseEvent) => {
+    if (!isResizing.value) return
+    
+    const deltaX = side === 'right' 
+      ? e.clientX - resizeStartX.value 
+      : resizeStartX.value - e.clientX
+    
+    const scaledDelta = deltaX * 2 / (zoom.value / 100)
+    let newWidth = resizeStartWidth.value + scaledDelta
+    
+    newWidth = Math.max(320, Math.min(newWidth, maxCanvasWidth.value))
+    customWidth.value = Math.round(newWidth)
+    currentDevice.value = 'custom'
+  }
+  
+  const onMouseUp = () => {
+    isResizing.value = false
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+  
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+  document.body.style.cursor = 'ew-resize'
+  document.body.style.userSelect = 'none'
+}
 
 // 拖拽进入画布
 function onDragOver(event: DragEvent) {
@@ -115,19 +174,27 @@ function onCanvasClick(event: MouseEvent) {
 <template>
   <div class="builder-canvas">
     <!-- 画布主体 -->
-    <div class="canvas-viewport">
-      <div 
-        class="canvas-frame"
-        :class="{ 'drag-over': isDragOver }"
-        :style="{ 
-          width: canvasWidth,
-          transform: `scale(${zoom / 100})`
-        }"
-        @dragover.prevent="onDragOver"
-        @dragleave="onDragLeave"
-        @drop="onDrop"
-        @click="onCanvasClick"
-      >
+    <div ref="canvasViewportRef" class="canvas-viewport">
+      <!-- 画布容器（包含拖拽手柄） -->
+      <div class="canvas-wrapper" :style="{ transform: `scale(${zoom / 100})` }">
+        <!-- 左侧拖拽手柄 -->
+        <div 
+          class="resize-handle resize-handle-left"
+          :class="{ active: isResizing }"
+          @mousedown="startResize($event, 'left')"
+        >
+          <div class="resize-handle-bar"></div>
+        </div>
+        
+        <div 
+          class="canvas-frame"
+          :class="{ 'drag-over': isDragOver }"
+          :style="{ width: canvasWidth }"
+          @dragover.prevent="onDragOver"
+          @dragleave="onDragLeave"
+          @drop="onDrop"
+          @click="onCanvasClick"
+        >
         <!-- 空状态提示 -->
         <div v-if="isEmpty" class="empty-state">
           <div class="empty-icon">
@@ -157,7 +224,22 @@ function onCanvasClick(event: MouseEvent) {
           </div>
         </div>
       </div>
+      
+      <!-- 右侧拖拽手柄 -->
+      <div 
+        class="resize-handle resize-handle-right"
+        :class="{ active: isResizing }"
+        @mousedown="startResize($event, 'right')"
+      >
+        <div class="resize-handle-bar"></div>
+      </div>
     </div>
+    
+    <!-- 宽度指示器 -->
+    <div v-if="currentDevice === 'custom' || isResizing" class="width-indicator">
+      {{ customWidth }}px
+    </div>
+  </div>
 
     <!-- 底部工具栏 -->
     <div class="canvas-toolbar">
@@ -210,6 +292,7 @@ function onCanvasClick(event: MouseEvent) {
 }
 
 .canvas-viewport {
+  position: relative;
   flex: 1;
   display: flex;
   align-items: flex-start;
@@ -221,6 +304,13 @@ function onCanvasClick(event: MouseEvent) {
   background-size: 20px 20px;
 }
 
+.canvas-wrapper {
+  display: flex;
+  align-items: stretch;
+  transform-origin: top center;
+  transition: transform 0.2s ease;
+}
+
 .canvas-frame {
   position: relative;
   min-height: 600px;
@@ -229,8 +319,65 @@ function onCanvasClick(event: MouseEvent) {
   box-shadow: 
     0 0 0 1px rgba(71, 85, 105, 0.2),
     0 20px 40px rgba(0, 0, 0, 0.3);
-  transform-origin: top center;
-  transition: width 0.3s ease, transform 0.2s ease;
+  transition: width 0.15s ease;
+  overflow: hidden;
+}
+
+/* 拖拽手柄 */
+.resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 16px;
+  height: 100px;
+  cursor: ew-resize;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.canvas-wrapper:hover .resize-handle,
+.resize-handle.active {
+  opacity: 1;
+}
+
+.resize-handle-left {
+  margin-right: 8px;
+}
+
+.resize-handle-right {
+  margin-left: 8px;
+}
+
+.resize-handle-bar {
+  width: 4px;
+  height: 40px;
+  background: rgba(148, 163, 184, 0.5);
+  border-radius: 2px;
+  transition: all 0.15s ease;
+}
+
+.resize-handle:hover .resize-handle-bar,
+.resize-handle.active .resize-handle-bar {
+  width: 6px;
+  height: 60px;
+  background: #3b82f6;
+}
+
+/* 宽度指示器 */
+.width-indicator {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #f1f5f9;
+  background: rgba(30, 41, 59, 0.9);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
 }
 
 .empty-state {
