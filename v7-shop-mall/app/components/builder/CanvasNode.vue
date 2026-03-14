@@ -16,12 +16,23 @@ interface Props {
   selectedId: string | null
   depth?: number
   isEditMode?: boolean
+  device?: 'desktop' | 'tablet' | 'mobile' | 'custom'
+  canvasWidth?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
   depth: 0,
   isEditMode: true,
+  device: 'desktop',
+  canvasWidth: 1200,
 })
+
+// 根据宽度判断实际设备类型
+function getDeviceByWidth(width: number): 'mobile' | 'tablet' | 'desktop' {
+  if (width <= 640) return 'mobile'
+  if (width <= 768) return 'tablet'
+  return 'desktop'
+}
 
 const emit = defineEmits<{
   select: [nodeId: string]
@@ -78,45 +89,36 @@ const isEmptyContainer = computed(() => {
   return isContainer.value && (!props.node.children || props.node.children.length === 0)
 })
 
-// 计算节点样式（编辑模式显示原值，渲染模式解析绑定）
+// 计算节点样式（解析绑定，实现所见即所得）
 const nodeStyle = computed(() => {
   // 获取组件默认样式作为回退
   const defaultBaseStyle = blockMeta.value?.defaultStyle?.base || {}
   // 合并：默认样式 + 节点样式（节点样式优先）
   const baseStyle = { ...defaultBaseStyle, ...(props.node.style?.base || {}) }
   
-  // 调试：输出编辑器中的样式数据（仅 header 组件）
-  if (props.node.type === 'header') {
-    console.log(`[CanvasNode:${props.node.type}] node.style (full):`, JSON.stringify(props.node.style))
-    console.log(`[CanvasNode:${props.node.type}] node.style.base:`, JSON.stringify(props.node.style?.base))
-    console.log(`[CanvasNode:${props.node.type}] defaultBaseStyle:`, JSON.stringify(defaultBaseStyle))
-    console.log(`[CanvasNode:${props.node.type}] baseStyle (merged):`, JSON.stringify(baseStyle))
-  }
+  // 合并设备样式（mobile/tablet 等）
+  const deviceKey = props.device === 'custom' 
+    ? getDeviceByWidth(props.canvasWidth) 
+    : props.device
+  const defaultDeviceStyle = blockMeta.value?.defaultStyle?.[deviceKey] || {}
+  const nodeDeviceStyle = props.node.style?.[deviceKey] || {}
+  const deviceStyle = { ...defaultDeviceStyle, ...nodeDeviceStyle }
   
-  // 编辑模式不解析绑定，直接显示原始值
-  if (props.isEditMode) {
-    // 规范化样式（为纯数字值添加 px 单位，处理 CSS 变量等）
-    return normalizeStyle(baseStyle)
-  }
+  const mergedStyle = { ...baseStyle, ...deviceStyle }
   
-  // 渲染模式：解析样式绑定并合并（绑定值覆盖静态值）
+  // 解析样式绑定并合并（绑定值覆盖静态值）
   const boundStyle = resolveNodeStyleBindings(props.node, bindingContext.value)
-  const finalStyle = { ...baseStyle, ...boundStyle }
+  const finalStyle = { ...mergedStyle, ...boundStyle }
   
   // 规范化样式
   return normalizeStyle(finalStyle)
 })
 
-// 计算节点属性（编辑模式显示原值，渲染模式解析绑定）
+// 计算节点属性（解析绑定，实现所见即所得）
 const nodeProps = computed(() => {
   const baseProps = { ...props.node.props }
   
-  // 编辑模式不解析绑定，直接显示原始值
-  if (props.isEditMode) {
-    return baseProps
-  }
-  
-  // 渲染模式：解析属性绑定并合并（绑定值覆盖静态值）
+  // 解析属性绑定并合并（绑定值覆盖静态值）
   const boundProps = resolveNodeBindings(props.node, bindingContext.value)
   return { ...baseProps, ...boundProps }
 })
@@ -517,6 +519,8 @@ function onContainerDrop(event: DragEvent) {
           :selected-id="selectedId"
           :depth="depth + 1"
           :is-edit-mode="isEditMode"
+          :device="device"
+          :canvas-width="canvasWidth"
           @select="emit('select', $event)"
         />
         

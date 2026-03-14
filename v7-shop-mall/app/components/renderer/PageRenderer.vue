@@ -67,5 +67,7 @@ provide('pageContent', pageNodes)
 .page-renderer {
   width: 100%;
   min-height: 100vh;
+  container-type: inline-size;
+  container-name: page;
 }
 </style>
