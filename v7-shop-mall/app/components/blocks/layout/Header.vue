@@ -64,7 +64,9 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
 
 <style scoped>
 .block-header {
+  position: relative;
   display: flex;
+  justify-content: space-between;
   align-items: center;
   width: 100%;
   box-sizing: border-box;
@@ -77,10 +79,14 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  z-index: 1;
 }
 
 .header-center {
-  flex: 1;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -91,6 +97,7 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  z-index: 1;
 }
 
 .header-logo {
