@@ -374,22 +374,21 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
       </div>
 
       <!-- 样式面板 -->
-      <div v-else-if="activeTab === 'style'" class="tab-content">
+      <div v-else-if="activeTab === 'style'" class="tab-content style-tab-content">
+        <!-- 设备切换器（悬浮在右上角，不占用布局空间） -->
+        <div v-if="styleSchema.length" class="device-switcher-float">
+          <button
+            v-for="device in styleDeviceOptions"
+            :key="device.key"
+            class="device-btn"
+            :class="{ active: activeStyleDevice === device.key }"
+            :title="device.label"
+            @click="activeStyleDevice = device.key"
+          >
+            <span :class="device.icon"></span>
+          </button>
+        </div>
         <template v-if="styleSchema.length">
-          <!-- 设备切换器 -->
-          <div class="device-switcher">
-            <button
-              v-for="device in styleDeviceOptions"
-              :key="device.key"
-              class="device-btn"
-              :class="{ active: activeStyleDevice === device.key }"
-              :title="device.label"
-              @click="activeStyleDevice = device.key"
-            >
-              <span :class="device.icon"></span>
-              <span class="device-label">{{ device.label }}</span>
-            </button>
-          </div>
           <!-- 有分组的样式 -->
           <template v-for="group in styleGroups" :key="group">
             <div class="property-section" v-if="getStylePropsByGroup(group).length > 0">
@@ -534,6 +533,7 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
 
 /* 内容区域 */
 .panel-content {
+  position: relative;
   flex: 1;
   overflow-y: auto;
   padding: 12px;
@@ -545,56 +545,51 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
   gap: 16px;
 }
 
-/* 设备切换器 */
-.device-switcher {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  background: rgba(15, 23, 42, 0.4);
-  border: 1px solid rgba(71, 85, 105, 0.2);
-  border-radius: 8px;
+.style-tab-content {
+  position: relative;
 }
 
-.device-btn {
+/* 设备切换器（悬浮右上角，不占用布局空间） */
+.device-switcher-float {
+  position: sticky;
+  top: -12px;
+  z-index: 10;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-left: auto;
+  margin-bottom: -32px;
+  width: fit-content;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(71, 85, 105, 0.3);
+  border-radius: 6px;
+  backdrop-filter: blur(8px);
+}
+
+.device-switcher-float .device-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  flex: 1;
-  padding: 6px 8px;
-  font-size: 11px;
-  font-weight: 500;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 14px;
   color: #64748b;
   background: transparent;
   border: none;
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.device-btn:hover {
+.device-switcher-float .device-btn:hover {
   color: #94a3b8;
-  background: rgba(51, 65, 85, 0.3);
+  background: rgba(51, 65, 85, 0.5);
 }
 
-.device-btn.active {
-  color: #f1f5f9;
-  background: rgba(59, 130, 246, 0.2);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
-}
-
-.device-btn span:first-child {
-  font-size: 14px;
-}
-
-.device-label {
-  display: none;
-}
-
-@media (min-width: 360px) {
-  .device-label {
-    display: inline;
-  }
+.device-switcher-float .device-btn.active {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.15);
 }
 
 /* 属性列表 */

@@ -2,41 +2,43 @@
 /**
  * Header Block - 页头组件
  * 展示网站名称、Logo 和购物车图标
+ * 
+ * 样式属性（通过 styleSchema 配置，由渲染器注入到根元素 style）：
+ * - height: 页头高度
+ * - logoSize: Logo 大小（通过 CSS 变量 --header-logo-size 传递）
+ * - siteNameSize: 网站名称字号（通过 CSS 变量 --header-site-name-size 传递）
+ * - paddingTop/Bottom/Left/Right: 内边距
  */
 
 interface Props {
   layout?: 'left' | 'center'
   showSiteName?: boolean
   showCart?: boolean
-  height?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
   layout: 'left',
   showSiteName: true,
   showCart: true,
-  height: '60px',
 })
 
 const { globalConfig } = usePageTheme()
+const { currentUrl: logoUrl, handleError: handleLogoError } = useImageWithFallback(
+  computed(() => globalConfig.value?.logo)
+)
 
 const siteName = computed(() => globalConfig.value?.siteName || '')
-const logo = computed(() => globalConfig.value?.logo || '')
 const enableCart = computed(() => globalConfig.value?.enableCart ?? true)
 
 const showCartIcon = computed(() => props.showCart && enableCart.value)
-
-const headerStyle = computed(() => ({
-  height: props.height,
-}))
 </script>
 
 <template>
-  <header class="block-header" :style="headerStyle">
+  <header class="block-header">
     <!-- 左侧区域 -->
     <div class="header-left">
       <template v-if="layout === 'left'">
-        <img v-if="logo" :src="logo" alt="Logo" class="header-logo" />
+        <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
         <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
       </template>
       <template v-else>
@@ -47,7 +49,7 @@ const headerStyle = computed(() => ({
     <!-- 中间区域 -->
     <div class="header-center">
       <template v-if="layout === 'center'">
-        <img v-if="logo" :src="logo" alt="Logo" class="header-logo" />
+        <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
       </template>
     </div>
 
@@ -90,13 +92,13 @@ const headerStyle = computed(() => ({
 }
 
 .header-logo {
-  height: 32px;
+  height: var(--header-logo-size, 32px);
   width: auto;
   object-fit: contain;
 }
 
 .header-site-name {
-  font-size: 18px;
+  font-size: var(--header-site-name-size, 18px);
   font-weight: 600;
   white-space: nowrap;
 }

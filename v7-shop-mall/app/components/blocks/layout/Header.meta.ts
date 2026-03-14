@@ -37,24 +37,36 @@ export const meta: ComponentMeta = {
       defaultValue: true,
       description: "是否显示购物车图标（需全局配置启用购物车功能）",
     },
-    {
-      key: "height",
-      label: "页头高度",
-      type: "text",
-      defaultValue: "60px",
-      placeholder: "如 60px 或 4rem",
-      description: "页头的高度",
-    },
   ],
 
   defaultProps: {
     layout: "left",
     showSiteName: true,
     showCart: true,
-    height: "60px",
   },
 
   styleSchema: [
+    {
+      key: "height",
+      label: "页头高度",
+      type: "text",
+      placeholder: "如 60px 或 4rem",
+      group: "size",
+    },
+    {
+      key: "--header-logo-size",
+      label: "Logo大小",
+      type: "text",
+      placeholder: "如 32px 或 2rem",
+      group: "size",
+    },
+    {
+      key: "--header-site-name-size",
+      label: "网站名称字号",
+      type: "text",
+      placeholder: "如 18px 或 1.125rem",
+      group: "size",
+    },
     {
       key: "backgroundColor",
       label: "背景颜色",
@@ -101,6 +113,20 @@ export const meta: ComponentMeta = {
       group: "shadow",
     },
     {
+      key: "paddingTop",
+      label: "上内边距",
+      type: "text",
+      placeholder: "0",
+      group: "padding",
+    },
+    {
+      key: "paddingBottom",
+      label: "下内边距",
+      type: "text",
+      placeholder: "0",
+      group: "padding",
+    },
+    {
       key: "paddingLeft",
       label: "左内边距",
       type: "text",
@@ -122,10 +148,15 @@ export const meta: ComponentMeta = {
 
   defaultStyle: {
     base: {
+      height: "60px",
+      "--header-logo-size": "32px",
+      "--header-site-name-size": "18px",
       backgroundColor: "#ffffff",
       borderBottomWidth: "1px",
       borderBottomStyle: "solid",
       borderBottomColor: "#e2e8f0",
+      paddingTop: "0",
+      paddingBottom: "0",
       paddingLeft: "16px",
       paddingRight: "16px",
     },

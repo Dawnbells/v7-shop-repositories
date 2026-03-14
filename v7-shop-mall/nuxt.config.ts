@@ -35,5 +35,12 @@ export default defineNuxtConfig({
     riskServiceUrl: '',
     // HTTP 代理（用于开发环境或需要代理的场景）
     httpProxy: '',
+    // 公开配置（客户端可访问）
+    public: {
+      // 图片基础 URL（相对路径会拼接此前缀）
+      imageBaseUrl: '',
+      // 图片降级 URL（主链接失败时使用此前缀重试）
+      imageFallbackUrl: '',
+    },
   },
 })
