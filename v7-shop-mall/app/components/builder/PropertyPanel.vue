@@ -322,19 +322,16 @@ function updateStyleBinding(styleKey: string, binding: DataBinding | null) {
 function resetToDefault() {
   if (!selectedNodeId.value || !blockMeta.value) return
   
-  const defaultProps = blockMeta.value.defaultProps || {}
-  const defaultStyle = blockMeta.value.defaultStyle || {}
+  const node = selectedNode.value
+  if (!node) return
   
-  updateNode(selectedNodeId.value, {
-    props: defaultProps,
-    style: defaultStyle,
-  })
+  // 完全替换（不是合并），确保删除用户添加的设备特定样式
+  node.props = { ...(blockMeta.value.defaultProps || {}) }
+  node.style = { ...(blockMeta.value.defaultStyle || {}) }
   
   // 清除绑定
-  if (selectedNode.value) {
-    selectedNode.value.bindings = []
-    selectedNode.value.styleBindings = []
-  }
+  node.bindings = []
+  node.styleBindings = []
 }
 </script>
 
