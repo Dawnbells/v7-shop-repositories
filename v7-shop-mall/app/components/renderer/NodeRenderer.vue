@@ -13,6 +13,7 @@
 
 import type { ComponentNode } from '~/types/component-meta'
 import type { BindingContext } from '~/composables/useBindingResolver'
+import { normalizeStyle } from '~/utils/style-normalizer'
 
 interface Props {
   node: ComponentNode
@@ -83,14 +84,31 @@ const resolvedProps = computed(() => {
 const resolvedStyle = computed(() => {
   const style = props.node.style || {}
   
-  // 合并响应式样式：base + device specific
-  const baseStyle = style.base || {}
+  // 获取组件默认样式作为回退
+  const defaultBaseStyle = blockMeta.value?.defaultStyle?.base || {}
+  
+  // 合并响应式样式：默认样式 + base + device specific（后者优先）
+  const baseStyle = { ...defaultBaseStyle, ...(style.base || {}) }
   const deviceStyle = style[props.device] || {}
   const mergedStyle = { ...baseStyle, ...deviceStyle }
   
   // 应用样式绑定
   const boundStyle = resolveNodeStyleBindings(props.node, bindingContext.value)
-  return { ...mergedStyle, ...boundStyle }
+  const finalStyle = { ...mergedStyle, ...boundStyle }
+  
+  // 调试：输出样式合并过程（仅 header 组件）
+  if (props.node.type === 'header') {
+    console.log(`[NodeRenderer:${props.node.type}] style (full):`, JSON.stringify(style))
+    console.log(`[NodeRenderer:${props.node.type}] style.base:`, JSON.stringify(style.base))
+    console.log(`[NodeRenderer:${props.node.type}] deviceStyle (${props.device}):`, JSON.stringify(deviceStyle))
+    console.log(`[NodeRenderer:${props.node.type}] defaultBaseStyle:`, JSON.stringify(defaultBaseStyle))
+    console.log(`[NodeRenderer:${props.node.type}] mergedStyle:`, JSON.stringify(mergedStyle))
+    console.log(`[NodeRenderer:${props.node.type}] boundStyle:`, JSON.stringify(boundStyle))
+    console.log(`[NodeRenderer:${props.node.type}] finalStyle:`, JSON.stringify(finalStyle))
+  }
+  
+  // 规范化样式（为纯数字值添加 px 单位，处理 CSS 变量等）
+  return normalizeStyle(finalStyle)
 })
 </script>
 

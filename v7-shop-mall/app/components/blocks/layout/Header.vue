@@ -101,6 +101,7 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   font-size: var(--header-site-name-size, 18px);
   font-weight: 600;
   white-space: nowrap;
+  color: var(--header-text-color, #1a1a1a);
 }
 
 .header-cart {
@@ -109,7 +110,7 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   justify-content: center;
   width: 40px;
   height: 40px;
-  color: inherit;
+  color: var(--header-cart-color, #1a1a1a);
   text-decoration: none;
   border-radius: 50%;
   transition: background-color 0.2s;
@@ -120,6 +121,6 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
 }
 
 .header-cart i {
-  font-size: 24px;
+  font-size: var(--header-cart-size, 24px);
 }
 </style>
