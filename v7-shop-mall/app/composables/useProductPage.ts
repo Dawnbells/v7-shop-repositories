@@ -3,7 +3,7 @@
  * 
  * 整合产品页所需的所有数据：
  * - 主题数据（从 usePageContext 获取）
- * - 产品数据（通过 useAsyncData 获取）
+ * - 产品数据（优先从中间件获取，fallback 到 useAsyncData）
  * - 页面和布局 schema
  * 
  * SSR 时所有数据在服务端获取，客户端仅做 hydration
@@ -42,16 +42,21 @@ export function useProductPage() {
   const route = useRoute()
   const productId = computed(() => route.params.id as string)
 
-  // 初始化主题数据（SSR 时从 event.context 读取）
-  const { themeConfig, siteConfig, variableValues } = usePageContext()
+  // 初始化主题数据和产品数据（SSR 时从 event.context 读取）
+  const { themeConfig, siteConfig, variableValues, productInfo: middlewareProductInfo } = usePageContext()
 
   // 获取主题相关的计算属性和方法
   const { getPageSchema, getLayoutSchema, globalStyle, globalConfig, cssVariables } = usePageTheme()
 
-  // 获取产品数据（SSR 时在服务端执行，直接调用 handler，无 HTTP）
+  // 获取产品数据（仅当中间件未提供时才通过 API 获取）
   const { data: productData, status, error } = useAsyncData(
     `product-${productId.value}`,
     async () => {
+      // 如果中间件已提供产品数据，直接返回
+      if (middlewareProductInfo.value) {
+        return middlewareProductInfo.value
+      }
+      // fallback: 通过 API 获取
       const response = await $fetch<{ success: boolean; data: ProductInfo }>('/api/product/info', {
         query: { id: productId.value },
       })
@@ -62,8 +67,8 @@ export function useProductPage() {
     }
   )
 
-  // 产品信息
-  const productInfo = computed(() => productData.value)
+  // 产品信息：优先使用中间件数据，fallback 到 API 数据
+  const productInfo = computed(() => middlewareProductInfo.value || productData.value)
 
   // 是否正在加载
   const isLoading = computed(() => status.value === 'pending')

@@ -6,6 +6,7 @@
 import type { SubDomain, TopLevelDomain, Country, Currency, Company, SalesUser } from './domain'
 import type { CloakCheckResponse } from './cloak'
 import type { ThemeConfig, SiteConfig, VariableValues } from '../../app/types/builder'
+import type { ProductDetail } from '../repositories/productRepository'
 
 /**
  * 页面主题配置
@@ -14,6 +15,21 @@ export interface PageTheme {
   themeConfig: ThemeConfig | null
   siteConfig: SiteConfig
   variableValues: VariableValues
+}
+
+/**
+ * 落地页配置信息
+ * 从 03-landing.ts 中间件获取
+ */
+export interface LandingPageInfo {
+  /** 落地页 SPU ID（用于获取商品信息） */
+  landingSpuId: number | null
+  /** 协议 ID */
+  protocolId: number | null
+  /** 协议占位符值 */
+  protocolPlaceholderValues: Record<string, any>
+  /** 变量 schema */
+  variableSchema: any[]
 }
 
 /**
@@ -41,9 +57,15 @@ export interface PageContext {
   /** 用户指纹 */
   fingerprint: string
 
-  // 02-landing.ts 设置
+  // 03-landing.ts 设置
   /** 页面主题配置 */
   pageTheme: PageTheme | null
+  /** 落地页配置信息 */
+  landingPage: LandingPageInfo | null
+
+  // 04-product.ts 设置
+  /** 商品详细信息 */
+  productInfo: ProductDetail | null
 
   // 从 URL 解析
   /** 产品 SPU ID */
@@ -64,6 +86,8 @@ export interface PartialPageContext {
   cloak: CloakCheckResponse | null
   fingerprint: string | null
   pageTheme: PageTheme | null
+  landingPage: LandingPageInfo | null
+  productInfo: ProductDetail | null
   spuId: number | null
 }
 
@@ -81,6 +105,8 @@ export function createEmptyPageContext(): PartialPageContext {
     cloak: null,
     fingerprint: null,
     pageTheme: null,
+    landingPage: null,
+    productInfo: null,
     spuId: null,
   }
 }

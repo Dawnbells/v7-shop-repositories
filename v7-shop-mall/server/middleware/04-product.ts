@@ -1,0 +1,76 @@
+/**
+ * 商品信息加载中间件
+ * 仅在商品详情页 (/product/[id]) 执行
+ * 根据 landingSpuId + countryId 获取商品详细信息
+ * 设置 PageContext.productInfo
+ */
+
+import { findProductBySpuAndCountry, findProductDetail } from "../repositories/productRepository";
+import { getPageContext, updatePageContext } from "../utils/page-context";
+import { logger } from "../utils/logger";
+
+const PRODUCT_ROUTE = /^\/product\/[\w-]+(\?.*)?$/;
+
+function isProductRoute(path: string): boolean {
+  return PRODUCT_ROUTE.test(path);
+}
+
+export default defineEventHandler(async (event) => {
+  const path = event.path;
+
+  // 跳过非商品详情页路由
+  if (!isProductRoute(path)) {
+    return;
+  }
+
+  // 跳过 API 路由和编辑器路由
+  if (
+    path.startsWith("/api/") ||
+    path.startsWith("/builder") ||
+    path.startsWith("/_nuxt") ||
+    path.startsWith("/__nuxt")
+  ) {
+    return;
+  }
+
+  const pageContext = getPageContext(event);
+
+  const landingSpuId = pageContext.landingPage?.landingSpuId;
+  const countryId = pageContext.country?.id;
+
+  if (!landingSpuId) {
+    logger.warn("[04-product] No landingSpuId found in pageContext");
+    return;
+  }
+
+  if (!countryId) {
+    logger.warn("[04-product] No countryId found in pageContext");
+    return;
+  }
+
+  try {
+    logger.log(`[04-product] Query params: landingSpuId=${landingSpuId}, countryId=${countryId}`);
+
+    const productId = await findProductBySpuAndCountry(landingSpuId, countryId);
+
+    if (!productId) {
+      logger.warn(`[04-product] Product not found for landingSpuId=${landingSpuId}, countryId=${countryId}`);
+      return;
+    }
+
+    const productInfo = await findProductDetail(productId);
+
+    if (!productInfo) {
+      logger.warn(`[04-product] Product detail not found for productId=${productId}`);
+      return;
+    }
+
+    logger.log(`[04-product] Product loaded: id=${productInfo.id}, title=${productInfo.title}`);
+
+    updatePageContext(event, {
+      productInfo,
+    });
+  } catch (error) {
+    logger.error("[04-product] Error loading product info:", error);
+  }
+});

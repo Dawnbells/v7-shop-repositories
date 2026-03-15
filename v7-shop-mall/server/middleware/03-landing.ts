@@ -1,12 +1,12 @@
 /**
  * 主题配置加载中间件
  * 根据 cloak.page 结果从数据库加载对应的 themeConfig、siteConfig、variableValues
- * 设置 PageContext.pageTheme
+ * 设置 PageContext.pageTheme 和 PageContext.landingPage
  */
 
 import { findLandingPageConfig } from "../repositories/landingPageRepository";
 import { getPageContext, updatePageContext } from "../utils/page-context";
-import type { PageTheme } from "../types/page-context";
+import type { PageTheme, LandingPageInfo } from "../types/page-context";
 import { CloakPage } from "../types/cloak";
 import { logger } from "../utils/logger";
 
@@ -65,6 +65,12 @@ export default defineEventHandler(async (event) => {
           siteConfig: config.siteConfig,
           variableValues: config.variableValues,
         } as PageTheme,
+        landingPage: {
+          landingSpuId: config.landingSpuId,
+          protocolId: config.protocolId,
+          protocolPlaceholderValues: config.protocolPlaceholderValues,
+          variableSchema: config.variableSchema,
+        } as LandingPageInfo,
       });
     }
   } catch (error) {

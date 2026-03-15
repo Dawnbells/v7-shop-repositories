@@ -9,18 +9,59 @@
 import type { ThemeConfig } from '~/types/component-meta'
 import type { SiteConfig, VariableValues } from '~/types/data-context'
 
-interface PageContext {
-  pageTheme: PageThemeContext | null
-}
-
 interface PageThemeContext {
   themeConfig: ThemeConfig | null
   siteConfig: SiteConfig
   variableValues: VariableValues
 }
 
+interface LandingPageInfo {
+  landingSpuId: number | null
+  protocolId: number | null
+  protocolPlaceholderValues: Record<string, any>
+  variableSchema: any[]
+}
+
+interface ProductImage {
+  id: number
+  relativePath: string
+  name: string
+}
+
+interface ProductSpecification {
+  id: number
+  skuId: number
+  sellPrice: number
+  originPrice: number
+  stockQuantity: number
+  attributes: Array<{ name: string; value: string }>
+}
+
+interface ProductInfo {
+  id: number
+  spuId: number
+  title: string
+  merchandise: string | null
+  introduction: string | null
+  summary: string | null
+  sellPrice: number
+  originPrice: number | null
+  isMultiSpecs: boolean
+  images: ProductImage[]
+  specifications: ProductSpecification[]
+}
+
+interface PageContext {
+  pageTheme: PageThemeContext | null
+  landingPage: LandingPageInfo | null
+  productInfo: ProductInfo | null
+}
+
 export function usePageContext() {
   const { themeConfig, siteConfig, variableValues } = usePageTheme()
+
+  const productInfo = useState<ProductInfo | null>('productInfo', () => null)
+  const landingPage = useState<LandingPageInfo | null>('landingPage', () => null)
 
   // SSR 时：从 event.context.pageContext 读取中间件注入的数据
   if (import.meta.server) {
@@ -40,11 +81,21 @@ export function usePageContext() {
         variableValues.value = pageTheme.variableValues
       }
     }
+
+    if (pageContext?.landingPage && landingPage.value === null) {
+      landingPage.value = pageContext.landingPage
+    }
+
+    if (pageContext?.productInfo && productInfo.value === null) {
+      productInfo.value = pageContext.productInfo
+    }
   }
 
   return {
     themeConfig,
     siteConfig,
     variableValues,
+    landingPage,
+    productInfo,
   }
 }
