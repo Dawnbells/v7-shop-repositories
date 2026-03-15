@@ -26,27 +26,61 @@ interface ProductImage {
   id: number
   relativePath: string
   name: string
+  width: number
+  height: number
+  suffix: string
+  fileSize: number
+  mediaType: string
+  mediaState: string
+}
+
+interface ProductSpecificationAttribute {
+  name: string
+  value: string
 }
 
 interface ProductSpecification {
   id: number
+  sid: number | null
   skuId: number
   sellPrice: number
-  originPrice: number
+  originPrice: number | null
+  costPrice: number | null
+  barcode: string | null
   stockQuantity: number
-  attributes: Array<{ name: string; value: string }>
+  linkStock: boolean
+  specificationImageId: number | null
+  attributes: ProductSpecificationAttribute[]
 }
 
 interface ProductInfo {
   id: number
   spuId: number
+  skuId: number | null
+  countryId: number
+  languageId: number | null
   title: string
-  merchandise: string | null
-  introduction: string | null
   summary: string | null
+  introduction: string | null
+  merchandise: string | null
+  waybillProductName: string | null
   sellPrice: number
   originPrice: number | null
+  costPrice: number | null
+  isTaxable: boolean
+  taxationMethod: string | null
+  fixedTaxAmount: number | null
+  taxAmountThreshold: number | null
+  taxQuantityThreshold: number
+  taxPerBase: number | null
+  barcode: string | null
+  stockQuantity: number
+  linkStock: boolean
   isMultiSpecs: boolean
+  videoFileId: number | null
+  botShowSpuId: number | null
+  riskUserShowSpuId: number | null
+  blacklistedUserShowSpuId: number | null
   images: ProductImage[]
   specifications: ProductSpecification[]
 }

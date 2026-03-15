@@ -5,7 +5,7 @@
  * 设置 PageContext.productInfo
  */
 
-import { findProductBySpuAndCountry, findProductDetail } from "../repositories/productRepository";
+import { findProductDetailBySpuAndCountry } from "../repositories/productRepository";
 import { getPageContext, updatePageContext } from "../utils/page-context";
 import { logger } from "../utils/logger";
 
@@ -51,17 +51,10 @@ export default defineEventHandler(async (event) => {
   try {
     logger.log(`[04-product] Query params: landingSpuId=${landingSpuId}, countryId=${countryId}`);
 
-    const productId = await findProductBySpuAndCountry(landingSpuId, countryId);
-
-    if (!productId) {
-      logger.warn(`[04-product] Product not found for landingSpuId=${landingSpuId}, countryId=${countryId}`);
-      return;
-    }
-
-    const productInfo = await findProductDetail(productId);
+    const productInfo = await findProductDetailBySpuAndCountry(landingSpuId, countryId);
 
     if (!productInfo) {
-      logger.warn(`[04-product] Product detail not found for productId=${productId}`);
+      logger.warn(`[04-product] Product not found for landingSpuId=${landingSpuId}, countryId=${countryId}`);
       return;
     }
 
