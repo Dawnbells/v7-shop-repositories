@@ -212,6 +212,9 @@ export interface ComponentMeta {
   allowedPages?: PageScope[]          // 允许使用的页面范围
                                       // undefined 或空数组表示不限制，所有页面可用
 
+  singleton?: boolean                 // 是否单例（页面中只能存在一个）
+  allowedPosition?: 'first' | 'last' | 'any'  // 允许的位置（默认 'any'）
+
   preview?: string                    // 预览图 URL
   tags?: string[]                     // 搜索标签
 }

@@ -11,12 +11,14 @@
  */
 
 interface Props {
+  sticky?: boolean
   layout?: 'left' | 'center'
   showSiteName?: boolean
   showCart?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  sticky: false,
   layout: 'left',
   showSiteName: true,
   showCart: true,
@@ -34,7 +36,7 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
 </script>
 
 <template>
-  <header class="block-header">
+  <header class="block-header" :class="{ 'is-sticky': sticky }">
     <!-- 左侧区域 -->
     <div class="header-left">
       <template v-if="layout === 'left'">
@@ -72,6 +74,12 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   box-sizing: border-box;
   background-color: var(--surface-color, #ffffff);
   border-bottom-color: var(--border-color, #e2e8f0);
+}
+
+.block-header.is-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .header-left {

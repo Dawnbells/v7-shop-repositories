@@ -5,6 +5,7 @@
  */
 
 import { useCanvasState } from '~/composables/useCanvasState'
+import { useBlockRegistry } from '~/composables/useBlockRegistry'
 
 type DeviceType = 'desktop' | 'tablet' | 'mobile' | 'custom'
 
@@ -167,6 +168,24 @@ function onDrop(event: DragEvent) {
     const data = JSON.parse(event.dataTransfer.getData('application/json'))
     
     if (data && data.type) {
+      const { getBlockMeta } = useBlockRegistry()
+      const meta = getBlockMeta(data.type)
+      
+      // 检查位置约束
+      if (meta?.allowedPosition === 'first' && rootNodes.value.length > 0) {
+        console.warn('[BuilderCanvas] 该组件只能添加到第一个位置:', data.type)
+        return
+      }
+      
+      // 检查单例约束
+      if (meta?.singleton) {
+        const exists = rootNodes.value.some(n => n.type === data.type)
+        if (exists) {
+          console.warn('[BuilderCanvas] 该组件在页面中只能存在一个:', data.type)
+          return
+        }
+      }
+      
       // 创建新节点
       const newNode = createNode(
         data.type,

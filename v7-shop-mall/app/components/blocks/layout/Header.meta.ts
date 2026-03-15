@@ -11,7 +11,17 @@ export const meta: ComponentMeta = {
   category: "layout",
   description: "页头组件，展示网站名称、Logo 和购物车",
 
+  singleton: true,
+  allowedPosition: "first",
+
   propsSchema: [
+    {
+      key: "sticky",
+      label: "吸顶",
+      type: "switch",
+      defaultValue: false,
+      description: "页面滚动时固定在顶部",
+    },
     {
       key: "layout",
       label: "布局方式",
@@ -40,6 +50,7 @@ export const meta: ComponentMeta = {
   ],
 
   defaultProps: {
+    sticky: false,
     layout: "left",
     showSiteName: true,
     showCart: true,
