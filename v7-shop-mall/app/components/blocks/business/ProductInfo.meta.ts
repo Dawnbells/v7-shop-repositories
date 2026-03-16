@@ -16,6 +16,17 @@ export const meta: ComponentMeta = {
 
   propsSchema: [
     {
+      key: 'layout',
+      label: '布局模式',
+      type: 'select',
+      defaultValue: 'horizontal',
+      options: [
+        { label: '左右布局', value: 'horizontal' },
+        { label: '上下布局', value: 'vertical' },
+      ],
+      description: '选择图片和信息的排列方式，左右布局在移动端会自动切换为上下布局',
+    },
+    {
       key: 'showSummary',
       label: '显示简介',
       type: 'switch',
@@ -74,6 +85,7 @@ export const meta: ComponentMeta = {
   ],
 
   defaultProps: {
+    layout: 'horizontal',
     showSummary: true,
     showOriginPrice: true,
     indicatorStyle: 'dots',

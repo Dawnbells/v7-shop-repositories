@@ -12,6 +12,7 @@ interface Props {
   indicatorPosition?: 'bottom' | 'outside'
   autoplay?: boolean
   autoplayInterval?: number
+  layout?: 'horizontal' | 'vertical'
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -21,6 +22,7 @@ const props = withDefaults(defineProps<Props>(), {
   indicatorPosition: 'bottom',
   autoplay: false,
   autoplayInterval: 3000,
+  layout: 'horizontal',
 })
 
 const { productInfo } = usePageContext()
@@ -112,7 +114,7 @@ watch(() => props.autoplay, (newVal) => {
 </script>
 
 <template>
-  <div class="block-product-info">
+  <div class="block-product-info" :class="[`layout-${props.layout}`]">
     <!-- 图片区域（左侧） -->
     <div class="product-gallery">
       <div class="product-carousel-wrapper">
@@ -425,59 +427,88 @@ watch(() => props.autoplay, (newVal) => {
   line-height: 1.6;
 }
 
-/* PC端 - 左右布局 */
-@container (min-width: 768px) {
-  .block-product-info {
-    display: flex;
-    gap: var(--product-gap, 40px);
-    align-items: flex-start;
-  }
-
-  .product-gallery {
-    flex: 0 0 var(--product-image-width, 45%);
-    max-width: var(--product-image-width, 45%);
-  }
-
-  .product-carousel-wrapper {
-    max-width: 100%;
-  }
-
-  .product-details {
-    flex: 1;
-    padding: var(--product-details-padding-desktop, 0);
-  }
-
-  .carousel-thumbnails {
-    flex-wrap: wrap;
-  }
-
-  .thumbnail-item {
-    width: 72px;
-    height: 72px;
-  }
+/* 左右布局 - 默认 PC 端样式 */
+.layout-horizontal {
+  display: flex;
+  gap: var(--product-gap, 40px);
+  align-items: flex-start;
 }
 
-/* 响应式 - 移动端 */
+.layout-horizontal .product-gallery {
+  flex: 0 0 var(--product-image-width, 45%);
+  max-width: var(--product-image-width, 45%);
+}
+
+.layout-horizontal .product-carousel-wrapper {
+  max-width: 100%;
+}
+
+.layout-horizontal .product-details {
+  flex: 1;
+  padding: var(--product-details-padding-desktop, 0);
+}
+
+.layout-horizontal .carousel-thumbnails {
+  flex-wrap: wrap;
+}
+
+.layout-horizontal .thumbnail-item {
+  width: 72px;
+  height: 72px;
+}
+
+/* 左右布局 - 移动端自动降级为上下布局 */
 @container (max-width: 767px) {
-  .block-product-info {
+  .layout-horizontal {
     display: block;
   }
 
-  .product-carousel-wrapper {
+  .layout-horizontal .product-gallery {
+    flex: none;
     max-width: 100%;
   }
 
-  .product-title {
+  .layout-horizontal .product-carousel-wrapper {
+    max-width: 100%;
+  }
+
+  .layout-horizontal .product-details {
+    padding: var(--product-details-padding, 16px 0);
+  }
+
+  .layout-horizontal .product-title {
     font-size: var(--product-title-size-mobile, 18px);
   }
 
-  .product-price {
+  .layout-horizontal .product-price {
     font-size: var(--product-price-size-mobile, 20px);
   }
 
-  .thumbnail-item {
+  .layout-horizontal .thumbnail-item {
     width: 48px;
     height: 48px;
   }
+}
+
+/* 上下布局 - 始终垂直排列 */
+.layout-vertical {
+  display: block;
+}
+
+.layout-vertical .product-carousel-wrapper {
+  max-width: 100%;
+}
+
+.layout-vertical .product-title {
+  font-size: var(--product-title-size-mobile, 18px);
+}
+
+.layout-vertical .product-price {
+  font-size: var(--product-price-size-mobile, 20px);
+}
+
+.layout-vertical .thumbnail-item {
+  width: 48px;
+  height: 48px;
 }
 </style>
