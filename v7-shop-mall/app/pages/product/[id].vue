@@ -3,27 +3,30 @@
  * 产品详情页
  * 
  * SSR 完整渲染：
- * - 主题数据由中间件加载，通过 usePageContext 获取
- * - 产品数据通过 useAsyncData 在服务端获取
+ * - 主题数据由中间件加载，通过 usePageTheme 获取
+ * - 产品数据通过 useProductPage 获取（从 pageContext）
  * - 绑定解析和组件渲染在服务端完成
  * - 浏览器收到完整渲染的 HTML
  */
 
-// 使用产品页 composable（SSR 时所有数据在服务端获取）
-const {
-  productInfo,
-  isLoading,
-  error,
-  cssVariables,
-  pageSchema,
-  layoutSchema,
-  hasTheme,
-  useSiteTitle,
-  formatPrice,
-} = useProductPage()
+// 获取主题相关数据
+const { cssVariables, getPageSchema, getLayoutSchema } = usePageTheme()
+
+// 获取产品数据
+const { productInfo, formatPrice } = useProductPage()
+
+// 页面配置
+const pageSchema = computed(() => getPageSchema('product-detail'))
+const layoutSchema = computed(() => {
+  const layoutId = pageSchema.value?.layoutId
+  return layoutId ? getLayoutSchema(layoutId) : undefined
+})
+const hasTheme = computed(() => !!pageSchema.value)
 
 // 设置浏览器标签页标题
-useSiteTitle(computed(() => productInfo.value?.title || '产品详情'))
+useHead({
+  title: computed(() => productInfo.value?.title || '产品详情'),
+})
 
 // 提供编辑器状态（非编辑器模式）
 provide('isInEditor', ref(false))
@@ -59,19 +62,8 @@ function selectImage(index: number) {
 
     <!-- 无主题配置时的 fallback -->
     <template v-else>
-      <!-- 加载中 -->
-      <div v-if="isLoading" class="product-loading">
-        加载中...
-      </div>
-
-      <!-- 加载错误 -->
-      <div v-else-if="error" class="product-error">
-        <p>加载产品失败</p>
-        <p class="error-detail">{{ error.message }}</p>
-      </div>
-
       <!-- 产品内容 -->
-      <div v-else-if="productInfo" class="default-product-page">
+      <div v-if="productInfo" class="default-product-page">
         <div class="product-gallery">
           <!-- 主图 -->
           <div class="main-image">
@@ -317,8 +309,6 @@ function selectImage(index: number) {
   color: var(--primary-color, #3b82f6);
 }
 
-.product-loading,
-.product-error,
 .product-not-found {
   display: flex;
   flex-direction: column;
@@ -329,15 +319,5 @@ function selectImage(index: number) {
   font-size: 16px;
   text-align: center;
   padding: 24px;
-}
-
-.product-error {
-  color: #ef4444;
-}
-
-.error-detail {
-  font-size: 14px;
-  color: #9ca3af;
-  margin-top: 8px;
 }
 </style>

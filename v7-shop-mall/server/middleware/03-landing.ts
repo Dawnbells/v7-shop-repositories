@@ -51,13 +51,11 @@ export default defineEventHandler(async (event) => {
   const landingPageType = mapCloakPageToLandingType(pageContext.cloak.page);
 
   try {
-    logger.log(`[03-landing] Query params: subDomainId=${subDomainId}, spuId=${spuId}, landingPageType=${landingPageType}, cloakPage=${pageContext.cloak.page}`);
     const config = await findLandingPageConfig(
       subDomainId,
       spuId,
       landingPageType,
     );
-    logger.log("[03-landing] config:", JSON.stringify(config, null, 2));
     if (config) {
       updatePageContext(event, {
         pageTheme: {

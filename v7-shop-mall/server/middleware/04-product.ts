@@ -49,16 +49,12 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    logger.log(`[04-product] Query params: landingSpuId=${landingSpuId}, countryId=${countryId}`);
-
     const productInfo = await findProductDetailBySpuAndCountry(landingSpuId, countryId);
 
     if (!productInfo) {
       logger.warn(`[04-product] Product not found for landingSpuId=${landingSpuId}, countryId=${countryId}`);
       return;
     }
-
-    logger.log(`[04-product] Product loaded: id=${productInfo.id}, title=${productInfo.title}`);
 
     updatePageContext(event, {
       productInfo,

@@ -134,7 +134,6 @@ function getOrCreateFingerprint(event: H3Event): string {
     path: "/",
   });
 
-  logger.log("[Cloak Middleware] Generated new fingerprint:", newFp);
   return newFp;
 }
 
@@ -274,8 +273,6 @@ export default defineEventHandler(async (event) => {
     return;
   }
 
-  logger.log("[Cloak Middleware] path:", path);
-
   // 获取降级策略
   const pageContext = getPageContext(event);
   const cloakFallback = pageContext.company?.cloakFallback;
@@ -286,10 +283,6 @@ export default defineEventHandler(async (event) => {
   // 检查是否有 preview 参数强制指定 cloak 类型
   const previewPage = getPreviewCloakPage(event);
   if (previewPage) {
-    logger.log(
-      "[Cloak Middleware] Preview mode, forcing cloak page:",
-      previewPage,
-    );
     cloakResult = {
       remote: false,
       page: previewPage,
@@ -299,25 +292,18 @@ export default defineEventHandler(async (event) => {
   } else if (isProductRoute(path)) {
     // 产品路由：远程调用风控服务
     const request = buildCloakRequest(event);
-    logger.log("[Cloak Middleware] request:", request);
     cloakResult = await performCloakCheck(request, fallbackPage);
-    logger.log("[Cloak Middleware] result:", cloakResult);
 
     // 存入 cookie
     setCookie(event, CLOAK_COOKIE, serializeCloakResult(cloakResult), {
       maxAge: CLOAK_MAX_AGE,
       path: "/",
     });
-    logger.log("[Cloak Middleware] Saved cloak result to cookie");
   } else {
     // 非产品路由：从 cookie 读取
     const cookieValue = getCookie(event, CLOAK_COOKIE);
     if (cookieValue) {
       cloakResult = deserializeCloakResult(cookieValue);
-      logger.log(
-        "[Cloak Middleware] Got cloak result from cookie:",
-        cloakResult,
-      );
     }
     if (!cloakResult) {
       // 没有经过/product路由检测，一律使用CLOAK作为fallbackPage
@@ -327,7 +313,6 @@ export default defineEventHandler(async (event) => {
         pdVal: "CLOAK",
         isAdmin: false,
       };
-      logger.log("[Cloak Middleware] No cookie, using fallback:", cloakResult);
     }
   }
 
