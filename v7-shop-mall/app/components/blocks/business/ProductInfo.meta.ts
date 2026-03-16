@@ -6,7 +6,7 @@
 import type { ComponentMeta } from '~/types/component-meta'
 
 export const meta: ComponentMeta = {
-  type: 'product-info',
+  type: 'productinfo',
   name: '商品信息',
   icon: 'i-carbon-product',
   category: 'business',
@@ -83,6 +83,39 @@ export const meta: ComponentMeta = {
   },
 
   styleSchema: [
+    // 布局样式
+    {
+      key: '--product-max-width',
+      label: '最大宽度',
+      type: 'text',
+      defaultValue: '1200px',
+      placeholder: '1200px',
+      group: 'layout',
+    },
+    {
+      key: '--product-padding',
+      label: '内边距',
+      type: 'text',
+      defaultValue: '0 16px',
+      placeholder: '0 16px',
+      group: 'layout',
+    },
+    {
+      key: '--product-gap',
+      label: 'PC端间距',
+      type: 'text',
+      defaultValue: '40px',
+      placeholder: '40px',
+      group: 'layout',
+    },
+    {
+      key: '--product-image-width',
+      label: 'PC端图片宽度',
+      type: 'text',
+      defaultValue: '45%',
+      placeholder: '45%',
+      group: 'layout',
+    },
     // 图片样式
     {
       key: '--product-image-radius',
@@ -221,6 +254,10 @@ export const meta: ComponentMeta = {
 
   defaultStyle: {
     base: {
+      '--product-max-width': '1200px',
+      '--product-padding': '0 16px',
+      '--product-gap': '40px',
+      '--product-image-width': '45%',
       '--product-image-radius': '8px',
       '--product-title-size': '20px',
       '--product-title-weight': '600',
@@ -231,6 +268,7 @@ export const meta: ComponentMeta = {
       '--product-summary-size': '14px',
       '--product-summary-color': '#6b7280',
       '--product-details-padding': '16px 0',
+      '--product-details-padding-desktop': '0',
     },
     mobile: {
       '--product-title-size': '18px',

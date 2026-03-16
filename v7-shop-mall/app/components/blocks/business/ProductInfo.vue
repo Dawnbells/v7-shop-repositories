@@ -113,8 +113,9 @@ watch(() => props.autoplay, (newVal) => {
 
 <template>
   <div class="block-product-info">
-    <!-- 图片轮播区域 -->
-    <div class="product-carousel-wrapper">
+    <!-- 图片区域（左侧） -->
+    <div class="product-gallery">
+      <div class="product-carousel-wrapper">
       <div
         v-if="hasImages"
         ref="carouselRef"
@@ -140,12 +141,52 @@ watch(() => props.autoplay, (newVal) => {
         <span>暂无图片</span>
       </div>
 
-      <!-- 指示器 - 底部位置 -->
+        <!-- 指示器 - 底部位置 -->
+        <div
+          v-if="indicatorStyle !== 'none' && indicatorPosition === 'bottom' && imageCount > 1"
+          class="carousel-indicators indicators-bottom"
+        >
+          <!-- 圆点指示器 -->
+          <template v-if="indicatorStyle === 'dots'">
+            <button
+              v-for="(_, index) in images"
+              :key="index"
+              class="indicator-dot"
+              :class="{ active: index === currentIndex }"
+              @click="goToSlide(index)"
+            />
+          </template>
+
+          <!-- 数字指示器 -->
+          <template v-else-if="indicatorStyle === 'numbers'">
+            <span class="indicator-numbers">
+              {{ currentIndex + 1 }} / {{ imageCount }}
+            </span>
+          </template>
+        </div>
+      </div>
+
+      <!-- 缩略图指示器 - 外部位置 -->
       <div
-        v-if="indicatorStyle !== 'none' && indicatorPosition === 'bottom' && imageCount > 1"
-        class="carousel-indicators indicators-bottom"
+        v-if="indicatorStyle === 'thumbnails' && indicatorPosition === 'outside' && imageCount > 1"
+        class="carousel-thumbnails"
       >
-        <!-- 圆点指示器 -->
+        <button
+          v-for="(image, index) in images"
+          :key="image.id"
+          class="thumbnail-item"
+          :class="{ active: index === currentIndex }"
+          @click="goToSlide(index)"
+        >
+          <img :src="image.relativePath" :alt="image.name" />
+        </button>
+      </div>
+
+      <!-- 外部指示器（非缩略图） -->
+      <div
+        v-if="indicatorStyle !== 'none' && indicatorStyle !== 'thumbnails' && indicatorPosition === 'outside' && imageCount > 1"
+        class="carousel-indicators indicators-outside"
+      >
         <template v-if="indicatorStyle === 'dots'">
           <button
             v-for="(_, index) in images"
@@ -155,8 +196,6 @@ watch(() => props.autoplay, (newVal) => {
             @click="goToSlide(index)"
           />
         </template>
-
-        <!-- 数字指示器 -->
         <template v-else-if="indicatorStyle === 'numbers'">
           <span class="indicator-numbers">
             {{ currentIndex + 1 }} / {{ imageCount }}
@@ -165,44 +204,7 @@ watch(() => props.autoplay, (newVal) => {
       </div>
     </div>
 
-    <!-- 缩略图指示器 - 外部位置 -->
-    <div
-      v-if="indicatorStyle === 'thumbnails' && indicatorPosition === 'outside' && imageCount > 1"
-      class="carousel-thumbnails"
-    >
-      <button
-        v-for="(image, index) in images"
-        :key="image.id"
-        class="thumbnail-item"
-        :class="{ active: index === currentIndex }"
-        @click="goToSlide(index)"
-      >
-        <img :src="image.relativePath" :alt="image.name" />
-      </button>
-    </div>
-
-    <!-- 外部指示器（非缩略图） -->
-    <div
-      v-if="indicatorStyle !== 'none' && indicatorStyle !== 'thumbnails' && indicatorPosition === 'outside' && imageCount > 1"
-      class="carousel-indicators indicators-outside"
-    >
-      <template v-if="indicatorStyle === 'dots'">
-        <button
-          v-for="(_, index) in images"
-          :key="index"
-          class="indicator-dot"
-          :class="{ active: index === currentIndex }"
-          @click="goToSlide(index)"
-        />
-      </template>
-      <template v-else-if="indicatorStyle === 'numbers'">
-        <span class="indicator-numbers">
-          {{ currentIndex + 1 }} / {{ imageCount }}
-        </span>
-      </template>
-    </div>
-
-    <!-- 商品信息区域 -->
+    <!-- 商品信息区域（右侧） -->
     <div class="product-details">
       <!-- 商品标题 -->
       <h1 class="product-title">{{ title }}</h1>
@@ -227,12 +229,22 @@ watch(() => props.autoplay, (newVal) => {
 .block-product-info {
   container-type: inline-size;
   width: 100%;
+  max-width: var(--product-max-width, 1200px);
+  margin: 0 auto;
+  padding: var(--product-padding, 0 16px);
+  box-sizing: border-box;
+}
+
+/* 图片区域 */
+.product-gallery {
+  width: 100%;
 }
 
 /* 轮播图容器 */
 .product-carousel-wrapper {
   position: relative;
   width: 100%;
+  max-width: var(--product-image-max-width, 500px);
   overflow: hidden;
   border-radius: var(--product-image-radius, 8px);
   background-color: var(--product-image-bg, #f5f5f5);
@@ -413,8 +425,48 @@ watch(() => props.autoplay, (newVal) => {
   line-height: 1.6;
 }
 
+/* PC端 - 左右布局 */
+@container (min-width: 768px) {
+  .block-product-info {
+    display: flex;
+    gap: var(--product-gap, 40px);
+    align-items: flex-start;
+  }
+
+  .product-gallery {
+    flex: 0 0 var(--product-image-width, 45%);
+    max-width: var(--product-image-width, 45%);
+  }
+
+  .product-carousel-wrapper {
+    max-width: 100%;
+  }
+
+  .product-details {
+    flex: 1;
+    padding: var(--product-details-padding-desktop, 0);
+  }
+
+  .carousel-thumbnails {
+    flex-wrap: wrap;
+  }
+
+  .thumbnail-item {
+    width: 72px;
+    height: 72px;
+  }
+}
+
 /* 响应式 - 移动端 */
-@container (max-width: 640px) {
+@container (max-width: 767px) {
+  .block-product-info {
+    display: block;
+  }
+
+  .product-carousel-wrapper {
+    max-width: 100%;
+  }
+
   .product-title {
     font-size: var(--product-title-size-mobile, 18px);
   }
