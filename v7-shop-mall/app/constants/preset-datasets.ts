@@ -194,6 +194,104 @@ const PRODUCT_MOCK_DATA = {
   },
 };
 
+/**
+ * 编辑器预览用的完整商品信息 Mock 数据
+ * 与 ProductInfo 接口完全匹配
+ */
+export const PRODUCT_INFO_MOCK = {
+  id: 12345,
+  spuId: 67890,
+  skuId: null,
+  countryId: 1,
+  languageId: 1,
+  title: "M12™ Green 360° třírovinný laser s automatickým nivelováním",
+  summary: "Profesionální laserový měřicí přístroj s vysokou přesností ≤ 0,2 mm",
+  introduction: "<p>This is a sample product introduction for preview.</p>",
+  merchandise: "Sample Merchandise",
+  waybillProductName: "Laser Level",
+  sellPrice: 99.99,
+  originPrice: 129.99,
+  costPrice: 50.00,
+  isTaxable: true,
+  taxationMethod: "PERCENTAGE",
+  fixedTaxAmount: null,
+  taxAmountThreshold: null,
+  taxQuantityThreshold: 0,
+  taxPerBase: null,
+  barcode: "1234567890123",
+  stockQuantity: 100,
+  linkStock: false,
+  isMultiSpecs: false,
+  videoFileId: null,
+  botShowSpuId: null,
+  riskUserShowSpuId: null,
+  blacklistedUserShowSpuId: null,
+  images: [
+    {
+      id: 1,
+      relativePath: "/products/sample-1.jpg",
+      name: "product-1.jpg",
+      width: 800,
+      height: 800,
+      suffix: "jpg",
+      fileSize: 102400,
+      mediaType: "image/jpeg",
+      mediaState: "VALID",
+    },
+    {
+      id: 2,
+      relativePath: "/products/sample-2.jpg",
+      name: "product-2.jpg",
+      width: 800,
+      height: 800,
+      suffix: "jpg",
+      fileSize: 98304,
+      mediaType: "image/jpeg",
+      mediaState: "VALID",
+    },
+  ],
+  specifications: [
+    {
+      id: 1,
+      sid: null,
+      skuId: 1001,
+      sellPrice: 99.99,
+      originPrice: 129.99,
+      costPrice: 50.00,
+      barcode: "1234567890123-001",
+      stockQuantity: 50,
+      linkStock: false,
+      specificationImageId: null,
+      attributes: [{ name: "Color", value: "Black" }],
+    },
+    {
+      id: 2,
+      sid: null,
+      skuId: 1002,
+      sellPrice: 109.99,
+      originPrice: 139.99,
+      costPrice: 55.00,
+      barcode: "1234567890123-002",
+      stockQuantity: 50,
+      linkStock: false,
+      specificationImageId: null,
+      attributes: [{ name: "Color", value: "Red" }],
+    },
+  ],
+};
+
+/**
+ * 编辑器预览用的货币 Mock 数据
+ */
+export const CURRENCY_MOCK = {
+  id: 1,
+  code: "USD",
+  name: "US Dollar",
+  symbol: "$",
+  exchangeRate: 1.0,
+  fractionDigits: 2,
+};
+
 export const PRESET_PRODUCT: PresetDataSet = {
   id: "product",
   name: "产品数据",

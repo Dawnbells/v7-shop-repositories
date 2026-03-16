@@ -39,6 +39,15 @@ interface ProductSpecificationAttribute {
   value: string;
 }
 
+interface Currency {
+  id: number;
+  code: string;
+  name: string;
+  symbol: string | null;
+  exchangeRate: number | null;
+  fractionDigits: number | null;
+}
+
 interface ProductSpecification {
   id: number;
   sid: number | null;
@@ -89,6 +98,7 @@ interface PageContext {
   pageTheme: PageThemeContext | null;
   landingPage: LandingPageInfo | null;
   productInfo: ProductInfo | null;
+  currency: Currency | null;
 }
 
 export function usePageContext() {
@@ -99,6 +109,7 @@ export function usePageContext() {
     "landingPage",
     () => null,
   );
+  const currency = useState<Currency | null>("currency", () => null);
 
   // SSR 时：从 event.context.pageContext 读取中间件注入的数据
   if (import.meta.server) {
@@ -135,6 +146,25 @@ export function usePageContext() {
     if (pageContext?.productInfo && productInfo.value === null) {
       productInfo.value = pageContext.productInfo;
     }
+
+    if (pageContext?.currency && currency.value === null) {
+      currency.value = pageContext.currency;
+    }
+  }
+
+  /**
+   * 设置 Mock 数据（用于编辑器预览）
+   */
+  function setMockData(mockData: {
+    productInfo?: ProductInfo | null;
+    currency?: Currency | null;
+  }) {
+    if (mockData.productInfo !== undefined) {
+      productInfo.value = mockData.productInfo;
+    }
+    if (mockData.currency !== undefined) {
+      currency.value = mockData.currency;
+    }
   }
 
   return {
@@ -143,5 +173,7 @@ export function usePageContext() {
     variableValues,
     landingPage,
     productInfo,
+    currency,
+    setMockData,
   };
 }

@@ -5,40 +5,61 @@
  * 数据从 useProductPage 中获取
  */
 
+import Decimal from "decimal.js";
+
 interface Props {
-  showSummary?: boolean
-  showOriginPrice?: boolean
-  indicatorStyle?: 'dots' | 'numbers' | 'thumbnails' | 'none'
-  indicatorPosition?: 'bottom' | 'outside'
-  autoplay?: boolean
-  autoplayInterval?: number
-  layout?: 'horizontal' | 'vertical'
+  showSummary?: boolean;
+  showOriginPrice?: boolean;
+  indicatorStyle?: "dots" | "numbers" | "thumbnails" | "none";
+  indicatorPosition?: "bottom" | "outside";
+  autoplay?: boolean;
+  autoplayInterval?: number;
+  layout?: "horizontal" | "vertical";
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showSummary: true,
   showOriginPrice: true,
-  indicatorStyle: 'dots',
-  indicatorPosition: 'bottom',
+  indicatorStyle: "dots",
+  indicatorPosition: "bottom",
   autoplay: false,
   autoplayInterval: 3000,
-  layout: 'horizontal',
-})
+  layout: "horizontal",
+});
 
-const { productInfo, formatPrice } = useProductPage()
+const { productInfo, formatPrice } = useProductPage();
 
-const images = computed(() => productInfo.value?.images || [])
-const title = computed(() => productInfo.value?.title || '')
-const summary = computed(() => productInfo.value?.summary || '')
-const sellPrice = computed(() => productInfo.value?.sellPrice || 0)
-const originPrice = computed(() => productInfo.value?.originPrice)
+const images = computed(() => productInfo.value?.images || []);
+const title = computed(() => productInfo.value?.title || "");
+const summary = computed(() => productInfo.value?.summary || "");
 
-const hasOriginPrice = computed(() =>
-  props.showOriginPrice &&
-  originPrice.value !== null &&
-  originPrice.value !== undefined &&
-  originPrice.value > sellPrice.value
-)
+const sellPrice = computed(() => {
+  const info = productInfo.value;
+  if (!info) return 0;
+  const firstSpec = info.isMultiSpecs ? info.specifications?.[0] : null;
+  if (firstSpec) {
+    return firstSpec.sellPrice;
+  }
+  return info.sellPrice;
+});
+
+const originPrice = computed(() => {
+  const info = productInfo.value;
+  if (!info) return null;
+  const firstSpec = info.isMultiSpecs ? info.specifications?.[0] : null;
+  if (firstSpec) {
+    return firstSpec.originPrice;
+  }
+  return info.originPrice;
+});
+
+const hasOriginPrice = computed(() => {
+  if (!props.showOriginPrice) return false;
+  if (originPrice.value === null || originPrice.value === undefined) return false;
+  const origin = new Decimal(originPrice.value);
+  const sell = new Decimal(sellPrice.value);
+  return origin.greaterThan(sell);
+});
 </script>
 
 <template>

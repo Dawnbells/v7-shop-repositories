@@ -10,6 +10,8 @@ import { useIframeAuth } from '~/composables/useIframeAuth'
 import { useThemeSchema } from '~/composables/useThemeSchema'
 import { useCanvasState } from '~/composables/useCanvasState'
 import { usePageTheme } from '~/composables/usePageTheme'
+import { usePageContext } from '~/composables/usePageContext'
+import { PRODUCT_INFO_MOCK, CURRENCY_MOCK } from '~/constants/preset-datasets'
 
 // 获取 iframe 认证信息
 const { 
@@ -36,6 +38,15 @@ const {
 
 // 页面主题状态（用于同步数据到组件）
 const { siteConfig: pageSiteConfig } = usePageTheme()
+
+// 页面上下文（用于注入 mock 数据）
+const { setMockData } = usePageContext()
+
+// 初始化编辑器预览用的 mock 数据
+setMockData({
+  productInfo: PRODUCT_INFO_MOCK,
+  currency: CURRENCY_MOCK,
+})
 
 // 同步编辑器数据到页面主题状态（使组件能读取全局配置）
 watch(editorSiteConfig, (newConfig) => {

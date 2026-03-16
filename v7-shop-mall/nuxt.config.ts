@@ -32,6 +32,12 @@ export default defineNuxtConfig({
     ],
   },
 
+  vite: {
+    optimizeDeps: {
+      include: ['decimal.js'],
+    },
+  },
+
   runtimeConfig: {
     db: {
       host: 'localhost',
