@@ -244,6 +244,7 @@ async function performCloakCheck(
       `${config.riskServiceUrl}/cloak/initial`,
       fetchOptions,
     );
+    console.log("response", response);
     return {
       ...response,
       remote: true,
