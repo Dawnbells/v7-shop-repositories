@@ -82,7 +82,6 @@ export default defineEventHandler(async (event) => {
 
   try {
     const result = await findDomainByFullName(queryDomain);
-    logger.log("[01-domain] result:", result, queryDomain, host, isLocalDev);
     if (!result) {
       logger.warn(`[01-domain] Domain not found: ${queryDomain}`);
       showSafePage(SafePageType.SHOP_NOT_FOUND);
