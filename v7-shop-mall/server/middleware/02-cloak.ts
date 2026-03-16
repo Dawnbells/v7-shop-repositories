@@ -225,6 +225,7 @@ async function performCloakCheck(
   fallbackPage: CloakPage = CloakPage.LAND,
 ): Promise<CloakCheckResponse> {
   const config = useRuntimeConfig();
+  const startTime = Date.now();
   try {
     const fetchOptions: any = {
       method: "POST",
@@ -244,13 +245,15 @@ async function performCloakCheck(
       `${config.riskServiceUrl}/cloak/initial`,
       fetchOptions,
     );
-    console.log("response", response);
+    const elapsed = Date.now() - startTime;
+    logger.info(`[Cloak] Request completed in ${elapsed}ms, page: ${response.page}`);
     return {
       ...response,
       remote: true,
     };
   } catch (error) {
-    logger.error("[Cloak Middleware] Check failed:", error);
+    const elapsed = Date.now() - startTime;
+    logger.error(`[Cloak] Request failed in ${elapsed}ms:`, error);
     // 降级策略：使用公司配置的 fallbackPage
     return {
       remote: false,
