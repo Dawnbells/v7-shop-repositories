@@ -8,11 +8,11 @@
 export function useProductPage() {
   const { productInfo } = usePageContext();
 
-  console.log("productInfo", productInfo.value);
-
-  function formatPrice(price: number | null | undefined): string {
+  function formatPrice(price: number | string | null | undefined): string {
     if (price == null) return "";
-    return `$${price.toFixed(2)}`;
+    const num = typeof price === "string" ? parseFloat(price) : price;
+    if (isNaN(num)) return "";
+    return `$${num.toFixed(2)}`;
   }
 
   return {

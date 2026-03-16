@@ -93,12 +93,6 @@ export function normalizeStyle(style: Record<string, unknown> | undefined | null
     }
   }
   
-  // 调试信息
-  if (Object.keys(normalized).length > 0) {
-    console.log('[normalizeStyle] Input:', JSON.stringify(style))
-    console.log('[normalizeStyle] Output:', JSON.stringify(normalized))
-  }
-  
   return normalized
 }
 
