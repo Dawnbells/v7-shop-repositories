@@ -68,6 +68,24 @@ export interface ProductInfo {
 export interface ProductDetail extends ProductInfo {
   images: ProductImage[];
   specifications: ProductSpecification[];
+  introductionData?: IntroductionItem[];
+}
+
+export interface IntroductionImage {
+  id: number;
+  relativePath: string;
+  width: number;
+  height: number;
+}
+
+export interface IntroductionItem {
+  type: "image" | "html";
+  id?: number;
+  src?: string;
+  width?: number;
+  height?: number;
+  aspectRatio?: number | null;
+  content?: string;
 }
 
 /**
@@ -214,4 +232,29 @@ export async function findProductDetailBySpuAndCountry(
     images,
     specifications,
   };
+}
+
+/**
+ * 根据多媒体文件 ID 批量查询文件信息
+ * 用于解析 introduction 中的图片数据
+ */
+export async function findMultimediaFilesByIds(
+  ids: number[],
+): Promise<IntroductionImage[]> {
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const placeholders = ids.map(() => "?").join(", ");
+  const sql = `
+    SELECT 
+      id,
+      relative_path as relativePath,
+      width,
+      height
+    FROM t_multimedia_files
+    WHERE id IN (${placeholders})
+  `;
+
+  return query<IntroductionImage>(sql, ids);
 }

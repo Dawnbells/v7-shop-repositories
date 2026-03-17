@@ -53,6 +53,9 @@ export function useCart() {
   // 当前使用的 storage key（用于检测 key 变化）
   const currentStorageKey = useState<string>("currentCartStorageKey", () => "");
 
+  // 购物车抽屉显示状态（全局共享）
+  const cartDrawerVisible = useState<boolean>("cartDrawerVisible", () => false);
+
   // 获取当前域名
   function getDomain(): string {
     if (import.meta.server) return "default";
@@ -222,6 +225,17 @@ export function useCart() {
   // 购物车是否为空
   const isCartEmpty = computed(() => cartItems.value.length === 0);
 
+  // 打开购物车抽屉
+  function openCartDrawer(): void {
+    loadFromStorage();
+    cartDrawerVisible.value = true;
+  }
+
+  // 关闭购物车抽屉
+  function closeCartDrawer(): void {
+    cartDrawerVisible.value = false;
+  }
+
   // 初始化：客户端加载时从 localStorage 读取
   if (import.meta.client) {
     loadFromStorage();
@@ -230,12 +244,15 @@ export function useCart() {
   return {
     cartItems,
     directOrderItem,
+    cartDrawerVisible,
     addToCart,
     removeFromCart,
     updateQuantity,
     clearCart,
     setDirectOrderItem,
     clearDirectOrderItem,
+    openCartDrawer,
+    closeCartDrawer,
     cartCount,
     cartTotal,
     isCartEmpty,

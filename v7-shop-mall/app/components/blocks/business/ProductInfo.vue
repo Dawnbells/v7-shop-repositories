@@ -33,7 +33,8 @@ const props = withDefaults(defineProps<Props>(), {
   showThumbnails: true,
 });
 
-const { productInfo, selectedSpec, formatPrice, previewImage } = useProductPage();
+const { productInfo, selectedSpec, formatPrice, previewImage } =
+  useProductPage();
 
 const images = computed(() => productInfo.value?.images || []);
 const title = computed(() => productInfo.value?.title || "");

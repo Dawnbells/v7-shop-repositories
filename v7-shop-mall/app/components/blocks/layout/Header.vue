@@ -28,21 +28,12 @@ const { globalConfig } = usePageTheme()
 const { currentUrl: logoUrl, handleError: handleLogoError } = useImageWithFallback(
   computed(() => globalConfig.value?.logo)
 )
-const { cartCount, loadFromStorage } = useCart()
+const { cartCount, cartDrawerVisible, openCartDrawer } = useCart()
 
 const siteName = computed(() => globalConfig.value?.siteName || '')
 const enableCart = computed(() => globalConfig.value?.enableCart ?? true)
 
 const showCartIcon = computed(() => props.showCart && enableCart.value)
-
-// 购物车抽屉状态
-const cartDrawerVisible = ref(false)
-
-// 打开购物车抽屉
-function openCartDrawer() {
-  loadFromStorage()
-  cartDrawerVisible.value = true
-}
 
 // 购物车数量角标显示
 const cartBadgeCount = computed(() => {

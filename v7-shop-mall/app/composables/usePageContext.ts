@@ -62,6 +62,16 @@ interface ProductSpecification {
   attributes: ProductSpecificationAttribute[];
 }
 
+export interface IntroductionItem {
+  type: "image" | "html";
+  id?: number;
+  src?: string;
+  width?: number;
+  height?: number;
+  aspectRatio?: number | null;
+  content?: string;
+}
+
 interface ProductInfo {
   id: number;
   spuId: number;
@@ -92,6 +102,7 @@ interface ProductInfo {
   blacklistedUserShowSpuId: number | null;
   images: ProductImage[];
   specifications: ProductSpecification[];
+  introductionData?: IntroductionItem[];
 }
 
 interface PageContext {

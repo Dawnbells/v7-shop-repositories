@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<Props>(), {
 const router = useRouter();
 const { globalConfig } = usePageTheme();
 const { productInfo, selectedSpec, quantity, formatPrice } = useProductPage();
-const { addToCart, setDirectOrderItem, clearCart } = useCart();
+const { addToCart, setDirectOrderItem, clearCart, openCartDrawer } = useCart();
 const { buildImageUrl } = useImageUrl();
 
 // 检查是否在编辑器中
@@ -123,8 +123,8 @@ function handleAddToCart() {
     stockQuantity: currentProduct.value.stockQuantity,
   });
 
-  // TODO: 显示添加成功提示
-  alert("已加入购物车");
+  // 打开购物车抽屉
+  openCartDrawer();
 }
 
 // 处理立即购买
