@@ -172,7 +172,9 @@ watch(() => props.images, () => {
           />
         </div>
       </div>
-      <div v-else class="product-no-image">
+      
+      <!-- 无图片提示 -->
+      <div v-show="!hasImages && !(isShowingPreview && previewImage)" class="product-no-image">
         <i class="i-carbon-image" />
         <span>暂无图片</span>
       </div>
