@@ -24,6 +24,9 @@ const props = withDefaults(defineProps<Props>(), {
 const { productInfo, selectedSpec, selectSpec, formatPrice, setPreviewImage } = useProductPage();
 const { buildImageUrl } = useImageUrl();
 
+// 检查是否在编辑器中
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
 // 当前已选属性 Map<attrName, attrValue>
 const selectedAttributes = ref(new Map<string, string>());
 
@@ -154,6 +157,9 @@ function isAttributeSelected(attrName: string, attrValue: string): boolean {
 
 // 选择属性值
 function handleSelectAttribute(attrName: string, attrValue: string) {
+  // 编辑模式下不执行
+  if (isInEditor.value) return;
+
   // 如果属性不可选，则不处理
   if (!isAttributeAvailable(attrName, attrValue)) {
     return;

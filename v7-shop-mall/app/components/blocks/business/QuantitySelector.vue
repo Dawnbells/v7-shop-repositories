@@ -29,6 +29,9 @@ const {
   selectedSpec,
 } = useProductPage();
 
+// 检查是否在编辑器中
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
 // 是否显示组件（由全局配置控制）
 const shouldShow = computed(() => {
   return globalConfig.value?.enableQuantitySelector ?? true;
@@ -55,6 +58,8 @@ const canIncrease = computed(() => quantity.value < actualMax.value);
 
 // 处理输入变化
 function handleInput(event: Event) {
+  if (isInEditor.value) return; // 编辑模式下不执行
+
   const target = event.target as HTMLInputElement;
   let val = parseInt(target.value, 10);
 
@@ -69,6 +74,8 @@ function handleInput(event: Event) {
 
 // 处理增加
 function handleIncrease() {
+  if (isInEditor.value) return; // 编辑模式下不执行
+
   if (canIncrease.value) {
     if (quantity.value < actualMax.value) {
       increaseQuantity();
@@ -78,6 +85,8 @@ function handleIncrease() {
 
 // 处理减少
 function handleDecrease() {
+  if (isInEditor.value) return; // 编辑模式下不执行
+
   if (canDecrease.value) {
     decreaseQuantity();
   }

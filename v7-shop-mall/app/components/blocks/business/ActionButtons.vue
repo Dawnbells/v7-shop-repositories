@@ -29,6 +29,9 @@ const { productInfo, selectedSpec, quantity, formatPrice } = useProductPage();
 const { addToCart, setDirectOrderItem, clearCart } = useCart();
 const { buildImageUrl } = useImageUrl();
 
+// 检查是否在编辑器中
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
 // 全局配置：是否启用购物车
 const enableCart = computed(() => globalConfig.value?.enableCart ?? true);
 
@@ -105,6 +108,7 @@ const stockMessage = computed(() => {
 
 // 处理加入购物车
 function handleAddToCart() {
+  if (isInEditor.value) return; // 编辑模式下不执行
   if (!currentProduct.value || !canPurchase.value) return;
 
   addToCart({
@@ -125,6 +129,7 @@ function handleAddToCart() {
 
 // 处理立即购买
 function handleBuyNow() {
+  if (isInEditor.value) return; // 编辑模式下不执行
   if (!currentProduct.value || !canPurchase.value) return;
 
   if (enableCart.value) {
