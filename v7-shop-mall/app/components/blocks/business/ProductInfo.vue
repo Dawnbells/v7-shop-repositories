@@ -27,15 +27,21 @@ const props = withDefaults(defineProps<Props>(), {
   layout: "horizontal",
 });
 
-const { productInfo, formatPrice } = useProductPage();
+const { productInfo, selectedSpec, formatPrice } = useProductPage();
 
 const images = computed(() => productInfo.value?.images || []);
 const title = computed(() => productInfo.value?.title || "");
 const summary = computed(() => productInfo.value?.summary || "");
 
+// 价格逻辑：优先使用选中规格的价格，其次使用第一个规格，最后使用商品默认价格
 const sellPrice = computed(() => {
+  // 优先使用选中规格的价格
+  if (selectedSpec.value) {
+    return selectedSpec.value.sellPrice;
+  }
   const info = productInfo.value;
   if (!info) return 0;
+  // 多规格商品使用第一个规格的价格
   const firstSpec = info.isMultiSpecs ? info.specifications?.[0] : null;
   if (firstSpec) {
     return firstSpec.sellPrice;
@@ -44,8 +50,13 @@ const sellPrice = computed(() => {
 });
 
 const originPrice = computed(() => {
+  // 优先使用选中规格的原价
+  if (selectedSpec.value) {
+    return selectedSpec.value.originPrice;
+  }
   const info = productInfo.value;
   if (!info) return null;
+  // 多规格商品使用第一个规格的原价
   const firstSpec = info.isMultiSpecs ? info.specifications?.[0] : null;
   if (firstSpec) {
     return firstSpec.originPrice;
@@ -74,7 +85,7 @@ const hasOriginPrice = computed(() => {
       class="product-gallery"
     />
 
-    <!-- 商品信息区域 -->
+    <!-- 商品信息区域（右侧垂直容器） -->
     <div class="product-details">
       <!-- 商品标题 -->
       <h1 class="product-title">{{ title }}</h1>
@@ -91,6 +102,11 @@ const hasOriginPrice = computed(() => {
       <p v-if="showSummary && summary" class="product-summary">
         {{ summary }}
       </p>
+
+      <!-- 子组件插槽（可拖入规格选择等组件） -->
+      <div class="product-slot">
+        <slot />
+      </div>
     </div>
   </div>
 </template>
@@ -142,6 +158,16 @@ const hasOriginPrice = computed(() => {
   font-size: var(--product-summary-size, 14px);
   color: var(--product-summary-color, #6b7280);
   line-height: 1.6;
+}
+
+.product-slot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--product-slot-gap, 16px);
+}
+
+.product-slot:empty {
+  display: none;
 }
 
 /* 左右布局 - 默认 PC 端样式 */

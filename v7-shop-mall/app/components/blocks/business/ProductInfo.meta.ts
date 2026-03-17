@@ -289,6 +289,6 @@ export const meta: ComponentMeta = {
     },
   },
 
-  isContainer: false,
+  isContainer: true,
   tags: ['商品', '产品', '信息', '轮播', '价格', 'product', 'info', 'carousel'],
 }
