@@ -16,6 +16,7 @@ interface Props {
   indicatorPosition?: 'bottom' | 'outside'
   autoplay?: boolean
   autoplayInterval?: number
+  showThumbnails?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -24,10 +25,12 @@ const props = withDefaults(defineProps<Props>(), {
   indicatorPosition: 'bottom',
   autoplay: false,
   autoplayInterval: 3000,
+  showThumbnails: true,
 })
 
 const currentIndex = ref(0)
 const carouselRef = ref<HTMLElement | null>(null)
+const thumbnailsRef = ref<HTMLElement | null>(null)
 let autoplayTimer: ReturnType<typeof setInterval> | null = null
 
 const hasImages = computed(() => props.images.length > 0)
@@ -42,6 +45,16 @@ function goToSlide(index: number) {
     currentIndex.value = index
   }
   scrollToCurrentSlide()
+  scrollThumbnailIntoView(currentIndex.value)
+}
+
+function scrollThumbnailIntoView(index: number) {
+  if (!thumbnailsRef.value) return
+  const thumbnails = thumbnailsRef.value.querySelectorAll('.thumbnail-item')
+  const target = thumbnails[index] as HTMLElement
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }
 }
 
 function scrollToCurrentSlide() {
@@ -61,6 +74,7 @@ function handleScroll() {
     const newIndex = Math.round(scrollLeft / slideWidth)
     if (newIndex !== currentIndex.value && newIndex >= 0 && newIndex < imageCount.value) {
       currentIndex.value = newIndex
+      scrollThumbnailIntoView(newIndex)
     }
   }
 }
@@ -158,7 +172,8 @@ watch(() => props.images, () => {
 
     <!-- 缩略图指示器 - 外部位置 -->
     <div
-      v-if="indicatorStyle === 'thumbnails' && indicatorPosition === 'outside' && imageCount > 1"
+      v-if="showThumbnails && imageCount > 1"
+      ref="thumbnailsRef"
       class="carousel-thumbnails"
     >
       <button

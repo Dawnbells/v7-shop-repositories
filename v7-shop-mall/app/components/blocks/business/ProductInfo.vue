@@ -15,6 +15,7 @@ interface Props {
   autoplay?: boolean;
   autoplayInterval?: number;
   layout?: "horizontal" | "vertical";
+  showThumbnails?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -25,6 +26,7 @@ const props = withDefaults(defineProps<Props>(), {
   autoplay: false,
   autoplayInterval: 3000,
   layout: "horizontal",
+  showThumbnails: true,
 });
 
 const { productInfo, selectedSpec, formatPrice } = useProductPage();
@@ -82,6 +84,7 @@ const hasOriginPrice = computed(() => {
       :indicator-position="indicatorPosition"
       :autoplay="autoplay"
       :autoplay-interval="autoplayInterval"
+      :show-thumbnails="showThumbnails"
       class="product-gallery"
     />
 
