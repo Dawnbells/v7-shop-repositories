@@ -6,6 +6,7 @@
 
 import { useCanvasState } from "~/composables/useCanvasState";
 import { useBlockRegistry } from "~/composables/useBlockRegistry";
+import type { ComponentNode } from "~/types/component-meta";
 
 type DeviceType = "desktop" | "tablet" | "mobile" | "custom";
 
@@ -255,7 +256,7 @@ function onCanvasClick(event: MouseEvent) {
             <BuilderCanvasNode
               v-for="node in rootNodes"
               :key="node.id"
-              :node="node"
+              :node="(node as ComponentNode)"
               :selected-id="selectedNodeId"
               :is-edit-mode="true"
               :device="currentDevice"
