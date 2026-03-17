@@ -102,11 +102,6 @@ function handleSelectAttribute(attrName: string, attrValue: string) {
 
 // 按钮尺寸类
 const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
-
-console.log(groupedAttributes.value, "groupedAttributes");
-console.log(productInfo.value, "productInfo");
-console.log(selectedSpec.value, "selectedSpec");
-console.log(shouldShow.value, "shouldShow");
 </script>
 
 <template>

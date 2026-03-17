@@ -23,8 +23,6 @@ const layoutSchema = computed(() => {
 });
 const hasTheme = computed(() => !!pageSchema.value);
 
-console.log(JSON.stringify(pageSchema.value, null, 2), "pageSchema");
-
 // 设置浏览器标签页标题
 useHead({
   title: computed(() => productInfo.value?.title || "产品详情"),
