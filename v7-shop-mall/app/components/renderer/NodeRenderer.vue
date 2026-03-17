@@ -52,9 +52,10 @@ const blockMeta = computed(() => {
   return getBlockMeta(props.node.type);
 });
 
-// 是否为容器组件
+// 是否为容器组件（优先从组件静态属性读取，回退到元数据）
 const isContainer = computed(() => {
-  return blockMeta.value?.isContainer ?? false;
+  const component = blockComponent.value as any;
+  return component?.isContainer ?? blockMeta.value?.isContainer ?? false;
 });
 
 // 是否为页面插槽组件
@@ -102,6 +103,7 @@ const resolvedStyle = computed(() => {
   // 规范化样式（为纯数字值添加 px 单位，处理 CSS 变量等）
   return normalizeStyle(finalStyle);
 });
+
 </script>
 
 <template>

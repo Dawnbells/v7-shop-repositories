@@ -25,12 +25,12 @@ const { buildImageUrl } = useImageUrl();
 const shouldShow = computed(
   () =>
     productInfo.value?.isMultiSpecs &&
-    productInfo.value?.specifications?.length > 0
+    productInfo.value?.specifications?.length > 0,
 );
 
 // 规格列表
 const specifications = computed(
-  () => (productInfo.value?.specifications || []) as ProductSpecification[]
+  () => (productInfo.value?.specifications || []) as ProductSpecification[],
 );
 
 // 按属性名分组规格
@@ -58,10 +58,7 @@ const groupedAttributes = computed(() => {
 });
 
 // 获取属性对应的图片
-function getAttributeImage(
-  attrName: string,
-  attrValue: string
-): string | null {
+function getAttributeImage(attrName: string, attrValue: string): string | null {
   const attrKey = `${attrName}:${attrValue}`;
   const specs = groupedAttributes.value.attrToSpecs.get(attrKey);
   if (!specs?.length) return null;
@@ -69,7 +66,7 @@ function getAttributeImage(
   // 优先使用属性图片
   for (const spec of specs) {
     const attr = spec.attributes.find(
-      (a) => a.name === attrName && a.value === attrValue
+      (a) => a.name === attrName && a.value === attrValue,
     );
     if (attr?.imagePath) {
       return buildImageUrl(attr.imagePath);
@@ -89,7 +86,7 @@ function getAttributeImage(
 function isAttributeSelected(attrName: string, attrValue: string): boolean {
   if (!selectedSpec.value) return false;
   return selectedSpec.value.attributes.some(
-    (a) => a.name === attrName && a.value === attrValue
+    (a) => a.name === attrName && a.value === attrValue,
   );
 }
 
@@ -97,13 +94,19 @@ function isAttributeSelected(attrName: string, attrValue: string): boolean {
 function handleSelectAttribute(attrName: string, attrValue: string) {
   const attrKey = `${attrName}:${attrValue}`;
   const specs = groupedAttributes.value.attrToSpecs.get(attrKey);
-  if (specs?.length) {
-    selectSpec(specs[0]);
+  const firstSpec = specs?.[0];
+  if (firstSpec) {
+    selectSpec(firstSpec);
   }
 }
 
 // 按钮尺寸类
 const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
+
+console.log(groupedAttributes.value, "groupedAttributes");
+console.log(productInfo.value, "productInfo");
+console.log(selectedSpec.value, "selectedSpec");
+console.log(shouldShow.value, "shouldShow");
 </script>
 
 <template>
@@ -141,7 +144,10 @@ const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
     <div v-if="selectedSpec" class="spec-price-info">
       <span class="spec-price">{{ formatPrice(selectedSpec.sellPrice) }}</span>
       <span
-        v-if="selectedSpec.originPrice && selectedSpec.originPrice > selectedSpec.sellPrice"
+        v-if="
+          selectedSpec.originPrice &&
+          selectedSpec.originPrice > selectedSpec.sellPrice
+        "
         class="spec-origin-price"
       >
         {{ formatPrice(selectedSpec.originPrice) }}
@@ -201,7 +207,10 @@ const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
 }
 
 .spec-option.selected {
-  border-color: var(--spec-option-selected-border, var(--primary-color, #3b82f6));
+  border-color: var(
+    --spec-option-selected-border,
+    var(--primary-color, #3b82f6)
+  );
   background-color: var(--spec-option-selected-bg, rgba(59, 130, 246, 0.05));
   color: var(--spec-option-selected-color, var(--primary-color, #3b82f6));
 }

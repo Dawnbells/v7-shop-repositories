@@ -5,6 +5,10 @@
  * 数据从 useProductPage 中获取
  */
 
+defineOptions({
+  isContainer: true,
+});
+
 import Decimal from "decimal.js";
 
 interface Props {
@@ -68,7 +72,8 @@ const originPrice = computed(() => {
 
 const hasOriginPrice = computed(() => {
   if (!props.showOriginPrice) return false;
-  if (originPrice.value === null || originPrice.value === undefined) return false;
+  if (originPrice.value === null || originPrice.value === undefined)
+    return false;
   const origin = new Decimal(originPrice.value);
   const sell = new Decimal(sellPrice.value);
   return origin.greaterThan(sell);

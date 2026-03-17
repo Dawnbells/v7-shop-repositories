@@ -20,7 +20,7 @@ const props = withDefaults(defineProps<Props>(), {
   loading: 'lazy',
 })
 
-const { currentUrl, handleError } = useImageWithFallback(() => props.src)
+const { currentUrl, handleError } = useImageWithFallback(computed(() => props.src))
 
 const imageStyle = computed(() => ({
   objectFit: props.objectFit,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 产品详情页
- * 
+ *
  * SSR 完整渲染：
  * - 主题数据由中间件加载，通过 usePageTheme 获取
  * - 产品数据通过 useProductPage 获取（从 pageContext）
@@ -10,44 +10,49 @@
  */
 
 // 获取主题相关数据
-const { cssVariables, getPageSchema, getLayoutSchema } = usePageTheme()
+const { cssVariables, getPageSchema, getLayoutSchema } = usePageTheme();
 
 // 获取产品数据
-const { productInfo, formatPrice } = useProductPage()
+const { productInfo, formatPrice } = useProductPage();
 
 // 页面配置
-const pageSchema = computed(() => getPageSchema('product-detail'))
+const pageSchema = computed(() => getPageSchema("product-detail"));
 const layoutSchema = computed(() => {
-  const layoutId = pageSchema.value?.layoutId
-  return layoutId ? getLayoutSchema(layoutId) : undefined
-})
-const hasTheme = computed(() => !!pageSchema.value)
+  const layoutId = pageSchema.value?.layoutId;
+  return layoutId ? getLayoutSchema(layoutId) : undefined;
+});
+const hasTheme = computed(() => !!pageSchema.value);
+
+console.log(JSON.stringify(pageSchema.value, null, 2), "pageSchema");
 
 // 设置浏览器标签页标题
 useHead({
-  title: computed(() => productInfo.value?.title || '产品详情'),
-})
+  title: computed(() => productInfo.value?.title || "产品详情"),
+});
 
 // 提供编辑器状态（非编辑器模式）
-provide('isInEditor', ref(false))
+provide("isInEditor", ref(false));
 
 // 提供页面数据供 NodeRenderer 绑定解析使用
-provide('pageData', computed(() => ({
-  product: productInfo.value,
-})))
+provide(
+  "pageData",
+  computed(() => ({
+    product: productInfo.value,
+  })),
+);
 
 // 当前选中的图片索引
-const currentImageIndex = ref(0)
+const currentImageIndex = ref(0);
 
 // 当前选中的图片
 const currentImage = computed(() => {
-  const images = productInfo.value?.images || []
-  return images[currentImageIndex.value]?.relativePath || ''
-})
+  const images = productInfo.value?.images || [];
+  return images[currentImageIndex.value]?.relativePath || "";
+});
 
 // 切换图片
 function selectImage(index: number) {
-  currentImageIndex.value = index
+  currentImageIndex.value = index;
 }
 </script>
 
@@ -67,10 +72,14 @@ function selectImage(index: number) {
         <div class="product-gallery">
           <!-- 主图 -->
           <div class="main-image">
-            <img v-if="currentImage" :src="currentImage" :alt="productInfo.title" />
+            <img
+              v-if="currentImage"
+              :src="currentImage"
+              :alt="productInfo.title"
+            />
             <div v-else class="no-image">暂无图片</div>
           </div>
-          
+
           <!-- 缩略图列表 -->
           <div v-if="productInfo.images?.length > 1" class="thumbnail-list">
             <div
@@ -87,9 +96,11 @@ function selectImage(index: number) {
 
         <div class="product-info">
           <h1 class="product-title">{{ productInfo.title }}</h1>
-          
+
           <div class="product-price">
-            <span class="sell-price">{{ formatPrice(productInfo.sellPrice) }}</span>
+            <span class="sell-price">{{
+              formatPrice(productInfo.sellPrice)
+            }}</span>
             <span v-if="productInfo.originPrice" class="origin-price">
               {{ formatPrice(productInfo.originPrice) }}
             </span>
@@ -105,7 +116,12 @@ function selectImage(index: number) {
           </div>
 
           <!-- 规格选择（多规格产品） -->
-          <div v-if="productInfo.isMultiSpecs && productInfo.specifications?.length" class="product-specs">
+          <div
+            v-if="
+              productInfo.isMultiSpecs && productInfo.specifications?.length
+            "
+            class="product-specs"
+          >
             <h3>规格选择</h3>
             <div class="spec-list">
               <div
@@ -116,10 +132,14 @@ function selectImage(index: number) {
                 <span class="spec-attrs">
                   <template v-for="(attr, i) in spec.attributes" :key="i">
                     {{ attr.name }}: {{ attr.value }}
-                    <template v-if="i < spec.attributes.length - 1">, </template>
+                    <template v-if="i < spec.attributes.length - 1"
+                      >,
+                    </template>
                   </template>
                 </span>
-                <span class="spec-price">{{ formatPrice(spec.sellPrice) }}</span>
+                <span class="spec-price">{{
+                  formatPrice(spec.sellPrice)
+                }}</span>
               </div>
             </div>
           </div>
@@ -141,7 +161,7 @@ function selectImage(index: number) {
   color: var(--text-color, #1e293b);
   font-family: var(
     --font-family,
-    'Inter',
+    "Inter",
     -apple-system,
     BlinkMacSystemFont,
     sans-serif
