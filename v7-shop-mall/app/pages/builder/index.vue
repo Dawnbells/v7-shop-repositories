@@ -127,22 +127,6 @@ definePageMeta({
   </div>
 </template>
 
-<style>
-html,
-body {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  width: 100%;
-  height: 100%;
-}
-
-#__nuxt {
-  width: 100%;
-  height: 100%;
-}
-</style>
-
 <style scoped>
 .builder-page {
   position: fixed;
@@ -151,6 +135,20 @@ body {
   height: 100%;
   overflow: hidden;
   background-color: #1e293b;
+}
+
+:global(html:has(.builder-page)),
+:global(body:has(.builder-page)) {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+:global(#__nuxt:has(.builder-page)) {
+  width: 100%;
+  height: 100%;
 }
 
 .auth-container {
