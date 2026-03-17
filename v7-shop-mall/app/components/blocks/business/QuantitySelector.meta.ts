@@ -10,18 +10,11 @@ export const meta: ComponentMeta = {
   name: "数量选择",
   icon: "i-carbon-add-alt",
   category: "business",
-  description: "购买数量选择组件，需同时启用全局配置和组件配置才显示",
+  description: "购买数量选择组件，由全局配置控制是否显示",
 
   allowedPages: ["product-detail"],
 
   propsSchema: [
-    {
-      key: "showQuantity",
-      label: "显示数量选择",
-      type: "switch",
-      defaultValue: true,
-      description: "是否显示数量选择器（需同时启用全局配置中的数量选择器）",
-    },
     {
       key: "showLabel",
       label: "显示标签",
@@ -71,7 +64,6 @@ export const meta: ComponentMeta = {
   ],
 
   defaultProps: {
-    showQuantity: true,
     showLabel: true,
     label: "数量",
     min: 1,

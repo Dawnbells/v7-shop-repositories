@@ -175,6 +175,7 @@ export interface GlobalConfig {
   seoKeywords?: string
   enableQuantitySelector?: boolean
   enableCart?: boolean
+  cartMode?: 'mall' | 'single'
   [key: string]: any
 }
 

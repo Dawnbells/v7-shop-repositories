@@ -1,11 +1,10 @@
 <script setup lang="ts">
 /**
  * QuantitySelector Block - 购买数量选择组件
- * 支持增减按钮和直接输入，需同时启用全局配置和组件配置才显示
+ * 支持增减按钮和直接输入，由全局配置控制是否显示
  */
 
 interface Props {
-  showQuantity?: boolean;
   min?: number;
   max?: number;
   buttonSize?: "small" | "medium" | "large";
@@ -14,7 +13,6 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  showQuantity: true,
   min: 1,
   max: 999,
   buttonSize: "medium",
@@ -31,10 +29,9 @@ const {
   selectedSpec,
 } = useProductPage();
 
-// 是否显示组件（需同时满足全局配置和组件配置）
+// 是否显示组件（由全局配置控制）
 const shouldShow = computed(() => {
-  const globalEnabled = globalConfig.value?.enableQuantitySelector ?? true;
-  return globalEnabled && props.showQuantity;
+  return globalConfig.value?.enableQuantitySelector ?? true;
 });
 
 // 当前库存限制

@@ -316,6 +316,19 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     group: "globalConfig.features",
     description: "启用购物车和加入购物车按钮",
   },
+  {
+    key: "globalConfig.cartMode",
+    label: "购物车模式",
+    type: "select",
+    defaultValue: "single",
+    options: [
+      { label: "商城模式", value: "mall" },
+      { label: "单页模式", value: "single" },
+    ],
+    group: "globalConfig.features",
+    description: "商城模式：所有商品共享购物车；单页模式：每个商品独立购物车",
+    showIf: "globalConfig.enableCart === true",
+  },
 
   // ============ 全局皮肤 (globalStyle) ============
   // 颜色
