@@ -23,6 +23,13 @@ export const meta: ComponentMeta = {
       description: "是否显示规格图片",
     },
     {
+      key: "showPriceInfo",
+      label: "显示底部价格",
+      type: "switch",
+      defaultValue: true,
+      description: "是否在规格选择下方显示选中规格的价格和库存信息",
+    },
+    {
       key: "imageSize",
       label: "图片尺寸",
       type: "text",
@@ -49,6 +56,7 @@ export const meta: ComponentMeta = {
     showImage: true,
     imageSize: "40px",
     buttonSize: "medium",
+    showPriceInfo: true,
   },
 
   styleSchema: [
