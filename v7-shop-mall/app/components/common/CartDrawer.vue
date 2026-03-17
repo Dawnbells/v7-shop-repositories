@@ -27,6 +27,12 @@ const {
   loadFromStorage,
 } = useCart();
 const { formatPrice } = useProductPage();
+const { globalConfig } = usePageTheme();
+
+// 是否启用数量选择器
+const enableQuantitySelector = computed(
+  () => globalConfig.value?.enableQuantitySelector ?? true
+);
 
 // 关闭抽屉
 function handleClose() {
@@ -136,8 +142,8 @@ function formatSpecAttributes(
                   </div>
                 </div>
 
-                <!-- 数量控制 -->
-                <div class="cart-item-quantity">
+                <!-- 数量控制 - 仅在启用数量选择器时显示 -->
+                <div v-if="enableQuantitySelector" class="cart-item-quantity">
                   <button
                     type="button"
                     class="qty-btn"
@@ -155,6 +161,8 @@ function formatSpecAttributes(
                     +
                   </button>
                 </div>
+                <!-- 不启用数量选择器时只显示数量 -->
+                <span v-else class="qty-value-only">x{{ item.quantity }}</span>
 
                 <!-- 删除按钮 -->
                 <button
@@ -374,6 +382,13 @@ function formatSpecAttributes(
   font-size: 14px;
   font-weight: 500;
   color: var(--text-color, #1f2937);
+}
+
+.qty-value-only {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-color-secondary, #6b7280);
+  flex-shrink: 0;
 }
 
 .cart-item-remove {
