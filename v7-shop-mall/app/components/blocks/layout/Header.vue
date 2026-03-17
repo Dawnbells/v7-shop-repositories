@@ -28,11 +28,28 @@ const { globalConfig } = usePageTheme()
 const { currentUrl: logoUrl, handleError: handleLogoError } = useImageWithFallback(
   computed(() => globalConfig.value?.logo)
 )
+const { cartCount, loadFromStorage } = useCart()
 
 const siteName = computed(() => globalConfig.value?.siteName || '')
 const enableCart = computed(() => globalConfig.value?.enableCart ?? true)
 
 const showCartIcon = computed(() => props.showCart && enableCart.value)
+
+// 购物车抽屉状态
+const cartDrawerVisible = ref(false)
+
+// 打开购物车抽屉
+function openCartDrawer() {
+  loadFromStorage()
+  cartDrawerVisible.value = true
+}
+
+// 购物车数量角标显示
+const cartBadgeCount = computed(() => {
+  const count = cartCount.value
+  if (count > 99) return '99+'
+  return count > 0 ? count : null
+})
 </script>
 
 <template>
@@ -57,10 +74,14 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
 
     <!-- 右侧区域 -->
     <div class="header-right">
-      <a v-if="showCartIcon" href="/cart" class="header-cart">
+      <button v-if="showCartIcon" type="button" class="header-cart" @click="openCartDrawer">
         <i class="i-carbon-shopping-cart" />
-      </a>
+        <span v-if="cartBadgeCount" class="cart-badge">{{ cartBadgeCount }}</span>
+      </button>
     </div>
+
+    <!-- 购物车抽屉 -->
+    <CommonCartDrawer v-model:visible="cartDrawerVisible" />
   </header>
 </template>
 
@@ -122,6 +143,7 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
 }
 
 .header-cart {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -131,6 +153,9 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
   text-decoration: none;
   border-radius: 50%;
   transition: background-color 0.2s;
+  border: none;
+  background: none;
+  cursor: pointer;
 }
 
 .header-cart:hover {
@@ -139,6 +164,23 @@ const showCartIcon = computed(() => props.showCart && enableCart.value)
 
 .header-cart i {
   font-size: var(--header-cart-size, 24px);
+}
+
+.cart-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  color: #ffffff;
+  background-color: #ef4444;
+  border-radius: 9px;
+  box-sizing: border-box;
 }
 
 /* 移动端响应式 - 使用 Container Query 基于容器宽度响应 */
