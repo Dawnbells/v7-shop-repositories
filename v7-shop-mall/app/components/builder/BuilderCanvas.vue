@@ -4,206 +4,204 @@
  * 用于预览和编辑页面，支持拖放添加组件
  */
 
-import { useCanvasState } from '~/composables/useCanvasState'
-import { useBlockRegistry } from '~/composables/useBlockRegistry'
+import { useCanvasState } from "~/composables/useCanvasState";
+import { useBlockRegistry } from "~/composables/useBlockRegistry";
 
-type DeviceType = 'desktop' | 'tablet' | 'mobile' | 'custom'
+type DeviceType = "desktop" | "tablet" | "mobile" | "custom";
 
-const currentDevice = ref<DeviceType>('desktop')
-const zoom = ref(100)
-const customWidth = ref(800)
-const isResizing = ref(false)
-const resizeStartX = ref(0)
-const resizeStartWidth = ref(0)
-const canvasViewportRef = ref<HTMLElement | null>(null)
+const currentDevice = ref<DeviceType>("desktop");
+const zoom = ref(100);
+const customWidth = ref(800);
+const isResizing = ref(false);
+const resizeStartX = ref(0);
+const resizeStartWidth = ref(0);
+const canvasViewportRef = ref<HTMLElement | null>(null);
 
 const deviceConfigs = {
-  desktop: { width: '100%', icon: 'i-carbon-laptop', label: '桌面' },
-  tablet: { width: '768px', icon: 'i-carbon-tablet', label: '平板' },
-  mobile: { width: '375px', icon: 'i-carbon-mobile', label: '手机' },
-  custom: { width: 'custom', icon: 'i-carbon-fit-to-width', label: '自定义' }
-}
+  desktop: { width: "100%", icon: "i-carbon-laptop", label: "桌面" },
+  tablet: { width: "768px", icon: "i-carbon-tablet", label: "平板" },
+  mobile: { width: "375px", icon: "i-carbon-mobile", label: "手机" },
+  custom: { width: "custom", icon: "i-carbon-fit-to-width", label: "自定义" },
+};
 
 // 画布状态
-const {
-  rootNodes,
-  isEmpty,
-  selectedNodeId,
-  createNode,
-  addNode,
-  selectNode,
-} = useCanvasState()
+const { rootNodes, isEmpty, selectedNodeId, createNode, addNode, selectNode } =
+  useCanvasState();
 
 // 拖放状态
-const isDragOver = ref(false)
+const isDragOver = ref(false);
 
 function setDevice(device: DeviceType) {
-  currentDevice.value = device
+  currentDevice.value = device;
 }
 
 function zoomIn() {
-  if (zoom.value < 150) zoom.value += 10
+  if (zoom.value < 150) zoom.value += 10;
 }
 
 function zoomOut() {
-  if (zoom.value > 50) zoom.value -= 10
+  if (zoom.value > 50) zoom.value -= 10;
 }
 
 function resetZoom() {
-  zoom.value = 100
+  zoom.value = 100;
 }
 
 const canvasWidth = computed(() => {
-  if (currentDevice.value === 'custom') {
-    return `${customWidth.value}px`
+  if (currentDevice.value === "custom") {
+    return `${customWidth.value}px`;
   }
-  const configWidth = deviceConfigs[currentDevice.value].width
+  const configWidth = deviceConfigs[currentDevice.value].width;
   // container-type: inline-size 需要明确的宽度值，不能用 100%
-  if (configWidth === '100%') {
-    return `${maxCanvasWidth.value}px`
+  if (configWidth === "100%") {
+    return `${maxCanvasWidth.value}px`;
   }
-  return configWidth
-})
+  return configWidth;
+});
 
 // 视口宽度（响应式）
-const viewportWidth = ref(1200)
+const viewportWidth = ref(1200);
 
 // 监听视口大小变化
 onMounted(() => {
   const updateViewportWidth = () => {
     if (canvasViewportRef.value) {
-      viewportWidth.value = canvasViewportRef.value.clientWidth - 80
+      viewportWidth.value = canvasViewportRef.value.clientWidth - 80;
     }
-  }
-  updateViewportWidth()
-  
-  const resizeObserver = new ResizeObserver(updateViewportWidth)
+  };
+  updateViewportWidth();
+
+  const resizeObserver = new ResizeObserver(updateViewportWidth);
   if (canvasViewportRef.value) {
-    resizeObserver.observe(canvasViewportRef.value)
+    resizeObserver.observe(canvasViewportRef.value);
   }
-  
+
   onUnmounted(() => {
-    resizeObserver.disconnect()
-  })
-})
+    resizeObserver.disconnect();
+  });
+});
 
 const maxCanvasWidth = computed(() => {
-  return viewportWidth.value
-})
+  return viewportWidth.value;
+});
 
-function startResize(event: MouseEvent, side: 'left' | 'right') {
-  event.preventDefault()
-  isResizing.value = true
-  resizeStartX.value = event.clientX
-  
-  if (currentDevice.value === 'custom') {
-    resizeStartWidth.value = customWidth.value
+function startResize(event: MouseEvent, side: "left" | "right") {
+  event.preventDefault();
+  isResizing.value = true;
+  resizeStartX.value = event.clientX;
+
+  if (currentDevice.value === "custom") {
+    resizeStartWidth.value = customWidth.value;
   } else {
-    const config = deviceConfigs[currentDevice.value]
-    if (config.width === '100%') {
-      resizeStartWidth.value = maxCanvasWidth.value
+    const config = deviceConfigs[currentDevice.value];
+    if (config.width === "100%") {
+      resizeStartWidth.value = maxCanvasWidth.value;
     } else {
-      resizeStartWidth.value = parseInt(config.width)
+      resizeStartWidth.value = parseInt(config.width);
     }
   }
-  
+
   const onMouseMove = (e: MouseEvent) => {
-    if (!isResizing.value) return
-    
-    const deltaX = side === 'right' 
-      ? e.clientX - resizeStartX.value 
-      : resizeStartX.value - e.clientX
-    
-    const scaledDelta = deltaX * 2 / (zoom.value / 100)
-    let newWidth = resizeStartWidth.value + scaledDelta
-    
-    newWidth = Math.max(320, Math.min(newWidth, maxCanvasWidth.value))
-    customWidth.value = Math.round(newWidth)
-    currentDevice.value = 'custom'
-  }
-  
+    if (!isResizing.value) return;
+
+    const deltaX =
+      side === "right"
+        ? e.clientX - resizeStartX.value
+        : resizeStartX.value - e.clientX;
+
+    const scaledDelta = (deltaX * 2) / (zoom.value / 100);
+    let newWidth = resizeStartWidth.value + scaledDelta;
+
+    newWidth = Math.max(320, Math.min(newWidth, maxCanvasWidth.value));
+    customWidth.value = Math.round(newWidth);
+    currentDevice.value = "custom";
+  };
+
   const onMouseUp = () => {
-    isResizing.value = false
-    document.removeEventListener('mousemove', onMouseMove)
-    document.removeEventListener('mouseup', onMouseUp)
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-  }
-  
-  document.addEventListener('mousemove', onMouseMove)
-  document.addEventListener('mouseup', onMouseUp)
-  document.body.style.cursor = 'ew-resize'
-  document.body.style.userSelect = 'none'
+    isResizing.value = false;
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  };
+
+  document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mouseup", onMouseUp);
+  document.body.style.cursor = "ew-resize";
+  document.body.style.userSelect = "none";
 }
 
 // 拖拽进入画布
 function onDragOver(event: DragEvent) {
-  event.preventDefault()
+  event.preventDefault();
   if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'copy'
+    event.dataTransfer.dropEffect = "copy";
   }
-  isDragOver.value = true
+  isDragOver.value = true;
 }
 
 // 拖拽离开画布
 function onDragLeave(event: DragEvent) {
   // 确保是离开画布区域而不是进入子元素
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  const x = event.clientX
-  const y = event.clientY
-  
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const x = event.clientX;
+  const y = event.clientY;
+
   if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-    isDragOver.value = false
+    isDragOver.value = false;
   }
 }
 
 // 放置组件
 function onDrop(event: DragEvent) {
-  event.preventDefault()
-  isDragOver.value = false
+  event.preventDefault();
+  isDragOver.value = false;
 
-  if (!event.dataTransfer) return
+  if (!event.dataTransfer) return;
 
   try {
-    const data = JSON.parse(event.dataTransfer.getData('application/json'))
-    
+    const data = JSON.parse(event.dataTransfer.getData("application/json"));
+
     if (data && data.type) {
-      const { getBlockMeta } = useBlockRegistry()
-      const meta = getBlockMeta(data.type)
-      
+      const { getBlockMeta } = useBlockRegistry();
+      const meta = getBlockMeta(data.type);
+
       // 检查位置约束
-      if (meta?.allowedPosition === 'first' && rootNodes.value.length > 0) {
-        console.warn('[BuilderCanvas] 该组件只能添加到第一个位置:', data.type)
-        return
+      if (meta?.allowedPosition === "first" && rootNodes.value.length > 0) {
+        console.warn("[BuilderCanvas] 该组件只能添加到第一个位置:", data.type);
+        return;
       }
-      
+
       // 检查单例约束
       if (meta?.singleton) {
-        const exists = rootNodes.value.some(n => n.type === data.type)
+        const exists = rootNodes.value.some((n) => n.type === data.type);
         if (exists) {
-          console.warn('[BuilderCanvas] 该组件在页面中只能存在一个:', data.type)
-          return
+          console.warn(
+            "[BuilderCanvas] 该组件在页面中只能存在一个:",
+            data.type,
+          );
+          return;
         }
       }
-      
+
       // 创建新节点
       const newNode = createNode(
         data.type,
         data.defaultProps || {},
         data.defaultStyle || {},
-        data.name
-      )
-      
+        data.name,
+      );
+
       // 添加到画布
-      addNode(newNode)
-      
+      addNode(newNode);
+
       // 选中新添加的节点
-      selectNode(newNode.id)
-      
-      console.log('[BuilderCanvas] 添加组件:', data.type, newNode.id)
+      selectNode(newNode.id);
+
+      console.log("[BuilderCanvas] 添加组件:", data.type, newNode.id);
     }
   } catch (error) {
-    console.error('[BuilderCanvas] 解析拖放数据失败:', error)
+    console.error("[BuilderCanvas] 解析拖放数据失败:", error);
   }
 }
 
@@ -211,7 +209,7 @@ function onDrop(event: DragEvent) {
 function onCanvasClick(event: MouseEvent) {
   // 如果点击的是画布背景（不是组件节点），取消选中
   if (event.target === event.currentTarget) {
-    selectNode(null)
+    selectNode(null);
   }
 }
 </script>
@@ -221,17 +219,20 @@ function onCanvasClick(event: MouseEvent) {
     <!-- 画布主体 -->
     <div ref="canvasViewportRef" class="canvas-viewport">
       <!-- 画布容器（包含拖拽手柄） -->
-      <div class="canvas-wrapper" :style="{ transform: `scale(${zoom / 100})` }">
+      <div
+        class="canvas-wrapper"
+        :style="{ transform: `scale(${zoom / 100})` }"
+      >
         <!-- 左侧拖拽手柄 -->
-        <div 
+        <div
           class="resize-handle resize-handle-left"
           :class="{ active: isResizing }"
           @mousedown="startResize($event, 'left')"
         >
           <div class="resize-handle-bar"></div>
         </div>
-        
-        <div 
+
+        <div
           class="canvas-frame"
           :class="{ 'drag-over': isDragOver }"
           :style="{ width: canvasWidth }"
@@ -240,53 +241,56 @@ function onCanvasClick(event: MouseEvent) {
           @drop="onDrop"
           @click="onCanvasClick"
         >
-        <!-- 空状态提示 -->
-        <div v-if="isEmpty" class="empty-state">
-          <div class="empty-icon">
-            <span class="i-carbon-add-large"></span>
+          <!-- 空状态提示 -->
+          <div v-if="isEmpty" class="empty-state">
+            <div class="empty-icon">
+              <span class="i-carbon-add-large"></span>
+            </div>
+            <h3 class="empty-title">开始构建页面</h3>
+            <p class="empty-desc">从左侧拖拽组件到此处，或点击组件添加</p>
           </div>
-          <h3 class="empty-title">开始构建页面</h3>
-          <p class="empty-desc">从左侧拖拽组件到此处，或点击组件添加</p>
+
+          <!-- 组件节点渲染 -->
+          <div v-else class="canvas-content">
+            <BuilderCanvasNode
+              v-for="node in rootNodes"
+              :key="node.id"
+              :node="node"
+              :selected-id="selectedNodeId"
+              :is-edit-mode="true"
+              :device="currentDevice"
+              :canvas-width="customWidth"
+              @select="selectNode"
+            />
+          </div>
+
+          <!-- 拖放提示遮罩 -->
+          <div v-if="isDragOver" class="drop-overlay">
+            <div class="drop-hint">
+              <span class="i-carbon-add-large"></span>
+              <span>放置组件</span>
+            </div>
+          </div>
         </div>
 
-        <!-- 组件节点渲染 -->
-        <div v-else class="canvas-content">
-          <BuilderCanvasNode
-            v-for="node in rootNodes"
-            :key="node.id"
-            :node="node"
-            :selected-id="selectedNodeId"
-            :is-edit-mode="true"
-            :device="currentDevice"
-            :canvas-width="customWidth"
-            @select="selectNode"
-          />
-        </div>
-
-        <!-- 拖放提示遮罩 -->
-        <div v-if="isDragOver" class="drop-overlay">
-          <div class="drop-hint">
-            <span class="i-carbon-add-large"></span>
-            <span>放置组件</span>
-          </div>
+        <!-- 右侧拖拽手柄 -->
+        <div
+          class="resize-handle resize-handle-right"
+          :class="{ active: isResizing }"
+          @mousedown="startResize($event, 'right')"
+        >
+          <div class="resize-handle-bar"></div>
         </div>
       </div>
-      
-      <!-- 右侧拖拽手柄 -->
-      <div 
-        class="resize-handle resize-handle-right"
-        :class="{ active: isResizing }"
-        @mousedown="startResize($event, 'right')"
+
+      <!-- 宽度指示器 -->
+      <div
+        v-if="currentDevice === 'custom' || isResizing"
+        class="width-indicator"
       >
-        <div class="resize-handle-bar"></div>
+        {{ customWidth }}px
       </div>
     </div>
-    
-    <!-- 宽度指示器 -->
-    <div v-if="currentDevice === 'custom' || isResizing" class="width-indicator">
-      {{ customWidth }}px
-    </div>
-  </div>
 
     <!-- 底部工具栏 -->
     <div class="canvas-toolbar">
@@ -346,8 +350,11 @@ function onCanvasClick(event: MouseEvent) {
   justify-content: center;
   padding: 24px;
   overflow: auto;
-  background-image: 
-    radial-gradient(circle at 1px 1px, rgba(71, 85, 105, 0.3) 1px, transparent 0);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(71, 85, 105, 0.3) 1px,
+    transparent 0
+  );
   background-size: 20px 20px;
 }
 
@@ -363,11 +370,11 @@ function onCanvasClick(event: MouseEvent) {
   min-height: 600px;
   background: #fff;
   border-radius: 8px;
-  box-shadow: 
+  box-shadow:
     0 0 0 1px rgba(71, 85, 105, 0.2),
     0 20px 40px rgba(0, 0, 0, 0.3);
   transition: width 0.15s ease;
-  overflow: hidden;
+  overflow: visible;
   container-type: inline-size;
   container-name: canvas;
 }
@@ -616,8 +623,29 @@ function onCanvasClick(event: MouseEvent) {
 }
 
 .canvas-content {
+  position: relative;
   min-height: 600px;
-  padding: 0;
+  padding: 28px 0 0 0;
+  overflow: hidden;
+}
+
+.canvas-content::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(148, 163, 184, 0.15) 4px,
+    rgba(148, 163, 184, 0.15) 8px
+  );
+  border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+  z-index: 10;
+  pointer-events: none;
 }
 
 .drop-overlay {
