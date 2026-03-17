@@ -69,8 +69,9 @@ public interface ISubDomainService extends IBaseService<SubDomain> {
      * 绑定SPU到二级域名
      * @param subDomainId 子域名ID
      * @param spuId SPU ID
+     * @return 绑定的SPU实体（包含productList用于判断是否支持当前国家）
      */
-    void bindSpu(Long subDomainId, Long spuId);
+    Spu bindSpu(Long subDomainId, Long spuId);
 
     /**
      * 解绑SPU与二级域名

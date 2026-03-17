@@ -270,7 +270,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
 
     @Override
     @Transactional
-    public void bindSpu(Long subDomainId, Long spuId) {
+    public Spu bindSpu(Long subDomainId, Long spuId) {
         // 检查是否已经绑定（通过 LAND 类型判断）
         boolean alreadyBound = subDomainSpuLandingPageRepository
                 .existsBySubDomainIdAndSpuIdAndLandingPageType(subDomainId, spuId, LandingPageType.LAND);
@@ -290,6 +290,8 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
                 subDomainSpuLandingPageRepository.save(binding);
             }
         }
+        // 返回绑定的SPU实体（包含productList用于判断是否支持当前国家）
+        return spuService.getById(spuId);
     }
 
     @Override

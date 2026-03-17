@@ -136,8 +136,17 @@ public class SubDomainController extends BaseController<SubDomain, ISubDomainSer
 
     @PostMapping("/bindSpu/{subDomainId}/{spuId}")
     @Operation(summary = "绑定SPU到二级域名")
-    public void bindSpu(@PathVariable("subDomainId") Long subDomainId, @PathVariable("spuId") Long spuId) {
-        service.bindSpu(subDomainId, spuId);
+    public SubDomainSpuResponse bindSpu(@PathVariable("subDomainId") Long subDomainId, @PathVariable("spuId") Long spuId) {
+        cn.v7soft.dao.entities.primary.Spu spu = service.bindSpu(subDomainId, spuId);
+        SubDomain subDomain = service.getById(subDomainId);
+        Long countryId = subDomain.getCountry() != null ? subDomain.getCountry().getId() : null;
+        
+        SubDomainSpuResponse response = SubDomainSpuResponse.convertEntity(spu);
+        boolean supportCountry = countryId != null && spu.getProductList() != null
+                && spu.getProductList().stream()
+                .anyMatch(p -> p.getCountry() != null && countryId.equals(p.getCountry().getId()));
+        response.setSupportCurrentCountry(supportCountry);
+        return response;
     }
 
     @PostMapping("/unbindSpu/{subDomainId}/{spuId}")

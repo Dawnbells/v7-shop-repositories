@@ -909,16 +909,15 @@ const handleBindSpu = async () => {
 
   bindLoading.value = true
   try {
-    const { msg }: any = await bindSpu(subDomainId.value, selectedSpuId.value)
+    const { msg, data }: any = await bindSpu(subDomainId.value, selectedSpuId.value)
     $baseMessage(msg || '绑定成功', 'success', 'hey')
 
-    // 将新绑定的SPU添加到列表首项
-    const boundSpu = spuOptions.value.find((spu) => String(spu.id) === String(selectedSpuId.value))
-    if (boundSpu) {
-      boundSpuList.value.unshift(boundSpu)
-      activeSpuTab.value = String(boundSpu.id)
+    // 将后端返回的SPU数据直接添加到列表首项
+    if (data) {
+      boundSpuList.value.unshift(data)
+      activeSpuTab.value = String(data.id)
     } else {
-      // 如果找不到，重新加载列表
+      // 如果后端未返回数据，重新加载列表
       await loadBoundSpus(boundFilterKeyword.value || undefined)
     }
 
