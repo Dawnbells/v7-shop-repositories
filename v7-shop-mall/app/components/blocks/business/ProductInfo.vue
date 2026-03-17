@@ -33,7 +33,7 @@ const props = withDefaults(defineProps<Props>(), {
   showThumbnails: true,
 });
 
-const { productInfo, selectedSpec, formatPrice } = useProductPage();
+const { productInfo, selectedSpec, formatPrice, previewImage } = useProductPage();
 
 const images = computed(() => productInfo.value?.images || []);
 const title = computed(() => productInfo.value?.title || "");
@@ -85,6 +85,7 @@ const hasOriginPrice = computed(() => {
     <!-- 图片区域 -->
     <CommonProductGallery
       :images="images"
+      :preview-image="previewImage"
       :indicator-style="indicatorStyle"
       :indicator-position="indicatorPosition"
       :autoplay="autoplay"

@@ -38,9 +38,17 @@ export function useProductPage() {
     () => null
   );
 
+  // 临时预览图片（规格选中时显示，不影响原始主图）
+  const previewImage = useState<string | null>("specPreviewImage", () => null);
+
   // 选择规格
   function selectSpec(spec: ProductSpecification | null) {
     selectedSpec.value = spec;
+  }
+
+  // 设置临时预览图片
+  function setPreviewImage(imagePath: string | null) {
+    previewImage.value = imagePath;
   }
 
   // 初始化：多规格商品默认选中第一个规格
@@ -89,5 +97,7 @@ export function useProductPage() {
     selectedSpec,
     selectSpec,
     formatPrice,
+    previewImage,
+    setPreviewImage,
   };
 }

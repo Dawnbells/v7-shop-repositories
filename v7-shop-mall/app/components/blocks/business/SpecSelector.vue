@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<Props>(), {
   showPriceInfo: true,
 });
 
-const { productInfo, selectedSpec, selectSpec, formatPrice } = useProductPage();
+const { productInfo, selectedSpec, selectSpec, formatPrice, setPreviewImage } = useProductPage();
 const { buildImageUrl } = useImageUrl();
 
 // 当前已选属性 Map<attrName, attrValue>
@@ -135,6 +135,18 @@ function getAttributeImage(attrName: string, attrValue: string): string | null {
   return null;
 }
 
+// 获取规格的预览图片（用于轮播区临时显示）
+function getSpecPreviewImage(spec: ProductSpecification): string | null {
+  // 优先使用属性图片
+  for (const attr of spec.attributes) {
+    if (attr.imagePath) {
+      return attr.imagePath;
+    }
+  }
+  // 其次使用规格图片
+  return spec.specImagePath || null;
+}
+
 // 检查属性值是否被选中
 function isAttributeSelected(attrName: string, attrValue: string): boolean {
   return selectedAttributes.value.get(attrName) === attrValue;
@@ -164,6 +176,9 @@ function handleSelectAttribute(attrName: string, attrValue: string) {
 
   if (matchingSpec) {
     selectSpec(matchingSpec);
+    // 设置临时预览图片（用于轮播区显示）
+    const previewImg = getSpecPreviewImage(matchingSpec);
+    setPreviewImage(previewImg);
   }
 }
 

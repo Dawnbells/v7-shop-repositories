@@ -12,6 +12,7 @@ interface ProductImage {
 
 interface Props {
   images?: ProductImage[]
+  previewImage?: string | null
   indicatorStyle?: 'dots' | 'numbers' | 'thumbnails' | 'none'
   indicatorPosition?: 'bottom' | 'outside'
   autoplay?: boolean
@@ -21,6 +22,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   images: () => [],
+  previewImage: null,
   indicatorStyle: 'dots',
   indicatorPosition: 'bottom',
   autoplay: false,
@@ -33,10 +35,23 @@ const carouselRef = ref<HTMLElement | null>(null)
 const thumbnailsRef = ref<HTMLElement | null>(null)
 let autoplayTimer: ReturnType<typeof setInterval> | null = null
 
+// 是否正在显示预览图片
+const isShowingPreview = ref(false)
+
 const hasImages = computed(() => props.images.length > 0)
 const imageCount = computed(() => props.images.length)
 
+// 当预览图片变化时，临时显示预览图片
+watch(() => props.previewImage, (newPreviewImage) => {
+  if (newPreviewImage) {
+    isShowingPreview.value = true
+  }
+})
+
 function goToSlide(index: number) {
+  // 用户手动切换时，退出预览模式
+  isShowingPreview.value = false
+  
   if (index < 0) {
     currentIndex.value = imageCount.value - 1
   } else if (index >= imageCount.value) {
@@ -68,6 +83,9 @@ function scrollToCurrentSlide() {
 }
 
 function handleScroll() {
+  // 用户滑动时，退出预览模式
+  isShowingPreview.value = false
+  
   if (carouselRef.value) {
     const slideWidth = carouselRef.value.offsetWidth
     const scrollLeft = carouselRef.value.scrollLeft
@@ -119,8 +137,22 @@ watch(() => props.images, () => {
 <template>
   <div class="product-gallery">
     <div class="product-carousel-wrapper">
+      <!-- 预览图片（规格选中时临时显示） -->
       <div
-        v-if="hasImages"
+        v-show="isShowingPreview && previewImage"
+        class="preview-slide"
+      >
+        <BlockBasicImage
+          :src="previewImage"
+          alt="规格预览图"
+          object-fit="cover"
+          class="carousel-image"
+        />
+      </div>
+      
+      <!-- 原始轮播图 -->
+      <div
+        v-show="hasImages && !(isShowingPreview && previewImage)"
         ref="carouselRef"
         class="product-carousel"
         @scroll="handleScroll"
@@ -245,6 +277,10 @@ watch(() => props.images, () => {
 .carousel-slide {
   flex: 0 0 100%;
   scroll-snap-align: start;
+  aspect-ratio: 1;
+}
+
+.preview-slide {
   aspect-ratio: 1;
 }
 
