@@ -41,6 +41,9 @@ export function useProductPage() {
   // 临时预览图片（规格选中时显示，不影响原始主图）
   const previewImage = useState<string | null>("specPreviewImage", () => null);
 
+  // 购买数量
+  const quantity = useState<number>("purchaseQuantity", () => 1);
+
   // 选择规格
   function selectSpec(spec: ProductSpecification | null) {
     selectedSpec.value = spec;
@@ -49,6 +52,23 @@ export function useProductPage() {
   // 设置临时预览图片
   function setPreviewImage(imagePath: string | null) {
     previewImage.value = imagePath;
+  }
+
+  // 设置购买数量
+  function setQuantity(val: number) {
+    quantity.value = Math.max(1, val);
+  }
+
+  // 增加购买数量
+  function increaseQuantity() {
+    quantity.value++;
+  }
+
+  // 减少购买数量
+  function decreaseQuantity() {
+    if (quantity.value > 1) {
+      quantity.value--;
+    }
   }
 
   // 初始化：多规格商品默认选中第一个规格
@@ -99,5 +119,9 @@ export function useProductPage() {
     formatPrice,
     previewImage,
     setPreviewImage,
+    quantity,
+    setQuantity,
+    increaseQuantity,
+    decreaseQuantity,
   };
 }
