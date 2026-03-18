@@ -16,6 +16,15 @@ export const meta: ComponentMeta = {
 
   propsSchema: [
     {
+      key: "contentMaxWidth",
+      label: "内容区最大宽度",
+      type: "text",
+      defaultValue: "1400px",
+      placeholder: "1400px",
+      description: "设置页头内容区的最大宽度",
+      group: "layout",
+    },
+    {
       key: "sticky",
       label: "吸顶",
       type: "switch",
@@ -50,6 +59,7 @@ export const meta: ComponentMeta = {
   ],
 
   defaultProps: {
+    contentMaxWidth: "1400px",
     sticky: false,
     layout: "left",
     showSiteName: true,

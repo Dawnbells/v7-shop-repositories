@@ -15,6 +15,7 @@ interface Props {
   layout?: 'left' | 'center'
   showSiteName?: boolean
   showCart?: boolean
+  contentMaxWidth?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -22,6 +23,7 @@ const props = withDefaults(defineProps<Props>(), {
   layout: 'left',
   showSiteName: true,
   showCart: true,
+  contentMaxWidth: '1400px',
 })
 
 const { globalConfig } = usePageTheme()
@@ -35,6 +37,10 @@ const enableCart = computed(() => globalConfig.value?.enableCart ?? true)
 
 const showCartIcon = computed(() => props.showCart && enableCart.value)
 
+const headerStyle = computed(() => ({
+  '--header-content-max-width': props.contentMaxWidth,
+}))
+
 // 购物车数量角标显示
 const cartBadgeCount = computed(() => {
   const count = cartCount.value
@@ -44,31 +50,33 @@ const cartBadgeCount = computed(() => {
 </script>
 
 <template>
-  <header class="block-header" :class="{ 'is-sticky': sticky }">
-    <!-- 左侧区域 -->
-    <div class="header-left">
-      <template v-if="layout === 'left'">
-        <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
-        <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
-      </template>
-      <template v-else>
-        <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
-      </template>
-    </div>
+  <header class="block-header" :class="{ 'is-sticky': sticky }" :style="headerStyle">
+    <div class="header-content">
+      <!-- 左侧区域 -->
+      <div class="header-left">
+        <template v-if="layout === 'left'">
+          <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
+          <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
+        </template>
+        <template v-else>
+          <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
+        </template>
+      </div>
 
-    <!-- 中间区域 -->
-    <div class="header-center">
-      <template v-if="layout === 'center'">
-        <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
-      </template>
-    </div>
+      <!-- 中间区域 -->
+      <div class="header-center">
+        <template v-if="layout === 'center'">
+          <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
+        </template>
+      </div>
 
-    <!-- 右侧区域 -->
-    <div class="header-right">
-      <button v-if="showCartIcon" type="button" class="header-cart" @click="openCartDrawer">
-        <i class="i-carbon-shopping-cart" />
-        <span v-if="cartBadgeCount" class="cart-badge">{{ cartBadgeCount }}</span>
-      </button>
+      <!-- 右侧区域 -->
+      <div class="header-right">
+        <button v-if="showCartIcon" type="button" class="header-cart" @click="openCartDrawer">
+          <i class="i-carbon-shopping-cart" />
+          <span v-if="cartBadgeCount" class="cart-badge">{{ cartBadgeCount }}</span>
+        </button>
+      </div>
     </div>
 
     <!-- 购物车抽屉 -->
@@ -80,7 +88,6 @@ const cartBadgeCount = computed(() => {
 .block-header {
   position: relative;
   display: flex;
-  justify-content: space-between;
   align-items: center;
   width: 100%;
   box-sizing: border-box;
@@ -92,6 +99,16 @@ const cartBadgeCount = computed(() => {
   position: sticky;
   top: 0;
   z-index: 100;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  max-width: var(--header-content-max-width, 1400px);
+  margin: 0 auto;
+  position: relative;
 }
 
 .header-left {
