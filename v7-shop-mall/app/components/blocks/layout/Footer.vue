@@ -54,6 +54,8 @@ const { globalConfig } = usePageTheme();
 const { protocolGroups, hasProtocolGroups, replacePlaceholders } =
   useProtocol();
 
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
 const siteName = computed(() => globalConfig.value?.siteName || "");
 const slogan = computed(
   () => globalConfig.value?.slogan || globalConfig.value?.description || "",
@@ -101,17 +103,42 @@ const hasSocial = computed(
 const socialLinks = computed(() => {
   const links: { icon: string; url: string; name: string; svg?: string }[] = [];
   if (facebook.value)
-    links.push({ icon: "i-carbon-logo-facebook", url: facebook.value, name: "Facebook" });
+    links.push({
+      icon: "i-carbon-logo-facebook",
+      url: facebook.value,
+      name: "Facebook",
+    });
   if (twitter.value)
-    links.push({ icon: "i-carbon-logo-twitter", url: twitter.value, name: "Twitter" });
+    links.push({
+      icon: "i-carbon-logo-twitter",
+      url: twitter.value,
+      name: "Twitter",
+    });
   if (instagram.value)
-    links.push({ icon: "i-carbon-logo-instagram", url: instagram.value, name: "Instagram" });
+    links.push({
+      icon: "i-carbon-logo-instagram",
+      url: instagram.value,
+      name: "Instagram",
+    });
   if (youtube.value)
-    links.push({ icon: "i-carbon-logo-youtube", url: youtube.value, name: "YouTube" });
+    links.push({
+      icon: "i-carbon-logo-youtube",
+      url: youtube.value,
+      name: "YouTube",
+    });
   if (tiktok.value)
-    links.push({ icon: "", url: tiktok.value, name: "TikTok", svg: BRAND_SVG_ICONS.tiktok });
+    links.push({
+      icon: "",
+      url: tiktok.value,
+      name: "TikTok",
+      svg: BRAND_SVG_ICONS.tiktok,
+    });
   if (linkedin.value)
-    links.push({ icon: "i-carbon-logo-linkedin", url: linkedin.value, name: "LinkedIn" });
+    links.push({
+      icon: "i-carbon-logo-linkedin",
+      url: linkedin.value,
+      name: "LinkedIn",
+    });
   return links;
 });
 
@@ -125,20 +152,42 @@ interface ContactInfo {
 const contactInfoList = computed<ContactInfo[]>(() => {
   const list: ContactInfo[] = [];
   if (contactEmail.value)
-    list.push({ icon: "i-carbon-email", value: contactEmail.value, type: "email" });
+    list.push({
+      icon: "i-carbon-email",
+      value: contactEmail.value,
+      type: "email",
+    });
   if (contactPhone.value)
-    list.push({ icon: "i-carbon-phone", value: contactPhone.value, type: "phone" });
+    list.push({
+      icon: "i-carbon-phone",
+      value: contactPhone.value,
+      type: "phone",
+    });
   if (whatsapp.value)
-    list.push({ icon: "", value: whatsapp.value, type: "whatsapp", svg: BRAND_SVG_ICONS.whatsapp });
+    list.push({
+      icon: "",
+      value: whatsapp.value,
+      type: "whatsapp",
+      svg: BRAND_SVG_ICONS.whatsapp,
+    });
   if (address.value)
-    list.push({ icon: "i-carbon-location", value: address.value, type: "address" });
+    list.push({
+      icon: "i-carbon-location",
+      value: address.value,
+      type: "address",
+    });
   if (businessHours.value)
-    list.push({ icon: "i-carbon-time", value: businessHours.value, type: "text" });
+    list.push({
+      icon: "i-carbon-time",
+      value: businessHours.value,
+      type: "text",
+    });
   return list;
 });
 
 function handleContactClick(contact: ContactInfo) {
   if (import.meta.server) return;
+  if (isInEditor.value) return;
   switch (contact.type) {
     case "email":
       window.location.href = `mailto:${contact.value}`;
@@ -153,7 +202,10 @@ function handleContactClick(contact: ContactInfo) {
     }
     case "address": {
       const encoded = encodeURIComponent(contact.value);
-      window.open(`https://www.google.com/maps/search/?api=1&query=${encoded}`, "_blank");
+      window.open(
+        `https://www.google.com/maps/search/?api=1&query=${encoded}`,
+        "_blank",
+      );
       break;
     }
   }
@@ -161,6 +213,7 @@ function handleContactClick(contact: ContactInfo) {
 
 function handleSocialClick(url: string) {
   if (import.meta.server) return;
+  if (isInEditor.value) return;
   if (url && url !== "#") {
     window.open(url, "_blank", "noopener,noreferrer");
   }
@@ -182,6 +235,7 @@ function isGroupExpanded(index: number | string): boolean {
 }
 
 function toggleGroup(index: number | string) {
+  if (isInEditor.value) return;
   if (!isMobile.value && index === "contact") return;
   if (expandedGroups.value.has(index)) expandedGroups.value.delete(index);
   else expandedGroups.value.add(index);
@@ -200,6 +254,7 @@ const shouldShowBackToTop = computed(() => {
 
 function scrollToTop() {
   if (import.meta.server) return;
+  if (isInEditor.value) return;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -208,6 +263,7 @@ const newsletterEmail = ref("");
 const newsletterSubmitted = ref(false);
 
 function handleNewsletterSubmit() {
+  if (isInEditor.value) return;
   if (!newsletterEmail.value) return;
   emit("subscribe", newsletterEmail.value);
   newsletterSubmitted.value = true;
@@ -219,13 +275,39 @@ function handleNewsletterSubmit() {
 
 // --- 主题 CSS 变量 ---
 const themePresets = {
-  dark: { bg: "#1e293b", text: "#94a3b8", link: "#e2e8f0", border: "rgba(255,255,255,0.1)", socialBg: "rgba(255,255,255,0.1)" },
-  light: { bg: "#f8fafc", text: "#475569", link: "#1e293b", border: "rgba(0,0,0,0.08)", socialBg: "rgba(0,0,0,0.05)" },
-  transparent: { bg: "transparent", text: "#94a3b8", link: "#e2e8f0", border: "rgba(255,255,255,0.1)", socialBg: "rgba(255,255,255,0.1)" },
-  gradient: { bg: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%)", text: "#cbd5e1", link: "#f1f5f9", border: "rgba(255,255,255,0.15)", socialBg: "rgba(255,255,255,0.12)" },
+  dark: {
+    bg: "#1e293b",
+    text: "#94a3b8",
+    link: "#e2e8f0",
+    border: "rgba(255,255,255,0.1)",
+    socialBg: "rgba(255,255,255,0.1)",
+  },
+  light: {
+    bg: "#f8fafc",
+    text: "#475569",
+    link: "#1e293b",
+    border: "rgba(0,0,0,0.08)",
+    socialBg: "rgba(0,0,0,0.05)",
+  },
+  transparent: {
+    bg: "transparent",
+    text: "#94a3b8",
+    link: "#e2e8f0",
+    border: "rgba(255,255,255,0.1)",
+    socialBg: "rgba(255,255,255,0.1)",
+  },
+  gradient: {
+    bg: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%)",
+    text: "#cbd5e1",
+    link: "#f1f5f9",
+    border: "rgba(255,255,255,0.15)",
+    socialBg: "rgba(255,255,255,0.12)",
+  },
 } as const;
 
-const currentTheme = computed(() => themePresets[props.theme] || themePresets.dark);
+const currentTheme = computed(
+  () => themePresets[props.theme] || themePresets.dark,
+);
 
 const footerStyle = computed(() => {
   const t = currentTheme.value;
@@ -292,7 +374,10 @@ onMounted(() => {
 <template>
   <footer :class="footerClasses" :style="footerStyle">
     <div v-if="backgroundImage && backgroundOverlay" class="bg-overlay"></div>
-    <div v-if="borderTop && borderStyle === 'gradient'" class="gradient-border"></div>
+    <div
+      v-if="borderTop && borderStyle === 'gradient'"
+      class="gradient-border"
+    ></div>
 
     <div class="footer-content">
       <div class="footer-main">
@@ -302,7 +387,10 @@ onMounted(() => {
           <p v-if="slogan" class="brand-description">{{ slogan }}</p>
 
           <!-- 社交媒体 (brand position) -->
-          <div v-if="showSocial && hasSocial && socialPosition === 'brand'" class="social-links">
+          <div
+            v-if="showSocial && hasSocial && socialPosition === 'brand'"
+            class="social-links"
+          >
             <button
               v-for="social in socialLinks"
               :key="social.name"
@@ -310,7 +398,11 @@ onMounted(() => {
               :title="social.name"
               @click="handleSocialClick(social.url)"
             >
-              <span v-if="social.svg" v-html="social.svg" class="social-svg"></span>
+              <span
+                v-if="social.svg"
+                v-html="social.svg"
+                class="social-svg"
+              ></span>
               <span v-else :class="social.icon"></span>
             </button>
           </div>
@@ -318,14 +410,32 @@ onMounted(() => {
           <!-- 邮件订阅 -->
           <div v-if="showNewsletter" class="newsletter">
             <p class="newsletter-title">{{ newsletterTitle }}</p>
-            <form class="newsletter-form" @submit.prevent="handleNewsletterSubmit">
-              <input v-model="newsletterEmail" type="email" placeholder="your@email.com" class="newsletter-input" required />
-              <button type="submit" class="newsletter-btn" :disabled="newsletterSubmitted">
-                <span v-if="newsletterSubmitted" class="i-carbon-checkmark"></span>
+            <form
+              class="newsletter-form"
+              @submit.prevent="handleNewsletterSubmit"
+            >
+              <input
+                v-model="newsletterEmail"
+                type="email"
+                placeholder="your@email.com"
+                class="newsletter-input"
+                required
+              />
+              <button
+                type="submit"
+                class="newsletter-btn"
+                :disabled="newsletterSubmitted"
+              >
+                <span
+                  v-if="newsletterSubmitted"
+                  class="i-carbon-checkmark"
+                ></span>
                 <span v-else class="i-carbon-send"></span>
               </button>
             </form>
-            <p v-if="newsletterSubmitted" class="newsletter-success">感谢订阅！</p>
+            <p v-if="newsletterSubmitted" class="newsletter-success">
+              感谢订阅！
+            </p>
           </div>
         </div>
 
@@ -338,7 +448,9 @@ onMounted(() => {
             :class="{ 'is-expanded': isGroupExpanded(groupIndex) }"
           >
             <div class="group-header" @click="toggleGroup(groupIndex)">
-              <span class="group-title">{{ replacePlaceholders(group.name) }}</span>
+              <span class="group-title">{{
+                replacePlaceholders(group.name)
+              }}</span>
               <span class="i-carbon-chevron-down group-arrow"></span>
             </div>
             <div class="group-links">
@@ -359,10 +471,18 @@ onMounted(() => {
           <div class="group-header" @click="toggleGroup('contact')">
             <span class="group-title">联系我们</span>
             <span
-              :class="['toggle-icon', isMobile && expandedGroups.has('contact') ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down']"
+              :class="[
+                'toggle-icon',
+                isMobile && expandedGroups.has('contact')
+                  ? 'i-carbon-chevron-up'
+                  : 'i-carbon-chevron-down',
+              ]"
             ></span>
           </div>
-          <div class="contact-list" :class="{ 'is-visible': expandedGroups.has('contact') }">
+          <div
+            class="contact-list"
+            :class="{ 'is-visible': expandedGroups.has('contact') }"
+          >
             <div
               v-for="(contact, index) in contactInfoList"
               :key="index"
@@ -370,7 +490,11 @@ onMounted(() => {
               :class="{ clickable: contact.type !== 'text' }"
               @click="handleContactClick(contact)"
             >
-              <span v-if="contact.svg" v-html="contact.svg" class="contact-icon contact-svg"></span>
+              <span
+                v-if="contact.svg"
+                v-html="contact.svg"
+                class="contact-icon contact-svg"
+              ></span>
               <span v-else :class="contact.icon" class="contact-icon"></span>
               <span class="contact-value">{{ contact.value }}</span>
             </div>
@@ -379,7 +503,10 @@ onMounted(() => {
       </div>
 
       <!-- 社交媒体 (separate position) -->
-      <div v-if="showSocial && hasSocial && socialPosition === 'separate'" class="social-section">
+      <div
+        v-if="showSocial && hasSocial && socialPosition === 'separate'"
+        class="social-section"
+      >
         <div class="social-links social-center">
           <button
             v-for="social in socialLinks"
@@ -388,7 +515,11 @@ onMounted(() => {
             :title="social.name"
             @click="handleSocialClick(social.url)"
           >
-            <span v-if="social.svg" v-html="social.svg" class="social-svg"></span>
+            <span
+              v-if="social.svg"
+              v-html="social.svg"
+              class="social-svg"
+            ></span>
             <span v-else :class="social.icon"></span>
           </button>
         </div>
@@ -398,7 +529,10 @@ onMounted(() => {
       <div class="footer-bottom">
         <div class="footer-bottom-content">
           <!-- 社交媒体 (bottom position) -->
-          <div v-if="showSocial && hasSocial && socialPosition === 'bottom'" class="social-links">
+          <div
+            v-if="showSocial && hasSocial && socialPosition === 'bottom'"
+            class="social-links"
+          >
             <button
               v-for="social in socialLinks"
               :key="social.name"
@@ -406,13 +540,26 @@ onMounted(() => {
               :title="social.name"
               @click="handleSocialClick(social.url)"
             >
-              <span v-if="social.svg" v-html="social.svg" class="social-svg"></span>
+              <span
+                v-if="social.svg"
+                v-html="social.svg"
+                class="social-svg"
+              ></span>
               <span v-else :class="social.icon"></span>
             </button>
           </div>
 
-          <p v-if="showCopyright && copyright" class="copyright">{{ copyright }}</p>
-          <a v-if="icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" class="icp">{{ icp }}</a>
+          <p v-if="showCopyright && copyright" class="copyright">
+            {{ copyright }}
+          </p>
+          <a
+            v-if="icp"
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="icp"
+            >{{ icp }}</a
+          >
 
           <div v-if="showPaymentIcons" class="payment-methods">
             <div class="payment-icons">
@@ -465,19 +612,34 @@ onMounted(() => {
   border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
 }
 
-.block-footer.border-top-none { border-top: none; }
-.block-footer.border-top-gradient { border-top: none; }
+.block-footer.border-top-none {
+  border-top: none;
+}
+.block-footer.border-top-gradient {
+  border-top: none;
+}
 
 .gradient-border {
   height: 3px;
-  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #f59e0b, #3b82f6);
+  background: linear-gradient(
+    90deg,
+    #3b82f6,
+    #8b5cf6,
+    #ec4899,
+    #f59e0b,
+    #3b82f6
+  );
   background-size: 200% 100%;
   animation: gradient-shift 4s linear infinite;
 }
 
 @keyframes gradient-shift {
-  0% { background-position: 0% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: 0% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 .bg-overlay {
@@ -495,15 +657,35 @@ onMounted(() => {
 /* ================================================
    LIGHT THEME
    ================================================ */
-.is-light { background-color: var(--footer-bg, #f8fafc); }
-.is-light .footer-bottom { border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08)); }
-.is-light .logistics-icon { filter: brightness(0); opacity: 0.5; }
-.is-light .logistics-icon:hover { filter: none; opacity: 1; }
-.is-light .social-btn { background-color: var(--footer-social-bg, rgba(0, 0, 0, 0.05)); }
-.is-light .social-btn:hover { background-color: rgba(0, 0, 0, 0.1); }
-.is-light .link-group { border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08)); }
-.is-light .footer-contact { border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08)); }
-.is-light .newsletter-input { background: rgba(0, 0, 0, 0.04); }
+.is-light {
+  background-color: var(--footer-bg, #f8fafc);
+}
+.is-light .footer-bottom {
+  border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08));
+}
+.is-light .logistics-icon {
+  filter: brightness(0);
+  opacity: 0.5;
+}
+.is-light .logistics-icon:hover {
+  filter: none;
+  opacity: 1;
+}
+.is-light .social-btn {
+  background-color: var(--footer-social-bg, rgba(0, 0, 0, 0.05));
+}
+.is-light .social-btn:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+.is-light .link-group {
+  border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08));
+}
+.is-light .footer-contact {
+  border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08));
+}
+.is-light .newsletter-input {
+  background: rgba(0, 0, 0, 0.04);
+}
 
 /* ================================================
    CONTENT
@@ -553,7 +735,9 @@ onMounted(() => {
   gap: 12px;
 }
 
-.social-center { justify-content: center; }
+.social-center {
+  justify-content: center;
+}
 
 .social-section {
   padding: 20px 0;
@@ -575,14 +759,36 @@ onMounted(() => {
   transition: all 0.25s;
 }
 
-.social-size-small .social-btn { width: 32px; height: 32px; font-size: 16px; }
-.social-size-medium .social-btn { width: 40px; height: 40px; font-size: 20px; }
-.social-size-large .social-btn { width: 48px; height: 48px; font-size: 24px; }
-.social-btn-sm { width: 32px !important; height: 32px !important; font-size: 16px !important; }
+.social-size-small .social-btn {
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+}
+.social-size-medium .social-btn {
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+}
+.social-size-large .social-btn {
+  width: 48px;
+  height: 48px;
+  font-size: 24px;
+}
+.social-btn-sm {
+  width: 32px !important;
+  height: 32px !important;
+  font-size: 16px !important;
+}
 
-.social-style-rounded .social-btn { border-radius: 8px; }
-.social-style-square .social-btn { border-radius: 0; }
-.social-style-circle .social-btn { border-radius: 50%; }
+.social-style-rounded .social-btn {
+  border-radius: 8px;
+}
+.social-style-square .social-btn {
+  border-radius: 0;
+}
+.social-style-circle .social-btn {
+  border-radius: 50%;
+}
 .social-style-outline .social-btn {
   background: transparent;
   border: 1.5px solid var(--footer-text, #94a3b8);
@@ -599,20 +805,35 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.social-svg { display: flex; align-items: center; justify-content: center; }
-.social-svg :deep(svg) { width: 1em; height: 1em; }
+.social-svg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.social-svg :deep(svg) {
+  width: 1em;
+  height: 1em;
+}
 
 /* ================================================
    HOVER EFFECTS
    ================================================ */
 .hover-lift .social-btn:hover,
 .hover-lift .link-item:hover,
-.hover-lift .contact-item.clickable:hover { transform: translateY(-2px); }
+.hover-lift .contact-item.clickable:hover {
+  transform: translateY(-2px);
+}
 
-.hover-glow .social-btn:hover { box-shadow: 0 0 16px rgba(99, 102, 241, 0.4); }
-.hover-glow .link-item:hover { text-shadow: 0 0 8px rgba(99, 102, 241, 0.3); }
+.hover-glow .social-btn:hover {
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
+}
+.hover-glow .link-item:hover {
+  text-shadow: 0 0 8px rgba(99, 102, 241, 0.3);
+}
 
-.hover-underline .link-item { position: relative; }
+.hover-underline .link-item {
+  position: relative;
+}
 .hover-underline .link-item::after {
   content: "";
   position: absolute;
@@ -623,26 +844,36 @@ onMounted(() => {
   background: var(--footer-link, #e2e8f0);
   transition: width 0.25s;
 }
-.hover-underline .link-item:hover::after { width: 100%; }
+.hover-underline .link-item:hover::after {
+  width: 100%;
+}
 
 .hover-none .social-btn:hover,
 .hover-none .link-item:hover,
-.hover-none .contact-item.clickable:hover { transform: none; }
+.hover-none .contact-item.clickable:hover {
+  transform: none;
+}
 
 .no-animations,
-.no-animations * { transition: none !important; animation: none !important; }
+.no-animations * {
+  transition: none !important;
+  animation: none !important;
+}
 
 /* ================================================
    LINK GROUPS
    ================================================ */
-.link-group { min-width: 160px; flex: 1; }
+.link-group {
+  min-width: 160px;
+  flex: 1;
+}
 
 .group-header {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: start;
   position: relative;
-  padding: 16px;
+  padding: 16px 16px 16px 0;
   min-height: 56px;
 }
 
@@ -662,13 +893,15 @@ onMounted(() => {
   line-height: 1;
 }
 
-.link-group.is-expanded .group-arrow { transform: rotate(180deg); }
+.link-group.is-expanded .group-arrow {
+  transform: rotate(180deg);
+}
 
 .group-links {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 0 24px;
+  padding: 0;
 }
 
 .link-item {
@@ -676,23 +909,34 @@ onMounted(() => {
   color: var(--footer-text, #94a3b8);
   text-decoration: none;
   transition: all 0.2s;
-  padding: 0 24px;
 }
 
-.link-item:hover { color: var(--footer-link, #e2e8f0); }
+.link-item:hover {
+  color: var(--footer-link, #e2e8f0);
+}
 
 /* ================================================
    CONTACT
    ================================================ */
-.footer-contact { min-width: 200px; flex: 1; }
-.footer-contact .group-header { cursor: default; justify-content: start; }
-.footer-contact .toggle-icon { display: none; font-size: 16px; transition: transform 0.2s; }
+.footer-contact {
+  min-width: 200px;
+  flex: 1;
+}
+.footer-contact .group-header {
+  cursor: default;
+  justify-content: start;
+}
+.footer-contact .toggle-icon {
+  display: none;
+  font-size: 16px;
+  transition: transform 0.2s;
+}
 
 .contact-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 24px;
+  padding: 0;
 }
 
 .contact-item {
@@ -703,9 +947,15 @@ onMounted(() => {
   transition: all 0.2s;
 }
 
-.contact-item.clickable { cursor: pointer; }
-.contact-item.clickable:hover { color: var(--footer-link, #e2e8f0); }
-.contact-item.clickable:hover .contact-icon { color: var(--primary-color, #60a5fa); }
+.contact-item.clickable {
+  cursor: pointer;
+}
+.contact-item.clickable:hover {
+  color: var(--footer-link, #e2e8f0);
+}
+.contact-item.clickable:hover .contact-icon {
+  color: var(--primary-color, #60a5fa);
+}
 
 .contact-icon {
   font-size: 20px;
@@ -713,8 +963,15 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.contact-svg { display: flex; align-items: center; justify-content: center; }
-.contact-svg :deep(svg) { width: 20px; height: 20px; }
+.contact-svg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.contact-svg :deep(svg) {
+  width: 20px;
+  height: 20px;
+}
 
 .contact-value {
   color: var(--footer-text, #94a3b8);
@@ -725,7 +982,9 @@ onMounted(() => {
 /* ================================================
    NEWSLETTER
    ================================================ */
-.newsletter { margin-top: 20px; }
+.newsletter {
+  margin-top: 20px;
+}
 
 .newsletter-title {
   font-size: 14px;
@@ -753,7 +1012,10 @@ onMounted(() => {
   min-width: 0;
 }
 
-.newsletter-input::placeholder { color: var(--footer-text, #94a3b8); opacity: 0.7; }
+.newsletter-input::placeholder {
+  color: var(--footer-text, #94a3b8);
+  opacity: 0.7;
+}
 
 .newsletter-btn {
   display: flex;
@@ -768,9 +1030,17 @@ onMounted(() => {
   transition: background 0.2s;
 }
 
-.newsletter-btn:hover:not(:disabled) { background: #2563eb; }
-.newsletter-btn:disabled { background: #22c55e; }
-.newsletter-success { font-size: 13px; color: #22c55e; margin: 8px 0 0; }
+.newsletter-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+.newsletter-btn:disabled {
+  background: #22c55e;
+}
+.newsletter-success {
+  font-size: 13px;
+  color: #22c55e;
+  margin: 8px 0 0;
+}
 
 /* ================================================
    LOGISTICS / PAYMENT ICONS
@@ -796,7 +1066,9 @@ onMounted(() => {
   justify-content: center;
   text-decoration: none;
   height: 22px;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
   filter: brightness(0) invert(1);
   opacity: 0.7;
 }
@@ -846,7 +1118,9 @@ onMounted(() => {
   transition: color 0.2s;
 }
 
-.icp:hover { color: var(--footer-link, #e2e8f0); }
+.icp:hover {
+  color: var(--footer-link, #e2e8f0);
+}
 
 /* ================================================
    BACK TO TOP
@@ -866,13 +1140,35 @@ onMounted(() => {
   z-index: 100;
 }
 
-.backtop-pos-right .back-to-top { right: 32px; }
-.backtop-pos-left .back-to-top { left: 32px; }
-.backtop-pos-center .back-to-top { left: 50%; transform: translateX(-50%); }
+.backtop-pos-right .back-to-top {
+  right: 32px;
+}
+.backtop-pos-left .back-to-top {
+  left: 32px;
+}
+.backtop-pos-center .back-to-top {
+  left: 50%;
+  transform: translateX(-50%);
+}
 
-.backtop-circle .back-to-top { width: 48px; height: 48px; font-size: 24px; border-radius: 50%; }
-.backtop-square .back-to-top { width: 48px; height: 48px; font-size: 24px; border-radius: 8px; }
-.backtop-pill .back-to-top { width: 56px; height: 40px; font-size: 22px; border-radius: 20px; }
+.backtop-circle .back-to-top {
+  width: 48px;
+  height: 48px;
+  font-size: 24px;
+  border-radius: 50%;
+}
+.backtop-square .back-to-top {
+  width: 48px;
+  height: 48px;
+  font-size: 24px;
+  border-radius: 8px;
+}
+.backtop-pill .back-to-top {
+  width: 56px;
+  height: 40px;
+  font-size: 22px;
+  border-radius: 20px;
+}
 .backtop-rocket .back-to-top {
   width: 48px;
   height: 48px;
@@ -887,22 +1183,41 @@ onMounted(() => {
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.5);
 }
 
-.backtop-pos-center .back-to-top:hover { transform: translateX(-50%) translateY(-4px); }
-.backtop-rocket .back-to-top:hover { box-shadow: 0 6px 16px rgba(239, 68, 68, 0.5); }
-.back-to-top:active { transform: translateY(-2px); }
+.backtop-pos-center .back-to-top:hover {
+  transform: translateX(-50%) translateY(-4px);
+}
+.backtop-rocket .back-to-top:hover {
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.5);
+}
+.back-to-top:active {
+  transform: translateY(-2px);
+}
 
 .fade-enter-active,
-.fade-leave-active { transition: opacity 0.3s, transform 0.3s; }
+.fade-leave-active {
+  transition:
+    opacity 0.3s,
+    transform 0.3s;
+}
 .fade-enter-from,
-.fade-leave-to { opacity: 0; transform: translateY(20px); }
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
+}
 
 /* ================================================
    RESPONSIVE - Container Queries
    ================================================ */
 @container footer (max-width: 768px) {
-  .footer-content { padding: 36px 20px 20px; }
-  .footer-main { flex-direction: column; }
-  .footer-brand { max-width: none; }
+  .footer-content {
+    padding: 36px 20px 20px;
+  }
+  .footer-main {
+    flex-direction: column;
+  }
+  .footer-brand {
+    max-width: none;
+  }
 
   .footer-contact {
     min-width: 100%;
@@ -910,21 +1225,36 @@ onMounted(() => {
   }
 
   .footer-contact .group-header {
-    display: flex; align-items: center; justify-content: start;
-    position: relative; padding: 16px; min-height: 56px; cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    position: relative;
+    padding: 16px;
+    min-height: 56px;
+    cursor: pointer;
   }
 
   .footer-contact .toggle-icon {
-    display: block; font-size: 16px; line-height: 1; position: absolute; right: 16px;
+    display: block;
+    font-size: 16px;
+    line-height: 1;
+    position: absolute;
+    right: 16px;
   }
 
   .footer-contact .contact-list {
-    max-height: 0; overflow: hidden;
-    transition: max-height 0.3s ease, padding 0.3s ease;
-    padding: 0 24px;
+    max-height: 0;
+    overflow: hidden;
+    transition:
+      max-height 0.3s ease,
+      padding 0.3s ease;
+    padding: 0 16px 0 24px;
   }
 
-  .footer-contact .contact-list.is-visible { max-height: 500px; padding: 0 24px 16px; }
+  .footer-contact .contact-list.is-visible {
+    max-height: 500px;
+    padding: 0 16px 16px 24px;
+  }
 
   .link-group {
     border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
@@ -932,46 +1262,115 @@ onMounted(() => {
   }
 
   .group-header {
-    display: flex; align-items: center; justify-content: start;
-    padding: 16px; min-height: 56px; cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    padding: 16px;
+    min-height: 56px;
+    cursor: pointer;
   }
 
-  .group-arrow { display: block; font-size: 16px; line-height: 1; position: absolute; right: 16px; }
+  .group-arrow {
+    display: block;
+    font-size: 16px;
+    line-height: 1;
+    position: absolute;
+    right: 16px;
+  }
 
   .group-links {
-    max-height: 0; overflow: hidden;
-    transition: max-height 0.3s ease, padding 0.3s ease;
-    padding: 0; align-items: start;
+    max-height: 0;
+    overflow: hidden;
+    transition:
+      max-height 0.3s ease,
+      padding 0.3s ease;
+    padding: 0;
+    align-items: start;
   }
 
-  .link-group.is-expanded .group-links { max-height: 500px; padding-bottom: 16px; }
+  .link-group.is-expanded .group-links {
+    max-height: 500px;
+    padding: 0 0 16px 24px;
+  }
 
-  .footer-bottom { margin-top: 0; }
-  .footer-bottom-content { flex-direction: column; align-items: center; text-align: center; }
-  .social-section { margin-top: 0; }
-  .back-to-top { right: 16px; bottom: 64px; width: 44px; height: 44px; font-size: 22px; }
+  .footer-bottom {
+    margin-top: 0;
+  }
+  .footer-bottom-content {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .footer-bottom-content .payment-methods {
+    order: -1;
+  }
+  .footer-bottom-content .copyright {
+    order: 10;
+  }
+  .social-section {
+    margin-top: 0;
+  }
+  .back-to-top {
+    right: 16px;
+    bottom: 64px;
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
 }
 
 @container footer (max-width: 480px) {
-  .footer-content { padding: 32px 16px 16px; }
-  .brand-logo { font-size: 20px; }
-  .brand-description { font-size: 13px; }
-  .social-size-medium .social-btn { width: 36px; height: 36px; font-size: 18px; }
-  .group-title { font-size: 15px; }
-  .link-item { font-size: 13px; }
-  .contact-item { font-size: 13px; }
-  .contact-icon { font-size: 16px; }
-  .copyright { font-size: 12px; }
-  .back-to-top { right: 12px; bottom: 56px; width: 40px; height: 40px; font-size: 20px; }
+  .footer-content {
+    padding: 32px 16px 16px;
+  }
+  .brand-logo {
+    font-size: 20px;
+  }
+  .brand-description {
+    font-size: 13px;
+  }
+  .social-size-medium .social-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+  }
+  .group-title {
+    font-size: 15px;
+  }
+  .link-item {
+    font-size: 13px;
+  }
+  .contact-item {
+    font-size: 13px;
+  }
+  .contact-icon {
+    font-size: 16px;
+  }
+  .copyright {
+    font-size: 12px;
+  }
+  .back-to-top {
+    right: 12px;
+    bottom: 56px;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
 }
 
 /* ================================================
    RESPONSIVE - Media Query Fallback
    ================================================ */
 @media (max-width: 768px) {
-  .footer-content { padding: 36px 20px 20px; }
-  .footer-main { flex-direction: column; }
-  .footer-brand { max-width: none; }
+  .footer-content {
+    padding: 36px 20px 20px;
+  }
+  .footer-main {
+    flex-direction: column;
+  }
+  .footer-brand {
+    max-width: none;
+  }
 
   .footer-contact {
     min-width: 100%;
@@ -979,21 +1378,36 @@ onMounted(() => {
   }
 
   .footer-contact .group-header {
-    display: flex; align-items: center; justify-content: start;
-    position: relative; padding: 16px; min-height: 56px; cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    position: relative;
+    padding: 16px;
+    min-height: 56px;
+    cursor: pointer;
   }
 
   .footer-contact .toggle-icon {
-    display: block; font-size: 16px; line-height: 1; position: absolute; right: 16px;
+    display: block;
+    font-size: 16px;
+    line-height: 1;
+    position: absolute;
+    right: 16px;
   }
 
   .footer-contact .contact-list {
-    max-height: 0; overflow: hidden;
-    transition: max-height 0.3s ease, padding 0.3s ease;
-    padding: 0 24px;
+    max-height: 0;
+    overflow: hidden;
+    transition:
+      max-height 0.3s ease,
+      padding 0.3s ease;
+    padding: 0 16px 0 24px;
   }
 
-  .footer-contact .contact-list.is-visible { max-height: 500px; padding: 0 24px 16px; }
+  .footer-contact .contact-list.is-visible {
+    max-height: 500px;
+    padding: 0 16px 16px 24px;
+  }
 
   .link-group {
     border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
@@ -1001,34 +1415,87 @@ onMounted(() => {
   }
 
   .group-header {
-    display: flex; align-items: center; justify-content: start;
-    padding: 16px; min-height: 56px; cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: start;
+    padding: 16px;
+    min-height: 56px;
+    cursor: pointer;
   }
 
-  .group-arrow { display: block; font-size: 16px; line-height: 1; position: absolute; right: 16px; }
+  .group-arrow {
+    display: block;
+    font-size: 16px;
+    line-height: 1;
+    position: absolute;
+    right: 16px;
+  }
 
   .group-links {
-    max-height: 0; overflow: hidden;
-    transition: max-height 0.3s ease, padding 0.3s ease;
+    max-height: 0;
+    overflow: hidden;
+    transition:
+      max-height 0.3s ease,
+      padding 0.3s ease;
     padding: 0;
   }
 
-  .link-group.is-expanded .group-links { max-height: 500px; padding-bottom: 16px; }
+  .link-group.is-expanded .group-links {
+    max-height: 500px;
+    padding: 0 0 16px 24px;
+  }
 
-  .footer-bottom { margin-top: 0; }
-  .footer-bottom-content { flex-direction: column; align-items: center; text-align: center; }
-  .back-to-top { right: 16px; bottom: 64px; }
+  .footer-bottom {
+    margin-top: 0;
+  }
+  .footer-bottom-content {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .footer-bottom-content .payment-methods {
+    order: -1;
+  }
+  .footer-bottom-content .copyright {
+    order: 10;
+  }
+  .back-to-top {
+    right: 16px;
+    bottom: 64px;
+  }
 }
 
 @media (max-width: 480px) {
-  .footer-content { padding: 32px 16px 16px; }
-  .brand-logo { font-size: 20px; }
-  .brand-description { font-size: 13px; }
-  .group-title { font-size: 15px; }
-  .link-item { font-size: 13px; }
-  .contact-item { font-size: 13px; }
-  .contact-icon { font-size: 16px; }
-  .copyright { font-size: 12px; }
-  .back-to-top { right: 12px; bottom: 56px; width: 40px; height: 40px; font-size: 20px; }
+  .footer-content {
+    padding: 32px 16px 16px;
+  }
+  .brand-logo {
+    font-size: 20px;
+  }
+  .brand-description {
+    font-size: 13px;
+  }
+  .group-title {
+    font-size: 15px;
+  }
+  .link-item {
+    font-size: 13px;
+  }
+  .contact-item {
+    font-size: 13px;
+  }
+  .contact-icon {
+    font-size: 16px;
+  }
+  .copyright {
+    font-size: 12px;
+  }
+  .back-to-top {
+    right: 12px;
+    bottom: 56px;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
 }
 </style>
