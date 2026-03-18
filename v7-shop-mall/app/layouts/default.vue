@@ -12,7 +12,8 @@
 }
 
 /* 确保 footer 在底部 */
-.default-layout > :deep(.footer-bar) {
+.default-layout > :deep(.footer-bar),
+.default-layout > :deep(.block-footer) {
   flex-shrink: 0;
   margin-top: auto;
 }

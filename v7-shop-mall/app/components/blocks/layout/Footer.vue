@@ -874,7 +874,7 @@ onMounted(() => {
 .group-header {
   display: flex;
   align-items: center;
-  justify-content: start;
+  justify-content: center;
   position: relative;
   padding: 16px 16px 16px 0;
   min-height: 56px;
@@ -903,6 +903,7 @@ onMounted(() => {
 .group-links {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 10px;
   padding: 0;
 }
@@ -911,6 +912,7 @@ onMounted(() => {
   font-size: 14px;
   color: var(--footer-text, #94a3b8);
   text-decoration: none;
+  text-align: center;
   transition: all 0.2s;
 }
 

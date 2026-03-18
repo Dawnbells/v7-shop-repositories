@@ -67,6 +67,8 @@ provide('pageContent', pageNodes)
 .page-renderer {
   width: 100%;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   container-type: inline-size;
   container-name: page;
 }
