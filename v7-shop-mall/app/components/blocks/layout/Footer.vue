@@ -1,15 +1,5 @@
 <script setup lang="ts">
-import { BRAND_SVG_ICONS } from "~/utils/svg-icons";
-
-/**
- * Footer Block - 页脚组件
- * 支持品牌信息、协议链接分组、联系方式、社交媒体、版权声明
- * 响应式设计：移动端折叠式链接分组
- *
- * 数据来源：
- * - 协议组：useProtocol() -> protocolGroups (由 04-protocol.ts 中间件预加载)
- * - 站点配置：usePageTheme() -> globalConfig (由 03-landing.ts 中间件预加载)
- */
+import { BRAND_SVG_ICONS, DEFAULT_LOGISTICS_ICONS } from "~/utils/svg-icons";
 
 interface Props {
   showContact?: boolean;
@@ -19,6 +9,28 @@ interface Props {
   showPaymentIcons?: boolean;
   showBackToTop?: boolean;
   backToTopMode?: "auto" | "always" | "never";
+  layout?: "standard" | "centered" | "minimal" | "columns";
+  contentWidth?: "full" | "contained" | "narrow";
+  theme?: "dark" | "light" | "transparent" | "gradient";
+  backgroundImage?: string;
+  backgroundOverlay?: boolean;
+  borderTop?: boolean;
+  borderStyle?: "solid" | "gradient" | "none";
+  showBrandLogo?: boolean;
+  logoUrl?: string;
+  logoSize?: "small" | "medium" | "large";
+  socialStyle?: "rounded" | "square" | "circle" | "outline";
+  socialSize?: "small" | "medium" | "large";
+  socialPosition?: "brand" | "bottom" | "separate";
+  backToTopStyle?: "circle" | "square" | "pill" | "rocket";
+  backToTopPosition?: "right" | "left" | "center";
+  enableAnimations?: boolean;
+  hoverEffect?: "lift" | "glow" | "underline" | "none";
+  showNewsletter?: boolean;
+  newsletterTitle?: string;
+  showAppDownload?: boolean;
+  appStoreUrl?: string;
+  playStoreUrl?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -29,29 +41,45 @@ const props = withDefaults(defineProps<Props>(), {
   showPaymentIcons: true,
   showBackToTop: true,
   backToTopMode: "auto",
+  layout: "standard",
+  contentWidth: "contained",
+  theme: "dark",
+  backgroundOverlay: true,
+  borderTop: true,
+  borderStyle: "solid",
+  showBrandLogo: false,
+  logoSize: "medium",
+  socialStyle: "rounded",
+  socialSize: "medium",
+  socialPosition: "brand",
+  backToTopStyle: "circle",
+  backToTopPosition: "right",
+  enableAnimations: true,
+  hoverEffect: "lift",
+  showNewsletter: false,
+  newsletterTitle: "订阅我们的新闻",
+  showAppDownload: false,
 });
 
-// 主题相关数据
-const { globalConfig } = usePageTheme();
+const emit = defineEmits<{
+  subscribe: [email: string];
+}>();
 
-// 协议相关数据
+const { globalConfig } = usePageTheme();
 const { protocolGroups, hasProtocolGroups, replacePlaceholders } =
   useProtocol();
 
-// 品牌信息
 const siteName = computed(() => globalConfig.value?.siteName || "");
 const slogan = computed(
   () => globalConfig.value?.slogan || globalConfig.value?.description || "",
 );
 
-// 联系方式
 const contactEmail = computed(() => globalConfig.value?.contactEmail);
 const contactPhone = computed(() => globalConfig.value?.contactPhone);
 const whatsapp = computed(() => globalConfig.value?.whatsapp);
 const address = computed(() => globalConfig.value?.address);
 const businessHours = computed(() => globalConfig.value?.businessHours);
 
-// 社交媒体
 const facebook = computed(() => globalConfig.value?.facebook);
 const twitter = computed(() => globalConfig.value?.twitter);
 const instagram = computed(() => globalConfig.value?.instagram);
@@ -59,11 +87,9 @@ const youtube = computed(() => globalConfig.value?.youtube);
 const tiktok = computed(() => globalConfig.value?.tiktok);
 const linkedin = computed(() => globalConfig.value?.linkedin);
 
-// 版权信息
 const copyright = computed(() => globalConfig.value?.copyright || "");
 const icp = computed(() => globalConfig.value?.icp);
 
-// 是否有联系方式
 const hasContact = computed(
   () =>
     contactEmail.value ||
@@ -73,7 +99,6 @@ const hasContact = computed(
     businessHours.value,
 );
 
-// 是否有社交媒体
 const hasSocial = computed(
   () =>
     facebook.value ||
@@ -84,50 +109,23 @@ const hasSocial = computed(
     linkedin.value,
 );
 
-// 社交媒体链接列表
 const socialLinks = computed(() => {
   const links: { icon: string; url: string; name: string; svg?: string }[] = [];
   if (facebook.value)
-    links.push({
-      icon: "i-carbon-logo-facebook",
-      url: facebook.value,
-      name: "Facebook",
-    });
+    links.push({ icon: "i-carbon-logo-facebook", url: facebook.value, name: "Facebook" });
   if (twitter.value)
-    links.push({
-      icon: "i-carbon-logo-twitter",
-      url: twitter.value,
-      name: "Twitter",
-    });
+    links.push({ icon: "i-carbon-logo-twitter", url: twitter.value, name: "Twitter" });
   if (instagram.value)
-    links.push({
-      icon: "i-carbon-logo-instagram",
-      url: instagram.value,
-      name: "Instagram",
-    });
+    links.push({ icon: "i-carbon-logo-instagram", url: instagram.value, name: "Instagram" });
   if (youtube.value)
-    links.push({
-      icon: "i-carbon-logo-youtube",
-      url: youtube.value,
-      name: "YouTube",
-    });
+    links.push({ icon: "i-carbon-logo-youtube", url: youtube.value, name: "YouTube" });
   if (tiktok.value)
-    links.push({
-      icon: "",
-      url: tiktok.value,
-      name: "TikTok",
-      svg: BRAND_SVG_ICONS.tiktok,
-    });
+    links.push({ icon: "", url: tiktok.value, name: "TikTok", svg: BRAND_SVG_ICONS.tiktok });
   if (linkedin.value)
-    links.push({
-      icon: "i-carbon-logo-linkedin",
-      url: linkedin.value,
-      name: "LinkedIn",
-    });
+    links.push({ icon: "i-carbon-logo-linkedin", url: linkedin.value, name: "LinkedIn" });
   return links;
 });
 
-// 联系方式列表
 interface ContactInfo {
   icon: string;
   value: string;
@@ -137,46 +135,19 @@ interface ContactInfo {
 
 const contactInfoList = computed<ContactInfo[]>(() => {
   const list: ContactInfo[] = [];
-  if (contactEmail.value) {
-    list.push({
-      icon: "i-carbon-email",
-      value: contactEmail.value,
-      type: "email",
-    });
-  }
-  if (contactPhone.value) {
-    list.push({
-      icon: "i-carbon-phone",
-      value: contactPhone.value,
-      type: "phone",
-    });
-  }
-  if (whatsapp.value) {
-    list.push({
-      icon: "",
-      value: whatsapp.value,
-      type: "whatsapp",
-      svg: BRAND_SVG_ICONS.whatsapp,
-    });
-  }
-  if (address.value) {
-    list.push({
-      icon: "i-carbon-location",
-      value: address.value,
-      type: "address",
-    });
-  }
-  if (businessHours.value) {
-    list.push({
-      icon: "i-carbon-time",
-      value: businessHours.value,
-      type: "text",
-    });
-  }
+  if (contactEmail.value)
+    list.push({ icon: "i-carbon-email", value: contactEmail.value, type: "email" });
+  if (contactPhone.value)
+    list.push({ icon: "i-carbon-phone", value: contactPhone.value, type: "phone" });
+  if (whatsapp.value)
+    list.push({ icon: "", value: whatsapp.value, type: "whatsapp", svg: BRAND_SVG_ICONS.whatsapp });
+  if (address.value)
+    list.push({ icon: "i-carbon-location", value: address.value, type: "address" });
+  if (businessHours.value)
+    list.push({ icon: "i-carbon-time", value: businessHours.value, type: "text" });
   return list;
 });
 
-// 处理联系方式点击
 function handleContactClick(contact: ContactInfo) {
   if (import.meta.server) return;
   switch (contact.type) {
@@ -186,21 +157,19 @@ function handleContactClick(contact: ContactInfo) {
     case "phone":
       window.location.href = `tel:${contact.value}`;
       break;
-    case "whatsapp":
+    case "whatsapp": {
       const phone = contact.value.replace(/\D/g, "");
       window.open(`https://wa.me/${phone}`, "_blank");
       break;
-    case "address":
-      const encodedAddress = encodeURIComponent(contact.value);
-      window.open(
-        `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`,
-        "_blank",
-      );
+    }
+    case "address": {
+      const encoded = encodeURIComponent(contact.value);
+      window.open(`https://www.google.com/maps/search/?api=1&query=${encoded}`, "_blank");
       break;
+    }
   }
 }
 
-// 处理社交媒体点击
 function handleSocialClick(url: string) {
   if (import.meta.server) return;
   if (url && url !== "#") {
@@ -208,7 +177,7 @@ function handleSocialClick(url: string) {
   }
 }
 
-// 移动端折叠状态
+// --- 折叠状态 ---
 const isMobile = ref(false);
 const expandedGroups = ref<Set<number | string>>(new Set(["contact"]));
 
@@ -216,9 +185,7 @@ function checkMobile() {
   if (import.meta.server) return;
   const wasMobile = isMobile.value;
   isMobile.value = window.innerWidth <= 768;
-  if (!wasMobile && isMobile.value) {
-    expandedGroups.value = new Set();
-  }
+  if (!wasMobile && isMobile.value) expandedGroups.value = new Set();
 }
 
 function isGroupExpanded(index: number | string): boolean {
@@ -227,15 +194,12 @@ function isGroupExpanded(index: number | string): boolean {
 
 function toggleGroup(index: number | string) {
   if (!isMobile.value && index === "contact") return;
-  if (expandedGroups.value.has(index)) {
-    expandedGroups.value.delete(index);
-  } else {
-    expandedGroups.value.add(index);
-  }
+  if (expandedGroups.value.has(index)) expandedGroups.value.delete(index);
+  else expandedGroups.value.add(index);
   expandedGroups.value = new Set(expandedGroups.value);
 }
 
-// 返回顶部
+// --- 返回顶部 ---
 const isBackToTopVisible = ref(false);
 
 const shouldShowBackToTop = computed(() => {
@@ -250,15 +214,79 @@ function scrollToTop() {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-// 默认物流图标
+// --- 邮件订阅 ---
+const newsletterEmail = ref("");
+const newsletterSubmitted = ref(false);
+
+function handleNewsletterSubmit() {
+  if (!newsletterEmail.value) return;
+  emit("subscribe", newsletterEmail.value);
+  newsletterSubmitted.value = true;
+  setTimeout(() => {
+    newsletterSubmitted.value = false;
+    newsletterEmail.value = "";
+  }, 3000);
+}
+
+// --- 主题 CSS 变量 ---
+const themePresets = {
+  dark: { bg: "#1e293b", text: "#94a3b8", link: "#e2e8f0", border: "rgba(255,255,255,0.1)", socialBg: "rgba(255,255,255,0.1)" },
+  light: { bg: "#f8fafc", text: "#475569", link: "#1e293b", border: "rgba(0,0,0,0.08)", socialBg: "rgba(0,0,0,0.05)" },
+  transparent: { bg: "transparent", text: "#94a3b8", link: "#e2e8f0", border: "rgba(255,255,255,0.1)", socialBg: "rgba(255,255,255,0.1)" },
+  gradient: { bg: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%)", text: "#cbd5e1", link: "#f1f5f9", border: "rgba(255,255,255,0.15)", socialBg: "rgba(255,255,255,0.12)" },
+} as const;
+
+const currentTheme = computed(() => themePresets[props.theme] || themePresets.dark);
+
+const footerStyle = computed(() => {
+  const t = currentTheme.value;
+  const style: Record<string, string> = {
+    "--footer-text": t.text,
+    "--footer-link": t.link,
+    "--footer-border": t.border,
+    "--footer-social-bg": t.socialBg,
+  };
+  if (props.theme === "gradient") {
+    style.background = t.bg;
+  } else {
+    style["--footer-bg"] = t.bg;
+  }
+  if (props.backgroundImage) {
+    style.backgroundImage = `url(${props.backgroundImage})`;
+    style.backgroundSize = "cover";
+    style.backgroundPosition = "center";
+  }
+  return style;
+});
+
+const isLightTheme = computed(() => props.theme === "light");
+
+// --- CSS classes ---
+const footerClasses = computed(() => [
+  "block-footer",
+  `layout-${props.layout}`,
+  `theme-${props.theme}`,
+  `content-${props.contentWidth}`,
+  `social-style-${props.socialStyle}`,
+  `social-size-${props.socialSize}`,
+  `hover-${props.hoverEffect}`,
+  `backtop-${props.backToTopStyle}`,
+  `backtop-pos-${props.backToTopPosition}`,
+  {
+    "has-bg-image": !!props.backgroundImage,
+    "has-overlay": !!props.backgroundImage && props.backgroundOverlay,
+    "border-top-gradient": props.borderStyle === "gradient",
+    "border-top-none": props.borderStyle === "none" || !props.borderTop,
+    "no-animations": !props.enableAnimations,
+    "is-light": isLightTheme.value,
+  },
+]);
+
 const logisticsIcons = DEFAULT_LOGISTICS_ICONS;
 
-// 生命周期
 onMounted(() => {
   checkMobile();
-  if (isMobile.value) {
-    expandedGroups.value = new Set();
-  }
+  if (isMobile.value) expandedGroups.value = new Set();
   window.addEventListener("resize", checkMobile, { passive: true });
 
   if (props.backToTopMode === "auto") {
@@ -267,29 +295,203 @@ onMounted(() => {
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
     handleScroll();
-
-    onUnmounted(() => {
-      window.removeEventListener("scroll", handleScroll);
-    });
+    onUnmounted(() => window.removeEventListener("scroll", handleScroll));
   }
 
-  onUnmounted(() => {
-    window.removeEventListener("resize", checkMobile);
-  });
+  onUnmounted(() => window.removeEventListener("resize", checkMobile));
 });
 </script>
 
 <template>
-  <footer class="block-footer">
+  <footer :class="footerClasses" :style="footerStyle">
+    <!-- 背景遮罩 -->
+    <div v-if="backgroundImage && backgroundOverlay" class="bg-overlay"></div>
+
+    <!-- 渐变顶部边框 -->
+    <div v-if="borderTop && borderStyle === 'gradient'" class="gradient-border"></div>
+
     <div class="footer-content">
-      <!-- 主要内容区 -->
-      <div class="footer-main">
-        <!-- 品牌信息 -->
-        <div class="footer-brand">
-          <div v-if="siteName" class="brand-logo">{{ siteName }}</div>
-          <p v-if="slogan" class="brand-description">{{ slogan }}</p>
-          <!-- 社交媒体链接 -->
-          <div v-if="showSocial && hasSocial" class="social-links">
+      <!-- ====== minimal 布局 ====== -->
+      <template v-if="layout === 'minimal'">
+        <div class="minimal-layout">
+          <div v-if="showSocial && hasSocial && socialPosition !== 'bottom'" class="social-links social-center">
+            <button
+              v-for="social in socialLinks"
+              :key="social.name"
+              class="social-btn"
+              :title="social.name"
+              @click="handleSocialClick(social.url)"
+            >
+              <span v-if="social.svg" v-html="social.svg" class="social-svg"></span>
+              <span v-else :class="social.icon"></span>
+            </button>
+          </div>
+          <div v-if="showProtocol && hasProtocolGroups" class="minimal-links">
+            <template v-for="group in protocolGroups" :key="group.id">
+              <NuxtLink
+                v-for="article in group.articles"
+                :key="article.id"
+                :to="`/article/${article.id}`"
+                class="link-item"
+              >
+                {{ replacePlaceholders(article.title) }}
+              </NuxtLink>
+            </template>
+          </div>
+          <div class="minimal-bottom">
+            <p v-if="showCopyright && copyright" class="copyright">{{ copyright }}</p>
+            <a v-if="icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" class="icp">{{ icp }}</a>
+          </div>
+        </div>
+      </template>
+
+      <!-- ====== centered 布局 ====== -->
+      <template v-else-if="layout === 'centered'">
+        <div class="centered-layout">
+          <!-- 品牌区 -->
+          <div class="centered-brand">
+            <img v-if="showBrandLogo && logoUrl" :src="logoUrl" alt="Logo" class="brand-logo-img" :class="`logo-${logoSize}`" />
+            <div v-if="siteName" class="brand-logo">{{ siteName }}</div>
+            <p v-if="slogan" class="brand-description">{{ slogan }}</p>
+          </div>
+
+          <!-- 社交媒体 -->
+          <div v-if="showSocial && hasSocial && socialPosition === 'brand'" class="social-links social-center">
+            <button
+              v-for="social in socialLinks"
+              :key="social.name"
+              class="social-btn"
+              :title="social.name"
+              @click="handleSocialClick(social.url)"
+            >
+              <span v-if="social.svg" v-html="social.svg" class="social-svg"></span>
+              <span v-else :class="social.icon"></span>
+            </button>
+          </div>
+
+          <!-- 协议链接 (水平排列) -->
+          <div v-if="showProtocol && hasProtocolGroups" class="centered-links">
+            <template v-for="group in protocolGroups" :key="group.id">
+              <NuxtLink
+                v-for="article in group.articles"
+                :key="article.id"
+                :to="`/article/${article.id}`"
+                class="link-item"
+              >
+                {{ replacePlaceholders(article.title) }}
+              </NuxtLink>
+            </template>
+          </div>
+
+          <!-- 邮件订阅 -->
+          <div v-if="showNewsletter" class="newsletter centered-newsletter">
+            <p class="newsletter-title">{{ newsletterTitle }}</p>
+            <form class="newsletter-form" @submit.prevent="handleNewsletterSubmit">
+              <input v-model="newsletterEmail" type="email" placeholder="your@email.com" class="newsletter-input" required />
+              <button type="submit" class="newsletter-btn" :disabled="newsletterSubmitted">
+                <span v-if="newsletterSubmitted" class="i-carbon-checkmark"></span>
+                <span v-else class="i-carbon-send"></span>
+              </button>
+            </form>
+            <p v-if="newsletterSubmitted" class="newsletter-success">感谢订阅！</p>
+          </div>
+
+          <div class="centered-bottom">
+            <p v-if="showCopyright && copyright" class="copyright">{{ copyright }}</p>
+            <a v-if="icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" class="icp">{{ icp }}</a>
+          </div>
+        </div>
+      </template>
+
+      <!-- ====== standard / columns 布局 ====== -->
+      <template v-else>
+        <div class="footer-main" :class="{ 'columns-equal': layout === 'columns' }">
+          <!-- 品牌信息 -->
+          <div class="footer-brand">
+            <img v-if="showBrandLogo && logoUrl" :src="logoUrl" alt="Logo" class="brand-logo-img" :class="`logo-${logoSize}`" />
+            <div v-if="siteName" class="brand-logo">{{ siteName }}</div>
+            <p v-if="slogan" class="brand-description">{{ slogan }}</p>
+
+            <!-- 社交媒体 (brand position) -->
+            <div v-if="showSocial && hasSocial && socialPosition === 'brand'" class="social-links">
+              <button
+                v-for="social in socialLinks"
+                :key="social.name"
+                class="social-btn"
+                :title="social.name"
+                @click="handleSocialClick(social.url)"
+              >
+                <span v-if="social.svg" v-html="social.svg" class="social-svg"></span>
+                <span v-else :class="social.icon"></span>
+              </button>
+            </div>
+
+            <!-- 邮件订阅 (brand 下方) -->
+            <div v-if="showNewsletter" class="newsletter">
+              <p class="newsletter-title">{{ newsletterTitle }}</p>
+              <form class="newsletter-form" @submit.prevent="handleNewsletterSubmit">
+                <input v-model="newsletterEmail" type="email" placeholder="your@email.com" class="newsletter-input" required />
+                <button type="submit" class="newsletter-btn" :disabled="newsletterSubmitted">
+                  <span v-if="newsletterSubmitted" class="i-carbon-checkmark"></span>
+                  <span v-else class="i-carbon-send"></span>
+                </button>
+              </form>
+              <p v-if="newsletterSubmitted" class="newsletter-success">感谢订阅！</p>
+            </div>
+          </div>
+
+          <!-- 协议分组链接 -->
+          <template v-if="showProtocol && hasProtocolGroups">
+            <div
+              v-for="(group, groupIndex) in protocolGroups"
+              :key="group.id"
+              class="link-group"
+              :class="{ 'is-expanded': isGroupExpanded(groupIndex) }"
+            >
+              <div class="group-header" @click="toggleGroup(groupIndex)">
+                <span class="group-title">{{ replacePlaceholders(group.name) }}</span>
+                <span class="i-carbon-chevron-down group-arrow"></span>
+              </div>
+              <div class="group-links">
+                <NuxtLink
+                  v-for="article in group.articles"
+                  :key="article.id"
+                  :to="`/article/${article.id}`"
+                  class="link-item"
+                >
+                  {{ replacePlaceholders(article.title) }}
+                </NuxtLink>
+              </div>
+            </div>
+          </template>
+
+          <!-- 联系我们栏 -->
+          <div v-if="showContact && hasContact" class="footer-contact">
+            <div class="group-header" @click="toggleGroup('contact')">
+              <span class="group-title">联系我们</span>
+              <span
+                :class="['toggle-icon', isMobile && expandedGroups.has('contact') ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down']"
+              ></span>
+            </div>
+            <div class="contact-list" :class="{ 'is-visible': expandedGroups.has('contact') }">
+              <div
+                v-for="(contact, index) in contactInfoList"
+                :key="index"
+                class="contact-item"
+                :class="{ clickable: contact.type !== 'text' }"
+                @click="handleContactClick(contact)"
+              >
+                <span v-if="contact.svg" v-html="contact.svg" class="contact-icon contact-svg"></span>
+                <span v-else :class="contact.icon" class="contact-icon"></span>
+                <span class="contact-value">{{ contact.value }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 社交媒体 (separate position) -->
+        <div v-if="showSocial && hasSocial && socialPosition === 'separate'" class="social-section">
+          <div class="social-links social-center">
             <button
               v-for="social in socialLinks"
               :key="social.name"
@@ -303,98 +505,59 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- 协议分组链接 -->
-        <template v-if="showProtocol && hasProtocolGroups">
-          <div
-            v-for="(group, groupIndex) in protocolGroups"
-            :key="group.id"
-            class="link-group"
-            :class="{ 'is-expanded': isGroupExpanded(groupIndex) }"
-          >
-            <div class="group-header" @click="toggleGroup(groupIndex)">
-              <span class="group-title">{{
-                replacePlaceholders(group.name)
-              }}</span>
-              <span class="i-carbon-chevron-down group-arrow"></span>
-            </div>
-            <div class="group-links">
-              <NuxtLink
-                v-for="article in group.articles"
-                :key="article.id"
-                :to="`/article/${article.id}`"
-                class="link-item"
-              >
-                {{ replacePlaceholders(article.title) }}
-              </NuxtLink>
-            </div>
+        <!-- App 下载 -->
+        <div v-if="showAppDownload && (appStoreUrl || playStoreUrl)" class="app-download">
+          <p class="app-download-title">下载我们的 App</p>
+          <div class="app-download-links">
+            <a v-if="appStoreUrl" :href="appStoreUrl" target="_blank" rel="noopener noreferrer" class="app-store-btn">
+              <span class="i-carbon-logo-apple"></span>
+              <span class="app-store-text"><small>Download on the</small><strong>App Store</strong></span>
+            </a>
+            <a v-if="playStoreUrl" :href="playStoreUrl" target="_blank" rel="noopener noreferrer" class="app-store-btn">
+              <span class="i-carbon-logo-google"></span>
+              <span class="app-store-text"><small>Get it on</small><strong>Google Play</strong></span>
+            </a>
           </div>
-        </template>
+        </div>
 
-        <!-- 联系我们栏 -->
-        <div v-if="showContact && hasContact" class="footer-contact">
-          <div class="group-header" @click="toggleGroup('contact')">
-            <span class="group-title">联系我们</span>
-            <span
-              :class="[
-                'toggle-icon',
-                isMobile && expandedGroups.has('contact')
-                  ? 'i-carbon-chevron-up'
-                  : 'i-carbon-chevron-down',
-              ]"
-            ></span>
-          </div>
-          <div
-            class="contact-list"
-            :class="{ 'is-visible': expandedGroups.has('contact') }"
-          >
-            <div
-              v-for="(contact, index) in contactInfoList"
-              :key="index"
-              class="contact-item"
-              :class="{ clickable: contact.type !== 'text' }"
-              @click="handleContactClick(contact)"
-            >
-              <span v-if="contact.svg" v-html="contact.svg" class="contact-icon contact-svg"></span>
-              <span v-else :class="contact.icon" class="contact-icon"></span>
-              <span class="contact-value">{{ contact.value }}</span>
+        <!-- 底部 -->
+        <div class="footer-bottom">
+          <div class="footer-bottom-content">
+            <!-- 社交媒体 (bottom position) -->
+            <div v-if="showSocial && hasSocial && socialPosition === 'bottom'" class="social-links">
+              <button
+                v-for="social in socialLinks"
+                :key="social.name"
+                class="social-btn social-btn-sm"
+                :title="social.name"
+                @click="handleSocialClick(social.url)"
+              >
+                <span v-if="social.svg" v-html="social.svg" class="social-svg"></span>
+                <span v-else :class="social.icon"></span>
+              </button>
+            </div>
+
+            <p v-if="showCopyright && copyright" class="copyright">{{ copyright }}</p>
+            <a v-if="icp" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" class="icp">{{ icp }}</a>
+
+            <div v-if="showPaymentIcons" class="payment-methods">
+              <div class="payment-icons">
+                <a
+                  v-for="(icon, index) in logisticsIcons"
+                  :key="index"
+                  :href="icon.url"
+                  class="logistics-icon"
+                  :title="icon.name"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span v-html="icon.svg" class="logistics-svg"></span>
+                </a>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- 底部版权和物流图标区域 -->
-      <div class="footer-bottom">
-        <div class="footer-bottom-content">
-          <p v-if="showCopyright && copyright" class="copyright">
-            {{ copyright }}
-          </p>
-          <a
-            v-if="icp"
-            href="https://beian.miit.gov.cn/"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="icp"
-          >
-            {{ icp }}
-          </a>
-          <!-- 物流图标区域 -->
-          <div v-if="showPaymentIcons" class="payment-methods">
-            <div class="payment-icons">
-              <a
-                v-for="(icon, index) in logisticsIcons"
-                :key="index"
-                :href="icon.url"
-                class="logistics-icon"
-                :title="icon.name"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span v-html="icon.svg" class="logistics-svg"></span>
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
+      </template>
     </div>
 
     <!-- 返回顶部按钮 -->
@@ -405,13 +568,17 @@ onMounted(() => {
         title="返回顶部"
         @click="scrollToTop"
       >
-        <span class="i-carbon-arrow-up"></span>
+        <span v-if="backToTopStyle === 'rocket'" class="i-carbon-rocket"></span>
+        <span v-else class="i-carbon-arrow-up"></span>
       </button>
     </Transition>
   </footer>
 </template>
 
 <style scoped>
+/* ================================================
+   BASE
+   ================================================ */
 .block-footer {
   width: 100%;
   background-color: var(--footer-bg, #1e293b);
@@ -421,28 +588,140 @@ onMounted(() => {
   container-name: footer;
   flex-shrink: 0;
   margin-top: auto;
+  overflow: hidden;
+  border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
 }
 
+.block-footer.border-top-none {
+  border-top: none;
+}
+
+.block-footer.border-top-gradient {
+  border-top: none;
+}
+
+.gradient-border {
+  height: 3px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899, #f59e0b, #3b82f6);
+  background-size: 200% 100%;
+  animation: gradient-shift 4s linear infinite;
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.bg-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.85);
+  z-index: 0;
+}
+
+.has-bg-image .footer-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* ================================================
+   LIGHT THEME OVERRIDES
+   ================================================ */
+.is-light {
+  background-color: var(--footer-bg, #f8fafc);
+}
+
+.is-light .footer-bottom {
+  border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08));
+}
+
+.is-light .logistics-icon {
+  filter: brightness(0);
+  opacity: 0.5;
+}
+
+.is-light .logistics-icon:hover {
+  filter: none;
+  opacity: 1;
+}
+
+.is-light .social-btn {
+  background-color: var(--footer-social-bg, rgba(0, 0, 0, 0.05));
+}
+
+.is-light .social-btn:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.is-light .link-group {
+  border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08));
+}
+
+.is-light .footer-contact {
+  border-top-color: var(--footer-border, rgba(0, 0, 0, 0.08));
+}
+
+/* ================================================
+   CONTENT WIDTH
+   ================================================ */
 .footer-content {
   min-width: 320px;
   max-width: 100%;
   padding: 48px 24px 24px;
 }
 
-.footer-main {
-  display: flex;
-  flex-wrap: wrap;
+.content-contained .footer-content {
   max-width: 1400px;
   margin-left: auto;
   margin-right: auto;
 }
 
-/* 品牌信息 */
+.content-narrow .footer-content {
+  max-width: 960px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ================================================
+   STANDARD / COLUMNS LAYOUT
+   ================================================ */
+.footer-main {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.footer-main.columns-equal > * {
+  flex: 1 1 0;
+  min-width: 180px;
+}
+
 .footer-brand {
   flex: 1;
   min-width: 200px;
-  max-width: 300px;
+  max-width: 320px;
   padding-bottom: 24px;
+}
+
+.columns-equal .footer-brand {
+  max-width: none;
+}
+
+.brand-logo-img {
+  display: block;
+  margin-bottom: 12px;
+  object-fit: contain;
+}
+
+.brand-logo-img.logo-small {
+  height: 28px;
+}
+
+.brand-logo-img.logo-medium {
+  height: 40px;
+}
+
+.brand-logo-img.logo-large {
+  height: 56px;
 }
 
 .brand-logo {
@@ -455,15 +734,28 @@ onMounted(() => {
 .brand-description {
   font-size: 14px;
   line-height: 1.6;
-  margin-bottom: 20px;
-  margin-top: 0;
+  margin: 0 0 20px;
 }
 
-/* 社交媒体链接 */
+/* ================================================
+   SOCIAL MEDIA
+   ================================================ */
 .social-links {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.social-center {
+  justify-content: center;
+}
+
+.social-section {
+  padding: 20px 0;
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
+  margin-top: 24px;
 }
 
 .social-btn {
@@ -471,21 +763,39 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  font-size: 20px;
   color: var(--footer-text, #94a3b8);
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--footer-social-bg, rgba(255, 255, 255, 0.1));
   border: none;
-  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s;
 }
 
+/* Social sizes */
+.social-size-small .social-btn { width: 32px; height: 32px; font-size: 16px; }
+.social-size-medium .social-btn { width: 40px; height: 40px; font-size: 20px; }
+.social-size-large .social-btn { width: 48px; height: 48px; font-size: 24px; }
+
+.social-btn-sm { width: 32px !important; height: 32px !important; font-size: 16px !important; }
+
+/* Social shapes */
+.social-style-rounded .social-btn { border-radius: 8px; }
+.social-style-square .social-btn { border-radius: 0; }
+.social-style-circle .social-btn { border-radius: 50%; }
+.social-style-outline .social-btn {
+  background: transparent;
+  border: 1.5px solid var(--footer-text, #94a3b8);
+  border-radius: 50%;
+}
+
+/* Social hover */
 .social-btn:hover {
   color: var(--footer-link, #e2e8f0);
   background-color: rgba(255, 255, 255, 0.2);
-  transform: translateY(-2px);
+}
+
+.social-style-outline .social-btn:hover {
+  border-color: var(--footer-link, #e2e8f0);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .social-svg {
@@ -495,11 +805,61 @@ onMounted(() => {
 }
 
 .social-svg :deep(svg) {
-  width: 20px;
-  height: 20px;
+  width: 1em;
+  height: 1em;
 }
 
-/* 链接分组 */
+/* ================================================
+   HOVER EFFECTS
+   ================================================ */
+.hover-lift .social-btn:hover,
+.hover-lift .link-item:hover,
+.hover-lift .contact-item.clickable:hover {
+  transform: translateY(-2px);
+}
+
+.hover-glow .social-btn:hover {
+  box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
+}
+
+.hover-glow .link-item:hover {
+  text-shadow: 0 0 8px rgba(99, 102, 241, 0.3);
+}
+
+.hover-underline .link-item {
+  position: relative;
+}
+
+.hover-underline .link-item::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 0;
+  height: 1px;
+  background: var(--footer-link, #e2e8f0);
+  transition: width 0.25s;
+}
+
+.hover-underline .link-item:hover::after {
+  width: 100%;
+}
+
+.hover-none .social-btn:hover,
+.hover-none .link-item:hover,
+.hover-none .contact-item.clickable:hover {
+  transform: none;
+}
+
+.no-animations,
+.no-animations * {
+  transition: none !important;
+  animation: none !important;
+}
+
+/* ================================================
+   LINK GROUPS
+   ================================================ */
 .link-group {
   min-width: 160px;
   flex: 1;
@@ -553,7 +913,9 @@ onMounted(() => {
   color: var(--footer-link, #e2e8f0);
 }
 
-/* 联系我们栏 */
+/* ================================================
+   CONTACT
+   ================================================ */
 .footer-contact {
   min-width: 200px;
   flex: 1;
@@ -591,11 +953,10 @@ onMounted(() => {
 
 .contact-item.clickable:hover {
   color: var(--footer-link, #e2e8f0);
-  transform: translateX(2px);
 }
 
 .contact-item.clickable:hover .contact-icon {
-  color: var(--footer-link-hover, #60a5fa);
+  color: var(--primary-color, #60a5fa);
 }
 
 .contact-icon {
@@ -621,7 +982,149 @@ onMounted(() => {
   flex: 1;
 }
 
-/* 物流图标 */
+/* ================================================
+   NEWSLETTER
+   ================================================ */
+.newsletter {
+  margin-top: 20px;
+}
+
+.centered-newsletter {
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 24px;
+}
+
+.newsletter-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--footer-link, #e2e8f0);
+  margin: 0 0 10px;
+}
+
+.newsletter-form {
+  display: flex;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--footer-border, rgba(255, 255, 255, 0.15));
+}
+
+.newsletter-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--footer-link, #e2e8f0);
+  border: none;
+  outline: none;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.is-light .newsletter-input {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.newsletter-input::placeholder {
+  color: var(--footer-text, #94a3b8);
+  opacity: 0.7;
+}
+
+.newsletter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  background: var(--primary-color, #3b82f6);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  transition: background 0.2s;
+}
+
+.newsletter-btn:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.newsletter-btn:disabled {
+  background: #22c55e;
+}
+
+.newsletter-success {
+  font-size: 13px;
+  color: #22c55e;
+  margin: 8px 0 0;
+}
+
+/* ================================================
+   APP DOWNLOAD
+   ================================================ */
+.app-download {
+  padding: 20px 0;
+  border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
+  margin-top: 24px;
+  text-align: center;
+}
+
+.app-download-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--footer-link, #e2e8f0);
+  margin: 0 0 12px;
+}
+
+.app-download-links {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.app-store-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--footer-border, rgba(255, 255, 255, 0.15));
+  border-radius: 8px;
+  color: var(--footer-link, #e2e8f0);
+  text-decoration: none;
+  transition: all 0.2s;
+  font-size: 22px;
+}
+
+.is-light .app-store-btn {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.app-store-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.app-store-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.app-store-text small {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.app-store-text strong {
+  font-size: 14px;
+}
+
+/* ================================================
+   LOGISTICS / PAYMENT ICONS
+   ================================================ */
 .payment-methods {
   display: flex;
   align-items: center;
@@ -643,11 +1146,14 @@ onMounted(() => {
   justify-content: center;
   text-decoration: none;
   height: 22px;
-  transition:
-    opacity 0.2s ease,
-    transform 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
   filter: brightness(0) invert(1);
   opacity: 0.7;
+}
+
+.is-light .logistics-icon {
+  filter: brightness(0);
+  opacity: 0.5;
 }
 
 .logistics-icon:hover {
@@ -663,9 +1169,11 @@ onMounted(() => {
   max-width: 64px;
 }
 
-/* 底部区域 */
+/* ================================================
+   FOOTER BOTTOM
+   ================================================ */
 .footer-bottom {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
   margin-top: 24px;
   padding-top: 24px;
 }
@@ -676,6 +1184,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .copyright {
@@ -696,25 +1205,98 @@ onMounted(() => {
   color: var(--footer-link, #e2e8f0);
 }
 
-/* 返回顶部按钮 */
+/* ================================================
+   CENTERED LAYOUT
+   ================================================ */
+.centered-layout {
+  text-align: center;
+}
+
+.centered-brand {
+  margin-bottom: 24px;
+}
+
+.centered-brand .brand-logo-img {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.centered-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.centered-links .link-item {
+  padding: 4px 0;
+}
+
+.centered-bottom {
+  padding-top: 20px;
+  border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
+  margin-top: 16px;
+}
+
+/* ================================================
+   MINIMAL LAYOUT
+   ================================================ */
+.minimal-layout {
+  text-align: center;
+  padding: 16px 0;
+}
+
+.minimal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.minimal-links .link-item {
+  padding: 4px 0;
+}
+
+.minimal-bottom {
+  padding-top: 16px;
+}
+
+/* ================================================
+   BACK TO TOP
+   ================================================ */
 .back-to-top {
   position: fixed;
-  right: 24px;
   bottom: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
-  font-size: 24px;
   color: #ffffff;
   background-color: var(--primary-color, #3b82f6);
   border: none;
-  border-radius: 50%;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
   transition: all 0.3s;
   z-index: 100;
+}
+
+/* BackToTop position */
+.backtop-pos-right .back-to-top { right: 24px; }
+.backtop-pos-left .back-to-top { left: 24px; }
+.backtop-pos-center .back-to-top { left: 50%; transform: translateX(-50%); }
+
+/* BackToTop shapes */
+.backtop-circle .back-to-top { width: 48px; height: 48px; font-size: 24px; border-radius: 50%; }
+.backtop-square .back-to-top { width: 48px; height: 48px; font-size: 24px; border-radius: 8px; }
+.backtop-pill .back-to-top { width: 56px; height: 40px; font-size: 22px; border-radius: 20px; }
+.backtop-rocket .back-to-top {
+  width: 48px;
+  height: 48px;
+  font-size: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
 
 .back-to-top:hover {
@@ -722,16 +1304,21 @@ onMounted(() => {
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.5);
 }
 
+.backtop-pos-center .back-to-top:hover {
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.backtop-rocket .back-to-top:hover {
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.5);
+}
+
 .back-to-top:active {
   transform: translateY(-2px);
 }
 
-/* 返回顶部按钮动画 */
 .fade-enter-active,
 .fade-leave-active {
-  transition:
-    opacity 0.3s,
-    transform 0.3s;
+  transition: opacity 0.3s, transform 0.3s;
 }
 
 .fade-enter-from,
@@ -740,7 +1327,9 @@ onMounted(() => {
   transform: translateY(20px);
 }
 
-/* 响应式 - Container Queries */
+/* ================================================
+   RESPONSIVE - Container Queries
+   ================================================ */
 @container footer (max-width: 768px) {
   .footer-content {
     padding: 36px 20px 20px;
@@ -756,7 +1345,7 @@ onMounted(() => {
 
   .footer-contact {
     min-width: 100%;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
   }
 
   .footer-contact .group-header {
@@ -780,9 +1369,7 @@ onMounted(() => {
   .footer-contact .contact-list {
     max-height: 0;
     overflow: hidden;
-    transition:
-      max-height 0.3s ease,
-      padding 0.3s ease;
+    transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0 24px;
   }
 
@@ -792,7 +1379,7 @@ onMounted(() => {
   }
 
   .link-group {
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
     min-width: 100%;
   }
 
@@ -805,10 +1392,6 @@ onMounted(() => {
     cursor: pointer;
   }
 
-  .group-title {
-    flex: 0 0 auto;
-  }
-
   .group-arrow {
     display: block;
     font-size: 16px;
@@ -818,14 +1401,10 @@ onMounted(() => {
   }
 
   .group-links {
-    flex-direction: column;
     max-height: 0;
     overflow: hidden;
-    transition:
-      max-height 0.3s ease,
-      padding 0.3s ease;
+    transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0;
-    justify-content: start;
     align-items: start;
   }
 
@@ -839,9 +1418,17 @@ onMounted(() => {
   }
 
   .footer-bottom-content {
-    flex-direction: column-reverse;
+    flex-direction: column;
     align-items: center;
     text-align: center;
+  }
+
+  .social-section {
+    margin-top: 0;
+  }
+
+  .app-download {
+    margin-top: 0;
   }
 
   .back-to-top {
@@ -866,7 +1453,7 @@ onMounted(() => {
     font-size: 13px;
   }
 
-  .social-btn {
+  .social-size-medium .social-btn {
     width: 36px;
     height: 36px;
     font-size: 18px;
@@ -901,7 +1488,9 @@ onMounted(() => {
   }
 }
 
-/* 回退媒体查询 */
+/* ================================================
+   RESPONSIVE - Media Query Fallback
+   ================================================ */
 @media (max-width: 768px) {
   .footer-content {
     padding: 36px 20px 20px;
@@ -917,7 +1506,7 @@ onMounted(() => {
 
   .footer-contact {
     min-width: 100%;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
   }
 
   .footer-contact .group-header {
@@ -941,9 +1530,7 @@ onMounted(() => {
   .footer-contact .contact-list {
     max-height: 0;
     overflow: hidden;
-    transition:
-      max-height 0.3s ease,
-      padding 0.3s ease;
+    transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0 24px;
   }
 
@@ -953,7 +1540,7 @@ onMounted(() => {
   }
 
   .link-group {
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--footer-border, rgba(255, 255, 255, 0.1));
     min-width: 100%;
   }
 
@@ -966,10 +1553,6 @@ onMounted(() => {
     cursor: pointer;
   }
 
-  .group-title {
-    flex: 0 0 auto;
-  }
-
   .group-arrow {
     display: block;
     font-size: 16px;
@@ -979,12 +1562,9 @@ onMounted(() => {
   }
 
   .group-links {
-    flex-direction: column;
     max-height: 0;
     overflow: hidden;
-    transition:
-      max-height 0.3s ease,
-      padding 0.3s ease;
+    transition: max-height 0.3s ease, padding 0.3s ease;
     padding: 0;
   }
 
@@ -998,7 +1578,7 @@ onMounted(() => {
   }
 
   .footer-bottom-content {
-    flex-direction: column-reverse;
+    flex-direction: column;
     align-items: center;
     text-align: center;
   }
@@ -1006,9 +1586,6 @@ onMounted(() => {
   .back-to-top {
     right: 16px;
     bottom: 16px;
-    width: 44px;
-    height: 44px;
-    font-size: 22px;
   }
 }
 
@@ -1023,12 +1600,6 @@ onMounted(() => {
 
   .brand-description {
     font-size: 13px;
-  }
-
-  .social-btn {
-    width: 36px;
-    height: 36px;
-    font-size: 18px;
   }
 
   .group-title {
