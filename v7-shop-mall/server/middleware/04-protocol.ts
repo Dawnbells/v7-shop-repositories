@@ -10,6 +10,7 @@ import { logger } from "../utils/logger";
 
 export default defineEventHandler(async (event) => {
   const path = event.path;
+  console.info("path", path);
 
   // 跳过 API 路由和编辑器路由
   if (

@@ -809,9 +809,9 @@ onMounted(() => {
 
 .logistics-icon :deep(svg) {
   display: block;
-  height: 20px;
+  height: 24px;
   width: auto;
-  max-width: 64px;
+  max-width: 80px;
 }
 
 /* ================================================
