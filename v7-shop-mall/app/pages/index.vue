@@ -1,18 +1,21 @@
 <script setup lang="ts">
 /**
  * 首页
- * 
+ *
  * SSR 完整渲染：
- * - 主题数据由中间件加载，通过 usePageContext 获取
+ * - 主题数据由中间件加载，通过 usePageTheme 获取
  * - 绑定解析和组件渲染在服务端完成
  * - 浏览器收到完整渲染的 HTML
  */
 
-// 初始化主题数据（SSR 时从 event.context 读取）
-const { themeConfig, siteConfig } = usePageContext()
-
-// 获取主题相关的计算属性和方法
-const { getPageSchema, getLayoutSchema, cssVariables, hasThemeConfig } = usePageTheme()
+// 获取主题相关数据和方法
+const {
+  siteConfig,
+  getPageSchema,
+  getLayoutSchema,
+  cssVariables,
+  hasThemeConfig,
+} = usePageTheme();
 
 // 获取首页 schema
 const pageSchema = computed(() => getPageSchema('home'))

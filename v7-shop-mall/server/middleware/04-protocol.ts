@@ -37,8 +37,8 @@ export default defineEventHandler(async (event) => {
 
   try {
     const groups = await findProtocolGroupsByProtocolId(protocolId, languageId);
+    logger.debug("[04-protocol] protocolGroups", groups);
     updatePageContext(event, { protocolGroups: groups });
-    console.log("protocolGroups", groups);
   } catch (error) {
     logger.error("[04-protocol] Error loading protocol groups:", error);
   }

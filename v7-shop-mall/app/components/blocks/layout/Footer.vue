@@ -3,6 +3,8 @@
  * Footer Block - 页脚组件
  * 展示联系方式、社交媒体、协议链接和版权信息
  * 
+ * 协议组数据由 04-protocol.ts 中间件预加载到 pageContext.protocolGroups
+ * 
  * 样式属性（通过 styleSchema 配置，由渲染器注入到根元素 style）：
  * - backgroundColor: 背景颜色
  * - --footer-text-color: 文字颜色
@@ -26,51 +28,11 @@ const props = withDefaults(defineProps<Props>(), {
   layout: 'standard',
 })
 
-interface ProtocolArticle {
-  id: number
-  title: string
-}
-
-interface ProtocolGroup {
-  id: number
-  name: string
-  articles: ProtocolArticle[]
-}
-
+// 主题相关数据
 const { globalConfig } = usePageTheme()
-const { landingPage } = usePageContext()
 
-const protocolId = computed(() => landingPage.value?.protocolId)
-const placeholderValues = computed(() => landingPage.value?.protocolPlaceholderValues || {})
-
-const { data: protocolData } = await useAsyncData(
-  `protocol-groups-${protocolId.value}`,
-  async () => {
-    if (!protocolId.value) return null
-    try {
-      const response = await $fetch<{ success: boolean; data: { groups: ProtocolGroup[] } }>(
-        '/api/protocol/groups',
-        { query: { id: protocolId.value } }
-      )
-      return response.success ? response.data : null
-    } catch {
-      return null
-    }
-  },
-  { watch: [protocolId] }
-)
-
-const protocolGroups = computed(() => protocolData.value?.groups || [])
-
-/**
- * 替换协议标题中的占位符
- */
-function replacePlaceholders(text: string): string {
-  if (!text) return ''
-  return text.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    return placeholderValues.value[key] ?? `{{${key}}}`
-  })
-}
+// 协议相关数据
+const { protocolGroups, hasProtocolGroups, replacePlaceholders } = useProtocol()
 
 const contactEmail = computed(() => globalConfig.value?.contactEmail)
 const contactPhone = computed(() => globalConfig.value?.contactPhone)
@@ -96,7 +58,7 @@ const hasSocial = computed(() =>
   youtube.value || tiktok.value || linkedin.value
 )
 
-const hasProtocol = computed(() => protocolGroups.value.length > 0)
+const hasProtocol = hasProtocolGroups
 
 const socialLinks = computed(() => {
   const links = []

@@ -1,20 +1,18 @@
 /**
- * 页面主题数据 Composable（SSR 安全）
- * 
- * 使用 useState 实现请求级作用域的状态管理
- * 数据由 usePageContext() 从 event.context.pageTheme 初始化
+ * 页面主题皮肤 Composable（SSR 安全）
+ *
+ * 提供主题配置、全局样式、CSS 变量等主题皮肤相关功能
+ * 数据从 usePageContext 获取（由中间件注入）
  * 客户端通过 hydration payload 自动获取，不会重新请求
  */
 
-import type { ThemeConfig, PageData, LayoutData, PageType } from '~/types/component-meta'
-import type { SiteConfig, VariableValues, GlobalConfig } from '~/types/data-context'
-import type { GlobalStyle } from '~/types/theme'
+import type { PageData, LayoutData, PageType } from "~/types/component-meta";
+import type { GlobalConfig } from "~/types/data-context";
+import type { GlobalStyle } from "~/types/theme";
 
 export function usePageTheme() {
-  // SSR 安全：useState 在服务端是请求级作用域的
-  const themeConfig = useState<ThemeConfig | null>('pageThemeConfig', () => null)
-  const siteConfig = useState<SiteConfig>('pageSiteConfig', () => ({}))
-  const variableValues = useState<VariableValues>('pageVariableValues', () => ({}))
+  // 从 usePageContext 获取主题数据
+  const { themeConfig, siteConfig, variableValues } = usePageContext();
 
   // 全局样式
   const globalStyle = computed<Partial<GlobalStyle>>(() => {

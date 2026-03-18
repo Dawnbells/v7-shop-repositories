@@ -2,7 +2,7 @@
  * 页面上下文 Composable
  *
  * 在 SSR 时从 event.context.pageContext 读取中间件注入的数据
- * 初始化 usePageTheme 的 useState 状态
+ * 作为所有数据的唯一来源，其他职责 composable 从此处获取数据
  * 客户端通过 hydration payload 自动恢复，无需操作
  */
 
@@ -105,22 +105,36 @@ interface ProductInfo {
   introductionData?: IntroductionItem[];
 }
 
+export interface ProtocolArticle {
+  id: number;
+  title: string;
+  description: string | null;
+}
+
+export interface ProtocolGroup {
+  id: number;
+  name: string;
+  sort: number;
+  articles: ProtocolArticle[];
+}
+
 interface PageContext {
   pageTheme: PageThemeContext | null;
   landingPage: LandingPageInfo | null;
   productInfo: ProductInfo | null;
   currency: Currency | null;
+  protocolGroups: ProtocolGroup[] | null;
 }
 
 export function usePageContext() {
-  const { themeConfig, siteConfig, variableValues } = usePageTheme();
-
+  // 直接使用 useState 管理所有状态，不再调用 usePageTheme
+  const themeConfig = useState<ThemeConfig | null>("pageThemeConfig", () => null);
+  const siteConfig = useState<SiteConfig>("pageSiteConfig", () => ({}));
+  const variableValues = useState<VariableValues>("pageVariableValues", () => ({}));
   const productInfo = useState<ProductInfo | null>("productInfo", () => null);
-  const landingPage = useState<LandingPageInfo | null>(
-    "landingPage",
-    () => null,
-  );
+  const landingPage = useState<LandingPageInfo | null>("landingPage", () => null);
   const currency = useState<Currency | null>("currency", () => null);
+  const protocolGroups = useState<ProtocolGroup[] | null>("protocolGroups", () => null);
 
   // SSR 时：从 event.context.pageContext 读取中间件注入的数据
   if (import.meta.server) {
@@ -161,6 +175,10 @@ export function usePageContext() {
     if (pageContext?.currency && currency.value === null) {
       currency.value = pageContext.currency;
     }
+
+    if (pageContext?.protocolGroups && protocolGroups.value === null) {
+      protocolGroups.value = pageContext.protocolGroups;
+    }
   }
 
   /**
@@ -185,6 +203,7 @@ export function usePageContext() {
     landingPage,
     productInfo,
     currency,
+    protocolGroups,
     setMockData,
   };
 }

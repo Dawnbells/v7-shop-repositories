@@ -1,28 +1,30 @@
 <script setup lang="ts">
 /**
  * 文章详情页
- * 
+ *
  * SSR 完整渲染：
- * - 主题数据由中间件加载，通过 usePageContext 获取
- * - 文章数据通过 useAsyncData 在服务端获取
+ * - 主题数据由中间件加载，通过 usePageTheme 获取
+ * - 文章数据通过 useArticlePage 获取
  * - 绑定解析和组件渲染在服务端完成
  * - 浏览器收到完整渲染的 HTML
  */
 
-// 使用文章页 composable（SSR 时所有数据在服务端获取）
-const {
-  articleInfo,
-  isLoading,
-  error,
-  cssVariables,
-  pageSchema,
-  layoutSchema,
-  hasTheme,
-  useSiteTitle,
-} = useArticlePage()
+// 获取主题相关数据
+const { cssVariables, getPageSchema, getLayoutSchema } = usePageTheme();
+
+// 获取文章数据
+const { articleInfo, isLoading, error, useSiteTitle } = useArticlePage();
+
+// 页面配置
+const pageSchema = computed(() => getPageSchema("article"));
+const layoutSchema = computed(() => {
+  const layoutId = pageSchema.value?.layoutId;
+  return layoutId ? getLayoutSchema(layoutId) : undefined;
+});
+const hasTheme = computed(() => !!pageSchema.value);
 
 // 设置浏览器标签页标题
-useSiteTitle(computed(() => articleInfo.value?.title || '文章详情'))
+useSiteTitle(computed(() => articleInfo.value?.title || "文章详情"));
 
 // 提供编辑器状态（非编辑器模式）
 provide('isInEditor', ref(false))
