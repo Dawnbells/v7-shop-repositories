@@ -39,7 +39,9 @@ export interface DirectOrderItem {
 }
 
 export function useCart() {
-  const { globalConfig } = usePageTheme();
+  const { siteConfig } = usePageContext();
+
+  const cartMode = computed(() => siteConfig.value?.globalConfig?.cartMode ?? "single");
 
   // 购物车商品列表
   const cartItems = useState<CartItem[]>("cartItems", () => []);
@@ -72,9 +74,9 @@ export function useCart() {
   // 获取购物车 storage key
   function getCartStorageKey(): string {
     const domain = getDomain();
-    const cartMode = globalConfig.value?.cartMode ?? "single";
+    const mode = cartMode.value;
 
-    if (cartMode === "single") {
+    if (mode === "single") {
       const productId = getProductId();
       return `${CART_STORAGE_PREFIX}-${domain}-${productId}`;
     }

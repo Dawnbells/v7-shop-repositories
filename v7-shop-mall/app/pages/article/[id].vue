@@ -13,7 +13,7 @@
 const { cssVariables, getPageSchema, getLayoutSchema } = usePageTheme();
 
 // 获取文章数据
-const { articleInfo, isLoading, error, useSiteTitle } = useArticlePage();
+const { articleInfo, useSiteTitle } = useArticlePage();
 
 // 页面配置
 const pageSchema = computed(() => getPageSchema("article"));
@@ -46,19 +46,8 @@ provide('pageData', computed(() => ({
 
     <!-- 无主题配置时的 fallback -->
     <template v-else>
-      <!-- 加载中 -->
-      <div v-if="isLoading" class="article-loading">
-        加载中...
-      </div>
-
-      <!-- 加载错误 -->
-      <div v-else-if="error" class="article-error">
-        <p>加载文章失败</p>
-        <p class="error-detail">{{ error.message }}</p>
-      </div>
-
       <!-- 文章内容 -->
-      <div v-else-if="articleInfo" class="default-article-page">
+      <div v-if="articleInfo" class="default-article-page">
         <h1 class="article-default-title">{{ articleInfo.title }}</h1>
         <p v-if="articleInfo.description" class="article-default-description">
           {{ articleInfo.description }}
@@ -163,8 +152,6 @@ provide('pageData', computed(() => ({
   background: #f9fafb;
 }
 
-.article-loading,
-.article-error,
 .article-not-found {
   display: flex;
   flex-direction: column;
@@ -175,15 +162,5 @@ provide('pageData', computed(() => ({
   font-size: 16px;
   text-align: center;
   padding: 24px;
-}
-
-.article-error {
-  color: #ef4444;
-}
-
-.error-detail {
-  font-size: 14px;
-  color: #9ca3af;
-  margin-top: 8px;
 }
 </style>

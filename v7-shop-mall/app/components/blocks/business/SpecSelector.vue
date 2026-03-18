@@ -5,7 +5,7 @@
  * 支持 SKU 组合可选性算法，禁用不存在的组合
  */
 
-import type { ProductSpecification } from "~/composables/useProductPage";
+import type { ProductSpecification } from "~/types/product";
 
 interface Props {
   showImage?: boolean;

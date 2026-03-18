@@ -8,6 +8,7 @@ import type { CloakCheckResponse } from './cloak'
 import type { ThemeConfig, SiteConfig, VariableValues } from '../../app/types/builder'
 import type { ProductDetail } from '../repositories/productRepository'
 import type { ProtocolGroup } from '../repositories/protocolRepository'
+import type { ArticleInfo } from '../repositories/articleRepository'
 
 /**
  * 页面主题配置
@@ -74,6 +75,10 @@ export interface PageContext {
   /** 商品详细信息 */
   productInfo: ProductDetail | null
 
+  // 11-article.ts 设置
+  /** 文章详情 */
+  articleInfo: ArticleInfo | null
+
   // 从 URL 解析
   /** 产品 SPU ID */
   spuId: number | null
@@ -97,6 +102,7 @@ export interface PartialPageContext {
   landingPage: LandingPageInfo | null
   protocolGroups: ProtocolGroup[] | null
   productInfo: ProductDetail | null
+  articleInfo: ArticleInfo | null
   spuId: number | null
 }
 
@@ -118,6 +124,7 @@ export function createEmptyPageContext(): PartialPageContext {
     landingPage: null,
     protocolGroups: null,
     productInfo: null,
+    articleInfo: null,
     spuId: null,
   }
 }

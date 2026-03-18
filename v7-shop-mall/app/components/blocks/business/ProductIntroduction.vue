@@ -5,7 +5,7 @@
  * 图片根据数据库中的宽高比自适应显示，确保视窗内完整展示
  */
 
-import type { IntroductionItem } from "~/composables/usePageContext";
+import type { IntroductionItem } from "~/types/product";
 
 const { productInfo } = useProductPage();
 

@@ -26,7 +26,7 @@ const {
   updateQuantity,
   loadFromStorage,
 } = useCart();
-const { formatPrice } = useProductPage();
+const { formatPrice } = useCurrency();
 const { globalConfig } = usePageTheme();
 
 // 是否启用数量选择器
