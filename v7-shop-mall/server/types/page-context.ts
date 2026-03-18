@@ -50,6 +50,8 @@ export interface PageContext {
   company: Company
   /** 销售用户信息 */
   salesUser: SalesUser
+  /** 当前选中的语言ID */
+  currentLanguageId: number
 
   // 02-cloak.ts 设置（必需，不能为 null）
   /** 斗篷检查结果 */
@@ -83,6 +85,7 @@ export interface PartialPageContext {
   currency: Currency | null
   company: Company | null
   salesUser: SalesUser | null
+  currentLanguageId: number | null
   cloak: CloakCheckResponse | null
   fingerprint: string | null
   pageTheme: PageTheme | null
@@ -102,6 +105,7 @@ export function createEmptyPageContext(): PartialPageContext {
     currency: null,
     company: null,
     salesUser: null,
+    currentLanguageId: null,
     cloak: null,
     fingerprint: null,
     pageTheme: null,
@@ -121,6 +125,7 @@ export function isDomainContextComplete(ctx: PartialPageContext): ctx is PageCon
     ctx.country !== null &&
     ctx.currency !== null &&
     ctx.company !== null &&
-    ctx.salesUser !== null
+    ctx.salesUser !== null &&
+    ctx.currentLanguageId !== null
   )
 }

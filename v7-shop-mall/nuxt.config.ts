@@ -46,6 +46,12 @@ export default defineNuxtConfig({
       password: '',
       database: 'shop',
     },
+    redis: {
+      host: '127.0.0.1',
+      port: 6379,
+      password: '',
+      db: 0,
+    },
     // 开发环境模拟域名（本地调试时使用此域名查询商城信息）
     devDomain: '',
     // 风控服务地址
