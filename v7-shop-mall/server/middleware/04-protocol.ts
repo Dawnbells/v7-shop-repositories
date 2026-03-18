@@ -1,0 +1,45 @@
+/**
+ * 协议组加载中间件
+ * 根据 landingPage.protocolId 和 currentLanguageId 查询协议组列表
+ * 设置 PageContext.protocolGroups
+ */
+
+import { findProtocolGroupsByProtocolId } from "../repositories/protocolRepository";
+import { getPageContext, updatePageContext } from "../utils/page-context";
+import { logger } from "../utils/logger";
+
+export default defineEventHandler(async (event) => {
+  const path = event.path;
+
+  // 跳过 API 路由和编辑器路由
+  if (
+    path.startsWith("/api/") ||
+    path.startsWith("/builder") ||
+    path.startsWith("/_nuxt") ||
+    path.startsWith("/__nuxt")
+  ) {
+    return;
+  }
+
+  const pageContext = getPageContext(event);
+
+  const protocolId = pageContext.landingPage?.protocolId;
+  const languageId = pageContext.currentLanguageId;
+
+  if (!protocolId) {
+    return;
+  }
+
+  if (!languageId) {
+    logger.warn("[04-protocol] No languageId found in pageContext");
+    return;
+  }
+
+  try {
+    const groups = await findProtocolGroupsByProtocolId(protocolId, languageId);
+    updatePageContext(event, { protocolGroups: groups });
+    console.log("protocolGroups", groups);
+  } catch (error) {
+    logger.error("[04-protocol] Error loading protocol groups:", error);
+  }
+});

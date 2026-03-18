@@ -155,12 +155,12 @@ export default defineEventHandler(async (event) => {
   const countryId = pageContext.country?.id;
 
   if (!landingSpuId) {
-    logger.warn("[04-product] No landingSpuId found in pageContext");
+    logger.warn("[10-product] No landingSpuId found in pageContext");
     return;
   }
 
   if (!countryId) {
-    logger.warn("[04-product] No countryId found in pageContext");
+    logger.warn("[10-product] No countryId found in pageContext");
     return;
   }
 
@@ -168,7 +168,7 @@ export default defineEventHandler(async (event) => {
     const productInfo = await findProductDetailBySpuAndCountry(landingSpuId, countryId);
 
     if (!productInfo) {
-      logger.warn(`[04-product] Product not found for landingSpuId=${landingSpuId}, countryId=${countryId}`);
+      logger.warn(`[10-product] Product not found for landingSpuId=${landingSpuId}, countryId=${countryId}`);
       return;
     }
 
@@ -181,6 +181,6 @@ export default defineEventHandler(async (event) => {
       },
     });
   } catch (error) {
-    logger.error("[04-product] Error loading product info:", error);
+    logger.error("[10-product] Error loading product info:", error);
   }
 });

@@ -7,6 +7,7 @@ import type { SubDomain, TopLevelDomain, Country, Currency, Company, SalesUser }
 import type { CloakCheckResponse } from './cloak'
 import type { ThemeConfig, SiteConfig, VariableValues } from '../../app/types/builder'
 import type { ProductDetail } from '../repositories/productRepository'
+import type { ProtocolGroup } from '../repositories/protocolRepository'
 
 /**
  * 页面主题配置
@@ -65,7 +66,11 @@ export interface PageContext {
   /** 落地页配置信息 */
   landingPage: LandingPageInfo | null
 
-  // 04-product.ts 设置
+  // 04-protocol.ts 设置
+  /** 协议组列表 */
+  protocolGroups: ProtocolGroup[] | null
+
+  // 10-product.ts 设置
   /** 商品详细信息 */
   productInfo: ProductDetail | null
 
@@ -90,6 +95,7 @@ export interface PartialPageContext {
   fingerprint: string | null
   pageTheme: PageTheme | null
   landingPage: LandingPageInfo | null
+  protocolGroups: ProtocolGroup[] | null
   productInfo: ProductDetail | null
   spuId: number | null
 }
@@ -110,6 +116,7 @@ export function createEmptyPageContext(): PartialPageContext {
     fingerprint: null,
     pageTheme: null,
     landingPage: null,
+    protocolGroups: null,
     productInfo: null,
     spuId: null,
   }
