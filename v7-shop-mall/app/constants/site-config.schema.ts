@@ -220,6 +220,15 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     group: "globalConfig.footer",
     description: "中国大陆网站备案号",
   },
+  {
+    key: "globalConfig.newsletterTitle",
+    label: "邮件订阅标题",
+    type: "text",
+    defaultValue: "订阅我们的新闻",
+    placeholder: "如：订阅获取最新优惠",
+    group: "globalConfig.footer",
+    description: "页脚邮件订阅区域的标题文字",
+  },
 
   // ============ 社交媒体 (globalConfig.social) ============
   {

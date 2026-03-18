@@ -10,38 +10,12 @@ export const meta: ComponentMeta = {
   icon: "i-carbon-row-collapse",
   category: "layout",
   description:
-    "页脚组件，支持多布局/多主题、品牌信息、协议链接、联系方式、社交媒体、邮件订阅、App 下载",
+    "页脚组件，支持多主题、品牌信息、协议链接、联系方式、社交媒体、邮件订阅",
 
   singleton: true,
   allowedPosition: "last",
 
   propsSchema: [
-    // --- 布局 ---
-    {
-      key: "layout",
-      label: "布局方式",
-      type: "select",
-      defaultValue: "standard",
-      options: [
-        { label: "标准布局", value: "standard" },
-        { label: "等列布局", value: "columns" },
-        { label: "居中布局", value: "centered" },
-        { label: "极简布局", value: "minimal" },
-      ],
-      group: "layout",
-    },
-    {
-      key: "contentWidth",
-      label: "内容宽度",
-      type: "select",
-      defaultValue: "contained",
-      options: [
-        { label: "全宽", value: "full" },
-        { label: "标准 (1400px)", value: "contained" },
-        { label: "窄 (960px)", value: "narrow" },
-      ],
-      group: "layout",
-    },
     // --- 主题 ---
     {
       key: "theme",
@@ -126,33 +100,6 @@ export const meta: ComponentMeta = {
       type: "switch",
       defaultValue: true,
       group: "content",
-    },
-    // --- 品牌 ---
-    {
-      key: "showBrandLogo",
-      label: "显示品牌 Logo",
-      type: "switch",
-      defaultValue: false,
-      group: "brand",
-    },
-    {
-      key: "logoUrl",
-      label: "Logo 图片 URL",
-      type: "text",
-      placeholder: "https://...",
-      group: "brand",
-    },
-    {
-      key: "logoSize",
-      label: "Logo 尺寸",
-      type: "select",
-      defaultValue: "medium",
-      options: [
-        { label: "小", value: "small" },
-        { label: "中", value: "medium" },
-        { label: "大", value: "large" },
-      ],
-      group: "brand",
     },
     // --- 社交媒体 ---
     {
@@ -266,41 +213,9 @@ export const meta: ComponentMeta = {
       defaultValue: false,
       group: "newsletter",
     },
-    {
-      key: "newsletterTitle",
-      label: "订阅标题",
-      type: "text",
-      defaultValue: "订阅我们的新闻",
-      placeholder: "订阅标题文字",
-      group: "newsletter",
-    },
-    // --- App 下载 ---
-    {
-      key: "showAppDownload",
-      label: "显示 App 下载",
-      type: "switch",
-      defaultValue: false,
-      group: "app",
-    },
-    {
-      key: "appStoreUrl",
-      label: "App Store 链接",
-      type: "text",
-      placeholder: "https://apps.apple.com/...",
-      group: "app",
-    },
-    {
-      key: "playStoreUrl",
-      label: "Google Play 链接",
-      type: "text",
-      placeholder: "https://play.google.com/...",
-      group: "app",
-    },
   ],
 
   defaultProps: {
-    layout: "standard",
-    contentWidth: "contained",
     theme: "dark",
     backgroundOverlay: true,
     borderTop: true,
@@ -310,8 +225,6 @@ export const meta: ComponentMeta = {
     showProtocol: true,
     showCopyright: true,
     showPaymentIcons: true,
-    showBrandLogo: false,
-    logoSize: "medium",
     socialStyle: "rounded",
     socialSize: "medium",
     socialPosition: "brand",
@@ -322,8 +235,6 @@ export const meta: ComponentMeta = {
     enableAnimations: true,
     hoverEffect: "lift",
     showNewsletter: false,
-    newsletterTitle: "订阅我们的新闻",
-    showAppDownload: false,
   },
 
   styleSchema: [
@@ -424,6 +335,5 @@ export const meta: ComponentMeta = {
     "社交媒体",
     "协议",
     "订阅",
-    "下载",
   ],
 };

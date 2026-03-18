@@ -164,6 +164,7 @@ export interface GlobalConfig {
   businessHours?: string
   copyright?: string
   icp?: string
+  newsletterTitle?: string
   facebook?: string
   twitter?: string
   instagram?: string
