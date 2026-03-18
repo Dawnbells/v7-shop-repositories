@@ -16,6 +16,16 @@ export const meta: ComponentMeta = {
   allowedPosition: "last",
 
   propsSchema: [
+    // --- 布局 ---
+    {
+      key: "contentMaxWidth",
+      label: "内容区最大宽度",
+      type: "text",
+      defaultValue: "1400px",
+      placeholder: "1400px",
+      description: "设置页脚内容区的最大宽度",
+      group: "layout",
+    },
     // --- 主题 ---
     {
       key: "theme",
@@ -216,6 +226,7 @@ export const meta: ComponentMeta = {
   ],
 
   defaultProps: {
+    contentMaxWidth: "1400px",
     theme: "dark",
     backgroundOverlay: true,
     borderTop: true,

@@ -22,6 +22,7 @@ interface Props {
   enableAnimations?: boolean;
   hoverEffect?: "lift" | "glow" | "underline" | "none";
   showNewsletter?: boolean;
+  contentMaxWidth?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -44,6 +45,7 @@ const props = withDefaults(defineProps<Props>(), {
   enableAnimations: true,
   hoverEffect: "lift",
   showNewsletter: false,
+  contentMaxWidth: "1400px",
 });
 
 const emit = defineEmits<{
@@ -263,7 +265,6 @@ const newsletterEmail = ref("");
 const newsletterSubmitted = ref(false);
 
 function handleNewsletterSubmit() {
-  if (isInEditor.value) return;
   if (!newsletterEmail.value) return;
   emit("subscribe", newsletterEmail.value);
   newsletterSubmitted.value = true;
@@ -327,6 +328,7 @@ const footerStyle = computed(() => {
     style.backgroundSize = "cover";
     style.backgroundPosition = "center";
   }
+  style["--footer-content-max-width"] = props.contentMaxWidth;
   return style;
 });
 
@@ -692,7 +694,7 @@ onMounted(() => {
    ================================================ */
 .footer-content {
   min-width: 320px;
-  max-width: 1400px;
+  max-width: var(--footer-content-max-width, 1400px);
   margin-left: auto;
   margin-right: auto;
   padding: 48px 24px 24px;
@@ -704,10 +706,11 @@ onMounted(() => {
 .footer-main {
   display: flex;
   flex-wrap: wrap;
+  justify-content: space-between;
 }
 
 .footer-brand {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 200px;
   max-width: 320px;
   padding-bottom: 24px;
@@ -919,8 +922,9 @@ onMounted(() => {
    CONTACT
    ================================================ */
 .footer-contact {
+  order: 99;
   min-width: 200px;
-  flex: 1;
+  flex: 0 0 auto;
 }
 .footer-contact .group-header {
   cursor: default;
