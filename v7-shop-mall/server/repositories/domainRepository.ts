@@ -3,7 +3,12 @@
  * 封装域名相关的数据库查询
  */
 
-import { queryOne } from '../utils/db'
+import { query, queryOne } from '../utils/db'
+import { getRedisStorage } from '../utils/redis'
+
+const CACHE_PREFIX = 'domain:'
+const CACHE_TTL = 300 // 5 分钟（秒）
+import type { LanguageItem } from './languageRepository'
 import type {
   SubDomain,
   TopLevelDomain,
@@ -83,7 +88,7 @@ interface DomainQueryRow {
 /**
  * 将原始行数据转换为结构化的 DomainQueryResult
  */
-function mapRowToResult(row: DomainQueryRow): DomainQueryResult {
+function mapRowToResult(row: DomainQueryRow, languages: LanguageItem[] = []): DomainQueryResult {
   const subDomain: SubDomain = {
     id: row.id,
     fullName: row.full_name,
@@ -123,6 +128,7 @@ function mapRowToResult(row: DomainQueryRow): DomainQueryResult {
         requiredPhone: row.required_phone !== null ? Boolean(row.required_phone) : null,
         useFullName: row.use_full_name !== null ? Boolean(row.use_full_name) : null,
         footerCopyrightInfo: row.footer_copyright_info,
+        languages,
       }
     : null
 
@@ -166,10 +172,32 @@ function mapRowToResult(row: DomainQueryRow): DomainQueryResult {
 }
 
 /**
+ * 根据国家ID查询支持的语言列表
+ */
+async function findLanguagesByCountryId(countryId: number): Promise<LanguageItem[]> {
+  const sql = `
+    SELECT l.id, l.code, l.name, l.cname
+    FROM t_country_languages cl
+    INNER JOIN t_languages l ON cl.language_id = l.id AND l.status = 'VALID'
+    WHERE cl.country_id = ?
+    ORDER BY l.id ASC
+  `
+  return query<LanguageItem>(sql, [countryId])
+}
+
+/**
  * 根据完整域名查询域名信息及所有关联实体
  * @param fullName 完整域名，如 test.axhhcx.shop
  */
 export async function findDomainByFullName(fullName: string): Promise<DomainQueryResult | null> {
+  const storage = getRedisStorage()
+  const cacheKey = `${CACHE_PREFIX}${fullName}`
+
+  const cached = await storage.getItem<DomainQueryResult>(cacheKey)
+  if (cached) {
+    return cached
+  }
+
   const sql = `
     SELECT 
       d.id, d.full_name, d.name, d.type, d.status, d.company_id,
@@ -184,11 +212,11 @@ export async function findDomainByFullName(fullName: string): Promise<DomainQuer
       tld.id AS tld_id, tld.name AS tld_name, tld.cloakStrategy AS cloak_strategy, tld.user_id AS tld_user_id,
       su.id AS sales_user_id, su.name AS sales_user_name, su.department_id AS sales_department_id
     FROM t_sub_domains d
-    LEFT JOIN t_countries c ON d.country_id = c.id AND c.status = 'VALID'
-    LEFT JOIN t_currencies cur ON c.currency_id = cur.id AND cur.status = 'VALID'
-    LEFT JOIN t_companies comp ON d.company_id = comp.id AND comp.status = 'VALID'
-    LEFT JOIN t_top_level_domains tld ON d.parent_domain_id = tld.id AND tld.status = 'VALID'
-    LEFT JOIN t_system_users su ON tld.user_id = su.id AND su.status = 'VALID'
+    INNER JOIN t_countries c ON d.country_id = c.id AND c.status = 'VALID'
+    INNER JOIN t_currencies cur ON c.currency_id = cur.id AND cur.status = 'VALID'
+    INNER JOIN t_companies comp ON d.company_id = comp.id AND comp.status = 'VALID'
+    INNER JOIN t_top_level_domains tld ON d.parent_domain_id = tld.id AND tld.status = 'VALID'
+    INNER JOIN t_system_users su ON tld.user_id = su.id AND su.status = 'VALID'
     WHERE d.full_name = ? AND d.status = 'VALID'
     LIMIT 1
   `
@@ -199,5 +227,14 @@ export async function findDomainByFullName(fullName: string): Promise<DomainQuer
     return null
   }
 
-  return mapRowToResult(row)
+  let languages: LanguageItem[] = []
+  if (row.country_id_val) {
+    languages = await findLanguagesByCountryId(row.country_id_val)
+  }
+
+  const result = mapRowToResult(row, languages)
+
+  await storage.setItem(cacheKey, result, { ttl: CACHE_TTL })
+
+  return result
 }

@@ -17,6 +17,10 @@ import { logger } from "../utils/logger";
 const SPU_ID_COOKIE = "_spuId";
 const SPU_ID_MAX_AGE = 30 * 24 * 60 * 60; // 30 天
 
+// languageId Cookie 配置
+const LANGUAGE_ID_COOKIE = "_languageId";
+const LANGUAGE_ID_MAX_AGE = 365 * 24 * 60 * 60; // 1 年
+
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
@@ -127,6 +131,45 @@ export default defineEventHandler(async (event) => {
       subDomain.fullName = host;
     }
 
+    // 语言选择逻辑：URL参数 > Cookie > 列表第一个
+    const languages = country.languages || [];
+    let currentLanguageId: number | null = null;
+
+    if (languages.length > 0) {
+      const languageIds = new Set(languages.map((l) => l.id));
+
+      // 1. 优先从 URL 参数获取
+      const urlQuery = getQuery(event);
+      const urlLanguageId = urlQuery.languageId
+        ? parseInt(String(urlQuery.languageId), 10)
+        : null;
+
+      if (urlLanguageId && languageIds.has(urlLanguageId)) {
+        currentLanguageId = urlLanguageId;
+      } else {
+        // 2. 其次从 Cookie 获取
+        const cookieLanguageId = getCookie(event, LANGUAGE_ID_COOKIE);
+        const parsedCookieLanguageId = cookieLanguageId
+          ? parseInt(cookieLanguageId, 10)
+          : null;
+
+        if (parsedCookieLanguageId && languageIds.has(parsedCookieLanguageId)) {
+          currentLanguageId = parsedCookieLanguageId;
+        } else {
+          // 3. 使用列表第一个作为默认值
+          currentLanguageId = languages[0]!.id;
+        }
+      }
+
+      // 将选中的语言ID写入 Cookie
+      setCookie(event, LANGUAGE_ID_COOKIE, String(currentLanguageId), {
+        maxAge: LANGUAGE_ID_MAX_AGE,
+        path: "/",
+      });
+    } else {
+      logger.warn(`[01-domain] No languages found for country: ${country.code}`);
+    }
+
     // 将所有实体存入 PageContext
     updatePageContext(event, {
       subDomain,
@@ -135,6 +178,7 @@ export default defineEventHandler(async (event) => {
       currency,
       company,
       salesUser,
+      currentLanguageId,
       spuId,
     });
   } catch (error) {

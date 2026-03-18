@@ -23,7 +23,7 @@ import java.util.List;
 @SuperBuilder
 @SQLRestriction("status <> 'DELETED'")
 @Table(name = "t_sub_domains", indexes = {
-        @Index(name = "idx_sub_domain_full_name", columnList = "full_name"),
+        @Index(name = "uk_sub_domain_full_name", columnList = "full_name", unique = true),
 })
 public class SubDomain extends BaseTenantEntity {
     /**

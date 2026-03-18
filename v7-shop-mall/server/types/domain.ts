@@ -2,6 +2,8 @@
  * 域名相关实体类型定义
  */
 
+import type { LanguageItem } from '../repositories/languageRepository'
+
 /**
  * 子域名信息
  */
@@ -47,6 +49,7 @@ export interface Country {
   requiredPhone: boolean | null
   useFullName: boolean | null
   footerCopyrightInfo: string | null
+  languages: LanguageItem[]
 }
 
 /**
