@@ -41,7 +41,9 @@ export interface DirectOrderItem {
 export function useCart() {
   const { siteConfig } = usePageContext();
 
-  const cartMode = computed(() => siteConfig.value?.globalConfig?.cartMode ?? "single");
+  const cartMode = computed(
+    () => siteConfig.value?.globalConfig?.cartMode ?? "single",
+  );
 
   // 购物车商品列表
   const cartItems = useState<CartItem[]>("cartItems", () => []);
@@ -49,7 +51,7 @@ export function useCart() {
   // 直接下单商品（不通过购物车时使用）
   const directOrderItem = useState<DirectOrderItem | null>(
     "directOrderItem",
-    () => null
+    () => null,
   );
 
   // 当前使用的 storage key（用于检测 key 变化）
@@ -144,7 +146,7 @@ export function useCart() {
       if (item.stockQuantity !== undefined && item.stockQuantity >= 0) {
         cartItems.value[existingIndex].quantity = Math.min(
           newQuantity,
-          item.stockQuantity
+          item.stockQuantity,
         );
       } else {
         cartItems.value[existingIndex].quantity = newQuantity;
@@ -185,7 +187,7 @@ export function useCart() {
         if (item.stockQuantity !== undefined && item.stockQuantity >= 0) {
           cartItems.value[index].quantity = Math.min(
             quantity,
-            item.stockQuantity
+            item.stockQuantity,
           );
         } else {
           cartItems.value[index].quantity = quantity;
@@ -220,7 +222,7 @@ export function useCart() {
   const cartTotal = computed(() => {
     return cartItems.value.reduce(
       (sum, item) => sum + item.price * item.quantity,
-      0
+      0,
     );
   });
 
@@ -238,9 +240,11 @@ export function useCart() {
     cartDrawerVisible.value = false;
   }
 
-  // 初始化：客户端加载时从 localStorage 读取
+  // 初始化：hydration 完成后再从 localStorage 读取，避免 SSR/客户端不一致导致 hydration mismatch
   if (import.meta.client) {
-    loadFromStorage();
+    onMounted(() => {
+      loadFromStorage();
+    });
   }
 
   return {
