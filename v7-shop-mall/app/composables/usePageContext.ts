@@ -29,10 +29,10 @@ interface PageContext {
   articleInfo: ArticleInfo | null;
 }
 
-// 标记是否已经注入过 SSR 数据
-const ssrDataInjected = useState<boolean>("pageContextSSRInjected", () => false);
-
 export function usePageContext() {
+  // 标记是否已经注入过 SSR 数据（useState 相同 key 返回同一 ref，所以放在函数内安全）
+  const ssrDataInjected = useState<boolean>("pageContextSSRInjected", () => false);
+
   const themeConfig = useState<ThemeConfig | null>("pageThemeConfig", () => null);
   const siteConfig = useState<SiteConfig>("pageSiteConfig", () => ({}));
   const variableValues = useState<VariableValues>("pageVariableValues", () => ({}));
