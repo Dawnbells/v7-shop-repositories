@@ -267,8 +267,8 @@ function handleInput(field: keyof typeof shippingAddress.value, event: Event) {
   color: var(--error-color, #ef4444);
 }
 
-/* 响应式 - 使用媒体查询 */
-@media (max-width: 640px) {
+/* 响应式 - 使用容器查询以支持主题编辑器预览 */
+@container (max-width: 640px) {
   .layout-double .form-row {
     grid-template-columns: 1fr;
   }

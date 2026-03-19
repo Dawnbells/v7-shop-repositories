@@ -143,6 +143,7 @@ function toggleSummary() {
 
 <style scoped>
 .block-checkout-page {
+  container-type: inline-size;
   width: 100%;
   max-width: var(--checkout-max-width, 1200px);
   margin: 0 auto;
@@ -242,7 +243,7 @@ function toggleSummary() {
 }
 
 /* 响应式：平板及以下降级为单列 + 订单汇总可折叠 */
-@media (max-width: 860px) {
+@container (max-width: 860px) {
   .layout-two-column {
     display: flex;
     flex-direction: column;
@@ -327,7 +328,7 @@ function toggleSummary() {
 }
 
 /* 响应式：移动端进一步优化 */
-@media (max-width: 480px) {
+@container (max-width: 480px) {
   .checkout-section {
     padding: var(--checkout-section-padding-mobile, 16px);
   }
