@@ -10,7 +10,12 @@ import Decimal from "decimal.js";
 export function useCurrency() {
   const { currency } = usePageContext();
 
-  function formatPrice(price: number | string | null | undefined): string {
+  /**
+   * 格式化价格显示
+   * @param price 价格数值
+   * @param skipConversion 是否跳过汇率转换（当价格已经是目标货币时设为 true）
+   */
+  function formatPrice(price: number | string | null | undefined, skipConversion = false): string {
     if (price == null) return "";
     const num = typeof price === "string" ? parseFloat(price) : price;
     if (isNaN(num)) return "";
@@ -18,7 +23,7 @@ export function useCurrency() {
     const curr = currency.value;
     if (curr?.code) {
       let converted = new Decimal(num);
-      if (curr.exchangeRate && curr.exchangeRate !== 1) {
+      if (!skipConversion && curr.exchangeRate && curr.exchangeRate !== 1) {
         converted = converted.times(curr.exchangeRate);
       }
 

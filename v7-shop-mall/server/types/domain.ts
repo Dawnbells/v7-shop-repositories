@@ -82,6 +82,7 @@ export interface SalesUser {
   id: number
   name: string | null
   departmentId: number | null
+  departmentName: string | null
 }
 
 /**

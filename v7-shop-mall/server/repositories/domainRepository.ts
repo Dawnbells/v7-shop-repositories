@@ -3,12 +3,12 @@
  * 封装域名相关的数据库查询
  */
 
-import { query, queryOne } from '../utils/db'
-import { getRedisStorage } from '../utils/redis'
+import { query, queryOne } from "../utils/db";
+import { getRedisStorage } from "../utils/redis";
 
-const CACHE_PREFIX = 'domain:'
-const CACHE_TTL = 300 // 5 分钟（秒）
-import type { LanguageItem } from './languageRepository'
+const CACHE_PREFIX = "domain:";
+const CACHE_TTL = 300; // 5 分钟（秒）
+import type { LanguageItem } from "./languageRepository";
 import type {
   SubDomain,
   TopLevelDomain,
@@ -17,7 +17,7 @@ import type {
   Company,
   SalesUser,
   DomainQueryResult,
-} from '../types/domain'
+} from "../types/domain";
 
 // 重新导出类型方便外部使用
 export type {
@@ -28,67 +28,71 @@ export type {
   Company,
   SalesUser,
   DomainQueryResult,
-} from '../types/domain'
+} from "../types/domain";
 
 /**
  * 域名查询原始行数据
  */
 interface DomainQueryRow {
   // SubDomain
-  id: number
-  full_name: string
-  name: string
-  type: string
-  status: string
-  company_id: number
-  website_id: number | null
-  theme_id: number | null
-  country_id: number | null
-  currency_id: number | null
-  language_id: number | null
-  analyze_success: number | null
-  parent_domain_id: number | null
+  id: number;
+  full_name: string;
+  name: string;
+  type: string;
+  status: string;
+  company_id: number;
+  website_id: number | null;
+  theme_id: number | null;
+  country_id: number | null;
+  currency_id: number | null;
+  language_id: number | null;
+  analyze_success: number | null;
+  parent_domain_id: number | null;
   // Country
-  country_id_val: number | null
-  country_code: string | null
-  country_name: string | null
-  continent_code: string | null
-  phone_prefix: string | null
-  phone_rule: string | null
-  address_fields: string | null
-  address_rule: string | null
-  required_email: number | null
-  required_phone: number | null
-  use_full_name: number | null
-  footer_copyright_info: string | null
+  country_id_val: number | null;
+  country_code: string | null;
+  country_name: string | null;
+  continent_code: string | null;
+  phone_prefix: string | null;
+  phone_rule: string | null;
+  address_fields: string | null;
+  address_rule: string | null;
+  required_email: number | null;
+  required_phone: number | null;
+  use_full_name: number | null;
+  footer_copyright_info: string | null;
   // Currency
-  currency_id_val: number | null
-  currency_code: string | null
-  currency_name: string | null
-  symbol: string | null
-  exchange_rate: number | null
-  fraction_digits: number | null
+  currency_id_val: number | null;
+  currency_code: string | null;
+  currency_name: string | null;
+  symbol: string | null;
+  exchange_rate: number | null;
+  fraction_digits: number | null;
   // Company
-  company_id_val: number | null
-  company_name: string | null
-  company_domain: string | null
-  access_key: string | null
-  cloak_fallback: string | null
+  company_id_val: number | null;
+  company_name: string | null;
+  company_domain: string | null;
+  access_key: string | null;
+  cloak_fallback: string | null;
   // TopLevelDomain
-  tld_id: number | null
-  tld_name: string | null
-  cloak_strategy: string | null
-  tld_user_id: number | null
+  tld_id: number | null;
+  tld_name: string | null;
+  cloak_strategy: string | null;
+  tld_user_id: number | null;
   // SalesUser
-  sales_user_id: number | null
-  sales_user_name: string | null
-  sales_department_id: number | null
+  sales_user_id: number | null;
+  sales_user_name: string | null;
+  sales_department_id: number | null;
+  sales_department_name: string | null;
 }
 
 /**
  * 将原始行数据转换为结构化的 DomainQueryResult
  */
-function mapRowToResult(row: DomainQueryRow, languages: LanguageItem[] = []): DomainQueryResult {
+function mapRowToResult(
+  row: DomainQueryRow,
+  languages: LanguageItem[] = [],
+): DomainQueryResult {
   const subDomain: SubDomain = {
     id: row.id,
     fullName: row.full_name,
@@ -101,9 +105,10 @@ function mapRowToResult(row: DomainQueryRow, languages: LanguageItem[] = []): Do
     countryId: row.country_id,
     currencyId: row.currency_id,
     languageId: row.language_id,
-    analyzeSuccess: row.analyze_success !== null ? Boolean(row.analyze_success) : null,
+    analyzeSuccess:
+      row.analyze_success !== null ? Boolean(row.analyze_success) : null,
     parentDomainId: row.parent_domain_id,
-  }
+  };
 
   const topLevelDomain: TopLevelDomain | null = row.tld_id
     ? {
@@ -112,7 +117,7 @@ function mapRowToResult(row: DomainQueryRow, languages: LanguageItem[] = []): Do
         cloakStrategy: row.cloak_strategy,
         userId: row.tld_user_id,
       }
-    : null
+    : null;
 
   const country: Country | null = row.country_id_val
     ? {
@@ -124,13 +129,16 @@ function mapRowToResult(row: DomainQueryRow, languages: LanguageItem[] = []): Do
         phoneRule: row.phone_rule,
         addressFields: row.address_fields,
         addressRule: row.address_rule,
-        requiredEmail: row.required_email !== null ? Boolean(row.required_email) : null,
-        requiredPhone: row.required_phone !== null ? Boolean(row.required_phone) : null,
-        useFullName: row.use_full_name !== null ? Boolean(row.use_full_name) : null,
+        requiredEmail:
+          row.required_email !== null ? Boolean(row.required_email) : null,
+        requiredPhone:
+          row.required_phone !== null ? Boolean(row.required_phone) : null,
+        useFullName:
+          row.use_full_name !== null ? Boolean(row.use_full_name) : null,
         footerCopyrightInfo: row.footer_copyright_info,
         languages,
       }
-    : null
+    : null;
 
   const currency: Currency | null = row.currency_id_val
     ? {
@@ -141,7 +149,7 @@ function mapRowToResult(row: DomainQueryRow, languages: LanguageItem[] = []): Do
         exchangeRate: row.exchange_rate,
         fractionDigits: row.fraction_digits,
       }
-    : null
+    : null;
 
   const company: Company | null = row.company_id_val
     ? {
@@ -151,15 +159,16 @@ function mapRowToResult(row: DomainQueryRow, languages: LanguageItem[] = []): Do
         accessKey: row.access_key,
         cloakFallback: row.cloak_fallback,
       }
-    : null
+    : null;
 
   const salesUser: SalesUser | null = row.sales_user_id
     ? {
         id: row.sales_user_id,
         name: row.sales_user_name,
         departmentId: row.sales_department_id,
+        departmentName: row.sales_department_name,
       }
-    : null
+    : null;
 
   return {
     subDomain,
@@ -168,34 +177,38 @@ function mapRowToResult(row: DomainQueryRow, languages: LanguageItem[] = []): Do
     currency,
     company,
     salesUser,
-  }
+  };
 }
 
 /**
  * 根据国家ID查询支持的语言列表
  */
-async function findLanguagesByCountryId(countryId: number): Promise<LanguageItem[]> {
+async function findLanguagesByCountryId(
+  countryId: number,
+): Promise<LanguageItem[]> {
   const sql = `
     SELECT l.id, l.code, l.name, l.cname
     FROM t_country_languages cl
     INNER JOIN t_languages l ON cl.language_id = l.id AND l.status = 'VALID'
     WHERE cl.country_id = ?
     ORDER BY l.id ASC
-  `
-  return query<LanguageItem>(sql, [countryId])
+  `;
+  return query<LanguageItem>(sql, [countryId]);
 }
 
 /**
  * 根据完整域名查询域名信息及所有关联实体
  * @param fullName 完整域名，如 test.axhhcx.shop
  */
-export async function findDomainByFullName(fullName: string): Promise<DomainQueryResult | null> {
-  const storage = getRedisStorage()
-  const cacheKey = `${CACHE_PREFIX}${fullName}`
+export async function findDomainByFullName(
+  fullName: string,
+): Promise<DomainQueryResult | null> {
+  const storage = getRedisStorage();
+  const cacheKey = `${CACHE_PREFIX}${fullName}`;
 
-  const cached = await storage.getItem<DomainQueryResult>(cacheKey)
+  const cached = await storage.getItem<DomainQueryResult>(cacheKey);
   if (cached) {
-    return cached
+    return cached;
   }
 
   const sql = `
@@ -210,31 +223,33 @@ export async function findDomainByFullName(fullName: string): Promise<DomainQuer
       cur.symbol, cur.exchange_rate, cur.fraction_digits,
       comp.id AS company_id_val, comp.name AS company_name, comp.domain AS company_domain, comp.access_key, comp.cloak_fallback,
       tld.id AS tld_id, tld.name AS tld_name, tld.cloakStrategy AS cloak_strategy, tld.user_id AS tld_user_id,
-      su.id AS sales_user_id, su.name AS sales_user_name, su.department_id AS sales_department_id
+      su.id AS sales_user_id, su.name AS sales_user_name, su.department_id AS sales_department_id,
+      dept.name AS sales_department_name
     FROM t_sub_domains d
     INNER JOIN t_countries c ON d.country_id = c.id AND c.status = 'VALID'
     INNER JOIN t_currencies cur ON c.currency_id = cur.id AND cur.status = 'VALID'
     INNER JOIN t_companies comp ON d.company_id = comp.id AND comp.status = 'VALID'
     INNER JOIN t_top_level_domains tld ON d.parent_domain_id = tld.id AND tld.status = 'VALID'
     INNER JOIN t_system_users su ON tld.user_id = su.id AND su.status = 'VALID'
+    LEFT JOIN t_department dept ON su.department_id = dept.id
     WHERE d.full_name = ? AND d.status = 'VALID'
     LIMIT 1
-  `
+  `;
 
-  const row = await queryOne<DomainQueryRow>(sql, [fullName])
+  const row = await queryOne<DomainQueryRow>(sql, [fullName]);
 
   if (!row) {
-    return null
+    return null;
   }
 
-  let languages: LanguageItem[] = []
+  let languages: LanguageItem[] = [];
   if (row.country_id_val) {
-    languages = await findLanguagesByCountryId(row.country_id_val)
+    languages = await findLanguagesByCountryId(row.country_id_val);
   }
 
-  const result = mapRowToResult(row, languages)
+  const result = mapRowToResult(row, languages);
 
-  await storage.setItem(cacheKey, result, { ttl: CACHE_TTL })
+  await storage.setItem(cacheKey, result, { ttl: CACHE_TTL });
 
-  return result
+  return result;
 }

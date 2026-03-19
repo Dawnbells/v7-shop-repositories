@@ -131,7 +131,7 @@ export async function calculateOrderPrice(
   // 从数据库查询商品价格
   const priceMap = await findProductPrices(items, countryId)
 
-  // 计算每个商品的价格
+  // 计算每个商品的价格（转换为目标货币，前端直接显示不再转换）
   const resultItems: CalculateResultItem[] = []
   let subtotalDecimal = new Decimal(0)
 
@@ -143,7 +143,7 @@ export async function calculateOrderPrice(
       throw new Error(`商品不存在或已下架: productId=${item.productId}, specId=${item.specId}`)
     }
 
-    // 转换价格
+    // 转换价格（乘以汇率转换为目标货币）
     const convertedPrice = convertPrice(priceInfo.sellPrice, exchangeRate, fractionDigits)
     const convertedOriginPrice = priceInfo.originPrice
       ? convertPrice(priceInfo.originPrice, exchangeRate, fractionDigits)
@@ -273,15 +273,23 @@ export async function createOrder(
     paymentTime: null,
   }
 
+  // 获取当前语言信息
+  const currentLanguage = pageContext.country.languages?.find(
+    lang => lang.id === pageContext.currentLanguageId
+  ) || null
+
+  // 获取网站名称（从全局配置）
+  const websiteName = pageContext.pageTheme?.siteConfig?.globalConfig?.siteName || null
+
   // 上下文信息
   const contextInfo: OrderContextInfo = {
     companyId: pageContext.company.id,
     salesUid: pageContext.salesUser.id,
     salesPerson: pageContext.salesUser.name,
     departmentId: pageContext.salesUser.departmentId,
-    department: null,
+    department: pageContext.salesUser.departmentName,
     websiteId: pageContext.subDomain.websiteId,
-    websiteName: null,
+    websiteName: websiteName,
     websiteUrl: pageContext.subDomain.fullName,
     countryId: pageContext.country.id,
     countryCode: pageContext.country.code,
@@ -293,8 +301,8 @@ export async function createOrder(
     currencyExchangeRate: String(pageContext.currency.exchangeRate || 1),
     currencyFractionDigits: pageContext.currency.fractionDigits,
     languageId: pageContext.currentLanguageId,
-    language: null,
-    languageCode: null,
+    language: currentLanguage?.name || null,
+    languageCode: currentLanguage?.code || null,
     phoneRule: pageContext.country.phoneRule,
     phonePrefix: pageContext.country.phonePrefix,
     addressRule: pageContext.country.addressRule,
@@ -309,7 +317,7 @@ export async function createOrder(
     realIpInfo: null,
     ua: riskData.userAgent,
     pdKey: null,
-    pdVal: null,
+    pdVal: pageContext.cloak?.pdVal || null,
     cloak: pageContext.cloak?.page === 'CLOAK',
     browserPlatform: normalizePlatform(riskData.userAgent),
   }

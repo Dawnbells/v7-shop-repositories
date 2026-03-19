@@ -124,7 +124,10 @@ export function useCheckoutPage() {
   const route = useRoute();
   const router = useRouter();
   const { cartItems, directOrderItem, clearCart, clearDirectOrderItem, loadFromStorage } = useCart();
-  const { formatPrice } = useCurrency();
+  const { formatPrice: baseFmtPrice } = useCurrency();
+
+  // 收银台专用的价格格式化函数（跳过汇率转换，因为后端已经转换过了）
+  const formatPrice = (price: number | string | null | undefined) => baseFmtPrice(price, true);
 
   // 是否为直接下单模式
   const isDirectMode = computed(() => route.query.mode === "direct");
