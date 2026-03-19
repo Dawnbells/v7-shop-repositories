@@ -36,7 +36,7 @@ const previewItems = [
       { name: "颜色", value: "黑色" },
       { name: "尺寸", value: "M" },
     ],
-    price: 199.00,
+    price: 199.0,
     quantity: 2,
     image: "",
   },
@@ -46,7 +46,7 @@ const previewItems = [
     productName: "另一个商品",
     specId: null,
     specAttributes: [],
-    price: 99.00,
+    price: 99.0,
     quantity: 1,
     image: "",
   },
@@ -72,30 +72,20 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
     </div>
 
     <div v-else class="order-items-list">
-      <div
-        v-for="item in displayItems"
-        :key="item.id"
-        class="order-item"
-      >
+      <div v-for="item in displayItems" :key="item.id" class="order-item">
         <!-- 商品图片 -->
         <div v-if="showImage" class="item-image" :class="imageSizeClass">
-          <img
-            v-if="item.image"
+          <BlockBasicImage
             :src="item.image"
             :alt="item.productName"
+            object-fit="cover"
           />
-          <div v-else class="item-no-image">
-            <i class="i-carbon-image" />
-          </div>
         </div>
 
         <!-- 商品信息 -->
         <div class="item-info">
           <div class="item-name">{{ item.productName }}</div>
-          <div
-            v-if="showSpec && item.specAttributes?.length"
-            class="item-spec"
-          >
+          <div v-if="showSpec && item.specAttributes?.length" class="item-spec">
             {{ formatSpecAttributes(item.specAttributes) }}
           </div>
         </div>
@@ -178,22 +168,6 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
   height: 80px;
 }
 
-.item-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.item-no-image {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary-color, #9ca3af);
-  font-size: 24px;
-}
-
 .item-info {
   flex: 1;
   min-width: 0;
@@ -230,5 +204,4 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
   min-width: 80px;
   text-align: right;
 }
-
 </style>

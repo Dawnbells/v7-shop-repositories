@@ -268,8 +268,9 @@ export default defineEventHandler(async (event) => {
   const path = event.path || "";
 
   // 跳过不需要斗篷检查的路由
+  // 注意：/api/checkout/ 需要处理，因为需要 cloak 信息
   if (
-    path.startsWith("/api/") ||
+    (path.startsWith("/api/") && !path.startsWith("/api/checkout/")) ||
     path.startsWith("/builder") ||
     path.startsWith("/_nuxt") ||
     path.startsWith("/__nuxt")

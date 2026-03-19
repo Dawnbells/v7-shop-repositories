@@ -5,11 +5,46 @@
  * - 获取待结算商品（从购物车或直接下单）
  * - 管理收货地址表单数据
  * - 管理支付方式选择
- * - 计算订单金额
- * - 提交订单逻辑
+ * - 调用后端 API 计算订单金额
+ * - 调用后端 API 提交订单
  */
 
 import type { CartItem, DirectOrderItem } from "~/composables/useCart";
+
+/**
+ * 后端价格计算响应
+ */
+interface CalculateResponse {
+  success: boolean;
+  data: {
+    items: Array<{
+      productId: number;
+      specId: number | null;
+      productName: string;
+      specName: string | null;
+      price: string;
+      originPrice: string | null;
+      quantity: number;
+      subtotal: string;
+      image: string | null;
+    }>;
+    subtotal: string;
+    shippingFee: string;
+    discount: string;
+    total: string;
+  };
+}
+
+/**
+ * 后端下单响应
+ */
+interface OrderResponse {
+  success: boolean;
+  data: {
+    orderId: string;
+    total: string;
+  };
+}
 
 /**
  * 收货地址
@@ -140,24 +175,17 @@ export function useCheckoutPage() {
   // 提交结果
   const submitError = useState<string | null>("checkoutSubmitError", () => null);
 
-  // 运费（可配置）
+  // 价格数据（从后端获取）
+  const subtotal = useState<number>("checkoutSubtotal", () => 0);
   const shippingFee = useState<number>("checkoutShippingFee", () => 0);
-
-  // 折扣金额
   const discount = useState<number>("checkoutDiscount", () => 0);
+  const total = useState<number>("checkoutTotal", () => 0);
 
-  // 商品小计
-  const subtotal = computed(() => {
-    return checkoutItems.value.reduce(
-      (sum, item) => sum + item.price * item.quantity,
-      0
-    );
-  });
+  // 是否正在计算价格
+  const isCalculating = useState<boolean>("checkoutCalculating", () => false);
 
-  // 订单总计
-  const total = computed(() => {
-    return Math.max(0, subtotal.value + shippingFee.value - discount.value);
-  });
+  // 价格计算错误
+  const calculateError = useState<string | null>("checkoutCalculateError", () => null);
 
   // 商品总数量
   const itemCount = computed(() => {
@@ -168,13 +196,15 @@ export function useCheckoutPage() {
   const hasItems = computed(() => checkoutItems.value.length > 0);
 
   // 初始化结算商品
-  function initCheckoutItems() {
+  async function initCheckoutItems() {
     if (import.meta.server) return;
+
+    let items: CheckoutItem[] = [];
 
     if (isDirectMode.value && directOrderItem.value) {
       // 直接下单模式：使用 directOrderItem
       const item = directOrderItem.value;
-      checkoutItems.value = [
+      items = [
         {
           id: `${item.productId}-${item.specId ?? "default"}`,
           productId: item.productId,
@@ -190,7 +220,7 @@ export function useCheckoutPage() {
     } else {
       // 购物车模式：使用购物车商品
       loadFromStorage();
-      checkoutItems.value = cartItems.value.map((item) => ({
+      items = cartItems.value.map((item) => ({
         id: item.id,
         productId: item.productId,
         productName: item.productName,
@@ -201,6 +231,82 @@ export function useCheckoutPage() {
         quantity: item.quantity,
         image: item.image,
       }));
+    }
+
+    checkoutItems.value = items;
+
+    // 初始化后立即计算价格
+    if (items.length > 0) {
+      await calculatePrice();
+    }
+  }
+
+  // 调用后端 API 计算价格
+  async function calculatePrice(): Promise<boolean> {
+    if (checkoutItems.value.length === 0) {
+      subtotal.value = 0;
+      shippingFee.value = 0;
+      discount.value = 0;
+      total.value = 0;
+      return true;
+    }
+
+    isCalculating.value = true;
+    calculateError.value = null;
+
+    try {
+      const requestItems = checkoutItems.value.map(item => ({
+        productId: item.productId,
+        specId: item.specId,
+        quantity: item.quantity,
+      }));
+
+      const response = await $fetch<CalculateResponse>('/api/checkout/calculate', {
+        method: 'POST',
+        body: { items: requestItems },
+      });
+
+      if (response.success && response.data) {
+        // 更新商品信息（使用后端返回的实时价格）
+        const priceMap = new Map(
+          response.data.items.map(item => [
+            `${item.productId}-${item.specId}`,
+            item,
+          ])
+        );
+
+        checkoutItems.value = checkoutItems.value.map(item => {
+          const key = `${item.productId}-${item.specId}`;
+          const priceInfo = priceMap.get(key);
+          if (priceInfo) {
+            return {
+              ...item,
+              productName: priceInfo.productName,
+              price: parseFloat(priceInfo.price),
+              originPrice: priceInfo.originPrice ? parseFloat(priceInfo.originPrice) : null,
+              image: priceInfo.image || item.image,
+            };
+          }
+          return item;
+        });
+
+        // 更新价格数据
+        subtotal.value = parseFloat(response.data.subtotal);
+        shippingFee.value = parseFloat(response.data.shippingFee);
+        discount.value = parseFloat(response.data.discount);
+        total.value = parseFloat(response.data.total);
+
+        return true;
+      }
+
+      calculateError.value = '计算价格失败';
+      return false;
+    } catch (error: any) {
+      console.error('[Checkout] Calculate price error:', error);
+      calculateError.value = error.data?.message || error.message || '计算价格失败，请稍后重试';
+      return false;
+    } finally {
+      isCalculating.value = false;
     }
   }
 
@@ -298,25 +404,36 @@ export function useCheckoutPage() {
     submitError.value = null;
 
     try {
-      const orderData: OrderSubmitData = {
-        items: checkoutItems.value,
-        shippingAddress: shippingAddress.value,
-        paymentMethod: paymentMethod.value,
-        subtotal: subtotal.value,
-        shippingFee: shippingFee.value,
-        discount: discount.value,
-        total: total.value,
-        note: shippingAddress.value.note,
-      };
+      // 构建请求数据
+      const requestItems = checkoutItems.value.map(item => ({
+        productId: item.productId,
+        specId: item.specId,
+        quantity: item.quantity,
+      }));
 
-      // TODO: 调用后端 API 提交订单
-      // const response = await $fetch('/api/orders', {
-      //   method: 'POST',
-      //   body: orderData,
-      // });
+      // 调用后端下单 API
+      const response = await $fetch<OrderResponse>('/api/checkout/order', {
+        method: 'POST',
+        body: {
+          items: requestItems,
+          shippingAddress: {
+            fullName: shippingAddress.value.fullName,
+            phone: shippingAddress.value.phone,
+            email: shippingAddress.value.email,
+            province: shippingAddress.value.province,
+            city: shippingAddress.value.city,
+            district: shippingAddress.value.district,
+            postalCode: shippingAddress.value.postalCode,
+            address: shippingAddress.value.address,
+            note: shippingAddress.value.note,
+          },
+          paymentMethod: paymentMethod.value,
+        },
+      });
 
-      // 模拟提交成功
-      console.log("Order submitted:", orderData);
+      if (!response.success) {
+        throw new Error('下单失败');
+      }
 
       // 清理数据
       if (isDirectMode.value) {
@@ -326,12 +443,12 @@ export function useCheckoutPage() {
       }
 
       // 跳转到订单结果页
-      // router.push(`/order-result?orderId=${response.orderId}`);
-      router.push("/order-result");
+      router.push(`/order-result?orderId=${response.data.orderId}`);
 
       return true;
     } catch (error: any) {
-      submitError.value = error.message || "提交订单失败，请稍后重试";
+      console.error('[Checkout] Submit order error:', error);
+      submitError.value = error.data?.message || error.message || "提交订单失败，请稍后重试";
       return false;
     } finally {
       isSubmitting.value = false;
@@ -346,13 +463,6 @@ export function useCheckoutPage() {
     return attrs.map((a) => `${a.name}: ${a.value}`).join(", ");
   }
 
-  // 客户端初始化
-  if (import.meta.client) {
-    onMounted(() => {
-      initCheckoutItems();
-    });
-  }
-
   return {
     // 状态
     checkoutItems,
@@ -362,18 +472,23 @@ export function useCheckoutPage() {
     formErrors,
     isSubmitting,
     submitError,
+    isCalculating,
+    calculateError,
+
+    // 价格数据（从后端获取）
+    subtotal,
     shippingFee,
     discount,
+    total,
 
     // 计算属性
     isDirectMode,
-    subtotal,
-    total,
     itemCount,
     hasItems,
 
     // 方法
     initCheckoutItems,
+    calculatePrice,
     validateForm,
     clearFormErrors,
     updateAddress,

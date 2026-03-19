@@ -32,7 +32,13 @@ const {
   submitOrder,
   formatSpecAttributes,
   formatPrice,
+  initCheckoutItems,
 } = useCheckoutPage();
+
+// 页面级别初始化结算数据（只在页面组件中调用一次）
+onMounted(() => {
+  initCheckoutItems();
+});
 
 // 页面配置
 const pageSchema = computed(() => getPageSchema("checkout"));

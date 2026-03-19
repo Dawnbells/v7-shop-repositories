@@ -25,8 +25,9 @@ export default defineEventHandler(async (event) => {
   const path = event.path;
 
   // 跳过不需要域名解析的路由
+  // 注意：/api/checkout/ 需要域名解析，因为需要国家、货币等信息
   if (
-    path.startsWith("/api/") ||
+    (path.startsWith("/api/") && !path.startsWith("/api/checkout/")) ||
     path.startsWith("/builder") ||
     path.startsWith("/_nuxt") ||
     path.startsWith("/__nuxt")
