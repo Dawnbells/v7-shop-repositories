@@ -501,7 +501,7 @@ function handlePageSettingsConfirm(layoutId: string | undefined) {
         class="panel-left"
         :style="{ width: `${leftPanelWidth}px` }"
       >
-        <BuilderComponentPanel />
+        <BuilderComponentPanel :page-type="currentPageBusinessType" />
       </aside>
 
       <!-- 左侧分隔条 -->
