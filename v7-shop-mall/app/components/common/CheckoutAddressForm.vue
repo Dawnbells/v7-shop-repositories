@@ -360,97 +360,109 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 省/市级联选择 -->
-    <div v-if="hasField('province') || hasField('city')" class="form-row">
-      <div v-if="hasField('province')" class="form-group">
-        <label class="form-label">
-          省/州 <span class="required">*</span>
-        </label>
-        <CommonSearchableSelect
-          :model-value="shippingAddress.province"
-          :options="provinceList"
-          placeholder="请选择省/州"
-          :disabled="isInEditor || loadingProvinces"
-          :loading="loadingProvinces"
-          :has-error="!!formErrors.province"
-          :allow-custom="allowCustomAddress"
-          @update:model-value="onProvinceSelect"
-        />
-        <span v-if="formErrors.province" class="form-error">
-          {{ formErrors.province }}
-        </span>
+    <!-- 省/市/区/邮编级联选择 - 客户端渲染避免水合不匹配 -->
+    <ClientOnly>
+      <div v-if="hasField('province') || hasField('city')" class="form-row">
+        <div v-if="hasField('province')" class="form-group">
+          <label class="form-label">
+            省/州 <span class="required">*</span>
+          </label>
+          <CommonSearchableSelect
+            :model-value="shippingAddress.province"
+            :options="provinceList"
+            placeholder="请选择省/州"
+            :disabled="isInEditor || loadingProvinces"
+            :loading="loadingProvinces"
+            :has-error="!!formErrors.province"
+            :allow-custom="allowCustomAddress"
+            @update:model-value="onProvinceSelect"
+          />
+          <span v-if="formErrors.province" class="form-error">
+            {{ formErrors.province }}
+          </span>
+        </div>
+        <div v-if="hasField('city')" class="form-group">
+          <label class="form-label">
+            城市 <span class="required">*</span>
+          </label>
+          <CommonSearchableSelect
+            :model-value="shippingAddress.city"
+            :options="cityList"
+            placeholder="请选择城市"
+            :disabled="isInEditor || loadingCities || !shippingAddress.province"
+            :loading="loadingCities"
+            :has-error="!!formErrors.city"
+            :allow-custom="allowCustomAddress"
+            @update:model-value="onCitySelect"
+          />
+          <span v-if="formErrors.city" class="form-error">
+            {{ formErrors.city }}
+          </span>
+        </div>
       </div>
-      <div v-if="hasField('city')" class="form-group">
-        <label class="form-label">
-          城市 <span class="required">*</span>
-        </label>
-        <CommonSearchableSelect
-          :model-value="shippingAddress.city"
-          :options="cityList"
-          placeholder="请选择城市"
-          :disabled="isInEditor || loadingCities || !shippingAddress.province"
-          :loading="loadingCities"
-          :has-error="!!formErrors.city"
-          :allow-custom="allowCustomAddress"
-          @update:model-value="onCitySelect"
-        />
-        <span v-if="formErrors.city" class="form-error">
-          {{ formErrors.city }}
-        </span>
-      </div>
-    </div>
 
-    <!-- 区/邮编级联选择 -->
-    <div v-if="hasField('district') || hasField('postal_code')" class="form-row">
-      <div v-if="hasField('district')" class="form-group">
-        <label class="form-label">
-          区/县 <span class="required">*</span>
-        </label>
-        <CommonSearchableSelect
-          :model-value="shippingAddress.district"
-          :options="districtNames"
-          placeholder="请选择区/县"
-          :disabled="isInEditor || loadingDistricts || !shippingAddress.city"
-          :loading="loadingDistricts"
-          :has-error="!!formErrors.district"
-          :allow-custom="allowCustomAddress"
-          @update:model-value="onDistrictSelect"
-        />
-        <span v-if="formErrors.district" class="form-error">
-          {{ formErrors.district }}
-        </span>
+      <div v-if="hasField('district') || hasField('postal_code')" class="form-row">
+        <div v-if="hasField('district')" class="form-group">
+          <label class="form-label">
+            区/县 <span class="required">*</span>
+          </label>
+          <CommonSearchableSelect
+            :model-value="shippingAddress.district"
+            :options="districtNames"
+            placeholder="请选择区/县"
+            :disabled="isInEditor || loadingDistricts || !shippingAddress.city"
+            :loading="loadingDistricts"
+            :has-error="!!formErrors.district"
+            :allow-custom="allowCustomAddress"
+            @update:model-value="onDistrictSelect"
+          />
+          <span v-if="formErrors.district" class="form-error">
+            {{ formErrors.district }}
+          </span>
+        </div>
+        <div v-if="hasField('postal_code') && hasField('district')" class="form-group">
+          <label class="form-label">邮政编码</label>
+          <input
+            type="text"
+            class="form-input"
+            :value="shippingAddress.postalCode"
+            placeholder="选择区县后自动填充"
+            disabled
+          />
+        </div>
+        <div v-if="hasField('postal_code') && !hasField('district')" class="form-group">
+          <label class="form-label">
+            邮政编码 <span class="required">*</span>
+          </label>
+          <CommonSearchableSelect
+            :model-value="shippingAddress.postalCode"
+            :options="postalCodeList"
+            placeholder="请选择邮编"
+            :disabled="isInEditor || loadingPostalCodes || !shippingAddress.city"
+            :loading="loadingPostalCodes"
+            :has-error="!!formErrors.postalCode"
+            :allow-custom="allowCustomAddress"
+            @update:model-value="onPostalCodeSelect"
+          />
+          <span v-if="formErrors.postalCode" class="form-error">
+            {{ formErrors.postalCode }}
+          </span>
+        </div>
       </div>
-      <!-- 有区县时：邮编只读，选区县自动填充 -->
-      <div v-if="hasField('postal_code') && hasField('district')" class="form-group">
-        <label class="form-label">邮政编码</label>
-        <input
-          type="text"
-          class="form-input"
-          :value="shippingAddress.postalCode"
-          placeholder="选择区县后自动填充"
-          disabled
-        />
-      </div>
-      <!-- 无区县时：邮编为下拉选择 -->
-      <div v-if="hasField('postal_code') && !hasField('district')" class="form-group">
-        <label class="form-label">
-          邮政编码 <span class="required">*</span>
-        </label>
-        <CommonSearchableSelect
-          :model-value="shippingAddress.postalCode"
-          :options="postalCodeList"
-          placeholder="请选择邮编"
-          :disabled="isInEditor || loadingPostalCodes || !shippingAddress.city"
-          :loading="loadingPostalCodes"
-          :has-error="!!formErrors.postalCode"
-          :allow-custom="allowCustomAddress"
-          @update:model-value="onPostalCodeSelect"
-        />
-        <span v-if="formErrors.postalCode" class="form-error">
-          {{ formErrors.postalCode }}
-        </span>
-      </div>
-    </div>
+
+      <template #fallback>
+        <div class="form-row address-skeleton-row">
+          <div class="form-group">
+            <div class="skeleton-label"></div>
+            <div class="skeleton-input"></div>
+          </div>
+          <div class="form-group">
+            <div class="skeleton-label"></div>
+            <div class="skeleton-input"></div>
+          </div>
+        </div>
+      </template>
+    </ClientOnly>
 
     <!-- 详细地址 -->
     <div class="form-group full-width">
@@ -635,6 +647,39 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
+/* 骨架屏样式 */
+.address-skeleton-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--address-form-gap, 16px);
+}
+
+.skeleton-label {
+  height: 14px;
+  width: 60px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-input {
+  height: 42px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: var(--address-form-input-radius, 8px);
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 /* 响应式 - 使用容器查询以支持主题编辑器预览 */
 @container (max-width: 640px) {
   .layout-double .form-row {
@@ -643,6 +688,10 @@ onUnmounted(() => {
 
   .form-group.full-width {
     grid-column: auto;
+  }
+
+  .address-skeleton-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

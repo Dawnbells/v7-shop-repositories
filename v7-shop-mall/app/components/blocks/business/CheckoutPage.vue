@@ -89,22 +89,54 @@ function toggleSummary() {
           <!-- 桌面端标题 -->
           <h2 class="section-title desktop-only">订单汇总</h2>
           
-          <!-- 订单内容 -->
+          <!-- 订单内容 - 客户端渲染避免水合不匹配 -->
           <div class="summary-content">
-            <CommonCheckoutOrderItems
-              :show-image="showImage"
-              :image-size="imageSize"
-              :show-spec="showSpec"
-              :show-quantity="showQuantity"
-              :show-price="showPrice"
-            />
+            <ClientOnly>
+              <CommonCheckoutOrderItems
+                :show-image="showImage"
+                :image-size="imageSize"
+                :show-spec="showSpec"
+                :show-quantity="showQuantity"
+                :show-price="showPrice"
+              />
+              <template #fallback>
+                <div class="order-items-skeleton">
+                  <div v-for="i in 2" :key="i" class="order-item-skeleton">
+                    <div class="skeleton-image"></div>
+                    <div class="skeleton-info">
+                      <div class="skeleton-name"></div>
+                      <div class="skeleton-spec"></div>
+                    </div>
+                    <div class="skeleton-price"></div>
+                  </div>
+                </div>
+              </template>
+            </ClientOnly>
             <div class="order-summary-divider"></div>
-            <CommonCheckoutOrderSummary
-              :show-item-count="showItemCount"
-              :show-shipping="showShipping"
-              :show-discount="showDiscount"
-              :layout="summaryLayout"
-            />
+            <ClientOnly>
+              <CommonCheckoutOrderSummary
+                :show-item-count="showItemCount"
+                :show-shipping="showShipping"
+                :show-discount="showDiscount"
+                :layout="summaryLayout"
+              />
+              <template #fallback>
+                <div class="order-summary-skeleton">
+                  <div class="skeleton-row">
+                    <div class="skeleton-label"></div>
+                    <div class="skeleton-value"></div>
+                  </div>
+                  <div class="skeleton-row">
+                    <div class="skeleton-label"></div>
+                    <div class="skeleton-value"></div>
+                  </div>
+                  <div class="skeleton-total-row">
+                    <div class="skeleton-label-lg"></div>
+                    <div class="skeleton-value-lg"></div>
+                  </div>
+                </div>
+              </template>
+            </ClientOnly>
           </div>
         </section>
       </div>
@@ -336,5 +368,130 @@ function toggleSummary() {
   .checkout-submit-wrapper {
     margin-top: var(--checkout-submit-margin-mobile, 4px);
   }
+}
+
+/* 骨架屏样式 */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.order-items-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.order-item-skeleton {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.skeleton-image {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  flex-shrink: 0;
+}
+
+.skeleton-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-name {
+  height: 14px;
+  width: 70%;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-spec {
+  height: 12px;
+  width: 50%;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-price {
+  width: 60px;
+  height: 14px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.order-summary-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.skeleton-label {
+  height: 14px;
+  width: 80px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-value {
+  height: 14px;
+  width: 60px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+.skeleton-label-lg {
+  height: 16px;
+  width: 60px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-value-lg {
+  height: 24px;
+  width: 80px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
 }
 </style>
