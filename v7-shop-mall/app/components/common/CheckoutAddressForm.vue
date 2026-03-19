@@ -54,6 +54,8 @@ const loadingCities = ref(false);
 const loadingDistricts = ref(false);
 const loadingPostalCodes = ref(false);
 
+const districtNames = computed(() => districtList.value.map(d => d.district));
+
 // 加载省份列表
 async function loadProvinces() {
   if (isInEditor.value || !hasField('province') || !countryInfo.value?.code) return;
@@ -124,9 +126,8 @@ async function loadPostalCodes(province: string, city: string) {
 }
 
 // 级联选择处理
-function handleProvinceChange(event: Event) {
+function onProvinceSelect(value: string) {
   if (isInEditor.value) return;
-  const value = (event.target as HTMLSelectElement).value;
   updateAddress('province', value);
   updateAddress('city', '');
   updateAddress('district', '');
@@ -137,9 +138,8 @@ function handleProvinceChange(event: Event) {
   if (value) loadCities(value);
 }
 
-function handleCityChange(event: Event) {
+function onCitySelect(value: string) {
   if (isInEditor.value) return;
-  const value = (event.target as HTMLSelectElement).value;
   updateAddress('city', value);
   updateAddress('district', '');
   updateAddress('postalCode', '');
@@ -155,17 +155,15 @@ function handleCityChange(event: Event) {
   }
 }
 
-function handleDistrictChange(event: Event) {
+function onDistrictSelect(value: string) {
   if (isInEditor.value) return;
-  const value = (event.target as HTMLSelectElement).value;
   updateAddress('district', value);
   const matched = districtList.value.find(d => d.district === value);
   updateAddress('postalCode', matched?.postalCode || '');
 }
 
-function handlePostalCodeChange(event: Event) {
+function onPostalCodeSelect(value: string) {
   if (isInEditor.value) return;
-  const value = (event.target as HTMLSelectElement).value;
   updateAddress('postalCode', value);
 }
 
@@ -364,16 +362,15 @@ onUnmounted(() => {
         <label class="form-label">
           省/州 <span class="required">*</span>
         </label>
-        <select
-          class="form-input form-select"
-          :class="{ 'has-error': formErrors.province, 'is-placeholder': !shippingAddress.province }"
-          :value="shippingAddress.province"
+        <CommonSearchableSelect
+          :model-value="shippingAddress.province"
+          :options="provinceList"
+          placeholder="请选择省/州"
           :disabled="isInEditor || loadingProvinces"
-          @change="handleProvinceChange"
-        >
-          <option value="" disabled>{{ loadingProvinces ? '加载中...' : '请选择省/州' }}</option>
-          <option v-for="p in provinceList" :key="p" :value="p">{{ p }}</option>
-        </select>
+          :loading="loadingProvinces"
+          :has-error="!!formErrors.province"
+          @update:model-value="onProvinceSelect"
+        />
         <span v-if="formErrors.province" class="form-error">
           {{ formErrors.province }}
         </span>
@@ -382,16 +379,15 @@ onUnmounted(() => {
         <label class="form-label">
           城市 <span class="required">*</span>
         </label>
-        <select
-          class="form-input form-select"
-          :class="{ 'has-error': formErrors.city, 'is-placeholder': !shippingAddress.city }"
-          :value="shippingAddress.city"
+        <CommonSearchableSelect
+          :model-value="shippingAddress.city"
+          :options="cityList"
+          placeholder="请选择城市"
           :disabled="isInEditor || loadingCities || !shippingAddress.province"
-          @change="handleCityChange"
-        >
-          <option value="" disabled>{{ loadingCities ? '加载中...' : '请选择城市' }}</option>
-          <option v-for="c in cityList" :key="c" :value="c">{{ c }}</option>
-        </select>
+          :loading="loadingCities"
+          :has-error="!!formErrors.city"
+          @update:model-value="onCitySelect"
+        />
         <span v-if="formErrors.city" class="form-error">
           {{ formErrors.city }}
         </span>
@@ -404,16 +400,15 @@ onUnmounted(() => {
         <label class="form-label">
           区/县 <span class="required">*</span>
         </label>
-        <select
-          class="form-input form-select"
-          :class="{ 'has-error': formErrors.district, 'is-placeholder': !shippingAddress.district }"
-          :value="shippingAddress.district"
+        <CommonSearchableSelect
+          :model-value="shippingAddress.district"
+          :options="districtNames"
+          placeholder="请选择区/县"
           :disabled="isInEditor || loadingDistricts || !shippingAddress.city"
-          @change="handleDistrictChange"
-        >
-          <option value="" disabled>{{ loadingDistricts ? '加载中...' : '请选择区/县' }}</option>
-          <option v-for="d in districtList" :key="d.district" :value="d.district">{{ d.district }}</option>
-        </select>
+          :loading="loadingDistricts"
+          :has-error="!!formErrors.district"
+          @update:model-value="onDistrictSelect"
+        />
         <span v-if="formErrors.district" class="form-error">
           {{ formErrors.district }}
         </span>
@@ -434,16 +429,15 @@ onUnmounted(() => {
         <label class="form-label">
           邮政编码 <span class="required">*</span>
         </label>
-        <select
-          class="form-input form-select"
-          :class="{ 'has-error': formErrors.postalCode, 'is-placeholder': !shippingAddress.postalCode }"
-          :value="shippingAddress.postalCode"
+        <CommonSearchableSelect
+          :model-value="shippingAddress.postalCode"
+          :options="postalCodeList"
+          placeholder="请选择邮编"
           :disabled="isInEditor || loadingPostalCodes || !shippingAddress.city"
-          @change="handlePostalCodeChange"
-        >
-          <option value="" disabled>{{ loadingPostalCodes ? '加载中...' : '请选择邮编' }}</option>
-          <option v-for="pc in postalCodeList" :key="pc" :value="pc">{{ pc }}</option>
-        </select>
+          :loading="loadingPostalCodes"
+          :has-error="!!formErrors.postalCode"
+          @update:model-value="onPostalCodeSelect"
+        />
         <span v-if="formErrors.postalCode" class="form-error">
           {{ formErrors.postalCode }}
         </span>
