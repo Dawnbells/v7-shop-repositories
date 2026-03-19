@@ -47,10 +47,12 @@ const hasField = (field: AddressFieldKey) => addressFields.value.includes(field)
 const provinceList = ref<string[]>([]);
 const cityList = ref<string[]>([]);
 const districtList = ref<DistrictItem[]>([]);
+const postalCodeList = ref<string[]>([]);
 
 const loadingProvinces = ref(false);
 const loadingCities = ref(false);
 const loadingDistricts = ref(false);
+const loadingPostalCodes = ref(false);
 
 // 加载省份列表
 async function loadProvinces() {
@@ -103,6 +105,24 @@ async function loadDistricts(province: string, city: string) {
   }
 }
 
+// 加载邮编列表（无区县但有邮编的场景）
+async function loadPostalCodes(province: string, city: string) {
+  if (isInEditor.value || !hasField('postal_code') || !province || !city || !countryInfo.value?.code) {
+    postalCodeList.value = [];
+    return;
+  }
+  loadingPostalCodes.value = true;
+  try {
+    postalCodeList.value = await $fetch<string[]>('/api/address/postal-codes', {
+      query: { country: countryInfo.value.code, province, city }
+    });
+  } catch {
+    postalCodeList.value = [];
+  } finally {
+    loadingPostalCodes.value = false;
+  }
+}
+
 // 级联选择处理
 function handleProvinceChange(event: Event) {
   if (isInEditor.value) return;
@@ -113,6 +133,7 @@ function handleProvinceChange(event: Event) {
   updateAddress('postalCode', '');
   cityList.value = [];
   districtList.value = [];
+  postalCodeList.value = [];
   if (value) loadCities(value);
 }
 
@@ -123,8 +144,14 @@ function handleCityChange(event: Event) {
   updateAddress('district', '');
   updateAddress('postalCode', '');
   districtList.value = [];
+  postalCodeList.value = [];
+  
   if (value && shippingAddress.value.province) {
-    loadDistricts(shippingAddress.value.province, value);
+    if (hasField('district')) {
+      loadDistricts(shippingAddress.value.province, value);
+    } else if (hasField('postal_code')) {
+      loadPostalCodes(shippingAddress.value.province, value);
+    }
   }
 }
 
@@ -134,6 +161,12 @@ function handleDistrictChange(event: Event) {
   updateAddress('district', value);
   const matched = districtList.value.find(d => d.district === value);
   updateAddress('postalCode', matched?.postalCode || '');
+}
+
+function handlePostalCodeChange(event: Event) {
+  if (isInEditor.value) return;
+  const value = (event.target as HTMLSelectElement).value;
+  updateAddress('postalCode', value);
 }
 
 // 页面加载时获取省份
@@ -373,7 +406,7 @@ onUnmounted(() => {
         </label>
         <select
           class="form-input form-select"
-          :class="{ 'has-error': formErrors.address, 'is-placeholder': !shippingAddress.district }"
+          :class="{ 'has-error': formErrors.district, 'is-placeholder': !shippingAddress.district }"
           :value="shippingAddress.district"
           :disabled="isInEditor || loadingDistricts || !shippingAddress.city"
           @change="handleDistrictChange"
@@ -381,8 +414,12 @@ onUnmounted(() => {
           <option value="" disabled>{{ loadingDistricts ? '加载中...' : '请选择区/县' }}</option>
           <option v-for="d in districtList" :key="d.district" :value="d.district">{{ d.district }}</option>
         </select>
+        <span v-if="formErrors.district" class="form-error">
+          {{ formErrors.district }}
+        </span>
       </div>
-      <div v-if="hasField('postal_code')" class="form-group">
+      <!-- 有区县时：邮编只读，选区县自动填充 -->
+      <div v-if="hasField('postal_code') && hasField('district')" class="form-group">
         <label class="form-label">邮政编码</label>
         <input
           type="text"
@@ -391,6 +428,25 @@ onUnmounted(() => {
           placeholder="选择区县后自动填充"
           disabled
         />
+      </div>
+      <!-- 无区县时：邮编为下拉选择 -->
+      <div v-if="hasField('postal_code') && !hasField('district')" class="form-group">
+        <label class="form-label">
+          邮政编码 <span class="required">*</span>
+        </label>
+        <select
+          class="form-input form-select"
+          :class="{ 'has-error': formErrors.postalCode, 'is-placeholder': !shippingAddress.postalCode }"
+          :value="shippingAddress.postalCode"
+          :disabled="isInEditor || loadingPostalCodes || !shippingAddress.city"
+          @change="handlePostalCodeChange"
+        >
+          <option value="" disabled>{{ loadingPostalCodes ? '加载中...' : '请选择邮编' }}</option>
+          <option v-for="pc in postalCodeList" :key="pc" :value="pc">{{ pc }}</option>
+        </select>
+        <span v-if="formErrors.postalCode" class="form-error">
+          {{ formErrors.postalCode }}
+        </span>
       </div>
     </div>
 

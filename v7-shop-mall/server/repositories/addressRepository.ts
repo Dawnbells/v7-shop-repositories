@@ -72,3 +72,23 @@ export async function findDistrictsByCity(
   `;
   return addressQuery<DistrictItem>(sql, [province, city]);
 }
+
+/**
+ * 根据省份+城市获取邮编列表（去重）
+ * 用于无区县但有邮编的场景
+ */
+export async function findPostalCodesByCity(
+  countryCode: string,
+  province: string,
+  city: string,
+): Promise<string[]> {
+  const suffix = validateCountryCode(countryCode);
+  const sql = `
+    SELECT DISTINCT postal_code
+    FROM t_addresses_${suffix}
+    WHERE status = 'VALID' AND province = ? AND city = ?
+    ORDER BY postal_code ASC
+  `;
+  const rows = await addressQuery<{ postal_code: string }>(sql, [province, city]);
+  return rows.map((r) => r.postal_code);
+}
