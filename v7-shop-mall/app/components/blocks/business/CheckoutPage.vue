@@ -143,7 +143,6 @@ function toggleSummary() {
 
 <style scoped>
 .block-checkout-page {
-  container-type: inline-size;
   width: 100%;
   max-width: var(--checkout-max-width, 1200px);
   margin: 0 auto;
