@@ -342,8 +342,12 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
   {
     key: "globalConfig.allowCustomAddress",
     label: "允许手动输入地址",
-    type: "switch",
+    type: "toggle",
     defaultValue: false,
+    options: [
+      { label: "已禁用", value: false },
+      { label: "已启用", value: true },
+    ],
     group: "globalConfig.features",
     description: "当地址库无匹配时，允许用户手动输入地址信息",
   },
