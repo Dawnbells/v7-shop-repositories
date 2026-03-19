@@ -5,8 +5,14 @@
  * 数据源：useBlockRegistry
  */
 
-import type { ComponentMeta, ComponentCategory } from '~/types/component-meta'
+import type { ComponentMeta, ComponentCategory, PageScope } from '~/types/component-meta'
 import { useBlockRegistry } from '~/composables/useBlockRegistry'
+
+const props = withDefaults(defineProps<{
+  pageType?: string
+}>(), {
+  pageType: 'home'
+})
 
 // 分类配置：显示名称和图标
 const CATEGORY_CONFIG: Record<ComponentCategory, { name: string; icon: string }> = {
@@ -45,14 +51,22 @@ const componentGroups = computed<ComponentGroup[]>(() => {
     const config = CATEGORY_CONFIG[category]
     const metas = groupedMetas.value[category] || []
 
-    // 过滤组件
-    const filteredMetas = query
-      ? metas.filter(meta => 
-          meta.name.toLowerCase().includes(query) ||
-          meta.type.toLowerCase().includes(query) ||
-          meta.tags?.some(tag => tag.toLowerCase().includes(query))
-        )
-      : metas
+    // 先按 allowedPages 过滤
+    let filteredMetas = metas.filter(meta => {
+      if (!meta.allowedPages || meta.allowedPages.length === 0) {
+        return true
+      }
+      return meta.allowedPages.includes(props.pageType as PageScope)
+    })
+
+    // 再按搜索关键词过滤
+    if (query) {
+      filteredMetas = filteredMetas.filter(meta => 
+        meta.name.toLowerCase().includes(query) ||
+        meta.type.toLowerCase().includes(query) ||
+        meta.tags?.some(tag => tag.toLowerCase().includes(query))
+      )
+    }
 
     // 只添加有组件的分组
     if (filteredMetas.length > 0) {
