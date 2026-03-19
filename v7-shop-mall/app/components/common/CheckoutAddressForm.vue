@@ -397,6 +397,11 @@ onUnmounted(() => {
   width: 100%;
 }
 
+.email-input-wrapper .form-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .email-suggestions {
   position: absolute;
   top: 100%;
