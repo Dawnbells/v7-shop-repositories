@@ -26,9 +26,13 @@ const props = withDefaults(defineProps<Props>(), {
 
 const { shippingAddress, formErrors, updateAddress } = useCheckoutPage();
 const { countryInfo } = usePageContext();
+const { globalConfig } = usePageTheme();
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
+// 是否允许手动输入地址
+const allowCustomAddress = computed(() => globalConfig.value?.allowCustomAddress ?? false);
 
 // ============ addressFields 解析 ============
 
@@ -369,6 +373,7 @@ onUnmounted(() => {
           :disabled="isInEditor || loadingProvinces"
           :loading="loadingProvinces"
           :has-error="!!formErrors.province"
+          :allow-custom="allowCustomAddress"
           @update:model-value="onProvinceSelect"
         />
         <span v-if="formErrors.province" class="form-error">
@@ -386,6 +391,7 @@ onUnmounted(() => {
           :disabled="isInEditor || loadingCities || !shippingAddress.province"
           :loading="loadingCities"
           :has-error="!!formErrors.city"
+          :allow-custom="allowCustomAddress"
           @update:model-value="onCitySelect"
         />
         <span v-if="formErrors.city" class="form-error">
@@ -407,6 +413,7 @@ onUnmounted(() => {
           :disabled="isInEditor || loadingDistricts || !shippingAddress.city"
           :loading="loadingDistricts"
           :has-error="!!formErrors.district"
+          :allow-custom="allowCustomAddress"
           @update:model-value="onDistrictSelect"
         />
         <span v-if="formErrors.district" class="form-error">
@@ -436,6 +443,7 @@ onUnmounted(() => {
           :disabled="isInEditor || loadingPostalCodes || !shippingAddress.city"
           :loading="loadingPostalCodes"
           :has-error="!!formErrors.postalCode"
+          :allow-custom="allowCustomAddress"
           @update:model-value="onPostalCodeSelect"
         />
         <span v-if="formErrors.postalCode" class="form-error">

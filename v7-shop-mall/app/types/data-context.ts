@@ -177,6 +177,7 @@ export interface GlobalConfig {
   enableQuantitySelector?: boolean
   enableCart?: boolean
   cartMode?: 'mall' | 'single'
+  allowCustomAddress?: boolean
   [key: string]: any
 }
 

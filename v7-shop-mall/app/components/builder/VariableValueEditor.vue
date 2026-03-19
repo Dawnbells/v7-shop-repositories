@@ -66,9 +66,37 @@ const activeSiteGroup = ref<string>("globalConfig.basic");
 // 当前选中的全局皮肤分组
 const activeGlobalStyleGroup = ref<string>("globalStyle.color");
 
-// 获取分组的字段
+// 评估 showIf 条件
+function evaluateShowIf(field: SiteFieldSchema): boolean {
+  if (!field.showIf) return true;
+  
+  // 解析条件表达式，如 "globalConfig.enableCart === true"
+  const match = field.showIf.match(/^(.+?)\s*(===|!==|==|!=)\s*(.+)$/);
+  if (!match) return true;
+  
+  const [, key, operator, expectedValue] = match;
+  const actualValue = getSiteValue(key.trim());
+  const expected = expectedValue.trim() === 'true' ? true : 
+                   expectedValue.trim() === 'false' ? false : 
+                   expectedValue.trim();
+  
+  switch (operator) {
+    case '===':
+    case '==':
+      return actualValue === expected;
+    case '!==':
+    case '!=':
+      return actualValue !== expected;
+    default:
+      return true;
+  }
+}
+
+// 获取分组的字段（过滤掉不满足 showIf 条件的字段）
 function getGroupFields(groupKey: string): SiteFieldSchema[] {
-  return SITE_CONFIG_SCHEMA.filter((field) => field.group === groupKey);
+  return SITE_CONFIG_SCHEMA.filter(
+    (field) => field.group === groupKey && evaluateShowIf(field)
+  );
 }
 
 // 获取站点配置值（支持嵌套键，如 "globalStyle.primaryColor"）
@@ -322,6 +350,71 @@ function handleImageSelect(images: any[]) {
                     </label>
                     <span class="switch-status">
                       {{ (getSiteValue(field.key) ?? field.defaultValue) ? '已启用' : '已禁用' }}
+                    </span>
+                  </div>
+
+                  <!-- 下拉选择 -->
+                  <select
+                    v-else-if="field.type === 'select'"
+                    class="field-select"
+                    :value="getSiteValue(field.key) ?? field.defaultValue"
+                    @change="handleSiteConfigChange(field.key, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option
+                      v-for="option in field.options"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+
+                  <!-- 单选按钮 -->
+                  <div v-else-if="field.type === 'radio'" class="radio-group">
+                    <label
+                      v-for="option in field.options"
+                      :key="option.value"
+                      class="radio-option"
+                    >
+                      <input
+                        type="radio"
+                        :name="field.key"
+                        :value="option.value"
+                        :checked="(getSiteValue(field.key) ?? field.defaultValue) === option.value"
+                        @change="handleSiteConfigChange(field.key, option.value)"
+                      />
+                      <span class="radio-label">{{ option.label }}</span>
+                    </label>
+                  </div>
+
+                  <!-- 左右切换开关（两选项） -->
+                  <div v-else-if="field.type === 'toggle' && field.options?.length === 2" class="toggle-switch">
+                    <span 
+                      class="toggle-label" 
+                      :class="{ active: (getSiteValue(field.key) ?? field.defaultValue) === field.options[0].value }"
+                      @click="handleSiteConfigChange(field.key, field.options[0].value)"
+                    >
+                      {{ field.options[0].label }}
+                    </span>
+                    <button
+                      type="button"
+                      class="toggle-btn"
+                      :class="{ toggled: (getSiteValue(field.key) ?? field.defaultValue) === field.options[1].value }"
+                      @click="handleSiteConfigChange(
+                        field.key, 
+                        (getSiteValue(field.key) ?? field.defaultValue) === field.options[0].value 
+                          ? field.options[1].value 
+                          : field.options[0].value
+                      )"
+                    >
+                      <span class="toggle-slider"></span>
+                    </button>
+                    <span 
+                      class="toggle-label" 
+                      :class="{ active: (getSiteValue(field.key) ?? field.defaultValue) === field.options[1].value }"
+                      @click="handleSiteConfigChange(field.key, field.options[1].value)"
+                    >
+                      {{ field.options[1].label }}
                     </span>
                   </div>
 
@@ -893,6 +986,100 @@ function handleImageSelect(images: any[]) {
 .switch-status {
   font-size: 13px;
   color: #94a3b8;
+}
+
+/* 单选按钮组 */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #e2e8f0;
+}
+
+.radio-option input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.radio-label {
+  user-select: none;
+}
+
+/* 左右切换开关 */
+.toggle-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toggle-switch .toggle-label {
+  font-size: 13px;
+  color: #64748b;
+  cursor: pointer;
+  transition: color 0.2s;
+  user-select: none;
+}
+
+.toggle-switch .toggle-label.active {
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.toggle-switch .toggle-label:hover {
+  color: #94a3b8;
+}
+
+.toggle-switch .toggle-label.active:hover {
+  color: #3b82f6;
+}
+
+.toggle-btn {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background-color: #334155;
+  border: none;
+  border-radius: 24px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  padding: 0;
+}
+
+.toggle-btn:hover {
+  background-color: #475569;
+}
+
+.toggle-btn.toggled {
+  background-color: #3b82f6;
+}
+
+.toggle-btn.toggled:hover {
+  background-color: #2563eb;
+}
+
+.toggle-btn .toggle-slider {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-btn.toggled .toggle-slider {
+  transform: translateX(20px);
 }
 
 /* 变量列表 */

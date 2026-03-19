@@ -11,6 +11,7 @@ interface Props {
   disabled?: boolean;
   loading?: boolean;
   hasError?: boolean;
+  allowCustom?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -18,6 +19,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   loading: false,
   hasError: false,
+  allowCustom: false,
 });
 
 const emit = defineEmits<{
@@ -69,6 +71,10 @@ function handleInputFocus() {
 function handleInputBlur(event: FocusEvent) {
   const relatedTarget = event.relatedTarget as HTMLElement | null;
   if (listRef.value?.contains(relatedTarget)) return;
+  
+  if (props.allowCustom && searchQuery.value && filteredOptions.value.length === 0) {
+    emit('update:modelValue', searchQuery.value);
+  }
   closeDropdown();
 }
 
@@ -106,6 +112,9 @@ function handleKeydown(event: KeyboardEvent) {
       event.preventDefault();
       if (highlightedIndex.value >= 0 && filteredOptions.value[highlightedIndex.value]) {
         selectOption(filteredOptions.value[highlightedIndex.value]);
+      } else if (props.allowCustom && searchQuery.value && filteredOptions.value.length === 0) {
+        emit('update:modelValue', searchQuery.value);
+        closeDropdown();
       }
       break;
     case 'Escape':
@@ -167,7 +176,12 @@ function scrollToHighlighted() {
       v-if="isOpen && filteredOptions.length === 0"
       class="searchable-select-dropdown searchable-select-empty"
     >
-      无匹配结果
+      <template v-if="allowCustom && searchQuery">
+        按回车使用 "{{ searchQuery }}"
+      </template>
+      <template v-else>
+        无匹配结果
+      </template>
     </div>
   </div>
 </template>

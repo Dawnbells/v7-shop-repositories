@@ -21,6 +21,7 @@ export interface SiteFieldSchema {
   description?: string; // 描述说明
   required?: boolean; // 是否必填
   i18n?: boolean; // 是否支持多语言
+  showIf?: string; // 条件显示表达式，如 "globalConfig.enableCart === true"
 }
 
 /**
@@ -328,7 +329,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
   {
     key: "globalConfig.cartMode",
     label: "购物车模式",
-    type: "select",
+    type: "toggle",
     defaultValue: "single",
     options: [
       { label: "商城模式", value: "mall" },
@@ -337,6 +338,14 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     group: "globalConfig.features",
     description: "商城模式：所有商品共享购物车；单页模式：每个商品独立购物车",
     showIf: "globalConfig.enableCart === true",
+  },
+  {
+    key: "globalConfig.allowCustomAddress",
+    label: "允许手动输入地址",
+    type: "switch",
+    defaultValue: false,
+    group: "globalConfig.features",
+    description: "当地址库无匹配时，允许用户手动输入地址信息",
   },
 
   // ============ 全局皮肤 (globalStyle) ============

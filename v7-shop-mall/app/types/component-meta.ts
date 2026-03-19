@@ -15,6 +15,7 @@ export type PropEditorType =
   | "switch"    // 开关
   | "select"    // 下拉选择
   | "radio"     // 单选
+  | "toggle"    // 左右切换开关（两选项）
   | "color"     // 颜色选择器
   | "image"     // 图片上传
   | "richtext"  // 富文本
