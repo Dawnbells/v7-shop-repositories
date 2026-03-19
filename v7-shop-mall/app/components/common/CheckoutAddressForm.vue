@@ -23,12 +23,109 @@ const { shippingAddress, formErrors, updateAddress } = useCheckoutPage();
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
 
+// 邮箱联想状态
+const emailSuggestions = ref<string[]>([]);
+const showEmailSuggestions = ref(false);
+const selectedSuggestionIndex = ref(-1);
+const emailInputRef = ref<HTMLInputElement | null>(null);
+const suggestionsRef = ref<HTMLElement | null>(null);
+
+// 防抖定时器
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 获取邮箱建议
+async function fetchEmailSuggestions(prefix: string) {
+  if (!prefix.includes('@') || isInEditor.value) {
+    emailSuggestions.value = [];
+    showEmailSuggestions.value = false;
+    return;
+  }
+  
+  try {
+    const country = shippingAddress.value.country || 'default';
+    const suggestions = await $fetch<string[]>('/api/email/suggestions', {
+      query: { prefix, country, limit: 8 }
+    });
+    emailSuggestions.value = suggestions;
+    showEmailSuggestions.value = suggestions.length > 0;
+    selectedSuggestionIndex.value = -1;
+  } catch {
+    emailSuggestions.value = [];
+    showEmailSuggestions.value = false;
+  }
+}
+
+// 处理邮箱输入
+function handleEmailInput(event: Event) {
+  if (isInEditor.value) return;
+  const target = event.target as HTMLInputElement;
+  updateAddress('email', target.value);
+  
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    fetchEmailSuggestions(target.value);
+  }, 150);
+}
+
+// 选择邮箱建议
+function selectSuggestion(email: string) {
+  updateAddress('email', email);
+  showEmailSuggestions.value = false;
+  emailSuggestions.value = [];
+  selectedSuggestionIndex.value = -1;
+}
+
+// 处理邮箱输入框键盘事件
+function handleEmailKeydown(event: KeyboardEvent) {
+  if (!showEmailSuggestions.value || emailSuggestions.value.length === 0) return;
+  
+  switch (event.key) {
+    case 'ArrowDown':
+      event.preventDefault();
+      selectedSuggestionIndex.value = Math.min(
+        selectedSuggestionIndex.value + 1,
+        emailSuggestions.value.length - 1
+      );
+      break;
+    case 'ArrowUp':
+      event.preventDefault();
+      selectedSuggestionIndex.value = Math.max(selectedSuggestionIndex.value - 1, -1);
+      break;
+    case 'Enter':
+      if (selectedSuggestionIndex.value >= 0) {
+        event.preventDefault();
+        selectSuggestion(emailSuggestions.value[selectedSuggestionIndex.value]);
+      }
+      break;
+    case 'Escape':
+      showEmailSuggestions.value = false;
+      selectedSuggestionIndex.value = -1;
+      break;
+  }
+}
+
+// 处理邮箱输入框失焦
+function handleEmailBlur(event: FocusEvent) {
+  const relatedTarget = event.relatedTarget as HTMLElement | null;
+  if (suggestionsRef.value?.contains(relatedTarget)) return;
+  
+  setTimeout(() => {
+    showEmailSuggestions.value = false;
+    selectedSuggestionIndex.value = -1;
+  }, 150);
+}
+
 // 编辑器中禁用输入
 function handleInput(field: keyof typeof shippingAddress.value, event: Event) {
   if (isInEditor.value) return;
   const target = event.target as HTMLInputElement;
   updateAddress(field, target.value);
 }
+
+// 清理定时器
+onUnmounted(() => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+});
 </script>
 
 <template>
@@ -73,17 +170,40 @@ function handleInput(field: keyof typeof shippingAddress.value, event: Event) {
 
     <!-- 第二行：邮箱和国家 -->
     <div class="form-row">
-      <div v-if="showEmail" class="form-group">
+      <div v-if="showEmail" class="form-group email-group">
         <label class="form-label">邮箱</label>
-        <input
-          type="email"
-          class="form-input"
-          :class="{ 'has-error': formErrors.email }"
-          :value="shippingAddress.email"
-          placeholder="请输入邮箱地址"
-          :disabled="isInEditor"
-          @input="handleInput('email', $event)"
-        />
+        <div class="email-input-wrapper">
+          <input
+            ref="emailInputRef"
+            type="email"
+            class="form-input"
+            :class="{ 'has-error': formErrors.email }"
+            :value="shippingAddress.email"
+            placeholder="请输入邮箱地址"
+            autocomplete="off"
+            :disabled="isInEditor"
+            @input="handleEmailInput"
+            @keydown="handleEmailKeydown"
+            @blur="handleEmailBlur"
+            @focus="shippingAddress.email?.includes('@') && fetchEmailSuggestions(shippingAddress.email)"
+          />
+          <div
+            v-if="showEmailSuggestions && emailSuggestions.length > 0"
+            ref="suggestionsRef"
+            class="email-suggestions"
+          >
+            <button
+              v-for="(suggestion, index) in emailSuggestions"
+              :key="suggestion"
+              type="button"
+              class="email-suggestion-item"
+              :class="{ 'is-selected': index === selectedSuggestionIndex }"
+              @mousedown.prevent="selectSuggestion(suggestion)"
+            >
+              {{ suggestion }}
+            </button>
+          </div>
+        </div>
         <span v-if="formErrors.email" class="form-error">
           {{ formErrors.email }}
         </span>
@@ -265,6 +385,53 @@ function handleInput(field: keyof typeof shippingAddress.value, event: Event) {
 .form-error {
   font-size: var(--address-form-error-size, 12px);
   color: var(--error-color, #ef4444);
+}
+
+/* 邮箱联想样式 */
+.email-group {
+  position: relative;
+}
+
+.email-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.email-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  margin-top: 4px;
+  background-color: var(--surface-color, #ffffff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--address-form-input-radius, 8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.email-suggestion-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  font-size: var(--address-form-input-size, 14px);
+  color: var(--text-color, #1f2937);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.email-suggestion-item:hover,
+.email-suggestion-item.is-selected {
+  background-color: var(--primary-color-light, #eff6ff);
+}
+
+.email-suggestion-item:not(:last-child) {
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
 /* 响应式 - 使用容器查询以支持主题编辑器预览 */
