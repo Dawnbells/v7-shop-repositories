@@ -50,14 +50,6 @@ export const meta: ComponentMeta = {
       group: "address",
     },
     {
-      key: "showPostalCode",
-      label: "显示邮编",
-      type: "switch",
-      defaultValue: true,
-      description: "是否显示邮政编码字段",
-      group: "address",
-    },
-    {
       key: "showNote",
       label: "显示备注",
       type: "switch",
@@ -210,7 +202,6 @@ export const meta: ComponentMeta = {
     // 地址表单
     addressLayout: "single",
     showEmail: true,
-    showPostalCode: true,
     showNote: true,
     // 商品列表
     showImage: true,

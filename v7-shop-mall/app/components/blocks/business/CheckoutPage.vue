@@ -10,7 +10,6 @@ interface Props {
   layout?: "two-column" | "single-column";
   // 地址表单配置
   showEmail?: boolean;
-  showPostalCode?: boolean;
   showNote?: boolean;
   addressLayout?: "single" | "double";
   // 商品列表配置
@@ -37,7 +36,6 @@ const props = withDefaults(defineProps<Props>(), {
   layout: "two-column",
   // 地址表单
   showEmail: true,
-  showPostalCode: true,
   showNote: true,
   addressLayout: "single",
   // 商品列表
@@ -120,7 +118,6 @@ function toggleSummary() {
         <p class="section-subtitle">请填写您的收货信息以完成订单</p>
         <CommonCheckoutAddressForm
           :show-email="showEmail"
-          :show-postal-code="showPostalCode"
           :show-note="showNote"
           :layout="addressLayout"
         />

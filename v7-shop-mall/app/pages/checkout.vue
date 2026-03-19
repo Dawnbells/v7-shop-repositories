@@ -180,22 +180,6 @@ provide(
                           {{ formErrors.email }}
                         </span>
                       </div>
-                      <div class="form-group">
-                        <label class="form-label">
-                          国家/地区 <span class="required">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          class="form-input"
-                          :class="{ 'has-error': formErrors.country }"
-                          :value="shippingAddress.country"
-                          placeholder="请输入国家/地区"
-                          @input="updateAddress('country', ($event.target as HTMLInputElement).value)"
-                        />
-                        <span v-if="formErrors.country" class="form-error">
-                          {{ formErrors.country }}
-                        </span>
-                      </div>
                     </div>
 
                     <div class="form-row">

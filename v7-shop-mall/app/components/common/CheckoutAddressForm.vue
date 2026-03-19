@@ -2,38 +2,157 @@
 /**
  * CheckoutAddressForm Block - 收货地址表单组件
  * 收货人姓名、电话、地址等字段，带表单验证
+ * 支持根据国家 addressFields 动态显示省/市/区/邮编级联选择
  */
+
+import type { CountryInfo } from '~/composables/usePageContext';
+
+interface DistrictItem {
+  district: string;
+  postalCode: string;
+}
 
 interface Props {
   showEmail?: boolean;
-  showPostalCode?: boolean;
   showNote?: boolean;
   layout?: "single" | "double";
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showEmail: true,
-  showPostalCode: true,
   showNote: true,
   layout: "double",
 });
 
 const { shippingAddress, formErrors, updateAddress } = useCheckoutPage();
+const { countryInfo } = usePageContext();
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
 
-// 邮箱联想状态
+// ============ addressFields 解析 ============
+
+type AddressFieldKey = 'province' | 'city' | 'district' | 'postal_code';
+
+const addressFields = computed<AddressFieldKey[]>(() => {
+  const raw = countryInfo.value?.addressFields;
+  if (!raw) return [];
+  return raw.split(',').map(s => s.trim()).filter(Boolean) as AddressFieldKey[];
+});
+
+const hasField = (field: AddressFieldKey) => addressFields.value.includes(field);
+
+// ============ 级联选择状态 ============
+
+const provinceList = ref<string[]>([]);
+const cityList = ref<string[]>([]);
+const districtList = ref<DistrictItem[]>([]);
+
+const loadingProvinces = ref(false);
+const loadingCities = ref(false);
+const loadingDistricts = ref(false);
+
+// 加载省份列表
+async function loadProvinces() {
+  if (isInEditor.value || !hasField('province') || !countryInfo.value?.code) return;
+  loadingProvinces.value = true;
+  try {
+    provinceList.value = await $fetch<string[]>('/api/address/provinces', {
+      query: { country: countryInfo.value.code }
+    });
+  } catch {
+    provinceList.value = [];
+  } finally {
+    loadingProvinces.value = false;
+  }
+}
+
+// 加载城市列表
+async function loadCities(province: string) {
+  if (isInEditor.value || !hasField('city') || !province || !countryInfo.value?.code) {
+    cityList.value = [];
+    return;
+  }
+  loadingCities.value = true;
+  try {
+    cityList.value = await $fetch<string[]>('/api/address/cities', {
+      query: { country: countryInfo.value.code, province }
+    });
+  } catch {
+    cityList.value = [];
+  } finally {
+    loadingCities.value = false;
+  }
+}
+
+// 加载区县列表（含邮编）
+async function loadDistricts(province: string, city: string) {
+  if (isInEditor.value || !hasField('district') || !province || !city || !countryInfo.value?.code) {
+    districtList.value = [];
+    return;
+  }
+  loadingDistricts.value = true;
+  try {
+    districtList.value = await $fetch<DistrictItem[]>('/api/address/districts', {
+      query: { country: countryInfo.value.code, province, city }
+    });
+  } catch {
+    districtList.value = [];
+  } finally {
+    loadingDistricts.value = false;
+  }
+}
+
+// 级联选择处理
+function handleProvinceChange(event: Event) {
+  if (isInEditor.value) return;
+  const value = (event.target as HTMLSelectElement).value;
+  updateAddress('province', value);
+  updateAddress('city', '');
+  updateAddress('district', '');
+  updateAddress('postalCode', '');
+  cityList.value = [];
+  districtList.value = [];
+  if (value) loadCities(value);
+}
+
+function handleCityChange(event: Event) {
+  if (isInEditor.value) return;
+  const value = (event.target as HTMLSelectElement).value;
+  updateAddress('city', value);
+  updateAddress('district', '');
+  updateAddress('postalCode', '');
+  districtList.value = [];
+  if (value && shippingAddress.value.province) {
+    loadDistricts(shippingAddress.value.province, value);
+  }
+}
+
+function handleDistrictChange(event: Event) {
+  if (isInEditor.value) return;
+  const value = (event.target as HTMLSelectElement).value;
+  updateAddress('district', value);
+  const matched = districtList.value.find(d => d.district === value);
+  updateAddress('postalCode', matched?.postalCode || '');
+}
+
+// 页面加载时获取省份
+onMounted(() => {
+  if (hasField('province')) {
+    loadProvinces();
+  }
+});
+
+// ============ 邮箱联想 ============
+
 const emailSuggestions = ref<string[]>([]);
 const showEmailSuggestions = ref(false);
 const selectedSuggestionIndex = ref(-1);
 const emailInputRef = ref<HTMLInputElement | null>(null);
 const suggestionsRef = ref<HTMLElement | null>(null);
 
-// 防抖定时器
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-// 获取邮箱建议
 async function fetchEmailSuggestions(prefix: string) {
   if (!prefix.includes('@') || isInEditor.value) {
     emailSuggestions.value = [];
@@ -42,7 +161,7 @@ async function fetchEmailSuggestions(prefix: string) {
   }
   
   try {
-    const country = shippingAddress.value.country || 'default';
+    const country = countryInfo.value?.code || 'default';
     const suggestions = await $fetch<string[]>('/api/email/suggestions', {
       query: { prefix, country, limit: 8 }
     });
@@ -55,7 +174,6 @@ async function fetchEmailSuggestions(prefix: string) {
   }
 }
 
-// 处理邮箱输入
 function handleEmailInput(event: Event) {
   if (isInEditor.value) return;
   const target = event.target as HTMLInputElement;
@@ -67,15 +185,13 @@ function handleEmailInput(event: Event) {
   }, 150);
 }
 
-// 选择邮箱建议
-function selectSuggestion(email: string) {
+function selectEmailSuggestion(email: string) {
   updateAddress('email', email);
   showEmailSuggestions.value = false;
   emailSuggestions.value = [];
   selectedSuggestionIndex.value = -1;
 }
 
-// 处理邮箱输入框键盘事件
 function handleEmailKeydown(event: KeyboardEvent) {
   if (!showEmailSuggestions.value || emailSuggestions.value.length === 0) return;
   
@@ -94,7 +210,7 @@ function handleEmailKeydown(event: KeyboardEvent) {
     case 'Enter':
       if (selectedSuggestionIndex.value >= 0) {
         event.preventDefault();
-        selectSuggestion(emailSuggestions.value[selectedSuggestionIndex.value]);
+        selectEmailSuggestion(emailSuggestions.value[selectedSuggestionIndex.value]);
       }
       break;
     case 'Escape':
@@ -104,7 +220,6 @@ function handleEmailKeydown(event: KeyboardEvent) {
   }
 }
 
-// 处理邮箱输入框失焦
 function handleEmailBlur(event: FocusEvent) {
   const relatedTarget = event.relatedTarget as HTMLElement | null;
   if (suggestionsRef.value?.contains(relatedTarget)) return;
@@ -115,14 +230,14 @@ function handleEmailBlur(event: FocusEvent) {
   }, 150);
 }
 
-// 编辑器中禁用输入
+// ============ 通用输入 ============
+
 function handleInput(field: keyof typeof shippingAddress.value, event: Event) {
   if (isInEditor.value) return;
   const target = event.target as HTMLInputElement;
   updateAddress(field, target.value);
 }
 
-// 清理定时器
 onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
 });
@@ -168,9 +283,9 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 第二行：邮箱和国家 -->
-    <div class="form-row">
-      <div v-if="showEmail" class="form-group email-group">
+    <!-- 第二行：邮箱 -->
+    <div v-if="showEmail" class="form-row">
+      <div class="form-group email-group">
         <label class="form-label">邮箱</label>
         <div class="email-input-wrapper">
           <input
@@ -198,7 +313,7 @@ onUnmounted(() => {
               type="button"
               class="email-suggestion-item"
               :class="{ 'is-selected': index === selectedSuggestionIndex }"
-              @mousedown.prevent="selectSuggestion(suggestion)"
+              @mousedown.prevent="selectEmailSuggestion(suggestion)"
             >
               {{ suggestion }}
             </button>
@@ -208,60 +323,74 @@ onUnmounted(() => {
           {{ formErrors.email }}
         </span>
       </div>
-      <div class="form-group">
-        <label class="form-label">
-          国家/地区 <span class="required">*</span>
-        </label>
-        <input
-          type="text"
-          class="form-input"
-          :class="{ 'has-error': formErrors.country }"
-          :value="shippingAddress.country"
-          placeholder="请输入国家/地区"
-          :disabled="isInEditor"
-          @input="handleInput('country', $event)"
-        />
-        <span v-if="formErrors.country" class="form-error">
-          {{ formErrors.country }}
-        </span>
-      </div>
     </div>
 
-    <!-- 第三行：省/州和城市 -->
-    <div class="form-row">
-      <div class="form-group">
+    <!-- 省/市级联选择 -->
+    <div v-if="hasField('province') || hasField('city')" class="form-row">
+      <div v-if="hasField('province')" class="form-group">
         <label class="form-label">
           省/州 <span class="required">*</span>
         </label>
-        <input
-          type="text"
-          class="form-input"
-          :class="{ 'has-error': formErrors.province }"
+        <select
+          class="form-input form-select"
+          :class="{ 'has-error': formErrors.province, 'is-placeholder': !shippingAddress.province }"
           :value="shippingAddress.province"
-          placeholder="请输入省/州"
-          :disabled="isInEditor"
-          @input="handleInput('province', $event)"
-        />
+          :disabled="isInEditor || loadingProvinces"
+          @change="handleProvinceChange"
+        >
+          <option value="" disabled>{{ loadingProvinces ? '加载中...' : '请选择省/州' }}</option>
+          <option v-for="p in provinceList" :key="p" :value="p">{{ p }}</option>
+        </select>
         <span v-if="formErrors.province" class="form-error">
           {{ formErrors.province }}
         </span>
       </div>
-      <div class="form-group">
+      <div v-if="hasField('city')" class="form-group">
         <label class="form-label">
           城市 <span class="required">*</span>
         </label>
-        <input
-          type="text"
-          class="form-input"
-          :class="{ 'has-error': formErrors.city }"
+        <select
+          class="form-input form-select"
+          :class="{ 'has-error': formErrors.city, 'is-placeholder': !shippingAddress.city }"
           :value="shippingAddress.city"
-          placeholder="请输入城市"
-          :disabled="isInEditor"
-          @input="handleInput('city', $event)"
-        />
+          :disabled="isInEditor || loadingCities || !shippingAddress.province"
+          @change="handleCityChange"
+        >
+          <option value="" disabled>{{ loadingCities ? '加载中...' : '请选择城市' }}</option>
+          <option v-for="c in cityList" :key="c" :value="c">{{ c }}</option>
+        </select>
         <span v-if="formErrors.city" class="form-error">
           {{ formErrors.city }}
         </span>
+      </div>
+    </div>
+
+    <!-- 区/邮编级联选择 -->
+    <div v-if="hasField('district') || hasField('postal_code')" class="form-row">
+      <div v-if="hasField('district')" class="form-group">
+        <label class="form-label">
+          区/县 <span class="required">*</span>
+        </label>
+        <select
+          class="form-input form-select"
+          :class="{ 'has-error': formErrors.address, 'is-placeholder': !shippingAddress.district }"
+          :value="shippingAddress.district"
+          :disabled="isInEditor || loadingDistricts || !shippingAddress.city"
+          @change="handleDistrictChange"
+        >
+          <option value="" disabled>{{ loadingDistricts ? '加载中...' : '请选择区/县' }}</option>
+          <option v-for="d in districtList" :key="d.district" :value="d.district">{{ d.district }}</option>
+        </select>
+      </div>
+      <div v-if="hasField('postal_code')" class="form-group">
+        <label class="form-label">邮政编码</label>
+        <input
+          type="text"
+          class="form-input"
+          :value="shippingAddress.postalCode"
+          placeholder="选择区县后自动填充"
+          disabled
+        />
       </div>
     </div>
 
@@ -284,20 +413,9 @@ onUnmounted(() => {
       </span>
     </div>
 
-    <!-- 最后一行：邮编和备注 -->
-    <div class="form-row">
-      <div v-if="showPostalCode" class="form-group">
-        <label class="form-label">邮政编码</label>
-        <input
-          type="text"
-          class="form-input"
-          :value="shippingAddress.postalCode"
-          placeholder="请输入邮政编码"
-          :disabled="isInEditor"
-          @input="handleInput('postalCode', $event)"
-        />
-      </div>
-      <div v-if="showNote" class="form-group">
+    <!-- 备注 -->
+    <div v-if="showNote" class="form-row">
+      <div class="form-group">
         <label class="form-label">订单备注</label>
         <input
           type="text"
@@ -385,6 +503,26 @@ onUnmounted(() => {
 .form-error {
   font-size: var(--address-form-error-size, 12px);
   color: var(--error-color, #ef4444);
+}
+
+/* 下拉选择框样式 */
+.form-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M2.22 4.47a.75.75 0 0 1 1.06 0L6 7.19l2.72-2.72a.75.75 0 1 1 1.06 1.06L6.53 8.78a.75.75 0 0 1-1.06 0L2.22 5.53a.75.75 0 0 1 0-1.06z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-select.is-placeholder {
+  color: var(--text-secondary-color, #9ca3af);
 }
 
 /* 邮箱联想样式 */

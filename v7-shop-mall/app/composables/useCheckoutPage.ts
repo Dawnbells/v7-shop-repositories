@@ -18,7 +18,6 @@ export interface ShippingAddress {
   fullName: string;
   phone: string;
   email?: string;
-  country: string;
   province: string;
   city: string;
   district?: string;
@@ -79,9 +78,9 @@ export interface FormErrors {
   fullName?: string;
   phone?: string;
   email?: string;
-  country?: string;
   province?: string;
   city?: string;
+  district?: string;
   address?: string;
   postalCode?: string;
 }
@@ -103,7 +102,6 @@ export function useCheckoutPage() {
     fullName: "",
     phone: "",
     email: "",
-    country: "",
     province: "",
     city: "",
     district: "",
@@ -206,10 +204,20 @@ export function useCheckoutPage() {
     }
   }
 
-  // 验证表单
+  // 从 pageContext 获取 addressFields 配置
+  const { countryInfo } = usePageContext();
+
+  const activeAddressFields = computed<string[]>(() => {
+    const raw = countryInfo.value?.addressFields;
+    if (!raw) return [];
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+  });
+
+  // 验证表单（根据 addressFields 动态验证地址字段）
   function validateForm(): boolean {
     const errors: FormErrors = {};
     const addr = shippingAddress.value;
+    const fields = activeAddressFields.value;
 
     if (!addr.fullName?.trim()) {
       errors.fullName = "请输入收货人姓名";
@@ -225,16 +233,16 @@ export function useCheckoutPage() {
       errors.email = "请输入有效的邮箱地址";
     }
 
-    if (!addr.country?.trim()) {
-      errors.country = "请选择国家/地区";
+    if (fields.includes('province') && !addr.province?.trim()) {
+      errors.province = "请选择省/州";
     }
 
-    if (!addr.province?.trim()) {
-      errors.province = "请输入省/州";
+    if (fields.includes('city') && !addr.city?.trim()) {
+      errors.city = "请选择城市";
     }
 
-    if (!addr.city?.trim()) {
-      errors.city = "请输入城市";
+    if (fields.includes('district') && !addr.district?.trim()) {
+      errors.district = "请选择区/县";
     }
 
     if (!addr.address?.trim()) {

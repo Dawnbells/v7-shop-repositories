@@ -20,6 +20,12 @@ interface PageThemeContext {
   variableValues: VariableValues;
 }
 
+export interface CountryInfo {
+  code: string;
+  name: string;
+  addressFields: string | null;
+}
+
 interface PageContext {
   pageTheme: PageThemeContext | null;
   landingPage: LandingPageInfo | null;
@@ -27,6 +33,7 @@ interface PageContext {
   currency: Currency | null;
   protocolGroups: ProtocolGroup[] | null;
   articleInfo: ArticleInfo | null;
+  country: CountryInfo | null;
 }
 
 export function usePageContext() {
@@ -41,6 +48,7 @@ export function usePageContext() {
   const currency = useState<Currency | null>("currency", () => null);
   const protocolGroups = useState<ProtocolGroup[] | null>("protocolGroups", () => null);
   const articleInfo = useState<ArticleInfo | null>("articleInfo", () => null);
+  const countryInfo = useState<CountryInfo | null>("countryInfo", () => null);
 
   // SSR 时：从 event.context.pageContext 读取中间件注入的数据（只执行一次）
   if (import.meta.server && !ssrDataInjected.value) {
@@ -82,6 +90,14 @@ export function usePageContext() {
     if (pageContext?.articleInfo) {
       articleInfo.value = pageContext.articleInfo;
     }
+
+    if (pageContext?.country) {
+      countryInfo.value = {
+        code: pageContext.country.code,
+        name: pageContext.country.name,
+        addressFields: pageContext.country.addressFields ?? null,
+      };
+    }
   }
 
   /**
@@ -109,6 +125,7 @@ export function usePageContext() {
     currency,
     protocolGroups,
     articleInfo,
+    countryInfo,
     setMockData,
   };
 }

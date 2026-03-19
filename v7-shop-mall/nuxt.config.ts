@@ -46,6 +46,13 @@ export default defineNuxtConfig({
       password: '',
       database: 'shop',
     },
+    addressDb: {
+      host: 'localhost',
+      port: 3306,
+      user: 'root',
+      password: '',
+      database: 'address',
+    },
     redis: {
       host: '127.0.0.1',
       port: 6379,
