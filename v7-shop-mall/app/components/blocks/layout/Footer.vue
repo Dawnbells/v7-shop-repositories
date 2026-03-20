@@ -461,6 +461,7 @@ onMounted(() => {
                 :key="article.id"
                 :to="`/article/${article.id}`"
                 class="link-item"
+                external
               >
                 {{ replacePlaceholders(article.title) }}
               </NuxtLink>
