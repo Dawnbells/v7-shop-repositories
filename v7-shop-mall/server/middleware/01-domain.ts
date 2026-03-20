@@ -21,6 +21,10 @@ const SPU_ID_MAX_AGE = 30 * 24 * 60 * 60; // 30 天
 const LANGUAGE_ID_COOKIE = "_languageId";
 const LANGUAGE_ID_MAX_AGE = 365 * 24 * 60 * 60; // 1 年
 
+// from_url Cookie 配置（用于 Header Logo 跳转）
+const FROM_URL_COOKIE = "_from_url";
+const FROM_URL_MAX_AGE = 30 * 24 * 60 * 60; // 30 天
+
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
@@ -70,7 +74,13 @@ export default defineEventHandler(async (event) => {
     // 产品页：从 URL 解析 spuId
     spuId = parseInt(pathParts[1], 10) || null;
 
-    // 写入或更新 Cookie
+    // 保存完整 URL 到 from_url cookie（用于 Header Logo 跳转）
+    setCookie(event, FROM_URL_COOKIE, path, {
+      maxAge: FROM_URL_MAX_AGE,
+      path: "/",
+    });
+
+    // 写入或更新 spuId Cookie
     if (spuId) {
       setCookie(event, SPU_ID_COOKIE, String(spuId), {
         maxAge: SPU_ID_MAX_AGE,

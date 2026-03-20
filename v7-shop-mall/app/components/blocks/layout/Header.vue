@@ -47,6 +47,15 @@ const cartBadgeCount = computed(() => {
   if (count > 99) return '99+'
   return count > 0 ? count : null
 })
+
+// 获取 from_url cookie
+const fromUrlCookie = useCookie('_from_url')
+
+// 处理 Logo/网站名点击跳转
+function handleBrandClick() {
+  const targetUrl = fromUrlCookie.value || '/'
+  navigateTo(targetUrl, { external: true })
+}
 </script>
 
 <template>
@@ -55,18 +64,24 @@ const cartBadgeCount = computed(() => {
       <!-- 左侧区域 -->
       <div class="header-left">
         <template v-if="layout === 'left'">
-          <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
-          <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
+          <div class="header-brand" @click="handleBrandClick">
+            <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
+            <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
+          </div>
         </template>
         <template v-else>
-          <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
+          <div class="header-brand" @click="handleBrandClick">
+            <span v-if="showSiteName && siteName" class="header-site-name">{{ siteName }}</span>
+          </div>
         </template>
       </div>
 
       <!-- 中间区域 -->
       <div class="header-center">
         <template v-if="layout === 'center'">
-          <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
+          <div class="header-brand" @click="handleBrandClick">
+            <img v-if="logoUrl" :src="logoUrl" alt="Logo" class="header-logo" @error="handleLogoError" />
+          </div>
         </template>
       </div>
 
@@ -135,6 +150,13 @@ const cartBadgeCount = computed(() => {
   gap: 8px;
   flex-shrink: 0;
   z-index: 1;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
 }
 
 .header-logo {

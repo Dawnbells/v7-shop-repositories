@@ -112,7 +112,7 @@ const formattedDate = computed(() => {
 }
 
 .article-content :deep(p) {
-  margin: 16px 0;
+  margin: 0;
 }
 
 .article-content :deep(h1),
