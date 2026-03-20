@@ -13,6 +13,7 @@ import type { Currency } from "~/types/currency";
 import type { LandingPageInfo } from "~/types/landing";
 import type { ProtocolGroup } from "~/types/protocol";
 import type { ArticleInfo } from "~/types/article";
+import type { PixelsByPlatform } from "~/types/pixel";
 
 interface PageThemeContext {
   themeConfig: ThemeConfig | null;
@@ -39,6 +40,7 @@ interface PageContext {
   productInfo: ProductInfo | null;
   currency: Currency | null;
   protocolGroups: ProtocolGroup[] | null;
+  pixels: PixelsByPlatform | null;
   articleInfo: ArticleInfo | null;
   country: CountryInfo | null;
   currentLanguage: LanguageInfo | null;
@@ -55,6 +57,7 @@ export function usePageContext() {
   const landingPage = useState<LandingPageInfo | null>("landingPage", () => null);
   const currency = useState<Currency | null>("currency", () => null);
   const protocolGroups = useState<ProtocolGroup[] | null>("protocolGroups", () => null);
+  const pixels = useState<PixelsByPlatform | null>("pixels", () => null);
   const articleInfo = useState<ArticleInfo | null>("articleInfo", () => null);
   const countryInfo = useState<CountryInfo | null>("countryInfo", () => null);
   const currentLanguage = useState<LanguageInfo | null>("currentLanguage", () => null);
@@ -94,6 +97,10 @@ export function usePageContext() {
 
     if (pageContext?.protocolGroups) {
       protocolGroups.value = pageContext.protocolGroups;
+    }
+
+    if (pageContext?.pixels) {
+      pixels.value = pageContext.pixels;
     }
 
     if (pageContext?.articleInfo) {
@@ -137,6 +144,7 @@ export function usePageContext() {
     productInfo,
     currency,
     protocolGroups,
+    pixels,
     articleInfo,
     countryInfo,
     currentLanguage,

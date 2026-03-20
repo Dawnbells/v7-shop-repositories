@@ -11,6 +11,10 @@
 // 获取主题相关数据
 const { cssVariables, getPageSchema, getLayoutSchema, siteConfig } = usePageTheme();
 
+// 像素追踪（SSR 时自动注入 Meta/Google/TikTok 脚本到 <head>）
+// trackPurchase 可在获取订单数据后调用，会向所有平台发送转化事件
+const { trackPurchase } = usePixels();
+
 // 页面配置
 const pageSchema = computed(() => getPageSchema("order-result"));
 const layoutSchema = computed(() => {
