@@ -18,12 +18,7 @@ function getArticleId(path: string): string | null {
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
-  if (
-    path.startsWith("/api/") ||
-    path.startsWith("/builder") ||
-    path.startsWith("/_nuxt") ||
-    path.startsWith("/__nuxt")
-  ) {
+  if (!path.startsWith("/article/")) {
     return;
   }
 
@@ -34,7 +29,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     const articleInfo = await findArticleById(articleId);
-
+    console.info("articleInfo", articleInfo);
     if (!articleInfo) {
       logger.warn(`[11-article] Article not found for id=${articleId}`);
       return;

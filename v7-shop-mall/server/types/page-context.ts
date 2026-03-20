@@ -9,6 +9,7 @@ import type { ThemeConfig, SiteConfig, VariableValues } from '../../app/types/bu
 import type { ProductDetail } from '../repositories/productRepository'
 import type { ProtocolGroup } from '../repositories/protocolRepository'
 import type { ArticleInfo } from '../repositories/articleRepository'
+import type { LanguageItem } from '../repositories/languageRepository'
 
 /**
  * 页面主题配置
@@ -54,6 +55,8 @@ export interface PageContext {
   salesUser: SalesUser
   /** 当前选中的语言ID */
   currentLanguageId: number
+  /** 当前选中的语言对象 */
+  currentLanguage: LanguageItem
 
   // 02-cloak.ts 设置（必需，不能为 null）
   /** 斗篷检查结果 */
@@ -96,6 +99,7 @@ export interface PartialPageContext {
   company: Company | null
   salesUser: SalesUser | null
   currentLanguageId: number | null
+  currentLanguage: LanguageItem | null
   cloak: CloakCheckResponse | null
   fingerprint: string | null
   pageTheme: PageTheme | null
@@ -118,6 +122,7 @@ export function createEmptyPageContext(): PartialPageContext {
     company: null,
     salesUser: null,
     currentLanguageId: null,
+    currentLanguage: null,
     cloak: null,
     fingerprint: null,
     pageTheme: null,
@@ -140,6 +145,7 @@ export function isDomainContextComplete(ctx: PartialPageContext): ctx is PageCon
     ctx.currency !== null &&
     ctx.company !== null &&
     ctx.salesUser !== null &&
-    ctx.currentLanguageId !== null
+    ctx.currentLanguageId !== null &&
+    ctx.currentLanguage !== null
   )
 }

@@ -26,6 +26,13 @@ export interface CountryInfo {
   addressFields: string | null;
 }
 
+export interface LanguageInfo {
+  id: number;
+  code: string;
+  name: string;
+  cname: string;
+}
+
 interface PageContext {
   pageTheme: PageThemeContext | null;
   landingPage: LandingPageInfo | null;
@@ -34,6 +41,7 @@ interface PageContext {
   protocolGroups: ProtocolGroup[] | null;
   articleInfo: ArticleInfo | null;
   country: CountryInfo | null;
+  currentLanguage: LanguageInfo | null;
 }
 
 export function usePageContext() {
@@ -49,6 +57,7 @@ export function usePageContext() {
   const protocolGroups = useState<ProtocolGroup[] | null>("protocolGroups", () => null);
   const articleInfo = useState<ArticleInfo | null>("articleInfo", () => null);
   const countryInfo = useState<CountryInfo | null>("countryInfo", () => null);
+  const currentLanguage = useState<LanguageInfo | null>("currentLanguage", () => null);
 
   // SSR 时：从 event.context.pageContext 读取中间件注入的数据（只执行一次）
   if (import.meta.server && !ssrDataInjected.value) {
@@ -98,6 +107,10 @@ export function usePageContext() {
         addressFields: pageContext.country.addressFields ?? null,
       };
     }
+
+    if (pageContext?.currentLanguage) {
+      currentLanguage.value = pageContext.currentLanguage;
+    }
   }
 
   /**
@@ -126,6 +139,7 @@ export function usePageContext() {
     protocolGroups,
     articleInfo,
     countryInfo,
+    currentLanguage,
     setMockData,
   };
 }

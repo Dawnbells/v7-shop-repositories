@@ -135,9 +135,10 @@ export default defineEventHandler(async (event) => {
     // 语言选择逻辑：URL参数 > Cookie > 列表第一个
     const languages = country.languages || [];
     let currentLanguageId: number | null = null;
+    let currentLanguage = languages[0] || null;
 
     if (languages.length > 0) {
-      const languageIds = new Set(languages.map((l) => l.id));
+      const languageMap = new Map(languages.map((l) => [l.id, l]));
 
       // 1. 优先从 URL 参数获取
       const urlQuery = getQuery(event);
@@ -145,8 +146,9 @@ export default defineEventHandler(async (event) => {
         ? parseInt(String(urlQuery.languageId), 10)
         : null;
 
-      if (urlLanguageId && languageIds.has(urlLanguageId)) {
+      if (urlLanguageId && languageMap.has(urlLanguageId)) {
         currentLanguageId = urlLanguageId;
+        currentLanguage = languageMap.get(urlLanguageId)!;
       } else {
         // 2. 其次从 Cookie 获取
         const cookieLanguageId = getCookie(event, LANGUAGE_ID_COOKIE);
@@ -154,11 +156,13 @@ export default defineEventHandler(async (event) => {
           ? parseInt(cookieLanguageId, 10)
           : null;
 
-        if (parsedCookieLanguageId && languageIds.has(parsedCookieLanguageId)) {
+        if (parsedCookieLanguageId && languageMap.has(parsedCookieLanguageId)) {
           currentLanguageId = parsedCookieLanguageId;
+          currentLanguage = languageMap.get(parsedCookieLanguageId)!;
         } else {
           // 3. 使用列表第一个作为默认值
           currentLanguageId = languages[0]!.id;
+          currentLanguage = languages[0]!;
         }
       }
 
@@ -180,6 +184,7 @@ export default defineEventHandler(async (event) => {
       company,
       salesUser,
       currentLanguageId,
+      currentLanguage,
       spuId,
     });
   } catch (error) {

@@ -244,7 +244,7 @@ export async function createOrder(
   // 收货信息
   const deliveryInfo: OrderDeliveryInfo = {
     firstName: request.shippingAddress.fullName,
-    lastName: null,
+    lastName: '',
     phone: phone,
     phoneLast8: phone.slice(-8),
     email: request.shippingAddress.email || null,
