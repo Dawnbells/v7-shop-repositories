@@ -15,6 +15,9 @@ const { cssVariables, getPageSchema, getLayoutSchema } = usePageTheme();
 // 获取产品数据
 const { productInfo, formatPrice } = useProductPage();
 
+// 像素追踪（SSR 时自动注入 Meta/Google/TikTok 脚本到 <head>）
+usePixels();
+
 // 页面配置
 const pageSchema = computed(() => getPageSchema("product-detail"));
 const layoutSchema = computed(() => {
