@@ -10,6 +10,7 @@ import type { ProductDetail } from '../repositories/productRepository'
 import type { ProtocolGroup } from '../repositories/protocolRepository'
 import type { ArticleInfo } from '../repositories/articleRepository'
 import type { LanguageItem } from '../repositories/languageRepository'
+import type { PixelsByPlatform } from '../repositories/pixelRepository'
 
 /**
  * 页面主题配置
@@ -74,6 +75,10 @@ export interface PageContext {
   /** 协议组列表 */
   protocolGroups: ProtocolGroup[] | null
 
+  // 05-pixels.ts 设置
+  /** Pixel账号列表（按平台分组） */
+  pixels: PixelsByPlatform | null
+
   // 10-product.ts 设置
   /** 商品详细信息 */
   productInfo: ProductDetail | null
@@ -105,6 +110,7 @@ export interface PartialPageContext {
   pageTheme: PageTheme | null
   landingPage: LandingPageInfo | null
   protocolGroups: ProtocolGroup[] | null
+  pixels: PixelsByPlatform | null
   productInfo: ProductDetail | null
   articleInfo: ArticleInfo | null
   spuId: number | null
@@ -128,6 +134,7 @@ export function createEmptyPageContext(): PartialPageContext {
     pageTheme: null,
     landingPage: null,
     protocolGroups: null,
+    pixels: null,
     productInfo: null,
     articleInfo: null,
     spuId: null,
