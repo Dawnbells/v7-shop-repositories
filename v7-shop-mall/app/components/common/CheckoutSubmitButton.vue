@@ -14,15 +14,21 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  text: "提交订单",
-  loadingText: "提交中...",
+  text: "",
+  loadingText: "",
   showNote: true,
-  noteText: "点击\"提交订单\"即表示您同意我们的服务条款",
+  noteText: "",
   size: "large",
   fullWidth: true,
 });
 
 const { isSubmitting, submitError, hasItems, submitOrder } = useCheckoutPage();
+const { t } = useI18n();
+
+// 计算实际显示的文本（优先使用 props，否则使用 i18n）
+const displayText = computed(() => props.text || t("checkout.submitOrder"));
+const displayLoadingText = computed(() => props.loadingText || t("checkout.submitting"));
+const displayNoteText = computed(() => props.noteText || t("checkout.termsNote"));
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
@@ -55,14 +61,14 @@ const sizeClass = computed(() => `size-${props.size}`);
     >
       <span v-if="isSubmitting" class="submit-loading">
         <i class="i-carbon-circle-dash loading-icon" />
-        {{ loadingText }}
+        {{ displayLoadingText }}
       </span>
-      <span v-else>{{ text }}</span>
+      <span v-else>{{ displayText }}</span>
     </button>
 
     <!-- 提示文字 -->
     <p v-if="showNote" class="submit-note">
-      {{ noteText }}
+      {{ displayNoteText }}
     </p>
   </div>
 </template>

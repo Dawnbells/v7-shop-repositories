@@ -8,6 +8,7 @@
 
 const { articleInfo } = useArticlePage();
 const { replacePlaceholders } = useProtocol();
+const { t } = useI18n();
 
 const hasContent = computed(() => !!articleInfo.value);
 
@@ -59,7 +60,7 @@ const formattedDate = computed(() => {
 
   <!-- 空状态 -->
   <div v-else class="article-empty">
-    <span class="empty-text">文章不存在或已被删除</span>
+    <span class="empty-text">{{ t('article.notFound') }}</span>
   </div>
 </template>
 

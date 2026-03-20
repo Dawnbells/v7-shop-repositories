@@ -28,6 +28,7 @@ const {
 } = useCart();
 const { formatPrice } = useCurrency();
 const { globalConfig } = usePageTheme();
+const { t } = useI18n();
 
 // 是否启用数量选择器
 const enableQuantitySelector = computed(
@@ -100,7 +101,7 @@ function formatSpecAttributes(
           <!-- 头部 -->
           <div class="cart-drawer-header">
             <h3 class="cart-drawer-title">
-              购物车
+              {{ t('cart.title') }}
               <span v-if="cartCount > 0" class="cart-count">({{ cartCount }})</span>
             </h3>
             <button type="button" class="cart-drawer-close" @click="handleClose">
@@ -178,14 +179,14 @@ function formatSpecAttributes(
             <!-- 空状态 -->
             <div v-else class="cart-empty">
               <i class="i-carbon-shopping-cart cart-empty-icon" />
-              <p class="cart-empty-text">购物车是空的</p>
+              <p class="cart-empty-text">{{ t('cart.empty') }}</p>
             </div>
           </div>
 
           <!-- 底部 -->
           <div v-if="!isCartEmpty" class="cart-drawer-footer">
             <div class="cart-total">
-              <span class="cart-total-label">合计：</span>
+              <span class="cart-total-label">{{ t('cart.total') }}</span>
               <span class="cart-total-price">{{ formatPrice(cartTotal) }}</span>
             </div>
             <button
@@ -193,7 +194,7 @@ function formatSpecAttributes(
               class="cart-checkout-btn"
               @click="handleCheckout"
             >
-              去结算
+              {{ t('cart.checkout') }}
             </button>
           </div>
         </div>

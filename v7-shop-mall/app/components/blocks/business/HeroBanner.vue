@@ -30,6 +30,7 @@ const currentIndex = ref(0)
 const touchStartX = ref(0)
 const touchEndX = ref(0)
 const isTransitioning = ref(false)
+const { t } = useI18n()
 
 let autoplayTimer: ReturnType<typeof setInterval> | null = null
 
@@ -176,7 +177,7 @@ watch(() => props.items, () => {
 
     <div v-else class="banner-placeholder">
       <i class="i-carbon-image" />
-      <span>请添加海报图片</span>
+      <span>{{ t('product.addBanner') }}</span>
     </div>
   </div>
 </template>

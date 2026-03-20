@@ -27,6 +27,7 @@ const props = withDefaults(defineProps<Props>(), {
 const { shippingAddress, formErrors, updateAddress } = useCheckoutPage();
 const { countryInfo } = usePageContext();
 const { globalConfig } = usePageTheme();
+const { t } = useI18n();
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
@@ -291,7 +292,7 @@ onUnmounted(() => {
           class="form-input"
           :class="{ 'has-error': formErrors.fullName }"
           :value="shippingAddress.fullName"
-          placeholder="请输入收货人姓名"
+          :placeholder="t('address.fullName')"
           :disabled="isInEditor"
           @input="handleInput('fullName', $event)"
         />
@@ -308,7 +309,7 @@ onUnmounted(() => {
           class="form-input"
           :class="{ 'has-error': formErrors.phone }"
           :value="shippingAddress.phone"
-          placeholder="请输入联系电话"
+          :placeholder="t('address.phone')"
           :disabled="isInEditor"
           @input="handleInput('phone', $event)"
         />
@@ -321,7 +322,7 @@ onUnmounted(() => {
     <!-- 第二行：邮箱 -->
     <div v-if="showEmail" class="form-row">
       <div class="form-group email-group">
-        <label class="form-label">邮箱</label>
+        <label class="form-label">{{ t('address.email') }}</label>
         <div class="email-input-wrapper">
           <input
             ref="emailInputRef"
@@ -329,7 +330,7 @@ onUnmounted(() => {
             class="form-input"
             :class="{ 'has-error': formErrors.email }"
             :value="shippingAddress.email"
-            placeholder="请输入邮箱地址"
+            :placeholder="t('address.emailPlaceholder')"
             autocomplete="off"
             :disabled="isInEditor"
             @input="handleEmailInput"
@@ -370,7 +371,7 @@ onUnmounted(() => {
           <CommonSearchableSelect
             :model-value="shippingAddress.province"
             :options="provinceList"
-            placeholder="请选择省/州"
+            :placeholder="t('address.province')"
             :disabled="isInEditor || loadingProvinces"
             :loading="loadingProvinces"
             :has-error="!!formErrors.province"
@@ -388,7 +389,7 @@ onUnmounted(() => {
           <CommonSearchableSelect
             :model-value="shippingAddress.city"
             :options="cityList"
-            placeholder="请选择城市"
+            :placeholder="t('address.city')"
             :disabled="isInEditor || loadingCities || !shippingAddress.province"
             :loading="loadingCities"
             :has-error="!!formErrors.city"
@@ -409,7 +410,7 @@ onUnmounted(() => {
           <CommonSearchableSelect
             :model-value="shippingAddress.district"
             :options="districtNames"
-            placeholder="请选择区/县"
+            :placeholder="t('address.district')"
             :disabled="isInEditor || loadingDistricts || !shippingAddress.city"
             :loading="loadingDistricts"
             :has-error="!!formErrors.district"
@@ -421,23 +422,23 @@ onUnmounted(() => {
           </span>
         </div>
         <div v-if="hasField('postal_code') && hasField('district')" class="form-group">
-          <label class="form-label">邮政编码</label>
+          <label class="form-label">{{ t('address.postalCode') }}</label>
           <input
             type="text"
             class="form-input"
             :value="shippingAddress.postalCode"
-            placeholder="选择区县后自动填充"
+            :placeholder="t('address.postalCodeAuto')"
             disabled
           />
         </div>
         <div v-if="hasField('postal_code') && !hasField('district')" class="form-group">
           <label class="form-label">
-            邮政编码 <span class="required">*</span>
+            {{ t('address.postalCode') }} <span class="required">*</span>
           </label>
           <CommonSearchableSelect
             :model-value="shippingAddress.postalCode"
             :options="postalCodeList"
-            placeholder="请选择邮编"
+            :placeholder="t('address.postalCodePlaceholder')"
             :disabled="isInEditor || loadingPostalCodes || !shippingAddress.city"
             :loading="loadingPostalCodes"
             :has-error="!!formErrors.postalCode"
@@ -467,14 +468,14 @@ onUnmounted(() => {
     <!-- 详细地址 -->
     <div class="form-group full-width">
       <label class="form-label">
-        详细地址 <span class="required">*</span>
+        {{ t('address.address') }} <span class="required">*</span>
       </label>
       <input
         type="text"
         class="form-input"
         :class="{ 'has-error': formErrors.address }"
         :value="shippingAddress.address"
-        placeholder="请输入详细地址（街道、门牌号等）"
+        :placeholder="t('address.address')"
         :disabled="isInEditor"
         @input="handleInput('address', $event)"
       />
@@ -486,12 +487,12 @@ onUnmounted(() => {
     <!-- 备注 -->
     <div v-if="showNote" class="form-row">
       <div class="form-group">
-        <label class="form-label">订单备注</label>
+        <label class="form-label">{{ t('address.note') }}</label>
         <input
           type="text"
           class="form-input"
           :value="shippingAddress.note"
-          placeholder="如有特殊要求请备注"
+          :placeholder="t('address.notePlaceholder')"
           :disabled="isInEditor"
           @input="handleInput('note', $event)"
         />

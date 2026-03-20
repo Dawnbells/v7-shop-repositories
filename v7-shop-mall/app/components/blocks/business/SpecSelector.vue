@@ -23,6 +23,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const { productInfo, selectedSpec, selectSpec, formatPrice, setPreviewImage } = useProductPage();
 const { buildImageUrl } = useImageUrl();
+const { t } = useI18n();
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
@@ -242,9 +243,9 @@ const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
       <!-- 库存显示：负数不跟踪库存不显示，0显示缺货，正数显示库存 -->
       <template v-if="selectedSpec.stockQuantity >= 0">
         <span v-if="selectedSpec.stockQuantity > 0" class="spec-stock">
-          库存: {{ selectedSpec.stockQuantity }}
+          {{ t('product.quantity') }}: {{ selectedSpec.stockQuantity }}
         </span>
-        <span v-else class="spec-stock out-of-stock">缺货</span>
+        <span v-else class="spec-stock out-of-stock">{{ t('product.outOfStock') }}</span>
       </template>
     </div>
   </div>

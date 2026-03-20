@@ -17,6 +17,7 @@ const { articleInfo, useSiteTitle } = useArticlePage();
 
 // 获取占位符替换方法
 const { replacePlaceholders } = useProtocol();
+const { t } = useI18n();
 
 // 页面配置
 const pageSchema = computed(() => getPageSchema("article"));
@@ -28,7 +29,7 @@ const hasTheme = computed(() => !!pageSchema.value);
 
 // 设置浏览器标签页标题（支持占位符替换）
 useSiteTitle(computed(() => {
-  const title = replacePlaceholders(articleInfo.value?.title || "文章详情");
+  const title = replacePlaceholders(articleInfo.value?.title || t("article.detail"));
   const siteName = siteConfig.value?.globalConfig?.siteName;
   return siteName ? `${title} - ${siteName}` : title;
 }));

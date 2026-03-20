@@ -55,6 +55,7 @@ const emit = defineEmits<{
 const { globalConfig } = usePageTheme();
 const { protocolGroups, hasProtocolGroups, replacePlaceholders } =
   useProtocol();
+const { t } = useI18n();
 
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
 
@@ -80,7 +81,7 @@ const copyright = computed(() => globalConfig.value?.copyright || "");
 const icp = computed(() => globalConfig.value?.icp);
 
 const newsletterTitle = computed(
-  () => globalConfig.value?.newsletterTitle || "订阅我们的新闻",
+  () => globalConfig.value?.newsletterTitle || t("footer.subscribe"),
 );
 
 const hasContact = computed(
@@ -436,7 +437,7 @@ onMounted(() => {
               </button>
             </form>
             <p v-if="newsletterSubmitted" class="newsletter-success">
-              感谢订阅！
+              {{ t('footer.thankYou') }}
             </p>
           </div>
         </div>
@@ -472,7 +473,7 @@ onMounted(() => {
         <!-- 联系我们栏 -->
         <div v-if="showContact && hasContact" class="footer-contact">
           <div class="group-header" @click="toggleGroup('contact')">
-            <span class="group-title">联系我们</span>
+            <span class="group-title">{{ t('footer.contactUs') }}</span>
             <span
               :class="[
                 'toggle-icon',
@@ -588,7 +589,7 @@ onMounted(() => {
       <button
         v-if="shouldShowBackToTop"
         class="back-to-top"
-        title="返回顶部"
+        :title="t('footer.backToTop')"
         @click="scrollToTop"
       >
         <span v-if="backToTopStyle === 'rocket'" class="i-carbon-rocket"></span>

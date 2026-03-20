@@ -17,13 +17,18 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   layout: "horizontal",
   buttonSize: "medium",
-  addToCartText: "加入购物车",
-  buyNowText: "立即购买",
+  addToCartText: "",
+  buyNowText: "",
   showAddToCart: true,
   fullWidth: true,
 });
 
 const router = useRouter();
+const { t } = useI18n();
+
+// 计算实际显示的文本（优先使用 props，否则使用 i18n）
+const displayAddToCartText = computed(() => props.addToCartText || t("product.addToCart"));
+const displayBuyNowText = computed(() => props.buyNowText || t("product.buyNow"));
 const { globalConfig } = usePageTheme();
 const { productInfo, selectedSpec, quantity, formatPrice } = useProductPage();
 const { addToCart, setDirectOrderItem, clearCart, openCartDrawer } = useCart();
@@ -102,7 +107,7 @@ const canPurchase = computed(() => {
 const stockMessage = computed(() => {
   if (!currentProduct.value) return "";
   const stock = currentProduct.value.stockQuantity;
-  if (stock === 0) return "缺货";
+  if (stock === 0) return t("product.outOfStock");
   return "";
 });
 
@@ -200,7 +205,7 @@ const sizeClass = computed(() => `size-${props.buttonSize}`);
           <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
         </svg>
       </span>
-      <span class="btn-text">{{ addToCartText }}</span>
+      <span class="btn-text">{{ displayAddToCartText }}</span>
     </button>
 
     <!-- 立即购买按钮 -->
@@ -211,7 +216,7 @@ const sizeClass = computed(() => `size-${props.buttonSize}`);
       @click="handleBuyNow"
     >
       <span v-if="stockMessage" class="btn-text">{{ stockMessage }}</span>
-      <span v-else class="btn-text">{{ buyNowText }}</span>
+      <span v-else class="btn-text">{{ displayBuyNowText }}</span>
     </button>
   </div>
 </template>

@@ -15,7 +15,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  placeholder: '请选择',
+  placeholder: '',
   disabled: false,
   loading: false,
   hasError: false,
@@ -31,6 +31,13 @@ const isOpen = ref(false);
 const highlightedIndex = ref(-1);
 const inputRef = ref<HTMLInputElement | null>(null);
 const listRef = ref<HTMLElement | null>(null);
+const { t } = useI18n();
+
+// 计算实际显示的 placeholder
+const displayPlaceholder = computed(() => {
+  if (props.loading) return t('common.loading');
+  return props.placeholder || t('common.select');
+});
 
 const filteredOptions = computed(() => {
   if (!searchQuery.value) return props.options;
@@ -143,7 +150,7 @@ function scrollToHighlighted() {
       type="text"
       class="searchable-select-input"
       :value="displayValue"
-      :placeholder="loading ? '加载中...' : placeholder"
+      :placeholder="displayPlaceholder"
       :disabled="disabled || loading"
       autocomplete="off"
       @focus="handleInputFocus"

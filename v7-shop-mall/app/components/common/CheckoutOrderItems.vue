@@ -24,6 +24,7 @@ const { checkoutItems, formatSpecAttributes, formatPrice } = useCheckoutPage();
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+const { t } = useI18n();
 
 // 编辑器预览数据
 const previewItems = [
@@ -68,7 +69,7 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
   <div class="block-checkout-order-items">
     <div v-if="displayItems.length === 0" class="empty-items">
       <i class="i-carbon-shopping-cart empty-icon" />
-      <span class="empty-text">暂无商品</span>
+      <span class="empty-text">{{ t('checkout.noItems') }}</span>
     </div>
 
     <div v-else class="order-items-list">

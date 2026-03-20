@@ -8,6 +8,7 @@
 import type { IntroductionItem } from "~/types/product";
 
 const { productInfo } = useProductPage();
+const { t } = useI18n();
 
 const introductionData = computed<IntroductionItem[]>(
   () => productInfo.value?.introductionData || [],
@@ -50,7 +51,7 @@ function getImageStyle(item: IntroductionItem): Record<string, string> {
     </template>
 
     <div v-else class="intro-empty">
-      <span class="empty-text">暂无商品详情</span>
+      <span class="empty-text">{{ t('product.noDetail') }}</span>
     </div>
   </div>
 </template>

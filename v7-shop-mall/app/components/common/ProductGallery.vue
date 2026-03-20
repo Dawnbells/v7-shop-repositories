@@ -34,6 +34,7 @@ const currentIndex = ref(0)
 const carouselRef = ref<HTMLElement | null>(null)
 const thumbnailsRef = ref<HTMLElement | null>(null)
 let autoplayTimer: ReturnType<typeof setInterval> | null = null
+const { t } = useI18n()
 
 // 是否正在显示预览图片
 const isShowingPreview = ref(false)
@@ -144,7 +145,7 @@ watch(() => props.images, () => {
       >
         <BlockBasicImage
           :src="previewImage"
-          alt="规格预览图"
+          :alt="t('product.specPreview')"
           object-fit="cover"
           class="carousel-image"
         />
@@ -166,7 +167,7 @@ watch(() => props.images, () => {
         >
           <BlockBasicImage
             :src="image.relativePath"
-            :alt="image.name || `商品图片 ${index + 1}`"
+            :alt="image.name || `${t('product.productImage')} ${index + 1}`"
             object-fit="cover"
             class="carousel-image"
           />
@@ -176,7 +177,7 @@ watch(() => props.images, () => {
       <!-- 无图片提示 -->
       <div v-show="!hasImages && !(isShowingPreview && previewImage)" class="product-no-image">
         <i class="i-carbon-image" />
-        <span>暂无图片</span>
+        <span>{{ t('product.noImage') }}</span>
       </div>
 
       <!-- 指示器 - 底部位置 -->

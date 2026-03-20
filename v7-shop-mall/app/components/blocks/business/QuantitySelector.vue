@@ -17,10 +17,14 @@ const props = withDefaults(defineProps<Props>(), {
   max: 999,
   buttonSize: "medium",
   showLabel: true,
-  label: "数量",
+  label: "",
 });
 
 const { globalConfig } = usePageTheme();
+const { t } = useI18n();
+
+// 计算实际显示的标签（优先使用 props，否则使用 i18n）
+const displayLabel = computed(() => props.label || t("product.quantity"));
 const {
   quantity,
   setQuantity,
@@ -98,7 +102,7 @@ const sizeClass = computed(() => `size-${props.buttonSize}`);
 
 <template>
   <div v-if="shouldShow" class="block-quantity-selector" :class="sizeClass">
-    <span v-if="showLabel" class="quantity-label">{{ label }}</span>
+    <span v-if="showLabel" class="quantity-label">{{ displayLabel }}</span>
     <div class="quantity-controls">
       <button
         type="button"

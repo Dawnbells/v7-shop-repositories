@@ -63,6 +63,7 @@ const isSummaryExpanded = ref(false);
 
 // 获取订单总计用于折叠时显示
 const { total, itemCount, formatPrice } = useCheckoutPage();
+const { t } = useI18n();
 
 // 切换折叠状态
 function toggleSummary() {
@@ -79,15 +80,15 @@ function toggleSummary() {
           <!-- 移动端折叠头部 -->
           <button class="summary-toggle" @click="toggleSummary">
             <div class="summary-toggle-info">
-              <span class="summary-toggle-title">订单汇总</span>
+              <span class="summary-toggle-title">{{ t('checkout.orderSummary') }}</span>
               <span class="summary-toggle-total">{{ formatPrice(total) }}</span>
-              <span class="summary-toggle-count">({{ itemCount }}件)</span>
+              <span class="summary-toggle-count">({{ itemCount }}{{ t('checkout.items') }})</span>
             </div>
             <i class="summary-toggle-icon" :class="isSummaryExpanded ? 'i-carbon-chevron-up' : 'i-carbon-chevron-down'" />
           </button>
           
           <!-- 桌面端标题 -->
-          <h2 class="section-title desktop-only">订单汇总</h2>
+          <h2 class="section-title desktop-only">{{ t('checkout.orderSummary') }}</h2>
           
           <!-- 订单内容 - 客户端渲染避免水合不匹配 -->
           <div class="summary-content">
@@ -146,8 +147,8 @@ function toggleSummary() {
     <div class="checkout-main">
       <!-- 收货地址区块 -->
       <section class="checkout-section">
-        <h2 class="section-title">收货信息</h2>
-        <p class="section-subtitle">请填写您的收货信息以完成订单</p>
+        <h2 class="section-title">{{ t('checkout.shippingInfo') }}</h2>
+        <p class="section-subtitle">{{ t('checkout.shippingInfoDesc') }}</p>
         <CommonCheckoutAddressForm
           :show-email="showEmail"
           :show-note="showNote"

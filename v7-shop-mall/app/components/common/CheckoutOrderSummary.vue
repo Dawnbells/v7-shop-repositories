@@ -29,6 +29,7 @@ const {
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+const { t } = useI18n();
 
 // 编辑器预览数据
 const previewData = {
@@ -64,9 +65,9 @@ const displayItemCount = computed(() =>
       <!-- 商品小计 -->
       <div class="summary-row">
         <span class="summary-label">
-          商品小计
+          {{ t('checkout.subtotal') }}
           <template v-if="showItemCount">
-            ({{ displayItemCount }}件)
+            ({{ displayItemCount }}{{ t('checkout.items') }})
           </template>
         </span>
         <span class="summary-value">{{ formatPrice(displaySubtotal) }}</span>
@@ -74,22 +75,22 @@ const displayItemCount = computed(() =>
 
       <!-- 运费 -->
       <div v-if="showShipping" class="summary-row">
-        <span class="summary-label">运费</span>
+        <span class="summary-label">{{ t('checkout.shipping') }}</span>
         <span class="summary-value">
-          {{ displayShippingFee > 0 ? formatPrice(displayShippingFee) : '免运费' }}
+          {{ displayShippingFee > 0 ? formatPrice(displayShippingFee) : t('checkout.freeShipping') }}
         </span>
       </div>
 
       <!-- 优惠 -->
       <div v-if="showDiscount && displayDiscount > 0" class="summary-row discount">
-        <span class="summary-label">优惠</span>
+        <span class="summary-label">{{ t('checkout.discount') }}</span>
         <span class="summary-value">-{{ formatPrice(displayDiscount) }}</span>
       </div>
     </div>
 
     <!-- 总计 -->
     <div class="summary-total">
-      <span class="total-label">订单总计</span>
+      <span class="total-label">{{ t('checkout.orderTotal') }}</span>
       <span class="total-value">{{ formatPrice(displayTotal) }}</span>
     </div>
   </div>
