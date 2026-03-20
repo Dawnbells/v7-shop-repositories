@@ -184,10 +184,10 @@ function scrollToHighlighted() {
       class="searchable-select-dropdown searchable-select-empty"
     >
       <template v-if="allowCustom && searchQuery">
-        按回车使用 "{{ searchQuery }}"
+        {{ t('common.pressEnterToUse') }} "{{ searchQuery }}"
       </template>
       <template v-else>
-        无匹配结果
+        {{ t('common.noMatch') }}
       </template>
     </div>
   </div>

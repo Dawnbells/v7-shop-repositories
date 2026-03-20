@@ -50,10 +50,10 @@ const props = withDefaults(defineProps<Props>(), {
   showDiscount: true,
   summaryLayout: "detailed",
   // 提交按钮
-  submitText: "提交订单",
-  submitLoadingText: "提交中...",
+  submitText: "",
+  submitLoadingText: "",
   showSubmitNote: true,
-  submitNoteText: "点击\"提交订单\"即表示您同意我们的服务条款",
+  submitNoteText: "",
   submitSize: "large",
   submitFullWidth: true,
 });

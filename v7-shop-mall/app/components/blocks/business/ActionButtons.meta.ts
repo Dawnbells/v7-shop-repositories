@@ -56,7 +56,7 @@ export const meta: ComponentMeta = {
       key: "addToCartText",
       label: "加购按钮文本",
       type: "text",
-      defaultValue: "加入购物车",
+      defaultValue: "",
       placeholder: "加入购物车",
       description: "加入购物车按钮的显示文本",
       showIf: "showAddToCart === true",
@@ -65,7 +65,7 @@ export const meta: ComponentMeta = {
       key: "buyNowText",
       label: "购买按钮文本",
       type: "text",
-      defaultValue: "立即购买",
+      defaultValue: "",
       placeholder: "立即购买",
       description: "立即购买按钮的显示文本",
     },
@@ -76,8 +76,8 @@ export const meta: ComponentMeta = {
     buttonSize: "medium",
     fullWidth: true,
     showAddToCart: true,
-    addToCartText: "加入购物车",
-    buyNowText: "立即购买",
+    addToCartText: "",
+    buyNowText: "",
   },
 
   styleSchema: [

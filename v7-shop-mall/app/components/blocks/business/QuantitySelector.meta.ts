@@ -26,7 +26,7 @@ export const meta: ComponentMeta = {
       key: "label",
       label: "标签文本",
       type: "text",
-      defaultValue: "数量",
+      defaultValue: "",
       placeholder: "数量",
       description: "数量选择器的标签文本",
       showIf: "showLabel === true",
@@ -65,7 +65,7 @@ export const meta: ComponentMeta = {
 
   defaultProps: {
     showLabel: true,
-    label: "数量",
+    label: "",
     min: 1,
     max: 999,
     buttonSize: "medium",

@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const { paymentMethod, paymentMethods, setPaymentMethod } = useCheckoutPage();
+const { t } = useI18n();
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
@@ -64,7 +65,7 @@ function handleSelect(methodId: string) {
 
       <!-- 不可用标签 -->
       <span v-if="!method.enabled" class="payment-badge">
-        暂不支持
+        {{ t('common.notSupported') }}
       </span>
     </div>
   </div>

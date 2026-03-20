@@ -11,6 +11,9 @@ export default {
     total: "Total",
     select: "Please select",
     noData: "No data",
+    pressEnterToUse: "Press Enter to use",
+    noMatch: "No matches",
+    notSupported: "Not supported",
   },
   // Cart
   cart: {
@@ -45,16 +48,22 @@ export default {
   // Address form
   address: {
     fullName: "Enter recipient name",
+    fullNameLabel: "Recipient Name",
     phone: "Enter phone number",
+    phoneLabel: "Phone",
     email: "Email",
     emailPlaceholder: "Enter email address",
     province: "Select province/state",
+    provinceLabel: "Province/State",
     city: "Select city",
+    cityLabel: "City",
     district: "Select district",
+    districtLabel: "District",
     postalCode: "Postal Code",
     postalCodePlaceholder: "Select postal code",
     postalCodeAuto: "Auto-filled after selecting district",
     address: "Enter detailed address (street, building, etc.)",
+    addressLabel: "Address",
     note: "Order Notes",
     notePlaceholder: "Special instructions for your order",
   },

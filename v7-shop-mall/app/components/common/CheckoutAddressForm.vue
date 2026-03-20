@@ -285,7 +285,7 @@ onUnmounted(() => {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">
-          收货人姓名 <span class="required">*</span>
+          {{ t('address.fullNameLabel') }} <span class="required">*</span>
         </label>
         <input
           type="text"
@@ -302,7 +302,7 @@ onUnmounted(() => {
       </div>
       <div class="form-group">
         <label class="form-label">
-          联系电话 <span class="required">*</span>
+          {{ t('address.phoneLabel') }} <span class="required">*</span>
         </label>
         <input
           type="tel"
@@ -366,7 +366,7 @@ onUnmounted(() => {
       <div v-if="hasField('province') || hasField('city')" class="form-row">
         <div v-if="hasField('province')" class="form-group">
           <label class="form-label">
-            省/州 <span class="required">*</span>
+            {{ t('address.provinceLabel') }} <span class="required">*</span>
           </label>
           <CommonSearchableSelect
             :model-value="shippingAddress.province"
@@ -384,7 +384,7 @@ onUnmounted(() => {
         </div>
         <div v-if="hasField('city')" class="form-group">
           <label class="form-label">
-            城市 <span class="required">*</span>
+            {{ t('address.cityLabel') }} <span class="required">*</span>
           </label>
           <CommonSearchableSelect
             :model-value="shippingAddress.city"
@@ -405,7 +405,7 @@ onUnmounted(() => {
       <div v-if="hasField('district') || hasField('postal_code')" class="form-row">
         <div v-if="hasField('district')" class="form-group">
           <label class="form-label">
-            区/县 <span class="required">*</span>
+            {{ t('address.districtLabel') }} <span class="required">*</span>
           </label>
           <CommonSearchableSelect
             :model-value="shippingAddress.district"
@@ -468,7 +468,7 @@ onUnmounted(() => {
     <!-- 详细地址 -->
     <div class="form-group full-width">
       <label class="form-label">
-        {{ t('address.address') }} <span class="required">*</span>
+        {{ t('address.addressLabel') }} <span class="required">*</span>
       </label>
       <input
         type="text"

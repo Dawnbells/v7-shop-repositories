@@ -11,6 +11,9 @@ export default {
     total: "合计",
     select: "请选择",
     noData: "暂无数据",
+    pressEnterToUse: "按回车使用",
+    noMatch: "无匹配结果",
+    notSupported: "暂不支持",
   },
   // 购物车
   cart: {
@@ -45,16 +48,22 @@ export default {
   // 地址表单
   address: {
     fullName: "请输入收货人姓名",
+    fullNameLabel: "收货人姓名",
     phone: "请输入联系电话",
+    phoneLabel: "联系电话",
     email: "邮箱",
     emailPlaceholder: "请输入邮箱地址",
     province: "请选择省/州",
+    provinceLabel: "省/州",
     city: "请选择城市",
+    cityLabel: "城市",
     district: "请选择区/县",
+    districtLabel: "区/县",
     postalCode: "邮政编码",
     postalCodePlaceholder: "请选择邮编",
     postalCodeAuto: "选择区县后自动填充",
     address: "请输入详细地址（街道、门牌号等）",
+    addressLabel: "详细地址",
     note: "订单备注",
     notePlaceholder: "如有特殊要求请备注",
   },
