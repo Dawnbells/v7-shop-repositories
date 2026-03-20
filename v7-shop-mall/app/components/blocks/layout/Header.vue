@@ -30,7 +30,10 @@ const { globalConfig } = usePageTheme()
 const { currentUrl: logoUrl, handleError: handleLogoError } = useImageWithFallback(
   computed(() => globalConfig.value?.logo)
 )
-const { cartCount, cartDrawerVisible, openCartDrawer } = useCart()
+const { cartCount, cartDrawerVisible, openCartDrawer: _openCartDrawer } = useCart()
+
+// 检查是否在编辑器中
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false))
 
 const siteName = computed(() => globalConfig.value?.siteName || '')
 const enableCart = computed(() => globalConfig.value?.enableCart ?? true)
@@ -53,8 +56,15 @@ const fromUrlCookie = useCookie('_from_url')
 
 // 处理 Logo/网站名点击跳转
 function handleBrandClick() {
+  if (isInEditor.value) return // 编辑模式下不执行
   const targetUrl = fromUrlCookie.value || '/'
   navigateTo(targetUrl, { external: true })
+}
+
+// 打开购物车抽屉（编辑模式下不执行）
+function openCartDrawer() {
+  if (isInEditor.value) return // 编辑模式下不执行
+  _openCartDrawer()
 }
 </script>
 

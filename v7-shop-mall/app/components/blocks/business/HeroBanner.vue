@@ -32,6 +32,9 @@ const touchEndX = ref(0)
 const isTransitioning = ref(false)
 const { t } = useI18n()
 
+// 检查是否在编辑器中
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false))
+
 let autoplayTimer: ReturnType<typeof setInterval> | null = null
 
 const hasMultipleItems = computed(() => props.items.length > 1)
@@ -92,6 +95,7 @@ function handleTouchEnd(e: TouchEvent) {
 }
 
 function handleItemClick(item: BannerItem) {
+  if (isInEditor.value) return // 编辑模式下不执行
   if (!item.link) return
   
   if (item.link.startsWith('http://') || item.link.startsWith('https://')) {

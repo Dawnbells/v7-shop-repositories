@@ -65,8 +65,12 @@ const isSummaryExpanded = ref(false);
 const { total, itemCount, formatPrice } = useCheckoutPage();
 const { t } = useI18n();
 
+// 检查是否在编辑器中
+const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
+
 // 切换折叠状态
 function toggleSummary() {
+  if (isInEditor.value) return; // 编辑模式下不执行
   isSummaryExpanded.value = !isSummaryExpanded.value;
 }
 </script>
