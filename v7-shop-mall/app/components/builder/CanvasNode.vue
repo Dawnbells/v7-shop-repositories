@@ -41,6 +41,9 @@ const emit = defineEmits<{
 const { getBlock, getBlockMeta } = useBlockRegistry()
 const { createNode, addNode, selectNode, removeNode, moveNode, findParentNode, findNodeById, rootNodes } = useCanvasState()
 
+// 标记编辑器模式，让子组件知道当前在编辑器中
+provide("isInEditor", ref(true));
+
 // ============ 绑定解析（客户端渲染时使用） ============
 
 const { variableValues, siteConfig } = useThemeSchema()
