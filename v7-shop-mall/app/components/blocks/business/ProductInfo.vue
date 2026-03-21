@@ -82,40 +82,42 @@ const hasOriginPrice = computed(() => {
 </script>
 
 <template>
-  <div class="block-product-info" :class="[`layout-${props.layout}`]">
-    <!-- 图片区域 -->
-    <CommonProductGallery
-      :images="images"
-      :preview-image="previewImage"
-      :indicator-style="indicatorStyle"
-      :indicator-position="indicatorPosition"
-      :autoplay="autoplay"
-      :autoplay-interval="autoplayInterval"
-      :show-thumbnails="showThumbnails"
-      class="product-gallery"
-    />
+  <div class="block-product-info">
+    <div class="product-content" :class="[`layout-${props.layout}`]">
+      <!-- 图片区域 -->
+      <CommonProductGallery
+        :images="images"
+        :preview-image="previewImage"
+        :indicator-style="indicatorStyle"
+        :indicator-position="indicatorPosition"
+        :autoplay="autoplay"
+        :autoplay-interval="autoplayInterval"
+        :show-thumbnails="showThumbnails"
+        class="product-gallery"
+      />
 
-    <!-- 商品信息区域（右侧垂直容器） -->
-    <div class="product-details">
-      <!-- 商品标题 -->
-      <h1 class="product-title">{{ title }}</h1>
+      <!-- 商品信息区域（右侧垂直容器） -->
+      <div class="product-details">
+        <!-- 商品标题 -->
+        <h1 class="product-title">{{ title }}</h1>
 
-      <!-- 价格区域 -->
-      <div class="product-price-wrapper">
-        <span class="product-price">{{ formatPrice(sellPrice) }}</span>
-        <span v-if="hasOriginPrice" class="product-origin-price">
-          {{ formatPrice(originPrice!) }}
-        </span>
-      </div>
+        <!-- 价格区域 -->
+        <div class="product-price-wrapper">
+          <span class="product-price">{{ formatPrice(sellPrice) }}</span>
+          <span v-if="hasOriginPrice" class="product-origin-price">
+            {{ formatPrice(originPrice!) }}
+          </span>
+        </div>
 
-      <!-- 商品简介 -->
-      <p v-if="showSummary && summary" class="product-summary">
-        {{ summary }}
-      </p>
+        <!-- 商品简介 -->
+        <p v-if="showSummary && summary" class="product-summary">
+          {{ summary }}
+        </p>
 
-      <!-- 子组件插槽（可拖入规格选择等组件） -->
-      <div class="product-slot">
-        <slot />
+        <!-- 子组件插槽（可拖入规格选择等组件） -->
+        <div class="product-slot">
+          <slot />
+        </div>
       </div>
     </div>
   </div>
@@ -210,8 +212,8 @@ const hasOriginPrice = computed(() => {
   height: 72px;
 }
 
-/* 左右布局 - 移动端自动降级为上下布局 */
-@container (max-width: 767px) {
+/* 左右布局 - 中小屏幕自动降级为上下布局 */
+@container (max-width: 768px) {
   .layout-horizontal {
     display: block;
   }
