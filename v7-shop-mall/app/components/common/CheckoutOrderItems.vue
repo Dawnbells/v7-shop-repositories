@@ -85,9 +85,19 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
 
         <!-- 商品信息 -->
         <div class="item-info">
-          <div class="item-name">{{ item.productName }}</div>
-          <div v-if="showSpec && item.specAttributes?.length" class="item-spec">
-            {{ formatSpecAttributes(item.specAttributes) }}
+          <div class="item-name" :title="item.productName">{{ item.productName }}</div>
+          <template v-if="showSpec && item.specAttributes?.length">
+            <div
+              v-for="(attr, idx) in item.specAttributes"
+              :key="idx"
+              class="item-spec-line"
+              :title="`${attr.name}: ${attr.value}`"
+            >
+              {{ attr.name }}: {{ attr.value }}
+            </div>
+          </template>
+          <div class="item-unit-price">
+            {{ formatPrice(item.price) }}
           </div>
         </div>
 
@@ -108,6 +118,7 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
 <style scoped>
 .block-checkout-order-items {
   width: 100%;
+  container-type: inline-size;
 }
 
 .empty-items {
@@ -180,15 +191,29 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
   color: var(--text-color, #1f2937);
   line-height: 1.4;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.item-spec {
+.item-spec-line {
   font-size: var(--checkout-items-spec-size, 12px);
   color: var(--text-secondary-color, #6b7280);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.item-spec-line:first-of-type {
   margin-top: 4px;
+}
+
+.item-unit-price {
+  font-size: var(--checkout-items-unit-price-size, 12px);
+  color: var(--text-secondary-color, #6b7280);
+  margin-top: 2px;
 }
 
 .item-quantity {
@@ -205,4 +230,5 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
   min-width: 80px;
   text-align: right;
 }
+
 </style>
