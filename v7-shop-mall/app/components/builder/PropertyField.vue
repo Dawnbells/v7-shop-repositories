@@ -105,6 +105,24 @@ function handleNumberInput(event: Event) {
   emit('update:modelValue', value)
 }
 
+// ImagePicker 状态
+const showImagePicker = ref(false)
+
+// 打开图片选择器
+function openImagePicker() {
+  showImagePicker.value = true
+}
+
+// 处理图片选择 - 只保存 relativePath
+function handleImageSelect(images: any[]) {
+  if (images.length > 0) {
+    const image = images[0]
+    const url = image.relativePath || ''
+    localValue.value = url
+  }
+  showImagePicker.value = false
+}
+
 // 处理开关切换
 function handleSwitchToggle() {
   emit('update:modelValue', !localValue.value)
@@ -342,16 +360,22 @@ onUnmounted(() => {
         />
       </div>
 
-      <!-- 图片上传（简化版，显示URL输入） -->
+      <!-- 图片上传（带选择器） -->
       <div v-else-if="schema.type === 'image'" class="field-image">
-        <input
-          v-model="localValue"
-          type="text"
-          class="field-input"
-          :placeholder="effectivePlaceholder || '输入图片URL'"
-        />
-        <div v-if="localValue" class="image-preview">
-          <img :src="localValue" alt="preview" />
+        <div class="image-input-row">
+          <input
+            v-model="localValue"
+            type="text"
+            class="field-input"
+            :placeholder="effectivePlaceholder || '输入图片URL'"
+          />
+          <button class="pick-btn" type="button" @click="openImagePicker">
+            <span class="i-carbon-image-search"></span>
+            选择
+          </button>
+        </div>
+        <div v-if="displayValue" class="image-preview">
+          <img :src="displayValue" alt="preview" />
         </div>
       </div>
 
@@ -405,6 +429,14 @@ onUnmounted(() => {
     <p v-if="schema.description" class="field-description">
       {{ schema.description }}
     </p>
+
+    <!-- 图片选择器弹窗 -->
+    <BuilderImagePicker
+      :visible="showImagePicker"
+      :multiple="false"
+      @close="showImagePicker = false"
+      @select="handleImageSelect"
+    />
   </div>
 </template>
 
@@ -797,6 +829,35 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.image-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.image-input-row .field-input {
+  flex: 1;
+}
+
+.pick-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #94a3b8;
+  background-color: #334155;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.pick-btn:hover {
+  color: #e2e8f0;
+  background-color: #475569;
 }
 
 .image-preview {
