@@ -153,7 +153,7 @@ const hasContent = computed(() => {
   return props.eyebrow || props.title || props.subtitle || props.buttonText
 })
 
-// 处理按钮点击
+// 处理按钮点击（使用完整页面跳转，确保 SSR 渲染）
 function handleButtonClick() {
   if (isInEditor.value) return
   if (!props.buttonLink) return
@@ -161,7 +161,7 @@ function handleButtonClick() {
   if (props.buttonLink.startsWith('http://') || props.buttonLink.startsWith('https://')) {
     window.open(props.buttonLink, '_blank')
   } else {
-    navigateTo(props.buttonLink)
+    window.location.href = props.buttonLink
   }
 }
 
