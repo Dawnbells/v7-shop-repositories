@@ -106,24 +106,26 @@ function convertPrice(
 }
 
 /**
- * 计算订单价格
- *
- * @param items 商品列表
- * @param pageContext 页面上下文（包含国家、货币等信息）
- * @returns 价格计算结果
+ * 内部价格计算函数，返回计算结果和商品价格映射
  */
-export async function calculateOrderPrice(
+async function calculateOrderPriceInternal(
   items: CalculateRequestItem[],
   pageContext: PageContext,
-): Promise<CalculateResult> {
+): Promise<{
+  result: CalculateResult;
+  priceMap: Map<string, ProductPriceInfo>;
+}> {
   if (!items || items.length === 0) {
     return {
-      items: [],
-      subtotal: "0.00",
-      shippingFee: "0.00",
-      discount: "0.00",
-      tax: "0.00",
-      total: "0.00",
+      result: {
+        items: [],
+        subtotal: "0.00",
+        shippingFee: "0.00",
+        discount: "0.00",
+        tax: "0.00",
+        total: "0.00",
+      },
+      priceMap: new Map(),
     };
   }
 
@@ -191,16 +193,34 @@ export async function calculateOrderPrice(
   const finalTotal = Decimal.max(totalDecimal, new Decimal(0));
 
   return {
-    items: resultItems,
-    subtotal: subtotalDecimal.toFixed(fractionDigits, Decimal.ROUND_HALF_UP),
-    shippingFee: shippingFeeDecimal.toFixed(
-      fractionDigits,
-      Decimal.ROUND_HALF_UP,
-    ),
-    discount: discountDecimal.toFixed(fractionDigits, Decimal.ROUND_HALF_UP),
-    tax: taxDecimal.toFixed(fractionDigits, Decimal.ROUND_HALF_UP),
-    total: finalTotal.toFixed(fractionDigits, Decimal.ROUND_HALF_UP),
+    result: {
+      items: resultItems,
+      subtotal: subtotalDecimal.toFixed(fractionDigits, Decimal.ROUND_HALF_UP),
+      shippingFee: shippingFeeDecimal.toFixed(
+        fractionDigits,
+        Decimal.ROUND_HALF_UP,
+      ),
+      discount: discountDecimal.toFixed(fractionDigits, Decimal.ROUND_HALF_UP),
+      tax: taxDecimal.toFixed(fractionDigits, Decimal.ROUND_HALF_UP),
+      total: finalTotal.toFixed(fractionDigits, Decimal.ROUND_HALF_UP),
+    },
+    priceMap,
   };
+}
+
+/**
+ * 计算订单价格
+ *
+ * @param items 商品列表
+ * @param pageContext 页面上下文（包含国家、货币等信息）
+ * @returns 价格计算结果
+ */
+export async function calculateOrderPrice(
+  items: CalculateRequestItem[],
+  pageContext: PageContext,
+): Promise<CalculateResult> {
+  const { result } = await calculateOrderPriceInternal(items, pageContext);
+  return result;
 }
 
 // ============ 订单创建 ============
@@ -241,21 +261,20 @@ export async function createOrder(
     themeName: string | null;
   },
 ): Promise<CreateOrderResult> {
-  // 1. 复用价格计算接口计算金额
-  const priceResult = await calculateOrderPrice(request.items, pageContext);
+  // 1. 计算金额并获取商品价格信息（复用同一次数据库查询）
+  const { result: priceResult, priceMap } = await calculateOrderPriceInternal(
+    request.items,
+    pageContext,
+  );
 
   if (priceResult.items.length === 0) {
     throw new Error("购物车为空，无法下单");
   }
 
-  const countryId = pageContext.country.id;
   const exchangeRate = pageContext.currency.exchangeRate;
   const fractionDigits = pageContext.currency.fractionDigits ?? 2;
 
-  // 2. 获取完整的商品信息用于订单项
-  const priceMap = await findProductPrices(request.items, countryId);
-
-  // 3. 构建订单数据
+  // 2. 构建订单数据
   const now = new Date();
   const phone = request.shippingAddress.phone || "";
 
@@ -327,7 +346,7 @@ export async function createOrder(
 
   // 风险记录
   const riskInfo: OrderRiskRecordInfo = {
-    deviceId: riskData.fingerprint,
+    deviceId: riskData.fingerprint?.replace(/-/g, "") || null,
     remoteIp: riskData.ip,
     remoteIpInfo: null,
     realIp: riskData.realIp,
@@ -338,6 +357,8 @@ export async function createOrder(
     cloak: pageContext.cloak?.page === CloakPage.CLOAK,
     browserPlatform: normalizePlatform(riskData.userAgent),
   };
+
+  console.log(riskInfo);
 
   // 订单商品项
   const orderItems: OrderItemInfo[] = request.items.map((item) => {
