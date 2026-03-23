@@ -447,8 +447,8 @@ export function useCheckoutPage() {
         clearCart();
       }
 
-      // 跳转到订单结果页
-      router.push(`/order-result?orderId=${response.data.orderId}`);
+      // 跳转到订单结果页（使用完整页面刷新，确保 SSR 渲染）
+      window.location.href = `/order-result?orderId=${response.data.orderId}`;
 
       return true;
     } catch (error: any) {
