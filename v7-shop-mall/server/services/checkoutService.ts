@@ -357,7 +357,7 @@ export async function createOrder(
 
     return {
       spuId: priceInfo.spuId,
-      productId: item.productId,
+      productId: priceInfo.productId,
       title: priceInfo.title,
       specTitle: priceInfo.specTitle || priceInfo.title,
       imageId: priceInfo.imageId,
