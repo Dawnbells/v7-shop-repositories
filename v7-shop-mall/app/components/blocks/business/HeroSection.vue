@@ -51,6 +51,10 @@ const { t } = useI18n()
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>('isInEditor', ref(false))
 
+// 获取 cookie 用于落地页跳转
+const fromUrlCookie = useCookie('_from_url')
+const spuIdCookie = useCookie<string>('_spuId')
+
 // 预设样式配置
 const presetConfigs = {
   classic: {
@@ -163,9 +167,12 @@ function handleButtonClick() {
     case 'home':
       window.location.href = '/'
       break
-    case 'landing':
-      // 落地页模式：保持当前页面，不跳转
+    case 'landing': {
+      // 落地页模式：优先跳转 from_url，否则跳转商品详情页
+      const targetUrl = fromUrlCookie.value || (spuIdCookie.value ? `/product/${spuIdCookie.value}` : '/')
+      window.location.href = targetUrl
       break
+    }
     case 'custom':
       if (!props.buttonLink) return
       if (props.buttonLink.startsWith('http://') || props.buttonLink.startsWith('https://')) {
