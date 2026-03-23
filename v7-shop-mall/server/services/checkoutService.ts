@@ -398,7 +398,7 @@ export async function createOrder(
   // 4. 创建订单
   const orderData: CreateOrderData = {
     companyId: pageContext.company.id,
-    from: riskData.themeName?.toUpperCase() || "V7_SHOP",
+    from: riskData.themeName?.toUpperCase() || "MALL",
     fromUrl: riskData.fromUrl,
     platform: "V7_SHOP",
     orderTime: now,
