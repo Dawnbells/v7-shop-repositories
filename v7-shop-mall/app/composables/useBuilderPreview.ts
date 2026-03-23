@@ -7,6 +7,8 @@
 
 import type { ProductInfo } from "~/types/product";
 import type { Currency } from "~/types/currency";
+import type { ArticleInfo } from "~/types/article";
+import type { OrderResultInfo } from "./usePageContext";
 
 export function useBuilderPreview() {
   const { setMockData } = usePageContext();
@@ -14,6 +16,8 @@ export function useBuilderPreview() {
   function setPreviewData(mockData: {
     productInfo?: ProductInfo | null;
     currency?: Currency | null;
+    articleInfo?: ArticleInfo | null;
+    orderResult?: OrderResultInfo | null;
   }) {
     setMockData(mockData);
   }

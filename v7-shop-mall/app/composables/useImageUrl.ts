@@ -19,6 +19,11 @@ export function buildImageUrl(path: string | undefined | null): string {
     return path
   }
   
+  // public/mock 目录下的本地资源，直接使用相对路径
+  if (path.startsWith('/mock/')) {
+    return path
+  }
+  
   const config = useRuntimeConfig()
   const baseUrl = config.public.imageBaseUrl as string
   
@@ -42,6 +47,11 @@ export function buildFallbackImageUrl(path: string | undefined | null): string {
   
   // 已经是完整 URL，无法降级
   if (path.startsWith('http://') || path.startsWith('https://')) {
+    return ''
+  }
+  
+  // public/mock 目录下的本地资源，不需要降级
+  if (path.startsWith('/mock/')) {
     return ''
   }
   

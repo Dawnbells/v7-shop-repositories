@@ -178,8 +178,8 @@ const PRODUCT_MOCK_DATA = {
     originPrice: 129.99,
     isMultiSpecs: false,
     images: [
-      { id: 1, relativePath: "/mock/product-1.jpg", name: "product-1.jpg" },
-      { id: 2, relativePath: "/mock/product-2.jpg", name: "product-2.jpg" },
+      { id: 1, relativePath: "/mock/product-1.svg", name: "product-1.svg" },
+      { id: 2, relativePath: "/mock/product-2.svg", name: "product-2.svg" },
     ],
     specifications: [
       {
@@ -229,24 +229,46 @@ export const PRODUCT_INFO_MOCK = {
   images: [
     {
       id: 1,
-      relativePath: "/products/sample-1.jpg",
-      name: "product-1.jpg",
+      relativePath: "/mock/product-1.svg",
+      name: "product-1.svg",
       width: 800,
       height: 800,
-      suffix: "jpg",
+      suffix: "svg",
       fileSize: 102400,
-      mediaType: "image/jpeg",
+      mediaType: "image/svg+xml",
       mediaState: "VALID",
     },
     {
       id: 2,
-      relativePath: "/products/sample-2.jpg",
-      name: "product-2.jpg",
+      relativePath: "/mock/product-2.svg",
+      name: "product-2.svg",
       width: 800,
       height: 800,
-      suffix: "jpg",
+      suffix: "svg",
       fileSize: 98304,
-      mediaType: "image/jpeg",
+      mediaType: "image/svg+xml",
+      mediaState: "VALID",
+    },
+    {
+      id: 3,
+      relativePath: "/mock/product-3.svg",
+      name: "product-3.svg",
+      width: 800,
+      height: 800,
+      suffix: "svg",
+      fileSize: 95000,
+      mediaType: "image/svg+xml",
+      mediaState: "VALID",
+    },
+    {
+      id: 4,
+      relativePath: "/mock/product-4.svg",
+      name: "product-4.svg",
+      width: 800,
+      height: 800,
+      suffix: "svg",
+      fileSize: 92000,
+      mediaType: "image/svg+xml",
       mediaState: "VALID",
     },
   ],
@@ -262,9 +284,9 @@ export const PRODUCT_INFO_MOCK = {
       stockQuantity: 50,
       linkStock: false,
       specificationImageId: null,
-      specImagePath: "/products/spec-black.jpg",
+      specImagePath: "/mock/spec-black.svg",
       attributes: [
-        { name: "颜色", value: "黑色", imagePath: "/products/color-black.jpg" },
+        { name: "颜色", value: "黑色", imagePath: "/mock/color-black.svg" },
         { name: "尺寸", value: "S" },
       ],
     },
@@ -279,9 +301,9 @@ export const PRODUCT_INFO_MOCK = {
       stockQuantity: 30,
       linkStock: false,
       specificationImageId: null,
-      specImagePath: "/products/spec-red.jpg",
+      specImagePath: "/mock/spec-red.svg",
       attributes: [
-        { name: "颜色", value: "红色", imagePath: "/products/color-red.jpg" },
+        { name: "颜色", value: "红色", imagePath: "/mock/color-red.svg" },
         { name: "尺寸", value: "S" },
       ],
     },
@@ -296,9 +318,9 @@ export const PRODUCT_INFO_MOCK = {
       stockQuantity: 20,
       linkStock: false,
       specificationImageId: null,
-      specImagePath: "/products/spec-blue.jpg",
+      specImagePath: "/mock/spec-blue.svg",
       attributes: [
-        { name: "颜色", value: "蓝色", imagePath: "/products/color-blue.jpg" },
+        { name: "颜色", value: "蓝色", imagePath: "/mock/color-blue.svg" },
         { name: "尺寸", value: "M" },
       ],
     },
@@ -313,11 +335,39 @@ export const PRODUCT_INFO_MOCK = {
       stockQuantity: 0,
       linkStock: false,
       specificationImageId: null,
-      specImagePath: "/products/spec-black-l.jpg",
+      specImagePath: "/mock/spec-black-l.svg",
       attributes: [
-        { name: "颜色", value: "黑色", imagePath: "/products/color-black.jpg" },
+        { name: "颜色", value: "黑色", imagePath: "/mock/color-black.svg" },
         { name: "尺寸", value: "L" },
       ],
+    },
+  ],
+  introductionData: [
+    {
+      type: "image" as const,
+      id: 1,
+      src: "/mock/product-1.svg",
+      width: 800,
+      height: 800,
+      aspectRatio: 1,
+    },
+    {
+      type: "html" as const,
+      content:
+        "<p><strong>Product Features:</strong></p><ul><li>High precision measurement</li><li>360 degree laser coverage</li><li>Auto-leveling technology</li></ul>",
+    },
+    {
+      type: "image" as const,
+      id: 2,
+      src: "/mock/product-2.svg",
+      width: 800,
+      height: 800,
+      aspectRatio: 1,
+    },
+    {
+      type: "html" as const,
+      content:
+        "<p><strong>Specifications:</strong></p><p>Model: M12 Green 360</p><p>Accuracy: 0.2mm/m</p><p>Range: Up to 30m</p>",
     },
   ],
 };
@@ -430,7 +480,7 @@ const ARTICLE_MOCK_DATA = {
       "<p>This is the article content with <strong>rich text</strong> formatting.</p>",
     author: "John Doe",
     publishedAt: "2024-01-15",
-    coverImage: "/mock/article-cover.jpg",
+    coverImage: "/mock/article-cover.svg",
   },
 };
 
@@ -755,6 +805,229 @@ export function getMockDataForPageType(pageType: string): Record<string, any> {
 
   return mockData;
 }
+
+// ============ 组件专用 Mock 数据 ============
+
+/**
+ * HeroBanner 组件 Mock 数据
+ * 用于首页顶部海报轮播预览
+ */
+export const HERO_BANNER_MOCK = {
+  items: [
+    {
+      src: "/mock/banner-1.svg",
+      alt: "Spring Collection",
+      link: "/collection/spring",
+    },
+    {
+      src: "/mock/banner-2.svg",
+      alt: "New Arrivals",
+      link: "/new-arrivals",
+    },
+    {
+      src: "/mock/banner-3.svg",
+      alt: "Special Offer",
+      link: "/sale",
+    },
+  ],
+};
+
+/**
+ * Checkout 收银台组件 Mock 数据
+ * 用于收银台页面预览
+ */
+export const CHECKOUT_MOCK = {
+  items: [
+    {
+      id: 1,
+      title: "M12™ Green 360° Laser Level",
+      image: "/mock/product-1.svg",
+      spec: "黑色 / S",
+      quantity: 2,
+      price: 99.99,
+    },
+    {
+      id: 2,
+      title: "Professional Measuring Tool Kit",
+      image: "/mock/product-2.svg",
+      spec: "红色 / M",
+      quantity: 1,
+      price: 149.99,
+    },
+  ],
+  subtotal: 349.97,
+  shippingFee: 0,
+  discount: 20.0,
+  total: 329.97,
+  itemCount: 3,
+};
+
+/**
+ * OrderResult 订单结果组件 Mock 数据
+ * 用于订单结果页面预览
+ */
+export const ORDER_RESULT_MOCK = {
+  orderId: "ORD-2024-001234",
+  amount: 329.97,
+  recipient: "John Doe",
+  phone: "+1 *** *** 1234",
+  email: "j***@example.com",
+  address: "123 Main St, *** City, CA 90001",
+  paymentMethod: "Credit Card",
+  paymentStatus: "PAID",
+  orderTime: "2024-01-15 14:30:00",
+};
+
+/**
+ * Site Config 站点配置 Mock 数据
+ * 用于 Header/Footer 等全局组件预览
+ */
+export const SITE_CONFIG_MOCK = {
+  siteName: "V7 Shop",
+  logo: "/mock/logo.svg",
+  contact: {
+    email: "support@v7shop.com",
+    phone: "+1 (800) 123-4567",
+    address: "123 Commerce Street, San Francisco, CA 94102",
+  },
+  social: [
+    {
+      platform: "facebook",
+      url: "https://facebook.com/v7shop",
+      icon: "/mock/social-facebook.svg",
+    },
+    {
+      platform: "instagram",
+      url: "https://instagram.com/v7shop",
+      icon: "/mock/social-instagram.svg",
+    },
+    {
+      platform: "twitter",
+      url: "https://twitter.com/v7shop",
+      icon: "/mock/social-twitter.svg",
+    },
+    {
+      platform: "youtube",
+      url: "https://youtube.com/v7shop",
+      icon: "/mock/social-youtube.svg",
+    },
+    {
+      platform: "tiktok",
+      url: "https://tiktok.com/@v7shop",
+      icon: "/mock/social-tiktok.svg",
+    },
+  ],
+  protocols: [
+    { text: "Privacy Policy", url: "/privacy" },
+    { text: "Terms of Service", url: "/terms" },
+    { text: "Refund Policy", url: "/refund" },
+    { text: "Shipping Policy", url: "/shipping" },
+  ],
+  copyright: "© 2024 V7 Shop. All rights reserved.",
+  paymentIcons: [
+    "/mock/payment-visa.svg",
+    "/mock/payment-mastercard.svg",
+    "/mock/payment-paypal.svg",
+    "/mock/payment-amex.svg",
+  ],
+};
+
+/**
+ * SpecSelector 规格选择器组件 Mock 数据
+ * 用于规格选择器预览
+ */
+export const SPEC_SELECTOR_MOCK = {
+  specifications: PRODUCT_INFO_MOCK.specifications,
+  selectedSpec: PRODUCT_INFO_MOCK.specifications[0],
+};
+
+/**
+ * QuantitySelector 数量选择器组件 Mock 数据
+ * 用于数量选择器预览
+ */
+export const QUANTITY_SELECTOR_MOCK = {
+  quantity: 1,
+  min: 1,
+  max: 99,
+  stock: 50,
+};
+
+/**
+ * ActionButtons 购买按钮组件 Mock 数据
+ * 用于购买按钮预览
+ */
+export const ACTION_BUTTONS_MOCK = {
+  canAddToCart: true,
+  canBuyNow: true,
+  isLoading: false,
+  stock: 50,
+};
+
+/**
+ * 文章信息 Mock 数据（与 ArticleInfo 接口匹配）
+ * 用于文章详情页编辑器预览
+ */
+export const ARTICLE_INFO_MOCK = {
+  title: "Sample Article Title - How to Choose the Right Product",
+  description: "This is a sample article description for preview. Learn how to make the best purchasing decisions.",
+  content: `
+    <h2>Introduction</h2>
+    <p>Welcome to our comprehensive guide on choosing the right product. This article will help you understand the key factors to consider.</p>
+    <p><img src="/mock/article-cover.svg" alt="Article Cover" style="max-width: 100%; border-radius: 8px;" /></p>
+    <h2>Key Considerations</h2>
+    <p>When selecting a product, consider the following aspects:</p>
+    <ul>
+      <li><strong>Quality</strong> - Always prioritize quality over price</li>
+      <li><strong>Features</strong> - Make sure it meets your requirements</li>
+      <li><strong>Reviews</strong> - Check what other customers say</li>
+    </ul>
+    <h2>Conclusion</h2>
+    <p>Making an informed decision is crucial. Take your time to research and compare options before making a purchase.</p>
+  `,
+  updateTime: "2024-01-15 10:30:00",
+};
+
+/**
+ * 订单结果信息 Mock 数据（与 OrderResultInfo 接口匹配）
+ * 用于订单结果页编辑器预览
+ */
+export const ORDER_RESULT_INFO_MOCK = {
+  id: 12345,
+  totalAmount: "329.97",
+  currencySymbol: "$",
+  currencyCode: "USD",
+  firstName: "John Doe",
+  phone: "+1 *** *** 1234",
+  email: "j***@example.com",
+  address: "123 Main St, *** City, CA 90001",
+  paymentMethod: "Credit Card",
+  paymentStatus: "PAID",
+  orderTime: "2024-01-15 14:30:00",
+};
+
+/**
+ * 统一的编辑器预览 Mock 数据
+ * 包含所有组件所需的 mock 数据
+ */
+export const EDITOR_PREVIEW_MOCK = {
+  // 核心数据
+  productInfo: PRODUCT_INFO_MOCK,
+  currency: CURRENCY_MOCK,
+
+  // 组件专用数据
+  heroBanner: HERO_BANNER_MOCK,
+  checkout: CHECKOUT_MOCK,
+  orderResult: ORDER_RESULT_MOCK,
+  siteConfig: SITE_CONFIG_MOCK,
+  specSelector: SPEC_SELECTOR_MOCK,
+  quantitySelector: QUANTITY_SELECTOR_MOCK,
+  actionButtons: ACTION_BUTTONS_MOCK,
+
+  // 预设数据集
+  ...PRODUCT_MOCK_DATA,
+  ...ARTICLE_MOCK_DATA,
+  ...PAGE_CONTEXT_MOCK_DATA,
+};
 
 // ============ 转换工具函数 ============
 
