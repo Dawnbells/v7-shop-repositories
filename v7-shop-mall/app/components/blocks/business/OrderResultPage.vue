@@ -5,8 +5,6 @@
  * 支持后台编辑器配置
  */
 
-import type { OrderResultInfo } from "~/composables/usePageContext";
-
 interface Props {
   layout?: "centered" | "left-aligned";
   showIcon?: boolean;
@@ -52,13 +50,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const { t } = useI18n();
-
-const pageData = inject<ComputedRef<{ orderResult?: OrderResultInfo | null }>>(
-  "pageData",
-  computed(() => ({}))
-);
-
-const orderResult = computed(() => pageData.value?.orderResult);
+const { orderResult } = useOrderResultPage();
 
 const isSuccess = computed(() => {
   const status = orderResult.value?.paymentStatus;
