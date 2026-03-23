@@ -67,14 +67,14 @@ export function useI18n() {
   });
 
   // 翻译函数
-  function t(key: string): string {
+  function t(key: string, fallback?: string): string {
     const keys = key.split(".");
     let result: any = messages[locale.value];
     for (const k of keys) {
       result = result?.[k];
       if (result === undefined) break;
     }
-    return result ?? key;
+    return result ?? fallback ?? key;
   }
 
   return { t, locale };

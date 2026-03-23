@@ -86,4 +86,33 @@ export default {
     productImage: "商品图片",
     addBanner: "请添加海报图片",
   },
+  // 订单结果页
+  orderResult: {
+    successTitle: "订单提交成功",
+    pendingTitle: "订单处理中",
+    successDesc: "感谢您的购买，我们将尽快处理您的订单。",
+    pendingDesc: "您的订单正在处理中，请耐心等待。",
+    backHome: "返回首页",
+    orderId: "订单号",
+    amount: "订单金额",
+    recipient: "收件人",
+    phone: "联系电话",
+    email: "邮箱",
+    address: "收货地址",
+    paymentMethodLabel: "支付方式",
+    paymentStatusLabel: "支付状态",
+    orderTime: "下单时间",
+    noOrderInfo: "未找到订单信息",
+    paymentMethod: {
+      COD: "货到付款",
+      ONLINE: "在线支付",
+    },
+    paymentStatus: {
+      PAID: "已支付",
+      PENDING: "待支付",
+      UNPAID: "未支付",
+      SUCCESS: "支付成功",
+      FAILED: "支付失败",
+    },
+  },
 };

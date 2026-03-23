@@ -86,4 +86,33 @@ export default {
     productImage: "Product image",
     addBanner: "Please add banner image",
   },
+  // Order Result
+  orderResult: {
+    successTitle: "Order Placed Successfully",
+    pendingTitle: "Order Processing",
+    successDesc: "Thank you for your purchase. We will process your order as soon as possible.",
+    pendingDesc: "Your order is being processed. Please wait patiently.",
+    backHome: "Back to Home",
+    orderId: "Order ID",
+    amount: "Order Amount",
+    recipient: "Recipient",
+    phone: "Phone",
+    email: "Email",
+    address: "Shipping Address",
+    paymentMethodLabel: "Payment Method",
+    paymentStatusLabel: "Payment Status",
+    orderTime: "Order Time",
+    noOrderInfo: "Order information not found",
+    paymentMethod: {
+      COD: "Cash on Delivery",
+      ONLINE: "Online Payment",
+    },
+    paymentStatus: {
+      PAID: "Paid",
+      PENDING: "Pending",
+      UNPAID: "Unpaid",
+      SUCCESS: "Payment Successful",
+      FAILED: "Payment Failed",
+    },
+  },
 };
