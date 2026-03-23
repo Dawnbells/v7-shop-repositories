@@ -61,6 +61,7 @@ export default {
     addressLabel: "Cím",
     note: "Megjegyzés a rendeléshez",
     notePlaceholder: "Különleges utasítások a rendeléshez",
+    subscribeToUpdates: "Feliratkozás a rendelés állapotfrissítéseire",
   },
   article: {
     detail: "Cikk részletei",

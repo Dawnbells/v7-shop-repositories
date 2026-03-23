@@ -61,6 +61,7 @@ export default {
     addressLabel: "Адрес",
     note: "Бележки към поръчката",
     notePlaceholder: "Специални инструкции за поръчката",
+    subscribeToUpdates: "Абонирайте се за актуализации на статуса на поръчката",
   },
   article: {
     detail: "Детайли на статията",

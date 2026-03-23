@@ -61,6 +61,7 @@ export default {
     addressLabel: "Adresa",
     note: "Poznámka k objednávke",
     notePlaceholder: "Špeciálne pokyny k objednávke",
+    subscribeToUpdates: "Prihlásiť sa na odber aktualizácií stavu objednávky",
   },
   article: {
     detail: "Detail článku",

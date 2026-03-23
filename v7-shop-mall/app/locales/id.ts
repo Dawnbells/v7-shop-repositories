@@ -61,6 +61,7 @@ export default {
     addressLabel: "Alamat",
     note: "Catatan pesanan",
     notePlaceholder: "Instruksi khusus untuk pesanan Anda",
+    subscribeToUpdates: "Berlangganan pembaruan status pesanan",
   },
   article: {
     detail: "Detail Artikel",

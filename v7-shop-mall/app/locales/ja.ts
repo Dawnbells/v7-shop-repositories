@@ -61,6 +61,7 @@ export default {
     addressLabel: "住所",
     note: "注文メモ",
     notePlaceholder: "特別な指示があればご記入ください",
+    subscribeToUpdates: "注文状況の更新を購読する",
   },
   article: {
     detail: "記事詳細",

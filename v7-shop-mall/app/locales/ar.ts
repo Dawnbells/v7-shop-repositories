@@ -61,6 +61,7 @@ export default {
     addressLabel: "العنوان",
     note: "ملاحظات الطلب",
     notePlaceholder: "تعليمات خاصة للطلب",
+    subscribeToUpdates: "اشترك في تحديثات حالة الطلب",
   },
   article: {
     detail: "تفاصيل المقال",

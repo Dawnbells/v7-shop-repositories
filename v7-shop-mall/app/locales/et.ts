@@ -61,6 +61,7 @@ export default {
     addressLabel: "Aadress",
     note: "Tellimuse märkused",
     notePlaceholder: "Erijuhised tellimuse kohta",
+    subscribeToUpdates: "Telli tellimuse oleku uuendused",
   },
   article: {
     detail: "Artikli üksikasjad",

@@ -61,6 +61,7 @@ export default {
     addressLabel: "Adrese",
     note: "Piezīmes pie pasūtījuma",
     notePlaceholder: "Īpašas instrukcijas pasūtījumam",
+    subscribeToUpdates: "Abonēt pasūtījuma statusa atjauninājumus",
   },
   article: {
     detail: "Raksta detaļas",

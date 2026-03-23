@@ -61,6 +61,7 @@ export default {
     addressLabel: "Adres",
     note: "Uwagi do zamówienia",
     notePlaceholder: "Specjalne instrukcje do zamówienia",
+    subscribeToUpdates: "Subskrybuj aktualizacje statusu zamówienia",
   },
   article: {
     detail: "Szczegóły artykułu",

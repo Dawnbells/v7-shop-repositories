@@ -61,6 +61,7 @@ export default {
     addressLabel: "Διεύθυνση",
     note: "Σημειώσεις παραγγελίας",
     notePlaceholder: "Ειδικές οδηγίες για την παραγγελία",
+    subscribeToUpdates: "Εγγραφείτε για ενημερώσεις κατάστασης παραγγελίας",
   },
   article: {
     detail: "Λεπτομέρειες άρθρου",

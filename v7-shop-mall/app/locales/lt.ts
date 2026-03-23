@@ -61,6 +61,7 @@ export default {
     addressLabel: "Adresas",
     note: "Užsakymo pastabos",
     notePlaceholder: "Specialios instrukcijos užsakymui",
+    subscribeToUpdates: "Prenumeruoti užsakymo būsenos atnaujinimus",
   },
   article: {
     detail: "Straipsnio detalės",

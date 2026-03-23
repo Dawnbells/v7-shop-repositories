@@ -61,6 +61,7 @@ export default {
     addressLabel: "詳細地址",
     note: "訂單備註",
     notePlaceholder: "如有特殊要求請備註",
+    subscribeToUpdates: "訂閱訂單狀態更新",
   },
   article: {
     detail: "文章詳情",

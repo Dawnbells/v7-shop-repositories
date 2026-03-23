@@ -61,6 +61,7 @@ export default {
     addressLabel: "ที่อยู่",
     note: "หมายเหตุคำสั่งซื้อ",
     notePlaceholder: "คำแนะนำพิเศษสำหรับคำสั่งซื้อ",
+    subscribeToUpdates: "สมัครรับการอัปเดตสถานะคำสั่งซื้อ",
   },
   article: {
     detail: "รายละเอียดบทความ",

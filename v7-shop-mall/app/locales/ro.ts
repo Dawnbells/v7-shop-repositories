@@ -61,6 +61,7 @@ export default {
     addressLabel: "Adresă",
     note: "Note comandă",
     notePlaceholder: "Instrucțiuni speciale pentru comandă",
+    subscribeToUpdates: "Abonați-vă la actualizările stării comenzii",
   },
   article: {
     detail: "Detalii articol",
