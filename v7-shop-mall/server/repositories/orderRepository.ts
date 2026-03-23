@@ -3,174 +3,164 @@
  * 封装订单相关的数据库查询和写入
  */
 
-import { query, queryOne, getPool } from '../utils/db'
-import type { PoolConnection } from 'mysql2/promise'
+import { query, queryOne, getPool } from "../utils/db";
+import type { PoolConnection } from "mysql2/promise";
 
 // ============ 类型定义 ============
 
-export type OrderStatus = 'VALID' | 'INVALID'
-export type PaymentMethod = 'COD' | 'ONLINE'
-export type PaymentStatus = 'PENDING' | 'PAID' | 'REFUNDED'
+export type OrderStatus = "VALID" | "INVALID";
+export type PaymentMethod = "COD" | "ONLINE";
+export type PaymentStatus = "PENDING" | "PAID" | "REFUNDED";
 
 /**
  * 订单收货信息
  */
 export interface OrderDeliveryInfo {
-  firstName: string
-  lastName: string | null
-  phone: string
-  phoneLast8: string
-  email: string | null
-  province: string | null
-  city: string | null
-  district: string | null
-  postalCode: string | null
-  address: string | null
-  receiveUpdates: boolean
-  remoteArea: boolean
-  remark: string | null
+  firstName: string;
+  lastName: string | null;
+  phone: string;
+  phoneLast8: string;
+  email: string | null;
+  province: string | null;
+  city: string | null;
+  district: string | null;
+  postalCode: string | null;
+  address: string | null;
+  receiveUpdates: boolean;
+  remoteArea: boolean;
+  remark: string | null;
 }
 
 /**
  * 订单金额信息
  */
 export interface OrderFinancialInfo {
-  totalAmount: string
-  shippingFee: string
-  discountAmount: string
-  taxAmount: string
+  totalAmount: string;
+  shippingFee: string;
+  discountAmount: string;
+  taxAmount: string;
 }
 
 /**
  * 订单支付信息
  */
 export interface OrderPaymentInfo {
-  paymentMethod: PaymentMethod
-  paymentStatus: PaymentStatus
-  paymentTime: Date | null
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  paymentTime: Date | null;
 }
 
 /**
  * 订单上下文信息
  */
 export interface OrderContextInfo {
-  companyId: number
-  salesUid: number | null
-  salesPerson: string | null
-  departmentId: number | null
-  department: string | null
-  websiteId: number | null
-  websiteName: string | null
-  websiteUrl: string | null
-  countryId: number | null
-  countryCode: string | null
-  country: string | null
-  currencyId: number | null
-  currencyCode: string | null
-  currencyName: string | null
-  currencySymbol: string | null
-  currencyExchangeRate: string | null
-  currencyFractionDigits: number | null
-  languageId: number | null
-  language: string | null
-  languageCode: string | null
-  phoneRule: string | null
-  phonePrefix: string | null
-  addressRule: string | null
+  companyId: number;
+  salesUid: number | null;
+  salesPerson: string | null;
+  departmentId: number | null;
+  department: string | null;
+  websiteId: number | null;
+  websiteName: string | null;
+  websiteUrl: string | null;
+  countryId: number | null;
+  countryCode: string | null;
+  country: string | null;
+  currencyId: number | null;
+  currencyCode: string | null;
+  currencyName: string | null;
+  currencySymbol: string | null;
+  currencyExchangeRate: string | null;
+  currencyFractionDigits: number | null;
+  languageId: number | null;
+  language: string | null;
+  languageCode: string | null;
+  phoneRule: string | null;
+  phonePrefix: string | null;
+  addressRule: string | null;
 }
 
 /**
  * 订单风险记录信息
  */
 export interface OrderRiskRecordInfo {
-  deviceId: string | null
-  remoteIp: string | null
-  remoteIpInfo: string | null
-  realIp: string | null
-  realIpInfo: string | null
-  ua: string | null
-  pdKey: string | null
-  pdVal: string | null
-  cloak: boolean
-  browserPlatform: string | null
+  deviceId: string | null;
+  remoteIp: string | null;
+  remoteIpInfo: string | null;
+  realIp: string | null;
+  realIpInfo: string | null;
+  ua: string | null;
+  pdKey: string | null;
+  pdVal: string | null;
+  cloak: boolean;
+  browserPlatform: string | null;
 }
 
 /**
  * 订单商品项
  */
 export interface OrderItemInfo {
-  spuId: number
-  productId: number
-  title: string
-  specTitle: string
-  imageId: number | null
-  sellPrice: string
-  originPrice: string | null
-  costPrice: string | null
-  quantity: number
-  skuId: number
-  skuCode: string | null
-  skuName: string | null
-  skuIsVirtual: boolean
-  merchandise: string | null
-  waybillProductName: string | null
+  spuId: number;
+  productId: number;
+  title: string;
+  specTitle: string;
+  imageId: number | null;
+  sellPrice: string;
+  originPrice: string | null;
+  costPrice: string | null;
+  quantity: number;
+  skuId: number;
+  skuCode: string | null;
+  skuName: string | null;
+  skuIsVirtual: boolean;
+  merchandise: string | null;
+  waybillProductName: string | null;
 }
 
 /**
  * 创建订单的完整数据
  */
 export interface CreateOrderData {
-  companyId: number
-  from: string
-  fromUrl: string | null
-  platform: string
-  orderTime: Date
-  deliveryInfo: OrderDeliveryInfo
-  financialInfo: OrderFinancialInfo
-  paymentInfo: OrderPaymentInfo
-  contextInfo: OrderContextInfo
-  riskInfo: OrderRiskRecordInfo
-  items: OrderItemInfo[]
+  companyId: number;
+  from: string;
+  fromUrl: string | null;
+  platform: string;
+  orderTime: Date;
+  deliveryInfo: OrderDeliveryInfo;
+  financialInfo: OrderFinancialInfo;
+  paymentInfo: OrderPaymentInfo;
+  contextInfo: OrderContextInfo;
+  riskInfo: OrderRiskRecordInfo;
+  items: OrderItemInfo[];
 }
 
 /**
  * 商品价格查询结果
  */
 export interface ProductPriceInfo {
-  productId: number
-  specId: number | null
-  title: string
-  specTitle: string | null
-  sellPrice: number
-  originPrice: number | null
-  costPrice: number | null
-  skuId: number | null
-  skuCode: string | null
-  skuName: string | null
-  skuIsVirtual: boolean
-  merchandise: string | null
-  waybillProductName: string | null
-  imageId: number | null
-  imagePath: string | null
-  stockQuantity: number
-  isMultiSpecs: boolean
-  spuId: number
-  countryId: number
-  languageId: number | null
-  summary: string | null
-  introduction: string | null
-  isTaxable: boolean
-  taxationMethod: string | null
-  fixedTaxAmount: number | null
-  taxAmountThreshold: number | null
-  taxQuantityThreshold: number
-  taxPerBase: number | null
-  barcode: string | null
-  linkStock: boolean
-  videoFileId: number | null
-  botShowSpuId: number | null
-  riskUserShowSpuId: number | null
-  blacklistedUserShowSpuId: number | null
+  companyId: number;
+  productId: number;
+  specId: number | null;
+  spuId: number;
+  title: string;
+  specTitle: string | null;
+  sellPrice: number;
+  originPrice: number | null;
+  costPrice: number | null;
+  isTaxable: boolean;
+  taxationMethod: string | null;
+  fixedTaxAmount: number | null;
+  taxAmountThreshold: number | null;
+  taxQuantityThreshold: number;
+  taxPerBase: number | null;
+  skuId: number | null;
+  skuCode: string | null;
+  skuName: string | null;
+  skuIsVirtual: boolean;
+  merchandise: string | null;
+  waybillProductName: string | null;
+  imageId: number | null;
+  imagePath: string | null;
+  isMultiSpecs: boolean;
 }
 
 // ============ 价格查询 ============
@@ -180,198 +170,180 @@ export interface ProductPriceInfo {
  */
 export async function findProductPrices(
   items: Array<{ productId: number; specId: number | null }>,
-  countryId: number
+  countryId: number,
 ): Promise<Map<string, ProductPriceInfo>> {
   if (items.length === 0) {
-    return new Map()
+    return new Map();
   }
 
-  const result = new Map<string, ProductPriceInfo>()
+  const result = new Map<string, ProductPriceInfo>();
 
   // 分离有规格和无规格的商品
-  const withSpec = items.filter(i => i.specId !== null)
-  const withoutSpec = items.filter(i => i.specId === null)
+  const withSpec = items.filter((i) => i.specId !== null);
+  const withoutSpec = items.filter((i) => i.specId === null);
 
   // 查询无规格商品
   if (withoutSpec.length > 0) {
-    const productIds = withoutSpec.map(i => i.productId)
-    const placeholders = productIds.map(() => '?').join(',')
-    
+    const productIds = withoutSpec.map((i) => i.productId);
+    const placeholders = productIds.map(() => "?").join(",");
+
     const sql = `
-      SELECT 
-        p.id as productId,
-        p.spu_id as spuId,
-        p.sku_id as skuId,
-        p.country_id as countryId,
-        p.language_id as languageId,
-        p.title,
-        p.summary,
-        p.introduction,
-        p.merchandise,
-        p.waybill_product_name as waybillProductName,
-        p.sell_price as sellPrice,
-        p.origin_price as originPrice,
-        p.cost_price as costPrice,
-        p.is_taxable as isTaxable,
-        p.taxation_method as taxationMethod,
-        p.fixed_tax_amount as fixedTaxAmount,
-        p.tax_amount_threshold as taxAmountThreshold,
-        p.tax_quantity_threshold as taxQuantityThreshold,
-        p.tax_per_base as taxPerBase,
-        p.barcode,
-        p.stock_quantity as stockQuantity,
-        p.link_stock as linkStock,
-        p.is_multi_specs as isMultiSpecs,
-        p.video_file_id as videoFileId,
-        p.bot_show_spu_id as botShowSpuId,
-        p.risk_user_show_spu_id as riskUserShowSpuId,
-        p.black_listed_user_show_spu_id as blacklistedUserShowSpuId,
-        MIN(pi.image_file_id) as imageId,
-        MIN(mf.relative_path) as imagePath
+      SELECT
+        p.company_id AS companyId,
+        p.spu_id AS spuId,
+        p.id AS productId,
+        p.title AS title,
+        p.title AS specTitle,
+        MIN(pi.image_file_id) AS imageId,
+        MIN(mf.relative_path) AS imagePath,
+        p.sell_price AS sellPrice,
+        p.origin_price AS originPrice,
+        p.cost_price AS costPrice,
+        p.is_taxable AS isTaxable,
+        p.taxation_method AS taxationMethod,
+        p.fixed_tax_amount AS fixedTaxAmount,
+        p.tax_amount_threshold AS taxAmountThreshold,
+        p.tax_quantity_threshold AS taxQuantityThreshold,
+        p.tax_per_base AS taxPerBase,
+        p.sku_id AS skuId,
+        pk.name AS skuName,
+        pk.sku_code AS skuCode,
+        pk.is_virtual AS skuIsVirtual,
+        p.merchandise AS merchandise,
+        p.waybill_product_name AS waybillProductName,
+        p.is_multi_specs AS isMultiSpecs
       FROM t_products p
       LEFT JOIN t_product_images pi ON pi.product_id = p.id
       LEFT JOIN t_multimedia_files mf ON mf.id = pi.image_file_id
-      WHERE p.id IN (${placeholders}) 
+      LEFT JOIN t_product_skus pk ON pk.id = p.sku_id
+      WHERE p.id IN (${placeholders})
         AND p.country_id = ?
         AND p.status = 'VALID'
       GROUP BY p.id
-    `
-
-    const rows = await query<any>(sql, [...productIds, countryId])
+    `;
+    const rows = await query<any>(sql, [...productIds, countryId]);
     for (const row of rows) {
-      const key = `${row.productId}-null`
+      const key = `${row.productId}-null`;
       result.set(key, {
+        companyId: row.companyId,
         productId: row.productId,
         specId: null,
-        title: row.title,
-        specTitle: null,
-        sellPrice: Number(row.sellPrice),
-        originPrice: row.originPrice ? Number(row.originPrice) : null,
-        costPrice: row.costPrice ? Number(row.costPrice) : null,
-        skuId: row.skuId,
-        skuCode: null,
-        skuName: null,
-        skuIsVirtual: false,
-        merchandise: row.merchandise,
-        waybillProductName: row.waybillProductName,
-        imageId: row.imageId,
-        imagePath: row.imagePath,
-        stockQuantity: row.stockQuantity,
-        isMultiSpecs: Boolean(row.isMultiSpecs),
         spuId: row.spuId,
-        countryId: row.countryId,
-        languageId: row.languageId,
-        summary: row.summary,
-        introduction: row.introduction,
-        isTaxable: Boolean(row.isTaxable),
-        taxationMethod: row.taxationMethod,
-        fixedTaxAmount: row.fixedTaxAmount ? Number(row.fixedTaxAmount) : null,
-        taxAmountThreshold: row.taxAmountThreshold ? Number(row.taxAmountThreshold) : null,
-        taxQuantityThreshold: row.taxQuantityThreshold ?? 0,
-        taxPerBase: row.taxPerBase ? Number(row.taxPerBase) : null,
-        barcode: row.barcode,
-        linkStock: Boolean(row.linkStock),
-        videoFileId: row.videoFileId,
-        botShowSpuId: row.botShowSpuId,
-        riskUserShowSpuId: row.riskUserShowSpuId,
-        blacklistedUserShowSpuId: row.blacklistedUserShowSpuId,
-      })
-    }
-  }
-
-  // 查询有规格商品
-  if (withSpec.length > 0) {
-    const specIds = withSpec.map(i => i.specId)
-    const placeholders = specIds.map(() => '?').join(',')
-    
-    const sql = `
-      SELECT 
-        p.id as productId,
-        s.id as specId,
-        p.spu_id as spuId,
-        p.sku_id as skuId,
-        p.country_id as countryId,
-        p.language_id as languageId,
-        p.title,
-        GROUP_CONCAT(CONCAT(sa.name, ':', sa.value) ORDER BY sa.id SEPARATOR ', ') as specTitle,
-        p.summary,
-        p.introduction,
-        p.merchandise,
-        p.waybill_product_name as waybillProductName,
-        s.sell_price as sellPrice,
-        s.origin_price as originPrice,
-        s.cost_price as costPrice,
-        p.is_taxable as isTaxable,
-        p.taxation_method as taxationMethod,
-        p.fixed_tax_amount as fixedTaxAmount,
-        p.tax_amount_threshold as taxAmountThreshold,
-        p.tax_quantity_threshold as taxQuantityThreshold,
-        p.tax_per_base as taxPerBase,
-        s.barcode,
-        s.stock_quantity as stockQuantity,
-        s.link_stock as linkStock,
-        p.is_multi_specs as isMultiSpecs,
-        p.video_file_id as videoFileId,
-        p.bot_show_spu_id as botShowSpuId,
-        p.risk_user_show_spu_id as riskUserShowSpuId,
-        p.black_listed_user_show_spu_id as blacklistedUserShowSpuId,
-        COALESCE(s.specification_image_id, MIN(pi.image_file_id)) as imageId,
-        COALESCE(MAX(smf.relative_path), MIN(mf.relative_path)) as imagePath
-      FROM t_product_specifications s
-      JOIN t_products p ON s.product_id = p.id
-      LEFT JOIN t_product_specification_attributes sa ON sa.product_specification_id = s.id
-      LEFT JOIN t_product_images pi ON pi.product_id = p.id
-      LEFT JOIN t_multimedia_files mf ON mf.id = pi.image_file_id
-      LEFT JOIN t_multimedia_files smf ON smf.id = s.specification_image_id
-      WHERE s.id IN (${placeholders})
-        AND p.country_id = ?
-        AND p.status = 'VALID'
-      GROUP BY s.id
-    `
-
-    const rows = await query<any>(sql, [...specIds, countryId])
-    for (const row of rows) {
-      const key = `${row.productId}-${row.specId}`
-      result.set(key, {
-        productId: row.productId,
-        specId: row.specId,
         title: row.title,
         specTitle: row.specTitle,
         sellPrice: Number(row.sellPrice),
         originPrice: row.originPrice ? Number(row.originPrice) : null,
         costPrice: row.costPrice ? Number(row.costPrice) : null,
+        isTaxable: Boolean(row.isTaxable),
+        taxationMethod: row.taxationMethod,
+        fixedTaxAmount: row.fixedTaxAmount ? Number(row.fixedTaxAmount) : null,
+        taxAmountThreshold: row.taxAmountThreshold
+          ? Number(row.taxAmountThreshold)
+          : null,
+        taxQuantityThreshold: row.taxQuantityThreshold ?? 0,
+        taxPerBase: row.taxPerBase ? Number(row.taxPerBase) : null,
         skuId: row.skuId,
-        skuCode: null,
-        skuName: null,
-        skuIsVirtual: false,
+        skuCode: row.skuCode,
+        skuName: row.skuName,
+        skuIsVirtual: Boolean(row.skuIsVirtual),
         merchandise: row.merchandise,
         waybillProductName: row.waybillProductName,
         imageId: row.imageId,
         imagePath: row.imagePath,
-        stockQuantity: row.stockQuantity,
         isMultiSpecs: Boolean(row.isMultiSpecs),
-        spuId: row.spuId,
-        countryId: row.countryId,
-        languageId: row.languageId,
-        summary: row.summary,
-        introduction: row.introduction,
-        isTaxable: Boolean(row.isTaxable),
-        taxationMethod: row.taxationMethod,
-        fixedTaxAmount: row.fixedTaxAmount ? Number(row.fixedTaxAmount) : null,
-        taxAmountThreshold: row.taxAmountThreshold ? Number(row.taxAmountThreshold) : null,
-        taxQuantityThreshold: row.taxQuantityThreshold ?? 0,
-        taxPerBase: row.taxPerBase ? Number(row.taxPerBase) : null,
-        barcode: row.barcode,
-        linkStock: Boolean(row.linkStock),
-        videoFileId: row.videoFileId,
-        botShowSpuId: row.botShowSpuId,
-        riskUserShowSpuId: row.riskUserShowSpuId,
-        blacklistedUserShowSpuId: row.blacklistedUserShowSpuId,
-      })
+      });
     }
   }
 
-  return result
+  // 查询有规格商品
+  if (withSpec.length > 0) {
+    const specIds = withSpec.map((i) => i.specId);
+    const placeholders = specIds.map(() => "?").join(",");
+
+    const sql = `
+      SELECT
+        p.company_id AS companyId,
+        p.spu_id AS spuId,
+        p.id AS productId,
+        s.id AS specId,
+        p.title AS title,
+        sa_agg.specTitle AS specTitle,
+        COALESCE(s.specification_image_id, pi_agg.imageId) AS imageId,
+        COALESCE(smf.relative_path, pi_agg.imagePath) AS imagePath,
+        s.sell_price AS sellPrice,
+        s.origin_price AS originPrice,
+        s.cost_price AS costPrice,
+        p.is_taxable AS isTaxable,
+        p.taxation_method AS taxationMethod,
+        p.fixed_tax_amount AS fixedTaxAmount,
+        p.tax_amount_threshold AS taxAmountThreshold,
+        p.tax_quantity_threshold AS taxQuantityThreshold,
+        p.tax_per_base AS taxPerBase,
+        s.sku_id AS skuId,
+        pk.name AS skuName,
+        pk.sku_code AS skuCode,
+        pk.is_virtual AS skuIsVirtual,
+        p.merchandise AS merchandise,
+        p.waybill_product_name AS waybillProductName,
+        p.is_multi_specs AS isMultiSpecs
+      FROM t_product_specifications s
+      JOIN t_products p ON s.product_id = p.id
+      LEFT JOIN (
+        SELECT product_specification_id,
+               GROUP_CONCAT(DISTINCT value ORDER BY id SEPARATOR ' · ') AS specTitle
+        FROM t_product_specification_attributes
+        GROUP BY product_specification_id
+      ) sa_agg ON sa_agg.product_specification_id = s.id
+      LEFT JOIN (
+        SELECT pi.product_id,
+               MIN(pi.image_file_id) AS imageId,
+               MIN(mf.relative_path) AS imagePath
+        FROM t_product_images pi
+        LEFT JOIN t_multimedia_files mf ON mf.id = pi.image_file_id
+        GROUP BY pi.product_id
+      ) pi_agg ON pi_agg.product_id = p.id
+      LEFT JOIN t_multimedia_files smf ON smf.id = s.specification_image_id
+      LEFT JOIN t_product_skus pk ON pk.id = s.sku_id
+      WHERE s.id IN (${placeholders})
+        AND p.country_id = ?
+        AND p.status = 'VALID'
+    `;
+
+    const rows = await query<any>(sql, [...specIds, countryId]);
+    for (const row of rows) {
+      const key = `${row.productId}-${row.specId}`;
+      result.set(key, {
+        companyId: row.companyId,
+        productId: row.productId,
+        specId: row.specId,
+        spuId: row.spuId,
+        title: row.title,
+        specTitle: row.specTitle,
+        sellPrice: Number(row.sellPrice),
+        originPrice: row.originPrice ? Number(row.originPrice) : null,
+        costPrice: row.costPrice ? Number(row.costPrice) : null,
+        isTaxable: Boolean(row.isTaxable),
+        taxationMethod: row.taxationMethod,
+        fixedTaxAmount: row.fixedTaxAmount ? Number(row.fixedTaxAmount) : null,
+        taxAmountThreshold: row.taxAmountThreshold
+          ? Number(row.taxAmountThreshold)
+          : null,
+        taxQuantityThreshold: row.taxQuantityThreshold ?? 0,
+        taxPerBase: row.taxPerBase ? Number(row.taxPerBase) : null,
+        skuId: row.skuId,
+        skuCode: row.skuCode,
+        skuName: row.skuName,
+        skuIsVirtual: Boolean(row.skuIsVirtual),
+        merchandise: row.merchandise,
+        waybillProductName: row.waybillProductName,
+        imageId: row.imageId,
+        imagePath: row.imagePath,
+        isMultiSpecs: Boolean(row.isMultiSpecs),
+      });
+    }
+  }
+
+  return result;
 }
 
 // ============ 订单创建 ============
@@ -380,21 +352,21 @@ export async function findProductPrices(
  * 执行事务
  */
 export async function transaction<T>(
-  callback: (conn: PoolConnection) => Promise<T>
+  callback: (conn: PoolConnection) => Promise<T>,
 ): Promise<T> {
-  const pool = getPool()
-  const conn = await pool.getConnection()
-  
+  const pool = getPool();
+  const conn = await pool.getConnection();
+
   try {
-    await conn.beginTransaction()
-    const result = await callback(conn)
-    await conn.commit()
-    return result
+    await conn.beginTransaction();
+    const result = await callback(conn);
+    await conn.commit();
+    return result;
   } catch (error) {
-    await conn.rollback()
-    throw error
+    await conn.rollback();
+    throw error;
   } finally {
-    conn.release()
+    conn.release();
   }
 }
 
@@ -404,7 +376,7 @@ export async function transaction<T>(
 async function insertOrderContextInfo(
   conn: PoolConnection,
   info: OrderContextInfo,
-  now: Date
+  now: Date,
 ): Promise<number> {
   const sql = `
     INSERT INTO t_temporary_order_context_infos (
@@ -416,20 +388,38 @@ async function insertOrderContextInfo(
       phone_rule, phone_prefix, sales_person, sales_uid,
       website_id, website_name, website_url
     ) VALUES (?, 'VALID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `
+  `;
 
   const params = [
-    now, now, info.companyId,
-    info.addressRule, info.country, info.countryCode, info.countryId,
-    info.currencyCode, info.currencyExchangeRate, info.currencyFractionDigits,
-    info.currencyId, info.currencyName, info.currencySymbol,
-    info.department, info.departmentId, info.language, info.languageCode, info.languageId,
-    info.phoneRule, info.phonePrefix, info.salesPerson, info.salesUid,
-    info.websiteId, info.websiteName, info.websiteUrl,
-  ]
+    now,
+    now,
+    info.companyId,
+    info.addressRule,
+    info.country,
+    info.countryCode,
+    info.countryId,
+    info.currencyCode,
+    info.currencyExchangeRate,
+    info.currencyFractionDigits,
+    info.currencyId,
+    info.currencyName,
+    info.currencySymbol,
+    info.department,
+    info.departmentId,
+    info.language,
+    info.languageCode,
+    info.languageId,
+    info.phoneRule,
+    info.phonePrefix,
+    info.salesPerson,
+    info.salesUid,
+    info.websiteId,
+    info.websiteName,
+    info.websiteUrl,
+  ];
 
-  const [result] = await conn.execute(sql, params)
-  return (result as any).insertId
+  const [result] = await conn.execute(sql, params);
+  return (result as any).insertId;
 }
 
 /**
@@ -439,7 +429,7 @@ async function insertRiskRecordInfo(
   conn: PoolConnection,
   info: OrderRiskRecordInfo,
   companyId: number,
-  now: Date
+  now: Date,
 ): Promise<number> {
   const sql = `
     INSERT INTO t_temporary_risk_record_infos (
@@ -447,17 +437,26 @@ async function insertRiskRecordInfo(
       browser_platform, device_id, pd_key, pd_val,
       real_ip, real_ip_info, remote_ip, remote_ip_info, ua, cloak
     ) VALUES (?, 'VALID', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `
+  `;
 
   const params = [
-    now, now, companyId,
-    info.browserPlatform, info.deviceId, info.pdKey, info.pdVal,
-    info.realIp, info.realIpInfo, info.remoteIp, info.remoteIpInfo,
-    info.ua, info.cloak ? 1 : 0,
-  ]
+    now,
+    now,
+    companyId,
+    info.browserPlatform,
+    info.deviceId,
+    info.pdKey,
+    info.pdVal,
+    info.realIp,
+    info.realIpInfo,
+    info.remoteIp,
+    info.remoteIpInfo,
+    info.ua,
+    info.cloak ? 1 : 0,
+  ];
 
-  const [result] = await conn.execute(sql, params)
-  return (result as any).insertId
+  const [result] = await conn.execute(sql, params);
+  return (result as any).insertId;
 }
 
 /**
@@ -468,7 +467,7 @@ async function insertTemporaryOrder(
   data: CreateOrderData,
   contextId: number,
   riskId: number,
-  now: Date
+  now: Date,
 ): Promise<number> {
   const sql = `
     INSERT INTO t_temporary_orders (
@@ -490,24 +489,43 @@ async function insertTemporaryOrder(
       ?, ?, ?,
       ?, ?, ?, ?, ?
     )
-  `
+  `;
 
   const params = [
-    now, now, data.companyId,
-    data.deliveryInfo.address, data.deliveryInfo.city, data.deliveryInfo.district,
-    data.deliveryInfo.email, data.deliveryInfo.firstName, data.deliveryInfo.lastName,
-    data.deliveryInfo.phone, data.deliveryInfo.postalCode, data.deliveryInfo.province,
-    data.deliveryInfo.receiveUpdates ? 1 : 0, data.deliveryInfo.remark,
+    now,
+    now,
+    data.companyId,
+    data.deliveryInfo.address,
+    data.deliveryInfo.city,
+    data.deliveryInfo.district,
+    data.deliveryInfo.email,
+    data.deliveryInfo.firstName,
+    data.deliveryInfo.lastName,
+    data.deliveryInfo.phone,
+    data.deliveryInfo.postalCode,
+    data.deliveryInfo.province,
+    data.deliveryInfo.receiveUpdates ? 1 : 0,
+    data.deliveryInfo.remark,
     data.deliveryInfo.remoteArea ? 1 : 0,
-    data.financialInfo.discountAmount, data.financialInfo.shippingFee,
-    data.financialInfo.taxAmount, data.financialInfo.totalAmount,
-    data.from, data.fromUrl, data.orderTime,
-    data.paymentInfo.paymentMethod, data.paymentInfo.paymentStatus, data.paymentInfo.paymentTime,
-    data.platform, data.contextInfo.salesUid, contextId, riskId, data.deliveryInfo.phoneLast8,
-  ]
+    data.financialInfo.discountAmount,
+    data.financialInfo.shippingFee,
+    data.financialInfo.taxAmount,
+    data.financialInfo.totalAmount,
+    data.from,
+    data.fromUrl,
+    data.orderTime,
+    data.paymentInfo.paymentMethod,
+    data.paymentInfo.paymentStatus,
+    data.paymentInfo.paymentTime,
+    data.platform,
+    data.contextInfo.salesUid,
+    contextId,
+    riskId,
+    data.deliveryInfo.phoneLast8,
+  ];
 
-  const [result] = await conn.execute(sql, params)
-  return (result as any).insertId
+  const [result] = await conn.execute(sql, params);
+  return (result as any).insertId;
 }
 
 /**
@@ -520,9 +538,9 @@ async function insertOrderItems(
   companyId: number,
   salesUid: number | null,
   spuId: number,
-  now: Date
+  now: Date,
 ): Promise<void> {
-  if (items.length === 0) return
+  if (items.length === 0) return;
 
   const sql = `
     INSERT INTO t_temporary_order_items (
@@ -533,18 +551,35 @@ async function insertOrderItems(
       spec_title, spu_id, tax, title,
       waybill_product_name, user_id, image_id, order_id
     ) VALUES ?
-  `
+  `;
 
-  const values = items.map(item => [
-    now, 'VALID', now, companyId,
-    null, item.costPrice, item.merchandise, item.originPrice,
-    item.productId, item.quantity, item.sellPrice,
-    item.skuCode, item.skuId, item.skuIsVirtual ? 1 : 0, item.skuName,
-    item.specTitle, spuId, null, item.title,
-    item.waybillProductName, salesUid, item.imageId, orderId,
-  ])
+  const values = items.map((item) => [
+    now,
+    "VALID",
+    now,
+    companyId,
+    null,
+    item.costPrice,
+    item.merchandise,
+    item.originPrice,
+    item.productId,
+    item.quantity,
+    item.sellPrice,
+    item.skuCode,
+    item.skuId,
+    item.skuIsVirtual ? 1 : 0,
+    item.skuName,
+    item.specTitle,
+    spuId,
+    null,
+    item.title,
+    item.waybillProductName,
+    salesUid,
+    item.imageId,
+    orderId,
+  ]);
 
-  await conn.query(sql, [values])
+  await conn.query(sql, [values]);
 }
 
 /**
@@ -552,19 +587,30 @@ async function insertOrderItems(
  */
 export async function createTemporaryOrder(
   data: CreateOrderData,
-  spuId: number
+  spuId: number,
 ): Promise<{ orderId: number }> {
   return transaction(async (conn) => {
-    const now = new Date()
+    const now = new Date();
 
     // 1. 插入上下文信息
-    const contextId = await insertOrderContextInfo(conn, data.contextInfo, now)
+    const contextId = await insertOrderContextInfo(conn, data.contextInfo, now);
 
     // 2. 插入风险记录
-    const riskId = await insertRiskRecordInfo(conn, data.riskInfo, data.companyId, now)
+    const riskId = await insertRiskRecordInfo(
+      conn,
+      data.riskInfo,
+      data.companyId,
+      now,
+    );
 
     // 3. 插入订单主表
-    const orderId = await insertTemporaryOrder(conn, data, contextId, riskId, now)
+    const orderId = await insertTemporaryOrder(
+      conn,
+      data,
+      contextId,
+      riskId,
+      now,
+    );
 
     // 4. 插入订单商品项
     await insertOrderItems(
@@ -574,21 +620,21 @@ export async function createTemporaryOrder(
       data.companyId,
       data.contextInfo.salesUid,
       spuId,
-      now
-    )
+      now,
+    );
 
-    return { orderId }
-  })
+    return { orderId };
+  });
 }
 
 /**
  * 根据订单ID查询订单信息
  */
 export async function findOrderById(orderId: number): Promise<{
-  id: number
-  totalAmount: string
-  currencySymbol: string | null
-  currencyCode: string | null
+  id: number;
+  totalAmount: string;
+  currencySymbol: string | null;
+  currencyCode: string | null;
 } | null> {
   const sql = `
     SELECT 
@@ -600,7 +646,7 @@ export async function findOrderById(orderId: number): Promise<{
     LEFT JOIN t_temporary_order_context_infos c ON o.context_info_id = c.id
     WHERE o.id = ? AND o.status = 'VALID'
     LIMIT 1
-  `
+  `;
 
-  return queryOne(sql, [orderId])
+  return queryOne(sql, [orderId]);
 }
