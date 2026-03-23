@@ -12,6 +12,9 @@
 // 获取主题相关数据
 const { cssVariables, getPageSchema, getLayoutSchema, siteConfig } = usePageTheme();
 
+// 获取国家信息（用于电话区号前缀）
+const { countryInfo } = usePageContext();
+
 // 获取结算数据
 const {
   checkoutItems,
@@ -55,6 +58,14 @@ useHead({
 
 // 提供编辑器状态（非编辑器模式）
 provide("isInEditor", ref(false));
+
+// 电话输入处理：只允许输入数字
+function handlePhoneInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const filtered = input.value.replace(/\D/g, '');
+  input.value = filtered;
+  updateAddress('phone', filtered);
+}
 
 // 提供页面数据供 NodeRenderer 绑定解析使用
 provide(
@@ -157,14 +168,19 @@ provide(
                         <label class="form-label">
                           联系电话 <span class="required">*</span>
                         </label>
-                        <input
-                          type="tel"
-                          class="form-input"
-                          :class="{ 'has-error': formErrors.phone }"
-                          :value="shippingAddress.phone"
-                          placeholder="请输入联系电话"
-                          @input="updateAddress('phone', ($event.target as HTMLInputElement).value)"
-                        />
+                        <div class="phone-input-wrapper">
+                          <span v-if="countryInfo?.phonePrefix" class="phone-prefix">
+                            {{ countryInfo.phonePrefix }}
+                          </span>
+                          <input
+                            type="tel"
+                            class="form-input"
+                            :class="{ 'has-error': formErrors.phone, 'has-prefix': countryInfo?.phonePrefix }"
+                            :value="shippingAddress.phone"
+                            placeholder="请输入联系电话"
+                            @input="handlePhoneInput($event)"
+                          />
+                        </div>
                         <span v-if="formErrors.phone" class="form-error">
                           {{ formErrors.phone }}
                         </span>
@@ -185,6 +201,15 @@ provide(
                         <span v-if="formErrors.email" class="form-error">
                           {{ formErrors.email }}
                         </span>
+                        <!-- 订阅复选框 -->
+                        <label class="subscribe-checkbox">
+                          <input
+                            type="checkbox"
+                            :checked="shippingAddress.subscribeToUpdates"
+                            @change="updateAddress('subscribeToUpdates', ($event.target as HTMLInputElement).checked)"
+                          />
+                          <span class="checkbox-label">订阅订单状态更新</span>
+                        </label>
                       </div>
                     </div>
 
@@ -597,6 +622,55 @@ provide(
 .form-error {
   font-size: 12px;
   color: #ef4444;
+}
+
+/* 电话输入框样式 */
+.phone-input-wrapper {
+  display: flex;
+  align-items: stretch;
+}
+
+.phone-prefix {
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  background: var(--background-color, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  color: var(--text-secondary-color, #6b7280);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.phone-input-wrapper .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-input-wrapper .form-input.has-prefix {
+  border-radius: 0 8px 8px 0;
+}
+
+/* 订阅复选框样式 */
+.subscribe-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.subscribe-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary-color, #3b82f6);
+}
+
+.subscribe-checkbox .checkbox-label {
+  font-size: 13px;
+  color: var(--text-secondary-color, #6b7280);
 }
 
 /* 支付方式 */

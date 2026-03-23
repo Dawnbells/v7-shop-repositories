@@ -274,6 +274,15 @@ function handleInput(field: keyof typeof shippingAddress.value, event: Event) {
   updateAddress(field, target.value);
 }
 
+// 电话输入处理：只允许输入数字
+function handlePhoneInput(event: Event) {
+  if (isInEditor.value) return;
+  const input = event.target as HTMLInputElement;
+  const filtered = input.value.replace(/\D/g, '');
+  input.value = filtered;
+  updateAddress('phone', filtered);
+}
+
 onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
 });
@@ -304,15 +313,20 @@ onUnmounted(() => {
         <label class="form-label">
           {{ t('address.phoneLabel') }} <span class="required">*</span>
         </label>
-        <input
-          type="tel"
-          class="form-input"
-          :class="{ 'has-error': formErrors.phone }"
-          :value="shippingAddress.phone"
-          :placeholder="t('address.phone')"
-          :disabled="isInEditor"
-          @input="handleInput('phone', $event)"
-        />
+        <div class="phone-input-wrapper">
+          <span v-if="countryInfo?.phonePrefix" class="phone-prefix">
+            {{ countryInfo.phonePrefix }}
+          </span>
+          <input
+            type="tel"
+            class="form-input"
+            :class="{ 'has-error': formErrors.phone, 'has-prefix': countryInfo?.phonePrefix }"
+            :value="shippingAddress.phone"
+            :placeholder="t('address.phone')"
+            :disabled="isInEditor"
+            @input="handlePhoneInput($event)"
+          />
+        </div>
         <span v-if="formErrors.phone" class="form-error">
           {{ formErrors.phone }}
         </span>
@@ -358,6 +372,16 @@ onUnmounted(() => {
         <span v-if="formErrors.email" class="form-error">
           {{ formErrors.email }}
         </span>
+        <!-- 订阅复选框 -->
+        <label class="subscribe-checkbox">
+          <input
+            type="checkbox"
+            :checked="shippingAddress.subscribeToUpdates"
+            :disabled="isInEditor"
+            @change="updateAddress('subscribeToUpdates', ($event.target as HTMLInputElement).checked)"
+          />
+          <span class="checkbox-label">{{ t('address.subscribeToUpdates') }}</span>
+        </label>
       </div>
     </div>
 
@@ -596,6 +620,34 @@ onUnmounted(() => {
   color: var(--text-secondary-color, #9ca3af);
 }
 
+/* 电话输入框样式 */
+.phone-input-wrapper {
+  display: flex;
+  align-items: stretch;
+}
+
+.phone-prefix {
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  background: var(--background-color, #f9fafb);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-right: none;
+  border-radius: var(--address-form-input-radius, 8px) 0 0 var(--address-form-input-radius, 8px);
+  color: var(--text-secondary-color, #6b7280);
+  font-size: var(--address-form-input-size, 14px);
+  white-space: nowrap;
+}
+
+.phone-input-wrapper .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-input-wrapper .form-input.has-prefix {
+  border-radius: 0 var(--address-form-input-radius, 8px) var(--address-form-input-radius, 8px) 0;
+}
+
 /* 邮箱联想样式 */
 .email-group {
   position: relative;
@@ -646,6 +698,27 @@ onUnmounted(() => {
 
 .email-suggestion-item:not(:last-child) {
   border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+/* 订阅复选框样式 */
+.subscribe-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.subscribe-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary-color, #3b82f6);
+}
+
+.subscribe-checkbox .checkbox-label {
+  font-size: 13px;
+  color: var(--text-secondary-color, #6b7280);
 }
 
 /* 骨架屏样式 */

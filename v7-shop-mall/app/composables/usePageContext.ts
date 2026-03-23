@@ -25,6 +25,7 @@ export interface CountryInfo {
   code: string;
   name: string;
   addressFields: string | null;
+  phonePrefix: string | null;
 }
 
 export interface LanguageInfo {
@@ -112,6 +113,7 @@ export function usePageContext() {
         code: pageContext.country.code,
         name: pageContext.country.name,
         addressFields: pageContext.country.addressFields ?? null,
+        phonePrefix: pageContext.country.phonePrefix ?? null,
       };
     }
 

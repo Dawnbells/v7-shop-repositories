@@ -81,8 +81,6 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  console.log(body);
-
   // 验证必填字段
   const { shippingAddress } = body;
   if (!shippingAddress.fullName?.trim()) {
@@ -109,6 +107,7 @@ export default defineEventHandler(async (event) => {
   // 验证商品项
   for (let i = 0; i < body.items.length; i++) {
     const item = body.items[i];
+    if (!item) continue;
     if (typeof item.productId !== "number" || item.productId <= 0) {
       throw createError({
         statusCode: 400,
@@ -140,7 +139,7 @@ export default defineEventHandler(async (event) => {
       ip: getClientIP(event),
       realIp: (headers["v7-real-ip"] as string) || null,
       userAgent: (headers["user-agent"] as string) || null,
-      fingerprint: cookies["fingerprint"] || null,
+      fingerprint: pageContext.fingerprint || null,
       fromUrl: cookies["from_url"] || null,
       themeName: cookies["themeName"] || null,
     };

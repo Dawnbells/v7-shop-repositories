@@ -59,6 +59,7 @@ export interface ShippingAddress {
   address: string;
   postalCode?: string;
   note?: string;
+  subscribeToUpdates?: boolean;
 }
 
 /**
@@ -146,6 +147,7 @@ export function useCheckoutPage() {
     address: "",
     postalCode: "",
     note: "",
+    subscribeToUpdates: true,
   }));
 
   // 支付方式

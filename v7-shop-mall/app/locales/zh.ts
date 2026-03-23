@@ -66,6 +66,7 @@ export default {
     addressLabel: "详细地址",
     note: "订单备注",
     notePlaceholder: "如有特殊要求请备注",
+    subscribeToUpdates: "订阅订单状态更新",
   },
   // 文章
   article: {

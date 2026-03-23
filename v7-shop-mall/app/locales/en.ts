@@ -66,6 +66,7 @@ export default {
     addressLabel: "Address",
     note: "Order Notes",
     notePlaceholder: "Special instructions for your order",
+    subscribeToUpdates: "Subscribe to order status updates",
   },
   // Article
   article: {
