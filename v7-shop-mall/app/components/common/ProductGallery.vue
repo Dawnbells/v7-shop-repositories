@@ -33,7 +33,10 @@ const props = withDefaults(defineProps<Props>(), {
 const currentIndex = ref(0)
 const carouselRef = ref<HTMLElement | null>(null)
 const thumbnailsRef = ref<HTMLElement | null>(null)
+const galleryRef = ref<HTMLElement | null>(null)
 let autoplayTimer: ReturnType<typeof setInterval> | null = null
+let observer: IntersectionObserver | null = null
+const isInViewport = ref(true)
 const { t } = useI18n()
 
 // 是否正在显示预览图片
@@ -99,7 +102,7 @@ function handleScroll() {
 }
 
 function startAutoplay() {
-  if (props.autoplay && imageCount.value > 1) {
+  if (props.autoplay && imageCount.value > 1 && isInViewport.value) {
     stopAutoplay()
     autoplayTimer = setInterval(() => {
       goToSlide(currentIndex.value + 1)
@@ -114,16 +117,43 @@ function stopAutoplay() {
   }
 }
 
+function setupIntersectionObserver() {
+  if (!galleryRef.value) return
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0]
+      isInViewport.value = entry.isIntersecting
+
+      if (entry.isIntersecting) {
+        startAutoplay()
+      } else {
+        stopAutoplay()
+      }
+    },
+    { threshold: 0.1 },
+  )
+
+  observer.observe(galleryRef.value)
+}
+
 onMounted(() => {
-  startAutoplay()
+  setupIntersectionObserver()
+  if (isInViewport.value) {
+    startAutoplay()
+  }
 })
 
 onUnmounted(() => {
   stopAutoplay()
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
 })
 
 watch(() => props.autoplay, (newVal) => {
-  if (newVal) {
+  if (newVal && isInViewport.value) {
     startAutoplay()
   } else {
     stopAutoplay()

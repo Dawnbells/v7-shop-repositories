@@ -92,6 +92,9 @@ const {
 const showVariableManager = ref(false);
 const showVariableValueEditor = ref(false);
 
+// 模板选择弹窗状态
+const showTemplateModal = ref(false);
+
 // 兼容旧代码：customVariables 从 variableSchema 获取
 const customVariables = computed(() => variableSchema.value);
 
@@ -270,6 +273,37 @@ function handleOpenVariables() {
 // 打开变量值设置弹窗
 function handleOpenVariableValues() {
   showVariableValueEditor.value = true;
+}
+
+// 打开模板选择弹窗
+function handleOpenTemplates() {
+  showTemplateModal.value = true;
+}
+
+// 应用模板数据
+function handleApplyTemplate(data: {
+  themeConfig: any;
+  variableSchema: any[];
+  siteConfig: any;
+  variableValues: any;
+}) {
+  // 加载变量和站点配置
+  loadFullData({
+    variableSchema: data.variableSchema,
+    siteConfig: data.siteConfig,
+    variableValues: data.variableValues,
+  });
+
+  // 加载画布数据
+  if (data.themeConfig?.pages || data.themeConfig?.layouts) {
+    initializePages({
+      pages: data.themeConfig.pages || [],
+      layouts: data.themeConfig.layouts || [],
+    });
+  }
+
+  showTemplateModal.value = false;
+  console.log("[ThemeEditor] 模板应用成功");
 }
 
 function handleDeleteVariable(key: string) {
@@ -690,7 +724,7 @@ function handlePageSettingsConfirm(layoutId: string | undefined) {
       :is-saving="isSaving"
       @close="handleClose"
       @save="handleSave"
-      @open-templates="() => {}"
+      @open-templates="handleOpenTemplates"
       @open-variables="handleOpenVariables"
       @open-variable-values="handleOpenVariableValues"
     />
@@ -775,6 +809,13 @@ function handlePageSettingsConfirm(layoutId: string | undefined) {
       :layouts="availableLayouts"
       @close="showPageSettings = false"
       @confirm="handlePageSettingsConfirm"
+    />
+
+    <!-- 模板选择弹窗 -->
+    <BuilderTemplateSelectModal
+      :visible="showTemplateModal"
+      @close="showTemplateModal = false"
+      @apply="handleApplyTemplate"
     />
   </div>
 </template>
