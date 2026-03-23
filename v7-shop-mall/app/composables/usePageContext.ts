@@ -149,12 +149,20 @@ export function usePageContext() {
   function setMockData(mockData: {
     productInfo?: ProductInfo | null;
     currency?: Currency | null;
+    articleInfo?: ArticleInfo | null;
+    orderResult?: OrderResultInfo | null;
   }) {
     if (mockData.productInfo !== undefined) {
       productInfo.value = mockData.productInfo;
     }
     if (mockData.currency !== undefined) {
       currency.value = mockData.currency;
+    }
+    if (mockData.articleInfo !== undefined) {
+      articleInfo.value = mockData.articleInfo;
+    }
+    if (mockData.orderResult !== undefined) {
+      orderResult.value = mockData.orderResult;
     }
   }
 

@@ -22,17 +22,8 @@ function maskPhone(phone: string): string {
 function maskEmail(email: string | null): string | null {
   if (!email) return null;
   const [local, domain] = email.split("@");
-  if (!domain) return "****";
+  if (!local || !domain) return "****";
   return local[0] + "****@" + domain;
-}
-
-/**
- * 地址脱敏: 保留前6个字符 + ****
- */
-function maskAddress(address: string | null): string | null {
-  if (!address) return null;
-  if (address.length <= 6) return "****";
-  return address.slice(0, 6) + "****";
 }
 
 export default defineEventHandler(async (event) => {
@@ -66,6 +57,16 @@ export default defineEventHandler(async (event) => {
       return;
     }
 
+    // 拼接完整地址：详细地址 + 区 + 市 + 省（从小到大）
+    const fullAddress = [
+      order.address,
+      order.district,
+      order.city,
+      order.province,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
     // 脱敏并更新 pageContext
     updatePageContext(event, {
       orderResult: {
@@ -76,7 +77,7 @@ export default defineEventHandler(async (event) => {
         firstName: order.firstName,
         phone: maskPhone(order.phone),
         email: maskEmail(order.email),
-        address: maskAddress(order.address),
+        address: fullAddress || null,
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
         orderTime: order.orderTime.toISOString(),

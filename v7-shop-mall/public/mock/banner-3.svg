@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="600" viewBox="0 0 1920 600">
+  <defs>
+    <linearGradient id="bg3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#11998e"/>
+      <stop offset="100%" style="stop-color:#38ef7d"/>
+    </linearGradient>
+  </defs>
+  <rect width="1920" height="600" fill="url(#bg3)"/>
+  <circle cx="150" cy="150" r="120" fill="rgba(255,255,255,0.1)"/>
+  <circle cx="1770" cy="450" r="180" fill="rgba(255,255,255,0.1)"/>
+  <text x="960" y="220" font-family="system-ui, sans-serif" font-size="48" font-weight="bold" fill="white" text-anchor="middle">Special Offer</text>
+  <text x="960" y="310" font-family="system-ui, sans-serif" font-size="96" font-weight="bold" fill="white" text-anchor="middle">50% OFF</text>
+  <text x="960" y="380" font-family="system-ui, sans-serif" font-size="28" fill="rgba(255,255,255,0.9)" text-anchor="middle">Limited time only - Don't miss out!</text>
+  <rect x="860" y="420" width="200" height="50" rx="25" fill="white"/>
+  <text x="960" y="453" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#11998e" text-anchor="middle">Get Deal</text>
+</svg>

@@ -638,6 +638,9 @@ export async function findOrderById(orderId: number): Promise<{
   firstName: string;
   phone: string;
   email: string | null;
+  province: string | null;
+  city: string | null;
+  district: string | null;
   address: string | null;
   paymentMethod: string;
   paymentStatus: string;
@@ -652,6 +655,9 @@ export async function findOrderById(orderId: number): Promise<{
       o.first_name as firstName,
       o.phone,
       o.email,
+      o.province,
+      o.city,
+      o.district,
       o.address,
       o.payment_method as paymentMethod,
       o.payment_status as paymentStatus,
