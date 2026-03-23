@@ -19,8 +19,16 @@ import {
 } from "~/constants/preset-datasets";
 
 // 获取 iframe 认证信息
-const { mode, contextName, query, isTemplateMode, isLandingMode, isReady } =
-  useIframeAuth();
+const {
+  contextName,
+  query,
+  templateId,
+  apiBaseUrl,
+  isTemplateMode,
+  isLandingMode,
+  isReady,
+  authFetch,
+} = useIframeAuth();
 
 // 主题状态管理
 const {
@@ -91,7 +99,18 @@ const customVariables = computed(() => variableSchema.value);
 const isLoading = ref(false);
 const loadError = ref<string | null>(null);
 
-// 从数据库加载主题配置
+/** 解析后端返回的 JSON 字符串字段 */
+function parseConfigJson<T>(raw: string | T | undefined | null, fallback: T): T {
+  if (raw == null || raw === "") return fallback;
+  if (typeof raw !== "string") return raw as T;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+// 从数据库加载落地页主题配置（站点 + SPU）
 async function loadThemeFromServer() {
   if (!query.value?.subDomainId || !query.value?.spuId) {
     console.log("[ThemeEditor] 缺少必要参数，跳过加载");
@@ -156,12 +175,88 @@ async function loadThemeFromServer() {
   }
 }
 
-// 监听认证状态，准备好后加载数据
+/**
+ * 从管理后台加载主题模板（BUILDER_INIT 需为 mode=TEMPLATE、templateId、apiBaseUrl）
+ * 对应接口：GET /theme-templates/{id}
+ */
+async function loadThemeTemplateFromServer() {
+  const id = templateId.value;
+  if (!id) {
+    console.log("[ThemeEditor] 主题模板模式缺少 templateId，跳过加载");
+    return;
+  }
+  if (!apiBaseUrl.value) {
+    console.warn("[ThemeEditor] 主题模板模式缺少 apiBaseUrl，无法请求后台");
+    loadError.value = "缺少 API 地址，无法加载主题模板";
+    initializePages({ pages: [], layouts: [] });
+    return;
+  }
+
+  isLoading.value = true;
+  loadError.value = null;
+
+  try {
+    const data = await authFetch<{
+      themeConfig?: string;
+      variableSchema?: string;
+      siteConfig?: string;
+      variableValues?: string;
+    }>(`/theme-templates/${id}`);
+
+    if (!data) {
+      initializePages({ pages: [], layouts: [] });
+      return;
+    }
+
+    const variableSchema = parseConfigJson(data.variableSchema, []);
+    const siteConfig = parseConfigJson(data.siteConfig, {});
+    const variableValues = parseConfigJson(data.variableValues, {});
+
+    loadFullData({
+      variableSchema,
+      siteConfig,
+      variableValues,
+    });
+
+    const rawTc = data.themeConfig;
+    const themeConfig =
+      typeof rawTc === "string"
+        ? parseConfigJson<Record<string, unknown> | null>(rawTc, null)
+        : rawTc && typeof rawTc === "object"
+          ? (rawTc as Record<string, unknown>)
+          : null;
+
+    if (
+      themeConfig &&
+      (Array.isArray(themeConfig.pages) || Array.isArray(themeConfig.layouts))
+    ) {
+      initializePages({
+        pages: (themeConfig.pages as []) || [],
+        layouts: (themeConfig.layouts as []) || [],
+      });
+      console.log("[ThemeEditor] 主题模板画布加载成功");
+    } else {
+      initializePages({ pages: [], layouts: [] });
+      console.log("[ThemeEditor] 主题模板无画布数据，创建默认结构");
+    }
+  } catch (error: any) {
+    console.error("[ThemeEditor] 加载主题模板失败:", error);
+    loadError.value = error.message || "加载失败";
+    initializePages({ pages: [], layouts: [] });
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+// 监听认证状态，准备好后按模式加载数据
 watch(
   isReady,
   (ready) => {
-    if (ready && isLandingMode.value) {
+    if (!ready) return;
+    if (isLandingMode.value) {
       loadThemeFromServer();
+    } else if (isTemplateMode.value) {
+      loadThemeTemplateFromServer();
     }
   },
   { immediate: true },
@@ -207,11 +302,14 @@ const themeName = computed(() => {
   return "主题编辑器";
 });
 
-// 动态计算上下文信息（落地页含域名、SPU 名称与 ID）
+// 动态计算上下文信息（模板：名称 + ID；落地页：类型 · 域名 · SPU）
 const contextInfo = computed(() => {
-  // 模板模式：显示模板名称
-  if (isTemplateMode.value && contextName.value) {
-    return contextName.value;
+  // 主题模板模式：模板名称 · ID
+  if (isTemplateMode.value) {
+    const parts: string[] = [];
+    if (contextName.value) parts.push(contextName.value);
+    if (templateId.value) parts.push(`ID: ${templateId.value}`);
+    return parts.length ? parts.join(" · ") : undefined;
   }
 
   // 落地页模式：落地页类型 - 域名 · SPU 名称 · SPU ID
@@ -389,7 +487,63 @@ function handleClose() {
   window.parent.postMessage({ type: "themeEditor", action: "close" }, "*");
 }
 
+/** 保存主题模板到管理后台（POST /theme-templates/updateConfig） */
+async function handleSaveThemeTemplate() {
+  const id = templateId.value;
+  if (!id) {
+    alert("缺少模板 ID，无法保存");
+    return;
+  }
+  if (!apiBaseUrl.value) {
+    alert("缺少 API 地址，无法保存主题模板");
+    return;
+  }
+
+  isSaving.value = true;
+
+  try {
+    const fullData = exportFullData();
+    const { pages, layouts } = exportAllPagesData();
+    const now = new Date().toISOString();
+
+    const themeConfig = {
+      id: `theme_template_${id}`,
+      name: contextName.value || "主题模板",
+      version: "1.0",
+      layouts,
+      pages,
+      updatedAt: now,
+    };
+
+    await authFetch("/theme-templates/updateConfig", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: Number(id),
+        themeConfig: JSON.stringify(themeConfig),
+        variableSchema: JSON.stringify(fullData.variableSchema ?? []),
+        siteConfig: JSON.stringify(fullData.siteConfig ?? {}),
+        variableValues: JSON.stringify(fullData.variableValues ?? {}),
+      }),
+    });
+
+    markAsSaved();
+    markCanvasSaved();
+    console.log("[ThemeEditor] 主题模板保存成功");
+  } catch (error: any) {
+    console.error("[ThemeEditor] 主题模板保存失败:", error);
+    alert("保存失败: " + (error.message || "未知错误"));
+  } finally {
+    isSaving.value = false;
+  }
+}
+
 async function handleSave() {
+  if (isTemplateMode.value) {
+    await handleSaveThemeTemplate();
+    return;
+  }
+
   if (!query.value?.subDomainId || !query.value?.spuId) {
     alert("缺少必要参数，无法保存");
     return;

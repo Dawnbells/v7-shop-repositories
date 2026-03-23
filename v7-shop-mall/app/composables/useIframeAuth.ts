@@ -11,12 +11,25 @@
 
 export type BuilderMode = "TEMPLATE" | "LANDING";
 
+/**
+ * iframe 父窗口传入的认证与上下文（BUILDER_INIT）
+ *
+ * **落地页编辑**（站点配置进入）：`mode: "LANDING"`，并传 `query.subDomainId`、`query.spuId` 等；
+ * 主题在 Nuxt `/api/builder/load|save` 中按子域+SPU 读写。
+ *
+ * **主题模板编辑**（主题模板菜单进入）：`mode: "TEMPLATE"`，并传 `templateId`、`contextName`（模板名称）、
+ * `apiBaseUrl`（管理后台 API 根路径，如 `https://host/api`）。编辑器将请求
+ * `GET /theme-templates/{id}` 与 `POST /theme-templates/updateConfig`（需携带 token）。
+ */
 export interface IframeAuthPayload {
   token: string;
   imageBaseUrl?: string;
+  /** 管理后台 API 根地址；模板模式必填，用于 theme-templates 接口 */
   apiBaseUrl?: string;
   mode?: BuilderMode;
+  /** 主题模板 ID（字符串）；模板模式与 mode=TEMPLATE 一起传入 */
   templateId?: string;
+  /** 模板显示名称或落地页辅助说明 */
   contextName?: string;
   query?: {
     subDomainId?: string;

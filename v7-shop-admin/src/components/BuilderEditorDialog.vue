@@ -104,7 +104,8 @@ const sendAuthToBuilder = () => {
     payload.templateId = props.templateId
     payload.contextName = props.contextName || '主题模板'
   } else {
-    // LANDING 模式
+    // LANDING 模式（站点配置进入落地页主题编辑）
+    payload.mode = 'LANDING'
     payload.query = {
       subDomainId: String(props.subDomainId),
       spuId: String(props.spuId),
