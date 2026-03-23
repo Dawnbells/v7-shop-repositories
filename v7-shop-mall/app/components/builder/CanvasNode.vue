@@ -119,7 +119,10 @@ const nodeStyle = computed(() => {
 
 // 计算节点属性（解析绑定，实现所见即所得）
 const nodeProps = computed(() => {
-  const baseProps = { ...props.node.props }
+  // 获取组件默认属性作为回退
+  const defaultProps = blockMeta.value?.defaultProps || {}
+  // 合并：默认属性 + 节点属性（节点属性优先）
+  const baseProps = { ...defaultProps, ...props.node.props }
   
   // 解析属性绑定并合并（绑定值覆盖静态值）
   const boundProps = resolveNodeBindings(props.node, bindingContext.value)

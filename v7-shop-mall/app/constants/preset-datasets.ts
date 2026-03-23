@@ -833,6 +833,25 @@ export const HERO_BANNER_MOCK = {
 };
 
 /**
+ * HeroSection 海报横幅 Mock 数据
+ */
+export const HERO_SECTION_MOCK = {
+  preset: "classic",
+  backgroundImage: "/mock/hero-bg.svg",
+  eyebrow: "Breezy looks made for sunny days.",
+  title: "LUXETTE'S STYLE",
+  subtitle: "",
+  buttonText: "Buy now",
+  buttonLink: "/",
+  buttonStyle: "solid",
+  contentAlign: "center",
+  contentPosition: "center",
+  overlayType: "gradient",
+  overlayColor: "#000000",
+  overlayOpacity: 30,
+};
+
+/**
  * Checkout 收银台组件 Mock 数据
  * 用于收银台页面预览
  */
