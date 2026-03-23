@@ -123,6 +123,8 @@ function setupIntersectionObserver() {
   observer = new IntersectionObserver(
     (entries) => {
       const entry = entries[0]
+      if (!entry) return
+
       isInViewport.value = entry.isIntersecting
 
       if (entry.isIntersecting) {
@@ -166,7 +168,7 @@ watch(() => props.images, () => {
 </script>
 
 <template>
-  <div class="product-gallery">
+  <div ref="galleryRef" class="product-gallery">
     <div class="product-carousel-wrapper">
       <!-- 预览图片（规格选中时临时显示） -->
       <div
