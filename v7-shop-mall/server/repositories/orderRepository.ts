@@ -635,13 +635,27 @@ export async function findOrderById(orderId: number): Promise<{
   totalAmount: string;
   currencySymbol: string | null;
   currencyCode: string | null;
+  firstName: string;
+  phone: string;
+  email: string | null;
+  address: string | null;
+  paymentMethod: string;
+  paymentStatus: string;
+  orderTime: Date;
 } | null> {
   const sql = `
     SELECT 
       o.id,
       o.total_amount as totalAmount,
       c.currency_symbol as currencySymbol,
-      c.currency_code as currencyCode
+      c.currency_code as currencyCode,
+      o.first_name as firstName,
+      o.phone,
+      o.email,
+      o.address,
+      o.payment_method as paymentMethod,
+      o.payment_status as paymentStatus,
+      o.order_time as orderTime
     FROM t_temporary_orders o
     LEFT JOIN t_temporary_order_context_infos c ON o.context_info_id = c.id
     WHERE o.id = ? AND o.status = 'VALID'

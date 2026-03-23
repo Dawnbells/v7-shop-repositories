@@ -37,6 +37,24 @@ export interface LandingPageInfo {
 }
 
 /**
+ * 订单结果信息（敏感信息已脱敏）
+ * 从 13-order.ts 中间件获取
+ */
+export interface OrderResultInfo {
+  id: number
+  totalAmount: string
+  currencySymbol: string | null
+  currencyCode: string | null
+  firstName: string
+  phone: string
+  email: string | null
+  address: string | null
+  paymentMethod: string
+  paymentStatus: string
+  orderTime: string
+}
+
+/**
  * 页面上下文
  * 包含请求处理过程中各 middleware 设置的数据
  */
@@ -87,6 +105,10 @@ export interface PageContext {
   /** 文章详情 */
   articleInfo: ArticleInfo | null
 
+  // 13-order.ts 设置
+  /** 订单结果信息（敏感信息已脱敏） */
+  orderResult: OrderResultInfo | null
+
   // 从 URL 解析
   /** 产品 SPU ID */
   spuId: number | null
@@ -113,6 +135,7 @@ export interface PartialPageContext {
   pixels: PixelsByPlatform | null
   productInfo: ProductDetail | null
   articleInfo: ArticleInfo | null
+  orderResult: OrderResultInfo | null
   spuId: number | null
 }
 
@@ -137,6 +160,7 @@ export function createEmptyPageContext(): PartialPageContext {
     pixels: null,
     productInfo: null,
     articleInfo: null,
+    orderResult: null,
     spuId: null,
   }
 }
