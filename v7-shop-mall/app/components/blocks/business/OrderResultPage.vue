@@ -203,7 +203,6 @@ const paymentStatusText = computed(() => {
 <style scoped>
 .block-order-result {
   width: 100%;
-  min-height: 100vh;
   padding: var(--order-result-padding, 40px 24px);
   box-sizing: border-box;
   background-color: var(--order-result-bg, var(--background-color, #f8fafc));
@@ -211,7 +210,6 @@ const paymentStatusText = computed(() => {
 
 .layout-centered {
   display: flex;
-  align-items: center;
   justify-content: center;
 }
 
@@ -394,4 +392,3 @@ const paymentStatusText = computed(() => {
   }
 }
 </style>
-</script>
