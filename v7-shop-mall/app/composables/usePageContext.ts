@@ -15,6 +15,20 @@ import type { ProtocolGroup } from "~/types/protocol";
 import type { ArticleInfo } from "~/types/article";
 import type { PixelsByPlatform } from "~/types/pixel";
 
+export interface OrderResultInfo {
+  id: number;
+  totalAmount: string;
+  currencySymbol: string | null;
+  currencyCode: string | null;
+  firstName: string;
+  phone: string;
+  email: string | null;
+  address: string | null;
+  paymentMethod: string;
+  paymentStatus: string;
+  orderTime: string;
+}
+
 interface PageThemeContext {
   themeConfig: ThemeConfig | null;
   siteConfig: SiteConfig;
@@ -45,6 +59,7 @@ interface PageContext {
   articleInfo: ArticleInfo | null;
   country: CountryInfo | null;
   currentLanguage: LanguageInfo | null;
+  orderResult: OrderResultInfo | null;
 }
 
 export function usePageContext() {
@@ -62,6 +77,7 @@ export function usePageContext() {
   const articleInfo = useState<ArticleInfo | null>("articleInfo", () => null);
   const countryInfo = useState<CountryInfo | null>("countryInfo", () => null);
   const currentLanguage = useState<LanguageInfo | null>("currentLanguage", () => null);
+  const orderResult = useState<OrderResultInfo | null>("orderResult", () => null);
 
   // SSR 时：从 event.context.pageContext 读取中间件注入的数据（只执行一次）
   if (import.meta.server && !ssrDataInjected.value) {
@@ -120,6 +136,10 @@ export function usePageContext() {
     if (pageContext?.currentLanguage) {
       currentLanguage.value = pageContext.currentLanguage;
     }
+
+    if (pageContext?.orderResult) {
+      orderResult.value = pageContext.orderResult;
+    }
   }
 
   /**
@@ -150,6 +170,7 @@ export function usePageContext() {
     articleInfo,
     countryInfo,
     currentLanguage,
+    orderResult,
     setMockData,
   };
 }

@@ -13,7 +13,7 @@ import { useIframeAuth } from '~/composables/useIframeAuth'
 const { isReady: iframeReady, token, stopReadyRetry } = useIframeAuth()
 
 // 认证超时时间（秒）
-const AUTH_TIMEOUT = 10
+const AUTH_TIMEOUT = 30
 const authTimeout = ref(false)
 const authCountdown = ref(AUTH_TIMEOUT)
 

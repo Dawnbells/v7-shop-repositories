@@ -183,12 +183,12 @@ watch(
       window.addEventListener('message', handleMessage)
       authTimeoutTimer = setTimeout(() => {
         if (loading.value) {
-          console.log('[Admin] 认证超时 12 秒，自动关闭 dialog')
+          console.log('[Admin] 认证超时 30 秒，自动关闭 dialog')
           dialogVisible.value = false
           emit('auth-failed', '主题编辑器加载超时，请重试')
           $baseMessage?.('主题编辑器加载超时，请重试', 'error', 'hey')
         }
-      }, 12000)
+      }, 30000)
     } else {
       window.removeEventListener('message', handleMessage)
       if (authTimeoutTimer) {
