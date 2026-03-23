@@ -647,12 +647,13 @@ export function useCanvasState() {
   const allPagesInfo = computed<PageInfo[]>(() => {
     const result: PageInfo[] = []
 
-    // 添加布局
+    // 添加布局（需带 pageType: layout，供组件面板 allowedPages 与属性面板过滤）
     for (const [id, info] of layoutsInfo.value.entries()) {
       result.push({
         id,
         name: info.name,
         type: 'layout',
+        pageType: 'layout',
         removable: false,
       })
     }

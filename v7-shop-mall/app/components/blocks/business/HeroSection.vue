@@ -20,6 +20,7 @@ interface Props {
 
   // 按钮
   buttonText?: string
+  buttonLinkType?: 'home' | 'landing' | 'custom'
   buttonLink?: string
   buttonStyle?: 'solid' | 'outline' | 'text'
 
@@ -36,6 +37,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   preset: 'classic',
   backgroundPosition: 'center',
+  buttonLinkType: 'home',
   buttonStyle: 'solid',
   contentAlign: 'center',
   contentPosition: 'center',
@@ -156,12 +158,22 @@ const hasContent = computed(() => {
 // 处理按钮点击（使用完整页面跳转，确保 SSR 渲染）
 function handleButtonClick() {
   if (isInEditor.value) return
-  if (!props.buttonLink) return
 
-  if (props.buttonLink.startsWith('http://') || props.buttonLink.startsWith('https://')) {
-    window.open(props.buttonLink, '_blank')
-  } else {
-    window.location.href = props.buttonLink
+  switch (props.buttonLinkType) {
+    case 'home':
+      window.location.href = '/'
+      break
+    case 'landing':
+      // 落地页模式：保持当前页面，不跳转
+      break
+    case 'custom':
+      if (!props.buttonLink) return
+      if (props.buttonLink.startsWith('http://') || props.buttonLink.startsWith('https://')) {
+        window.open(props.buttonLink, '_blank')
+      } else {
+        window.location.href = props.buttonLink
+      }
+      break
   }
 }
 
