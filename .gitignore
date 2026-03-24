@@ -70,6 +70,7 @@ pnpm-debug.log*
 # Gradle
 .gradle/
 build/
+!v7-shop-admin/library/build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
