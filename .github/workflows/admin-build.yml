@@ -46,10 +46,10 @@ jobs:
           B2_APPLICATION_KEY: ${{ secrets.B2_APP_KEY }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/V}
-          b2 file upload v7-soft-depository \
+          b2 file upload artifact-releases \
             v7-shop-admin/dist/website.zip \
             "releases/admin/${{ matrix.mode }}/versions/admin-${{ matrix.mode }}-$VERSION.zip"
 
-          b2 file upload v7-soft-depository \
+          b2 file upload artifact-releases \
             v7-shop-admin/dist/website.zip \
             "releases/admin/${{ matrix.mode }}/admin-${{ matrix.mode }}-latest.zip"
