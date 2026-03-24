@@ -15,8 +15,8 @@ import {
   outDir,
   port,
   reportCompressedSize,
-} from '/@/config'
-import { createVitePlugin, createWatch } from '/@vab/build'
+} from './src/config'
+import { createVitePlugin, createWatch } from './library/build'
 
 const lastBuildTime = dayjs().format('YYYY-MM-DD HH:mm:ss')
 
