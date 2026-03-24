@@ -78,7 +78,7 @@ public class PixelAccountController extends BaseDataRangeController<PixelAccount
         } else {
             pixelAccount.setWebsite(null);
         }
-        if (request.getTrackingType() == PixelTrackingType.GLOBAL) {
+        if (request.getTrackingType() == PixelTrackingType.GLOBAL || request.getProductIds() == null || request.getProductIds().isEmpty()) {
             pixelAccount.getSpuList().clear();
         } else {
             pixelAccount.setSpuList(request.getProductIds().stream().map((Function<String, Spu>) s -> Spu.builder().id(Long.valueOf(s)).build()).collect(Collectors.toList()));
