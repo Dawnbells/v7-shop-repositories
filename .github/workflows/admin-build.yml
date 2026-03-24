@@ -2,7 +2,7 @@ name: Build and Deploy Admin on Tag Release
 on:
   push:
     tags:
-      - 'V*' # 匹配所有 V 开头的 tag，如 V1.0.0, V2.3.4
+      - "V*" # 匹配所有 V 开头的 tag，如 V1.0.0, V2.3.4
 
 jobs:
   build-and-deploy:
@@ -21,7 +21,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "25"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
