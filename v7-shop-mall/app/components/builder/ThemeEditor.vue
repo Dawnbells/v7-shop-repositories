@@ -95,6 +95,10 @@ const showVariableValueEditor = ref(false);
 // 模板选择弹窗状态
 const showTemplateModal = ref(false);
 
+// 导入导出弹窗状态
+const showExportModal = ref(false);
+const showImportModal = ref(false);
+
 // 兼容旧代码：customVariables 从 variableSchema 获取
 const customVariables = computed(() => variableSchema.value);
 
@@ -712,6 +716,56 @@ function handlePageSettingsConfirm(layoutId: string | undefined) {
   }
   showPageSettings.value = false;
 }
+
+// 导出相关
+function handleOpenExport() {
+  showExportModal.value = true;
+}
+
+// 获取导出数据
+const exportThemeData = computed(() => {
+  const fullData = exportFullData();
+  const { pages, layouts } = exportAllPagesData();
+  return {
+    pages,
+    layouts,
+    siteConfig: fullData.siteConfig,
+    variableSchema: fullData.variableSchema,
+    variableValues: fullData.variableValues,
+  };
+});
+
+// 导入相关
+function handleOpenImport() {
+  showImportModal.value = true;
+}
+
+// 处理导入数据
+import type { ThemeImportData } from "~/utils/theme-export";
+
+function handleImportData(importData: ThemeImportData) {
+  const { includes, data } = importData;
+
+  // 导入站点配置、变量定义、变量值
+  if (includes.siteConfig || includes.variableSchema || includes.variableValues) {
+    loadFullData({
+      variableSchema: includes.variableSchema ? data.variableSchema : undefined,
+      siteConfig: includes.siteConfig ? data.siteConfig : undefined,
+      variableValues: includes.variableValues ? data.variableValues : undefined,
+    });
+  }
+
+  // 导入页面和布局
+  if (includes.pages || includes.layouts) {
+    const themeConfig = {
+      pages: includes.pages ? data.pages : [],
+      layouts: includes.layouts ? data.layouts : [],
+    };
+    initializePages(themeConfig);
+  }
+
+  console.log("[ThemeEditor] 导入完成", { includes });
+}
 </script>
 
 <template>
@@ -727,6 +781,8 @@ function handlePageSettingsConfirm(layoutId: string | undefined) {
       @open-templates="handleOpenTemplates"
       @open-variables="handleOpenVariables"
       @open-variable-values="handleOpenVariableValues"
+      @open-export="handleOpenExport"
+      @open-import="handleOpenImport"
     />
 
     <!-- 页面 Tab 栏 -->
@@ -816,6 +872,21 @@ function handlePageSettingsConfirm(layoutId: string | undefined) {
       :visible="showTemplateModal"
       @close="showTemplateModal = false"
       @apply="handleApplyTemplate"
+    />
+
+    <!-- 导出弹窗 -->
+    <BuilderExportModal
+      :visible="showExportModal"
+      :theme-data="exportThemeData"
+      @close="showExportModal = false"
+      @exported="() => console.log('[ThemeEditor] 导出完成')"
+    />
+
+    <!-- 导入弹窗 -->
+    <BuilderImportModal
+      :visible="showImportModal"
+      @close="showImportModal = false"
+      @import="handleImportData"
     />
   </div>
 </template>

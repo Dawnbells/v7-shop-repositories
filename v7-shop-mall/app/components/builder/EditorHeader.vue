@@ -16,6 +16,8 @@ const emit = defineEmits<{
   openTemplates: []
   openVariables: []
   openVariableValues: []
+  openExport: []
+  openImport: []
 }>()
 </script>
 
@@ -58,6 +60,18 @@ const emit = defineEmits<{
       <button class="btn btn-ghost" @click="emit('openVariableValues')">
         <span class="i-carbon-settings-adjust"></span>
         <span class="btn-text">变量值</span>
+      </button>
+
+      <div class="divider"></div>
+
+      <button class="btn btn-ghost" @click="emit('openImport')">
+        <span class="i-carbon-upload"></span>
+        <span class="btn-text">导入</span>
+      </button>
+
+      <button class="btn btn-ghost" @click="emit('openExport')">
+        <span class="i-carbon-download"></span>
+        <span class="btn-text">导出</span>
       </button>
 
       <div class="divider"></div>
