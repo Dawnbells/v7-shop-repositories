@@ -1,0 +1,55 @@
+name: Build and Deploy Mall on Tag Release
+on:
+  push:
+    tags:
+      - "MALL-V*"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    name: Build and Deploy Mall
+
+    steps:
+      - name: Checkout code (with tag)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: v7-shop-mall
+
+      - name: Build project
+        run: pnpm build
+        working-directory: v7-shop-mall
+
+      - name: Package output
+        run: cd v7-shop-mall/.output && zip -r ../../mall-output.zip .
+
+      - name: Install B2 CLI
+        run: pip3 install --upgrade --ignore-installed b2
+
+      - name: Upload via B2 CLI
+        env:
+          B2_APPLICATION_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APP_KEY }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/MALL-V}
+          b2 file upload artifact-releases \
+            mall-output.zip \
+            "mall/versions/mall-$VERSION.zip"
+
+          b2 file upload artifact-releases \
+            mall-output.zip \
+            "mall/mall-latest.zip"

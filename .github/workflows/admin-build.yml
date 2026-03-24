@@ -2,7 +2,7 @@ name: Build and Deploy Admin on Tag Release
 on:
   push:
     tags:
-      - "V*" # 匹配所有 V 开头的 tag，如 V1.0.0, V2.3.4
+      - "ADMIN-V*" # 匹配所有 ADMIN-V 开头的 tag，如 ADMIN-V1.0.0, ADMIN-V2.3.4
 
 jobs:
   build-and-deploy:
@@ -45,7 +45,7 @@ jobs:
           B2_APPLICATION_KEY_ID: ${{ secrets.B2_KEY_ID }}
           B2_APPLICATION_KEY: ${{ secrets.B2_APP_KEY }}
         run: |
-          VERSION=${GITHUB_REF#refs/tags/V}
+          VERSION=${GITHUB_REF#refs/tags/ADMIN-V}
           b2 file upload artifact-releases \
             v7-shop-admin/dist/website.zip \
             "admin/${{ matrix.mode }}/versions/admin-${{ matrix.mode }}-$VERSION.zip"
