@@ -1,8 +1,8 @@
-name: Build and Deploy on Tag Release
+name: Build and Deploy Admin on Tag Release
 on:
   push:
     tags:
-      - 'V*' # 匹配所有 v 开头的 tag，如 v1.0.0, v2.3.4
+      - 'V*' # 匹配所有 V 开头的 tag，如 V1.0.0, V2.3.4
 
 jobs:
   build-and-deploy:
@@ -31,9 +31,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+        working-directory: v7-shop-admin
 
       - name: Build project for ${{ matrix.mode }}
         run: pnpm build:${{ matrix.mode }}
+        working-directory: v7-shop-admin
 
       - name: Install B2 CLI
         run: pip3 install --upgrade --ignore-installed b2
@@ -45,10 +47,9 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/V}
           b2 file upload v7-soft-depository \
-            dist/website.zip \
+            v7-shop-admin/dist/website.zip \
             "releases/admin/${{ matrix.mode }}/versions/admin-${{ matrix.mode }}-$VERSION.zip"
 
           b2 file upload v7-soft-depository \
-            dist/website.zip \
+            v7-shop-admin/dist/website.zip \
             "releases/admin/${{ matrix.mode }}/admin-${{ matrix.mode }}-latest.zip"
-
