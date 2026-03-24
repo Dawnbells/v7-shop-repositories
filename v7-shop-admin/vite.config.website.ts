@@ -38,7 +38,7 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
   const root = process.cwd()
   const env = loadEnv(mode, root)
   createWatch(env)
-  console.log(lastBuildTime)
+  console.log(lastBuildTime, mode, env)
 
   return {
     base,
