@@ -48,8 +48,8 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/V}
           b2 file upload artifact-releases \
             v7-shop-admin/dist/website.zip \
-            "releases/admin/${{ matrix.mode }}/versions/admin-${{ matrix.mode }}-$VERSION.zip"
+            "admin/${{ matrix.mode }}/versions/admin-${{ matrix.mode }}-$VERSION.zip"
 
           b2 file upload artifact-releases \
             v7-shop-admin/dist/website.zip \
-            "releases/admin/${{ matrix.mode }}/admin-${{ matrix.mode }}-latest.zip"
+            "admin/${{ matrix.mode }}/admin-${{ matrix.mode }}-latest.zip"
