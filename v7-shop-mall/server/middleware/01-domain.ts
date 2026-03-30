@@ -48,7 +48,10 @@ export default defineEventHandler(async (event) => {
   }
 
   // 判断是否为本地开发环境
-  const isLocalDev = host.includes("localhost") || host.includes("127.0.0.1");
+  const isLocalDev =
+    host.includes("localhost") ||
+    host.includes("127.0.0.1") ||
+    host.includes("192.168.0.26");
 
   // 确定要查询的域名
   let queryDomain = host;
@@ -104,8 +107,9 @@ export default defineEventHandler(async (event) => {
     }
 
     // 检查所有必需字段是否存在
-    const { subDomain, topLevelDomain, country, currency, company, salesUser } = result;
-    
+    const { subDomain, topLevelDomain, country, currency, company, salesUser } =
+      result;
+
     if (!subDomain) {
       logger.warn(`[01-domain] SubDomain is null for: ${queryDomain}`);
       showSafePage(SafePageType.SHOP_NOT_FOUND);
@@ -182,7 +186,9 @@ export default defineEventHandler(async (event) => {
         path: "/",
       });
     } else {
-      logger.warn(`[01-domain] No languages found for country: ${country.code}`);
+      logger.warn(
+        `[01-domain] No languages found for country: ${country.code}`,
+      );
     }
 
     // 将所有实体存入 PageContext
