@@ -150,6 +150,7 @@ declare module 'vue' {
     PortalHeader: typeof import('./../../../src/views/portal/vabAutoComponents/PortalHeader.vue')['default']
     ProductCategoryEdit: typeof import('./../../../src/views/product/vabAutoComponents/ProductCategoryEdit.vue')['default']
     ProductEdit: typeof import('./../../../src/views/product/vabAutoComponents/ProductEdit.vue')['default']
+    ProductTranslateDialog: typeof import('./../../../src/views/product/vabAutoComponents/ProductTranslateDialog.vue')['default']
     ProductWangEditor: typeof import('./../../../src/views/product/vabAutoComponents/ProductWangEditor.vue')['default']
     ProgressCircularProgressBar: typeof import('./../../../src/views/vab/progress/vabAutoComponents/ProgressCircularProgressBar.vue')['default']
     ProgressCustomColor: typeof import('./../../../src/views/vab/progress/vabAutoComponents/ProgressCustomColor.vue')['default']

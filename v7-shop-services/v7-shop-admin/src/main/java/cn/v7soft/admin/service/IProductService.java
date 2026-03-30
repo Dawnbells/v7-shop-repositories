@@ -1,6 +1,7 @@
 package cn.v7soft.admin.service;
 
 import cn.v7soft.admin.controller.req.EditProductRequest;
+import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.common.service.IBaseDataRangeService;
@@ -14,4 +15,6 @@ public interface IProductService extends IBaseDataRangeService<Product> {
     List<String> remoteQueryMerchandise(String query);
 
     ProductResponse translate(TranslateProductRequest request);
+
+    ProductResponse translateByAI(TranslateByAIRequest request);
 }

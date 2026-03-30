@@ -33,6 +33,9 @@ dependencies {
     /* imageIO */
     implementation("com.twelvemonkeys.imageio:imageio-core:3.10.1")
     implementation("com.twelvemonkeys.imageio:imageio-webp:3.10.1")
+
+    // Google Gemini AI SDK
+    implementation("com.google.genai:google-genai:1.43.0")
 }
 
 tasks.test {

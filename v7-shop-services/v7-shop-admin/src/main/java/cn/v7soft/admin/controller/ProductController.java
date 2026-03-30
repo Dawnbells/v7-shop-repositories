@@ -6,6 +6,7 @@ import org.jetbrains.annotations.Nullable;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.QueryProductRequest;
+import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.admin.service.IMultimediaFileService;
@@ -85,6 +87,12 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @GetMapping("/translate")
     public ProductResponse translate(@Valid @RequestBody TranslateProductRequest request) {
         return service.translate(request);
+    }
+
+    @Operation(summary = "AI翻译")
+    @PostMapping("/translateByAI")
+    public ProductResponse translateByAI(@Valid @RequestBody TranslateByAIRequest request) {
+        return service.translateByAI(request);
     }
 
     @Override

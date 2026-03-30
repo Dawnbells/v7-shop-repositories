@@ -39,3 +39,11 @@ export function getRemoteQueryMerchandise(query: string) {
     params: { query },
   })
 }
+
+export function translateByAI(data: { productId: string; languageId: string }) {
+  return request({
+    url: '/product/translateByAI',
+    method: 'post',
+    data,
+  })
+}

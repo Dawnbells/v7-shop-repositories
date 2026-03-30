@@ -58,13 +58,16 @@
             <el-table-column align="center" label="国家名称" prop="country.name" />
             <el-table-column align="center" label="语言名称" prop="language.cname" />
 
-            <el-table-column align="center" label="操作" width="250">
+            <el-table-column align="center" label="操作" width="300">
               <template #default="{ row }">
                 <el-button text type="primary" @click="handleAddProduct(props.row, row)">
                   编辑
                 </el-button>
                 <el-button text type="primary" @click="handleProductTranslate(props.row, row)">
                   复制
+                </el-button>
+                <el-button text type="primary" @click="handleAITranslate(props.row, row)">
+                  翻译
                 </el-button>
                 <el-button text type="danger" @click="handleDeleteProduct(row)">删除</el-button>
               </template>
@@ -115,6 +118,7 @@
     <product-edit ref="productEditRef" @fetch-data="fetchData" />
     <spu-currency-exchange-rate-edit ref="currencyExchangeRateEditRef" @fetch-data="fetchData" />
     <spu-share-edit ref="spuShareEditRef" @fetch-data="fetchData" />
+    <product-translate-dialog ref="productTranslateRef" @fetch-data="fetchData" />
   </div>
 </template>
 
@@ -134,6 +138,7 @@ const currencyExchangeRateEditRef = ref<any>(null)
 const productEditRef = ref<any>(null)
 const tableRef = ref<any>(null)
 const spuShareEditRef = ref<any>(null)
+const productTranslateRef = ref<any>(null)
 const fold = ref<boolean>(true)
 const list = ref<any>([])
 const listLoading = ref<boolean>(true)
@@ -201,6 +206,10 @@ const handleEditCurrencyExchangeRate = (row: any) => {
 
 const handleShare = (row: any) => {
   spuShareEditRef.value.showEdit(row)
+}
+
+const handleAITranslate = (spuRow: any, productRow: any) => {
+  productTranslateRef.value.showEdit(spuRow, productRow)
 }
 
 const handleDelete = (row: any) => {
