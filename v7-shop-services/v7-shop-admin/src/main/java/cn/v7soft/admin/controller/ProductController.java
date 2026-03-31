@@ -16,6 +16,7 @@ import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.QueryProductRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
+import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductService;
@@ -89,10 +90,10 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
         return service.translate(request);
     }
 
-    @Operation(summary = "AI翻译")
+    @Operation(summary = "AI翻译（异步任务）")
     @PostMapping("/translateByAI")
-    public ProductResponse translateByAI(@Valid @RequestBody TranslateByAIRequest request) {
-        return service.translateByAI(request);
+    public AsyncTaskResponse translateByAI(@Valid @RequestBody TranslateByAIRequest request) {
+        return service.submitTranslateByAI(request);
     }
 
     @Override

@@ -40,10 +40,12 @@ import cn.hutool.poi.excel.BigExcelWriter;
 import cn.hutool.poi.excel.ExcelUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
+import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.IOrderTemplateService;
+import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.service.IS3Service;
 import cn.v7soft.admin.service.ITaskService;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
@@ -74,15 +76,18 @@ public class TaskService implements ITaskService {
     private final IS3Service s3Service;
     private final IThirdPartyWebsiteService thirdPartyWebsiteService;
     private final IAsyncTaskService asyncTaskService;
-
     private final IOrderTemplateService orderTemplateService;
+    private final IProductService productService;
 
-    public TaskService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service, @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService) {
+    public TaskService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
+                       @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
+                       @Lazy IProductService productService) {
         this.asyncTaskService = asyncTaskService;
         this.orderService = orderService;
         this.s3Service = s3Service;
         this.thirdPartyWebsiteService = thirdPartyWebsiteService;
         this.orderTemplateService = orderTemplateService;
+        this.productService = productService;
     }
 
     @Override
@@ -118,6 +123,8 @@ public class TaskService implements ITaskService {
             executeOrderUpload(task, owner);
         } else if (task.getTaskType() == TaskType.THIRD_PARTY_ORDER_SYNC) {
             executeThirdPartyOrderSyncUpload(task, owner);
+        } else if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE) {
+            executeProductAITranslate(task);
         } else {
             task.setMessage("未知任务类型: " + task.getTaskType());
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, 100);
@@ -300,6 +307,21 @@ public class TaskService implements ITaskService {
             asyncTaskService.updateAsyncTask(task, TaskState.RESOLVED, RESOLVE_PROGRESS);
         } catch (Throwable e) {
             log.error("执行失败: ", e);
+            task.setMessage(e.getMessage());
+            asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+        }
+    }
+
+    private void executeProductAITranslate(AsyncTask task) {
+        try {
+            task.setMessage("正在翻译");
+            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, RUNNING_PROGRESS);
+            TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+            productService.translateByAI(request, task.getOwner());
+            task.setMessage("翻译完成");
+            asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+        } catch (Throwable e) {
+            log.error("AI翻译任务执行失败: ", e);
             task.setMessage(e.getMessage());
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
         }

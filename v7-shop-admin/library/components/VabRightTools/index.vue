@@ -13,6 +13,7 @@
       <vab-shared-url />
       <vab-font-size v-show="theme.showFontSize" />
       <vab-lock v-show="theme.showLock" />
+      <vab-task-bar />
       <vab-notice v-show="theme.showNotice" />
       <vab-language v-show="theme.showLanguage" />
       <vab-fullscreen v-show="theme.showFullScreen" />

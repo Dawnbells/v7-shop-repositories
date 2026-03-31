@@ -28,12 +28,14 @@ import cn.v7soft.admin.controller.req.EditProductSpecification;
 import cn.v7soft.admin.controller.req.EditProductSpecificationAttribute;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
+import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductSKUService;
 import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.service.IS3Service;
+import cn.v7soft.admin.service.ITaskService;
 import cn.v7soft.admin.service.ISpuService;
 import cn.v7soft.admin.utils.MultimediaUtil;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
@@ -48,10 +50,15 @@ import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
+import cn.v7soft.dao.entities.primary.AsyncTask;
+import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.Spu;
 import cn.v7soft.dao.enums.MediaState;
 import cn.v7soft.dao.enums.MediaType;
+import cn.v7soft.dao.enums.TaskState;
+import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.properties.MultimediaFileProperty;
+import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ProductRepository;
 import cn.v7soft.dao.repositories.primary.SpuRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
@@ -71,11 +78,14 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     private final SpuRepository spuRepository;
     private final GeminiTranslateService geminiTranslateService;
     private final IS3Service s3Service;
+    private final AsyncTaskRepository asyncTaskRepository;
+    private final ITaskService taskService;
 
     public ProductService(ProductRepository repository, IProductSKUService productSKUService,
                           ILanguageService languageService, EntityManager entityManager,
                           IMultimediaFileService multimediaFileService, SpuRepository spuRepository,
-                          GeminiTranslateService geminiTranslateService, IS3Service s3Service) {
+                          GeminiTranslateService geminiTranslateService, IS3Service s3Service,
+                          AsyncTaskRepository asyncTaskRepository, ITaskService taskService) {
         super(repository);
         this.productSKUService = productSKUService;
         this.languageService = languageService;
@@ -84,6 +94,8 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         this.spuRepository = spuRepository;
         this.geminiTranslateService = geminiTranslateService;
         this.s3Service = s3Service;
+        this.asyncTaskRepository = asyncTaskRepository;
+        this.taskService = taskService;
     }
 
     @Override
@@ -326,6 +338,12 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     @Override
     @Transactional
     public ProductResponse translateByAI(TranslateByAIRequest request) {
+        return translateByAI(request, SaSessionUtil.getLoginOwner());
+    }
+
+    @Override
+    @Transactional
+    public ProductResponse translateByAI(TranslateByAIRequest request, SystemUser owner) {
         Product product = getById(Long.parseLong(request.getProductId()));
         Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
         String langName = language.getName();
@@ -363,7 +381,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
         // 翻译 introduction 中的图片
         if (translatedIntroduction != null) {
-            translatedIntroduction = translateIntroductionImages(translatedIntroduction, langName);
+            translatedIntroduction = translateIntroductionImages(translatedIntroduction, langName, owner);
         }
 
         // 复制规格列表并替换翻译后的 name/value
@@ -430,14 +448,36 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .riskUserShowSpu(product.getRiskUserShowSpu())
                 .blacklistedUserShowSpu(product.getBlacklistedUserShowSpu())
                 .build();
-        newProduct.setOwner(SaSessionUtil.getLoginOwner());
+        newProduct.setOwner(owner);
         newSpecs.forEach(spec -> spec.setProduct(newProduct));
 
         spuRepository.refreshUpdateTime(product.getSpu().getId());
         return ProductResponse.convertEntity(multimediaFileService, saveAndFlush(newProduct));
     }
 
-    private String translateIntroductionImages(String introduction, String langName) {
+    @Override
+    @Transactional
+    public AsyncTaskResponse submitTranslateByAI(TranslateByAIRequest request) {
+        String parameters = cn.hutool.json.JSONUtil.toJsonStr(request);
+
+        List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndParametersAndStateIn(
+                TaskType.PRODUCT_AI_TRANSLATE, parameters,
+                List.of(TaskState.PENDING, TaskState.PROCESSING));
+        ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(existing.isEmpty(), "该商品正在翻译中，请勿重复提交");
+
+        AsyncTask asyncTask = AsyncTask.builder()
+                .taskType(TaskType.PRODUCT_AI_TRANSLATE)
+                .state(TaskState.PENDING)
+                .progress(0)
+                .parameters(parameters)
+                .build()
+                .fillOwner();
+        asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
+        taskService.submitAsyncTask(asyncTask.getId());
+        return AsyncTaskResponse.convert(asyncTask);
+    }
+
+    private String translateIntroductionImages(String introduction, String langName, SystemUser owner) {
         Matcher matcher = IMG_ID_PATTERN.matcher(introduction);
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
@@ -453,7 +493,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                         originalBytes, mimeType, langName);
 
                 if (translatedBytes != null) {
-                    MultimediaFile newFile = saveTranslatedImage(translatedBytes, originalFile.getSuffix());
+                    MultimediaFile newFile = saveTranslatedImage(translatedBytes, originalFile.getSuffix(), owner);
                     matcher.appendReplacement(sb, "/multimedia/" + newFile.getId());
                 } else {
                     matcher.appendReplacement(sb, matcher.group());
@@ -467,7 +507,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         return sb.toString();
     }
 
-    private MultimediaFile saveTranslatedImage(byte[] imageBytes, String suffix) throws Exception {
+    private MultimediaFile saveTranslatedImage(byte[] imageBytes, String suffix, SystemUser owner) throws Exception {
         String newFileName = IdUtil.fastSimpleUUID();
         LocalDateTime now = LocalDateTime.now();
         String relativePath = MultimediaFileProperty.makeRelativePath(
@@ -486,7 +526,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .fileSize(imageBytes.length).mediaType(MediaType.IMAGE)
                 .relativePath(relativePath).createTime(now)
                 .mediaState(MediaState.UPLOADED).build();
-        file.setOwner(SaSessionUtil.getLoginOwner());
+        file.setOwner(owner);
         return multimediaFileService.saveAndFlush(file);
     }
 }

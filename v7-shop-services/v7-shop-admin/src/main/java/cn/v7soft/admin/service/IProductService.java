@@ -3,9 +3,11 @@ package cn.v7soft.admin.service;
 import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
+import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.dao.entities.primary.Product;
+import cn.v7soft.dao.entities.primary.SystemUser;
 
 import java.util.List;
 
@@ -17,4 +19,8 @@ public interface IProductService extends IBaseDataRangeService<Product> {
     ProductResponse translate(TranslateProductRequest request);
 
     ProductResponse translateByAI(TranslateByAIRequest request);
+
+    ProductResponse translateByAI(TranslateByAIRequest request, SystemUser owner);
+
+    AsyncTaskResponse submitTranslateByAI(TranslateByAIRequest request);
 }

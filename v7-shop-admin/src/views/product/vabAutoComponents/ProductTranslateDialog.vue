@@ -27,8 +27,8 @@
     </el-form>
     <template #footer>
       <el-button @click="dialogFormVisible = false">取消</el-button>
-      <el-button :loading="saveLoading" type="primary" @click="save">
-        {{ saveLoading ? '翻译中...' : '开始翻译' }}
+      <el-button :loading="submitLoading" type="primary" @click="save">
+        提交翻译
       </el-button>
     </template>
   </vab-dialog>
@@ -37,6 +37,7 @@
 <script lang="ts" setup>
 import { getRemoteQueryLanguage } from '/@/api/language'
 import { translateByAI } from '/@/api/product'
+import { useTasksStore } from '/@/store/modules/tasks'
 
 defineOptions({
   name: 'ProductTranslateDialog',
@@ -44,9 +45,10 @@ defineOptions({
 
 const emit = defineEmits(['fetch-data'])
 const $baseMessage = inject<any>('$baseMessage')
+const tasksStore = useTasksStore()
 const formRef = ref<any>(null)
 const dialogFormVisible = ref<boolean>(false)
-const saveLoading = ref<boolean>(false)
+const submitLoading = ref<boolean>(false)
 const languageLoading = ref<boolean>(false)
 const languageOptions = ref<any[]>([])
 const form = reactive<any>({
@@ -57,9 +59,12 @@ const rules = reactive<any>({
   languageId: [{ required: true, trigger: 'change', message: '请选择目标语言' }],
 })
 
+let currentProductTitle = ''
+
 const showEdit = async (spuRow: any, productRow: any) => {
   form.productId = String(productRow.id)
   form.languageId = ''
+  currentProductTitle = productRow.title || `商品#${productRow.id}`
   dialogFormVisible.value = true
 
   const existingLanguageIds = new Set(
@@ -71,7 +76,9 @@ const showEdit = async (spuRow: any, productRow: any) => {
     const { data } = await getRemoteQueryLanguage('')
     languageOptions.value = (data.list || data).map((lang: any) => ({
       ...lang,
-      disabled: existingLanguageIds.has(lang.id),
+      disabled:
+        existingLanguageIds.has(lang.id) ||
+        tasksStore.isTranslatingProduct(form.productId, String(lang.id)),
     }))
   } finally {
     languageLoading.value = false
@@ -94,17 +101,34 @@ const save = () => {
   formRef.value.validate(async (valid: any) => {
     if (valid) {
       try {
-        saveLoading.value = true
-        const { msg }: any = await translateByAI({
+        submitLoading.value = true
+        const { data }: any = await translateByAI({
           productId: form.productId,
           languageId: String(form.languageId),
         })
-        await $baseMessage(msg || '翻译完成', 'success', 'hey')
+
+        const selectedLang = languageOptions.value.find(
+          (l: any) => l.id === form.languageId
+        )
+        const langLabel = selectedLang
+          ? `${selectedLang.cname}(${selectedLang.name})`
+          : form.languageId
+
+        tasksStore.addTask({
+          taskId: String(data.taskId),
+          taskType: 'PRODUCT_AI_TRANSLATE',
+          label: `AI翻译: ${currentProductTitle} → ${langLabel}`,
+          state: data.state || 'PENDING',
+          progress: data.progress ?? 0,
+          message: data.message || '',
+        })
+
+        $baseMessage('翻译任务已提交，请在右上角任务栏查看进度', 'success', 'hey')
         dialogFormVisible.value = false
       } catch (e: any) {
-        $baseMessage(e?.msg || '翻译失败，请重试', 'error', 'hey')
+        $baseMessage(e?.response?.data?.msg || e?.msg || '提交失败，请重试', 'error', 'hey')
       } finally {
-        saveLoading.value = false
+        submitLoading.value = false
       }
     }
   })
