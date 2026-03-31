@@ -1,0 +1,238 @@
+REDIS_HOST: 127.0.0.1
+REDIS_PORT: 6379
+SA_REDIS_DATABASE: 0
+REDIS_DATABASE: 1
+REDIS_PASSWORD: 123456
+
+# 数据库
+MYSQL_DB_NAME: db-v7-shop-xyz
+##MYSQL_URL: 47.240.178.39
+MYSQL_URL: 127.0.0.1
+MYSQL_PASSWORD: Abc123456
+MYSQL_PORT: 3306
+
+MYSQL_ADDRESS_DB_NAME: db-v7-shop-addresses
+##MYSQL_ADDRESS_URL: 47.240.178.39
+MYSQL_ADDRESS_URL: 127.0.0.1
+MYSQL_ADDRESS_PORT: 3306
+MYSQL_ADDRESS_PASSWORD: Abc123456
+
+S3_ACCESS_KEY_ID: 9e63f875f92dd251382469920de1ceb4
+S3_ACCESS_KEY_SECRET: 42e619f144623883f8ca621e723f088157f1ac15062f42533a00a2add498cefb
+S3_ENDPOINT: https://c3101845966e321fb2b9bde2d4985025.r2.cloudflarestorage.com
+S3_REGION: auto
+S3_BUCKET_NAME: v7-shop-multimedia-dwd
+
+#
+#MYSQL_URL: rm-gw825h539pgu5p5y7go.mysql.germany.rds.aliyuncs.com
+#MYSQL_USER: v7_shop_dwd
+#MYSQL_PASSWORD: C4kGW73NRcQK3bhx
+#MYSQL_DB_NAME: db-v7-shop-dwd
+
+#MYSQL_USER: ht_order_system
+#MYSQL_PASSWORD: JbSWmZWPcSSHyk8e
+#MYSQL_DB_NAME: db-v7-shop
+#MYSQL_URL: rm-rj9kl1po5g7mmfhrd.mysql.rds.aliyuncs.com
+#MYSQL_USER: root
+#MYSQL_PASSWORD: JbSWmZWPcSSHyk8e
+
+#REDIS_HOST: 8.211.56.211
+AUDIO_SUFFIXES: mp3,wav
+VIDEO_SUFFIXES: mp4
+IMAGE_SUFFIXES: jpeg,jpg,png,webp,gif
+MAX_IMAGE_SIZE: 20
+MAX_VIDEO_SIZE: 30
+MAX_AUDIO_SIZE: 20
+# 必须按从小到大顺序进行配置
+SUPPORT_WIDTHS: 160,320,480,640,960,1280,1600,1920
+
+ALIYUN_OSS_REGION: oss-eu-central-1
+ALIYUN_OSS_ACCESS_KEY_ID: LTAI5tQHQtG7vKRTnTXz472U
+ALIYUN_OSS_ACCESS_KEY_SECRET: 3VuzPZSNiNY0jBtpdsJyWvZ6ncEYLP
+ALIYUN_OSS_ENDPOINT: https://oss-eu-central-1.aliyuncs.com
+ALIYUN_OSS_BUCKET_NAME: v7-shop-multimedia-dwd
+
+CONFIG_CENTER_BASE_URL: https://config.xmskyai.com
+CLOAK_BASE_URL: https://cloak.xmskyai.com
+
+GEMINI_API_KEY: AIzaSyANMJR87OPomG3arDfwcX3mvrXYssJ89ao
+
+PORT: 32006
+server:
+  port: ${PORT:32006}
+  max-http-request-header-size: 102400
+
+############## Sa-Token 配置 (文档: https://sa-token.cc) ##############
+sa-token:
+  # jwt秘钥
+  jwt-secret-key: aK54DyLrgnNPmvK3cYTQ1HK5pixJXe5E
+  # token前缀
+  token-prefix: Bearer
+  # token 名称（同时也是 cookie 名称）
+  token-name: Authorization
+  # ------- SSO-模式二相关配置
+  is-read-cookie: false
+  # token 最低活跃频率（单位：秒），如果 token 超过此时间没有访问系统就会被冻结，默认-1 代表不限制，永不冻结
+  active-timeout: -1
+  # 是否允许同一账号多地同时登录 （为 true 时允许一起登录, 为 false 时新登录挤掉旧登录）
+  is-concurrent: false
+  # 在多人登录同一账号时，是否共用一个 token （为 true 时所有登录共用一个 token, 为 false 时每次登录新建一个 token）
+  is-share: false
+  # 配置 Sa-Token 单独使用的 Redis 连接
+  alone-redis:
+    # Redis数据库索引（默认为0）
+    database: ${SA_REDIS_DATABASE:0}
+    # Redis服务器地址
+    host: ${REDIS_HOST:127.0.0.1}
+    # Redis服务器连接端口
+    port: ${REDIS_PORT:6379}
+    # Redis服务器连接密码（默认为空）
+    password: ${REDIS_PASSWORD}
+    # 连接超时时间
+    timeout: 10s
+
+spring:
+  profiles:
+    active: dev
+  application:
+    name: ${APP_NAME:v7-shop}
+  main:
+    allow-bean-definition-overriding: true
+  datasource:
+    primary:
+      password: ${MYSQL_PASSWORD:Abc123456}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      jdbcUrl: jdbc:mysql://${MYSQL_URL:rm-j6c94iv020w3inbb94o.mysql.rds.aliyuncs.com}:${MYSQL_PORT:3306}/${MYSQL_DB_NAME:db-v7-shop}?allowMultiQueries=true&jdbcCompliantTruncation=false&useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&useAffectedRows=true&allowPublicKeyRetrieval=true
+      username: ${MYSQL_USER:root}
+      connection-test-query: SELECT 1
+      connection-timeout: ${EQUITY_DB_CONNECTION_TIMEOUT:30000}
+      idle-timeout: ${EQUITY_DB_IDLE_TIMEOUT:180000}
+      max-lifetime: ${EQUITY_DB_MAX_LIFETIME:1800000}
+      maximum-pool-size: ${EQUITY_DB_MAX_POOL_SIZE:50}
+      minimum-idle: ${EQUITY_DB_IDLE_POOL_SIZE:5}
+      pool-name: EquityHikariCP
+    address:
+      password: ${MYSQL_ADDRESS_PASSWORD:Abc123456}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      jdbcUrl: jdbc:mysql://${MYSQL_ADDRESS_URL:rm-j6c94iv020w3inbb94o.mysql.rds.aliyuncs.com}:${MYSQL_ADDRESS_PORT:3306}/${MYSQL_ADDRESS_DB_NAME:db-v7-shop-addresses}?allowMultiQueries=true&jdbcCompliantTruncation=false&useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&useAffectedRows=true&allowPublicKeyRetrieval=true
+      username: ${MYSQL_ADDRESS_USER:root}
+      connection-test-query: SELECT 1
+      connection-timeout: ${EQUITY_DB_CONNECTION_TIMEOUT:30000}
+      idle-timeout: ${EQUITY_DB_IDLE_TIMEOUT:180000}
+      max-lifetime: ${EQUITY_DB_MAX_LIFETIME:1800000}
+      maximum-pool-size: ${EQUITY_DB_MAX_POOL_SIZE:50}
+      minimum-idle: ${EQUITY_DB_IDLE_POOL_SIZE:5}
+      pool-name: EquityHikariCP
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        session_factory:
+          statement_inspector: cn.v7soft.dao.resolver.GlobalDataRangeFilterInterceptor
+        format_sql: true
+        hbm2ddl:
+          auto: update
+        show_sql: false
+    database-platform: cn.v7soft.core.configurer.MySQLDialectConfig
+    open-in-view: true
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: -1
+      max-request-size: -1
+  data:
+    # redis配置
+    redis:
+      # Redis数据库索引（默认为0）
+      database: ${REDIS_DATABASE:1}
+      # Redis服务器地址
+      host: ${REDIS_HOST}
+      # Redis服务器连接端口
+      port: ${REDIS_PORT}
+      # Redis服务器连接密码（默认为空）
+      password: ${REDIS_PASSWORD}
+      # 连接超时时间
+      timeout: 10s
+      lettuce:
+        pool:
+          # 连接池最大连接数
+          max-active: 200
+          # 连接池最大阻塞等待时间（使用负值表示没有限制）
+          max-wait: -1ms
+          # 连接池中的最大空闲连接
+          max-idle: 10
+          # 连接池中的最小空闲连接
+          min-idle: 0
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: html
+    mode: HTML
+    encoding: UTF-8
+    cache: false
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: "Asia/Shanghai"
+    date-format: yyyy-MM-dd HH:mm:ss
+
+# 日志配置
+logging:
+  level:
+    root: info
+#    jpa: debug
+    cn.v7soft: debug
+#    com.zaxxer.hikari: DEBUG
+    org.hibernate: info
+    org.hibernate.SQL: info
+    org.hibernate.type.descriptor.sql.BasicBinder: info
+  file:
+    path: ./logging/
+  logback:
+    rollingpolicy:
+      file-name-pattern: ./logging/logging-%d{yyyy-MM-dd}.%i.log  # 按日期和序号滚动日志文件
+      max-file-size: 1MB           # 每个日志文件的最大大小
+      max-history: 150              # 保留 30 个历史日志文件
+      total-size-cap: 200MB         # 保证总的日志文件大小不超过 200MB
+
+forest:
+  # 关闭 forest 请求日志打印
+  log-enabled: true
+  max-connections: 1000        # 连接池最大连接数
+  connect-timeout: 2000        # 连接超时时间，单位为毫秒
+  read-timeout: 2000           # 数据读取超时时间，单位为毫秒
+  converters:
+    json:
+      type: cn.v7soft.common.forest.config.CustomForestJacksonConverter
+
+gemini:
+  api-key: ${GEMINI_API_KEY:}
+  proxy-host: ${GEMINI_PROXY_HOST:}
+  proxy-port: ${GEMINI_PROXY_PORT:0}
+
+application:
+  theme-editor:
+    dev-url: ${THEME_EDITOR_DEV_URL:http://localhost:3000/builder}
+  config-center:
+    base-url: ${CONFIG_CENTER_BASE_URL:https://dawnbells.github.io/v7-shop-config-center}
+  cloak:
+    base-url: ${CLOAK_BASE_URL:https://cloak.xyzdwd.com}
+  s3:
+    access-key-id: ${S3_ACCESS_KEY_ID:9e63f875f92dd251382469920de1ceb4}
+    endpoint: ${S3_ENDPOINT:https://c3101845966e321fb2b9bde2d4985025.r2.cloudflarestorage.com}
+    region: ${S3_REGION:eu-central-1}
+    bucket-name: ${S3_BUCKET_NAME:v7-shop-multimedia-dwd}
+    access-key-secret: ${S3_ACCESS_KEY_SECRET:3VuzPZSNiNY0jBtpdsJyWvZ6ncEYLP}
+  multimedia:
+    audio-suffixes: ${AUDIO_SUFFIXES:mp3,wav}
+    video-suffixes: ${VIDEO_SUFFIXES:mp4}
+    images-suffixes: ${IMAGE_SUFFIXES:jpeg,jpg,png,webp,gif}
+    max-image-size: ${MAX_IMAGE_SIZE:20}
+    max-video-size: ${MAX_VIDEO_SIZE:20}
+    max-audio-size: ${MAX_AUDIO_SIZE:20}
+    support-widths: ${SUPPORT_WIDTHS:160,320,480,640,960,1280,1600,1920}
+    oss:
+      endpoint: ${ALIYUN_OSS_ENDPOINT:https://oss-eu-central-1.aliyuncs.com}
+      region: ${ALIYUN_OSS_REGION:oss-eu-central-1}
+      access-key-id: ${ALIYUN_OSS_ACCESS_KEY_ID:LTAI5tQHQtG7vKRTnTXz472U}
+      access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:3VuzPZSNiNY0jBtpdsJyWvZ6ncEYLP}
+      bucket-name: ${ALIYUN_OSS_BUCKET_NAME:v7-shop-multimedia-dwd}

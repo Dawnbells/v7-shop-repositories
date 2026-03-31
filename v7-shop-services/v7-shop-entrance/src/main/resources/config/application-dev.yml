@@ -1,0 +1,5 @@
+CONFIG_CENTER_BASE_URL: https://config.xmskyai.com
+CLOAK_BASE_URL: http://localhost:9999
+
+GEMINI_PROXY_HOST: 127.0.0.1
+GEMINI_PROXY_PORT: 8800

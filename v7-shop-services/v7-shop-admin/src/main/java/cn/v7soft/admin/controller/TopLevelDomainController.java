@@ -121,7 +121,7 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
             entity.setType(request.getType());
             entity.setCertificateRequestStatus(CertificateRequestStatus.IDLE);
         }
-        entity.setNginxConfigType(NginxConfigType.VIKE);
+        entity.setNginxConfigType(THYMELEAF);
         // 自动获取域名过期时间，获取成功则覆盖用户设置，失败则使用用户设置
         if (cloudPlatformAccount != null && StrUtil.isNotBlank(request.getName())) {
             LocalDateTime expiryDate = dnsService.queryDomainExpiryDate(cloudPlatformAccount, request.getName());
