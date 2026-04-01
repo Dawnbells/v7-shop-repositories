@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 
 import org.apache.http.util.TextUtils;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -271,6 +272,17 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Product getByIdWithSpecifications(Long id) {
+        Product product = getById(id);
+        Hibernate.initialize(product.getSpecificationList());
+        for (ProductSpecification spec : product.getSpecificationList()) {
+            Hibernate.initialize(spec.getAttributes());
+        }
+        return product;
+    }
+
+    @Override
     @Transactional
     public ProductResponse translate(TranslateProductRequest request) {
         Product product = getById(Long.parseLong(request.getProductId()));
@@ -475,6 +487,108 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         taskService.submitAsyncTask(asyncTask.getId());
         return AsyncTaskResponse.convert(asyncTask);
+    }
+
+    @Override
+    @Transactional
+    public ProductResponse assembleTranslatedProduct(
+            Product product, Language language, SystemUser owner,
+            List<String> translatedTexts, String translatedIntroduction,
+            Map<String, byte[]> translatedImageMap) throws Exception {
+
+        String translatedTitle = translatedTexts.get(0);
+        String translatedSummary = translatedTexts.get(1);
+
+        // 按固定位置索引消费 translatedTexts: [0]=title, [1]=summary, 之后每对 = spec attr name/value
+        int textIdx = 2;
+
+        // 替换 introduction 中的图片引用
+        String finalIntroduction = translatedIntroduction;
+        if (finalIntroduction != null && translatedImageMap != null) {
+            Matcher matcher = IMG_ID_PATTERN.matcher(finalIntroduction);
+            StringBuffer sb = new StringBuffer();
+            while (matcher.find()) {
+                String imgId = matcher.group(1);
+                byte[] imgBytes = translatedImageMap.get(imgId);
+                if (imgBytes != null) {
+                    MultimediaFile originalFile = multimediaFileService.getById(Long.valueOf(imgId));
+                    MultimediaFile newFile = saveTranslatedImage(imgBytes, originalFile.getSuffix(), owner);
+                    matcher.appendReplacement(sb, "/multimedia/" + newFile.getId());
+                } else {
+                    matcher.appendReplacement(sb, matcher.group());
+                }
+            }
+            matcher.appendTail(sb);
+            finalIntroduction = sb.toString();
+        }
+
+        // 按固定顺序消费 translatedTexts: [0]=title, [1]=summary, 之后每对 = spec attr name/value
+        List<ProductSpecification> newSpecs = new ArrayList<>();
+        for (ProductSpecification spec : product.getSpecificationList()) {
+            ProductSpecification newSpec = ProductSpecification.builder()
+                    .specificationImage(spec.getSpecificationImage())
+                    .sid(spec.getSid())
+                    .sellPrice(spec.getSellPrice())
+                    .originPrice(spec.getOriginPrice())
+                    .costPrice(spec.getCostPrice())
+                    .barcode(spec.getBarcode())
+                    .stockQuantity(spec.getStockQuantity())
+                    .linkStock(spec.isLinkStock())
+                    .sku(spec.getSku())
+                    .product(null)
+                    .attributes(null)
+                    .build();
+            List<ProductSpecificationAttributes> newAttrs = new ArrayList<>();
+            for (ProductSpecificationAttributes attr : spec.getAttributes()) {
+                String translatedName = textIdx < translatedTexts.size() ? translatedTexts.get(textIdx++) : attr.getName();
+                String translatedValue = textIdx < translatedTexts.size() ? translatedTexts.get(textIdx++) : attr.getValue();
+                newAttrs.add(ProductSpecificationAttributes.builder()
+                        .name(translatedName)
+                        .value(translatedValue)
+                        .multimediaFile(attr.getMultimediaFile())
+                        .productSpecification(newSpec)
+                        .build());
+            }
+            newSpec.setAttributes(newAttrs);
+            newSpecs.add(newSpec);
+        }
+
+        Product newProduct = Product.builder()
+                .title(translatedTitle)
+                .summary(translatedSummary)
+                .introduction(finalIntroduction)
+                .merchandise(product.getMerchandise())
+                .waybillProductName(product.getWaybillProductName())
+                .sellPrice(product.getSellPrice())
+                .originPrice(product.getOriginPrice())
+                .costPrice(product.getCostPrice())
+                .isTaxable(product.isTaxable())
+                .taxationMethod(product.getTaxationMethod())
+                .fixedTaxAmount(product.getFixedTaxAmount())
+                .taxAmountThreshold(product.getTaxAmountThreshold())
+                .taxQuantityThreshold(product.getTaxQuantityThreshold())
+                .taxPerBase(product.getTaxPerBase())
+                .barcode(product.getBarcode())
+                .stockQuantity(product.getStockQuantity())
+                .linkStock(product.isLinkStock())
+                .isMultiSpecs(product.isMultiSpecs())
+                .specificationList(newSpecs)
+                .sku(product.getSku())
+                .videoFile(product.getVideoFile())
+                .imageFiles(product.getImageFiles())
+                .language(language)
+                .spu(product.getSpu())
+                .alternativeSkus(product.getAlternativeSkus())
+                .country(product.getCountry())
+                .botShowSpu(product.getBotShowSpu())
+                .riskUserShowSpu(product.getRiskUserShowSpu())
+                .blacklistedUserShowSpu(product.getBlacklistedUserShowSpu())
+                .build();
+        newProduct.setOwner(owner);
+        newSpecs.forEach(spec -> spec.setProduct(newProduct));
+
+        spuRepository.refreshUpdateTime(product.getSpu().getId());
+        return ProductResponse.convertEntity(multimediaFileService, saveAndFlush(newProduct));
     }
 
     private String translateIntroductionImages(String introduction, String langName, SystemUser owner) {

@@ -33,15 +33,14 @@ public class DomainUtils {
             String defaultDomain = "xyzdwd.com";
             String origin = request.getHeader("Origin");
             String referer = request.getHeader("Referer");
-            log.debug("origin is " + origin + ", referer is " + referer + ", " + request.getRequestURI());
+//            log.debug("origin is " + origin + ", referer is " + referer + ", " + request.getRequestURI());
             if (StrUtil.isBlank(origin) && StrUtil.isBlank(referer)) {
-                log.debug("=====" + request.getRequestURI() + "====");
-                log.debug("===== Request Headers =====");
+//                log.debug("=====" + request.getRequestURI() + "====");
+//                log.debug("===== Request Headers =====");
                 Enumeration<String> headerNames = request.getHeaderNames();
                 while (headerNames.hasMoreElements()) {
                     String headerName = headerNames.nextElement();
                     String headerValue = request.getHeader(headerName);
-                    log.debug(headerName + ": " + headerValue);
                 }
             }
             if (!StringUtils.hasText(origin)) {
@@ -91,7 +90,7 @@ public class DomainUtils {
     }
 
     private static void analyzeWebsite(String domain, String[] hostParts) {
-        log.debug("analyze website: " + JSONUtil.toJsonStr(hostParts));
+//        log.debug("analyze website: " + JSONUtil.toJsonStr(hostParts));
         if (hostParts.length > 1 && hostParts[0].startsWith("admin")) {
             boolean isWebsiteAdmin = false;
             long shopId = 0;

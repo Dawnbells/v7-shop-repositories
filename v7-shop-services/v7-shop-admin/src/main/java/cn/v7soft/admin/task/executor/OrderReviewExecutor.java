@@ -34,7 +34,7 @@ public class OrderReviewExecutor {
             } else {
                 long now = System.currentTimeMillis();
                 if (now - lastNoOrderLogTime > 60_000) { // 超过1分钟
-                    log.info("⏸ 没有待审核订单，稍后再试");
+//                    log.info("⏸ 没有待审核订单，稍后再试");
                     lastNoOrderLogTime = now;
                 }
                 // 不足一分钟就不输出，静默等待

@@ -52,7 +52,6 @@ public class AccessDataRangeAttribute implements QueryAttribute {
             return criteriaBuilder.conjunction();
         }
         SystemUserDto user = owner == null ? SaSessionUtil.getLoginUser() : owner;
-        log.debug("loginUser: " + JSONUtil.toJsonStr(user) + ", level = " + level);
         SystemUserType userType = user.getUserType();
         ViewMode vm = viewMode == null ? SaSessionUtil.getViewMode() : viewMode;
         if (vm == ViewMode.PERSONAL) {

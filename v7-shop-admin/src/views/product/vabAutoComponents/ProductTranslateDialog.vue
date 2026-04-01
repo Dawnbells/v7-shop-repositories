@@ -121,6 +121,10 @@ const save = () => {
           state: data.state || 'PENDING',
           progress: data.progress ?? 0,
           message: data.message || '',
+          parameters: {
+            productId: form.productId,
+            languageId: String(form.languageId),
+          },
         })
 
         $baseMessage('翻译任务已提交，请在右上角任务栏查看进度', 'success', 'hey')

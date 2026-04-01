@@ -31,7 +31,7 @@ public class CompanyTenantInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, @NotNull HttpServletResponse response, @NotNull Object handler) throws Exception {
         // 记录请求信息
-        log.info("Filter called for URL: {} at {} by thread {}， process={}", request.getRequestURI(), LocalDateTime.now(), Thread.currentThread().getId(), ProcessHandle.current().pid());
+//        log.info("Filter called for URL: {} at {} by thread {}， process={}", request.getRequestURI(), LocalDateTime.now(), Thread.currentThread().getId(), ProcessHandle.current().pid());
         String path = request.getRequestURI();
 
         if(path == null || path.endsWith(".php")) {
@@ -52,7 +52,7 @@ public class CompanyTenantInterceptor implements HandlerInterceptor {
         }
 
         String topLevelDomain = DomainUtils.getOriginTopLevelDomain(request);
-        log.debug("top level domain is {}, path = {}, Website ID = {}, isWebsiteAdmin = {}", topLevelDomain, path, WebsiteContext.getCurrentWebsiteId(), WebsiteContext.isWebsiteAdmin());
+//        log.debug("top level domain is {}, path = {}, Website ID = {}, isWebsiteAdmin = {}", topLevelDomain, path, WebsiteContext.getCurrentWebsiteId(), WebsiteContext.isWebsiteAdmin());
         Company company = this.companyService.identityCached(topLevelDomain);
         if (company == null) {
             log.debug("Can not match company: {}", topLevelDomain);

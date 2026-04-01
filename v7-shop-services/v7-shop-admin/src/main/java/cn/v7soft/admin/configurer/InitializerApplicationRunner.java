@@ -6,7 +6,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
-import cn.v7soft.admin.utils.ConfigCenterLoader;
+import cn.v7soft.admin.service.ITaskService;
 import cn.v7soft.admin.utils.ThemeLoader;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,12 +18,15 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 @AllArgsConstructor
 public class InitializerApplicationRunner implements ApplicationRunner {
+
+    private final ITaskService taskService;
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
         ImageIO.scanForPlugins();
         ThemeLoader.loadAllThemes();
-        // ConfigCenterLoader 已通过 @PostConstruct 自动初始化
         log.debug("themes >> {}", ThemeLoader.getThemes());
+        taskService.recoverUnfinishedTasks();
     }
 
 }

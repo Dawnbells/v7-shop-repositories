@@ -72,4 +72,14 @@ public class AsyncTask extends BaseDataRangeEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "view_mode")
     private ViewMode viewMode;
+
+    @Column(name = "batch_job_name")
+    private String batchJobName;
+
+    /**
+     * 用户是否已确认/已读此任务结果
+     */
+    @lombok.Builder.Default
+    @Column(name = "acknowledged", nullable = false)
+    private Boolean acknowledged = false;
 }
