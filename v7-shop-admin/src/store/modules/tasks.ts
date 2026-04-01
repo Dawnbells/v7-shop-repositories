@@ -6,6 +6,7 @@ import {
   acknowledgeTask as apiAcknowledgeTask,
   acknowledgeAllCompleted as apiAcknowledgeAllCompleted,
   switchToDirectTranslate as apiSwitchToDirectTranslate,
+  retryTask as apiRetryTask,
 } from '/@/api/taskManagement'
 
 export interface TaskItem {
@@ -211,6 +212,23 @@ export const useTasksStore = defineStore('tasks', {
         this.stopPolling(taskId)
       } catch (e) {
         console.error(`[TasksStore] cancel task ${taskId} failed`, e)
+      }
+    },
+
+    async retryTask(taskId: string) {
+      try {
+        const res = await apiRetryTask(taskId)
+        const data = res?.data ?? res
+        const task = this.tasks.find((t) => t.taskId === taskId)
+        if (task) {
+          task.state = data.state ?? 'PENDING'
+          task.progress = data.progress ?? 0
+          task.message = data.message ?? '正在重试...'
+          task.acknowledged = false
+        }
+        this.startPolling(taskId)
+      } catch (e) {
+        console.error(`[TasksStore] retry task ${taskId} failed`, e)
       }
     },
 

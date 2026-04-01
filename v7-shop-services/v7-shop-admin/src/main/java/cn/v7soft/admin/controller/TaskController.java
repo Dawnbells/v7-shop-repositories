@@ -53,4 +53,9 @@ public class TaskController {
     public AsyncTaskResponse switchToDirectTranslate(@PathVariable("taskId") Long taskId) {
         return taskService.switchToDirectTranslate(taskId);
     }
+
+    @PostMapping("/retry/{taskId}")
+    public AsyncTaskResponse retry(@PathVariable("taskId") Long taskId) {
+        return taskService.retry(taskId);
+    }
 }

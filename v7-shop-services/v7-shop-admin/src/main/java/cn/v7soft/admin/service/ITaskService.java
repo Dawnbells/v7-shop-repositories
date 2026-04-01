@@ -52,4 +52,12 @@ public interface ITaskService {
      * 取消 Gemini Batch Job，清除 batchJobName，从头以直接 API 调用方式重新翻译。
      */
     AsyncTaskResponse switchToDirectTranslate(Long taskId);
+
+    @Async("threadPoolTaskExecutor")
+    void executeDirectTranslateAsync(Long taskId);
+
+    /**
+     * 重试失败/已取消的任务。
+     */
+    AsyncTaskResponse retry(Long taskId);
 }

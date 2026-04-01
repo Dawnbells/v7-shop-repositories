@@ -69,3 +69,10 @@ export function switchToDirectTranslate(taskId: string | number) {
     method: 'post',
   })
 }
+
+export function retryTask(taskId: string | number) {
+  return request({
+    url: `/tasks/retry/${taskId}`,
+    method: 'post',
+  })
+}

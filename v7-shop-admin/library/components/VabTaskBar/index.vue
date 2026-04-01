@@ -1,6 +1,10 @@
 <template>
   <div class="task-bar-trigger" @click="drawerVisible = true">
-    <el-badge :value="tasksStore.activeCount || undefined" :hidden="!tasksStore.activeCount" type="primary">
+    <el-badge
+      :value="tasksStore.activeCount || undefined"
+      :hidden="!tasksStore.activeCount"
+      type="primary"
+    >
       <vab-icon icon="task-line" style="cursor: pointer" />
     </el-badge>
     <span v-if="tasksStore.hasUnreadCompleted" class="task-bar-dot" />
@@ -41,7 +45,11 @@
 
         <el-scrollbar max-height="calc(100vh - 200px)">
           <div v-if="tasksStore.unacknowledgedTasks.length" class="task-bar-list">
-            <div v-for="task in tasksStore.unacknowledgedTasks" :key="task.taskId" class="task-bar-item">
+            <div
+              v-for="task in tasksStore.unacknowledgedTasks"
+              :key="task.taskId"
+              class="task-bar-item"
+            >
               <div class="task-bar-item-header">
                 <span class="task-bar-item-label">{{ task.label }}</span>
                 <div class="task-bar-item-header-right">
@@ -66,15 +74,25 @@
               <!-- 活动任务: 等待时间 + 消息 -->
               <div v-if="!isFinished(task.state)" class="task-bar-item-msg task-bar-item-msg--info">
                 {{ elapsedText(task.createdAt) }}
-                <template v-if="task.message && task.state === 'PROCESSING'"> · {{ task.message }}</template>
+                <template v-if="task.message && task.state === 'PROCESSING'">
+                  · {{ task.message }}
+                </template>
               </div>
               <!-- 已完成任务: 消息 -->
-              <div v-else-if="task.message" class="task-bar-item-msg" :class="{ 'task-bar-item-msg--info': task.state === 'COMPLETED' }">
+              <div
+                v-else-if="task.message"
+                class="task-bar-item-msg"
+                :class="{ 'task-bar-item-msg--info': task.state === 'COMPLETED' }"
+              >
                 {{ task.message }}
               </div>
               <div v-if="!isFinished(task.state)" class="task-bar-item-actions">
                 <el-button
-                  v-if="task.taskType === 'PRODUCT_AI_TRANSLATE' && task.inBatchMode && task.state === 'PROCESSING'"
+                  v-if="
+                    task.taskType === 'PRODUCT_AI_TRANSLATE' &&
+                    task.inBatchMode &&
+                    task.state === 'PROCESSING'
+                  "
                   link
                   type="warning"
                   size="small"
@@ -87,8 +105,23 @@
                   取消任务
                 </el-button>
               </div>
-              <div v-if="isFinished(task.state) && task.hasDownload" class="task-bar-item-actions">
-                <el-button link type="primary" size="small" @click="handleDownload(Number(task.taskId))">
+              <div v-if="isFinished(task.state)" class="task-bar-item-actions">
+                <el-button
+                  v-if="task.state === 'FAILED' || task.state === 'CANCELLED'"
+                  link
+                  type="warning"
+                  size="small"
+                  @click="handleRetry(task.taskId)"
+                >
+                  重试
+                </el-button>
+                <el-button
+                  v-if="task.hasDownload"
+                  link
+                  type="primary"
+                  size="small"
+                  @click="handleDownload(Number(task.taskId))"
+                >
                   下载文件
                 </el-button>
               </div>
@@ -198,7 +231,7 @@ onMounted(() => {
   tasksStore.loadFromBackend()
   tickTimer = setInterval(() => {
     now.value = Date.now()
-  }, 10_000)
+  }, 1_000)
 })
 
 onUnmounted(() => {
@@ -214,9 +247,20 @@ const now = ref(Date.now())
 let tickTimer: ReturnType<typeof setInterval> | null = null
 
 const elapsedText = (createdAt: number) => {
-  const diff = Math.floor((now.value - createdAt) / 1000)
-  if (diff < 60) return `已等待 ${diff} 秒`
-  return `已等待 ${Math.floor(diff / 60)} 分钟`
+  let rest = Math.floor((now.value - createdAt) / 1000)
+  if (rest < 0) rest = 0
+  const d = Math.floor(rest / 86400)
+  rest %= 86400
+  const h = Math.floor(rest / 3600)
+  rest %= 3600
+  const m = Math.floor(rest / 60)
+  const s = rest % 60
+  const parts: string[] = []
+  if (d > 0) parts.push(`${d} 天`)
+  if (h > 0) parts.push(`${h} 小时`)
+  if (m > 0) parts.push(`${m} 分钟`)
+  if (d === 0) parts.push(`${s} 秒`)
+  return `已等待 ${parts.join(' ')}`
 }
 
 const isFinished = (state: string) =>
@@ -247,6 +291,19 @@ const handleSwitchDirect = async (taskId: string) => {
       }
     )
     await tasksStore.switchToDirectTranslate(taskId)
+  } catch {
+    // noop
+  }
+}
+
+const handleRetry = async (taskId: string) => {
+  try {
+    await ElMessageBox.confirm('确定要重试该任务吗？', '重试任务', {
+      confirmButtonText: '确定重试',
+      cancelButtonText: '取消',
+      type: 'info',
+    })
+    await tasksStore.retryTask(taskId)
   } catch {
     // noop
   }

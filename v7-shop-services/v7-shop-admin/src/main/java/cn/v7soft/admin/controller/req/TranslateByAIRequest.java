@@ -15,4 +15,6 @@ public class TranslateByAIRequest {
     @NotBlank(message = "目标语言ID不能为空")
     @Pattern(regexp = "^[0-9]+$", message = "语言ID格式不正确")
     private String languageId;
+
+    private Integer totalRequests;
 }

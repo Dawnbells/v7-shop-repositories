@@ -106,13 +106,13 @@ public class TaskService implements ITaskService {
     private final IMultimediaFileService multimediaFileService;
     private final cn.v7soft.admin.service.ILanguageService languageService;
     private final AsyncTaskRepository asyncTaskRepository;
-    private final TaskService self;
+    private final ITaskService self;
 
     public TaskService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
                        @Lazy IProductService productService, GeminiTranslateService geminiTranslateService,
                        IMultimediaFileService multimediaFileService, cn.v7soft.admin.service.ILanguageService languageService,
-                       AsyncTaskRepository asyncTaskRepository, @Lazy TaskService self) {
+                       AsyncTaskRepository asyncTaskRepository, @Lazy ITaskService self) {
         this.asyncTaskService = asyncTaskService;
         this.orderService = orderService;
         this.s3Service = s3Service;
@@ -224,8 +224,25 @@ public class TaskService implements ITaskService {
         return AsyncTaskResponse.convert(task);
     }
 
+    @Override
+    public AsyncTaskResponse retry(Long taskId) {
+        AsyncTask task = asyncTaskService.getById(taskId);
+        log.info("[retry] taskId={} 请求重试, 当前状态={}, taskType={}", taskId, task.getState(), task.getTaskType());
+        if (task.getState() != TaskState.FAILED && task.getState() != TaskState.CANCELLED) {
+            throw new IllegalStateException("只有失败或已取消的任务才能重试");
+        }
+        task.setBatchJobName(null);
+        task.setMessage("正在重试...");
+        task.setAcknowledged(false);
+        asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
+        log.info("[retry] taskId={} 已重置为 PENDING, 重新提交任务", taskId);
+        submitAsyncTask(task.getId());
+        return AsyncTaskResponse.convert(task);
+    }
+
+    @Override
     @Async("threadPoolTaskExecutor")
-    void executeDirectTranslateAsync(Long taskId) {
+    public void executeDirectTranslateAsync(Long taskId) {
         ThreadUtil.sleep(500);
         Pair<AsyncTask, SystemUserDto> pair = asyncTaskService.getAndInitializeOwner(taskId);
         AsyncTask task = pair.getKey();
@@ -532,6 +549,9 @@ public class TaskService implements ITaskService {
             log.info("[batchTranslate] taskId={} JSONL 构建完成: totalRequests={}, jsonlSize={}bytes",
                     task.getId(), totalRequests, jsonl.length());
 
+            request.setTotalRequests(totalRequests);
+            task.setParameters(JSONUtil.toJsonStr(request));
+
             task.setMessage("正在上传翻译请求...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 5);
 
@@ -548,7 +568,7 @@ public class TaskService implements ITaskService {
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
 
             // Step 2: 轮询等待 Batch 完成
-            String batchState = pollBatchJobUntilDone(task, jobName, uploadedFileName);
+            String batchState = pollBatchJobUntilDone(task, jobName, uploadedFileName, totalRequests);
             if (batchState == null) {
                 log.info("[batchTranslate] taskId={} 轮询期间任务被取消", task.getId());
                 return;
@@ -727,11 +747,14 @@ public class TaskService implements ITaskService {
             String jobName = task.getBatchJobName();
             log.info("[resumeTranslate] taskId={} 开始恢复, jobName={} (延迟加载模式，暂不加载产品/图片)", task.getId(), jobName);
 
+            TranslateByAIRequest resumeRequest = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+            int savedTotalRequests = resumeRequest.getTotalRequests() != null ? resumeRequest.getTotalRequests() : 0;
+
             task.setMessage("正在恢复AI翻译任务，等待Batch完成...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
 
             // === Phase 1: 轻量轮询，只查 Batch Job 状态 ===
-            String batchState = pollBatchJobUntilDone(task, jobName, null);
+            String batchState = pollBatchJobUntilDone(task, jobName, null, savedTotalRequests);
             if (batchState == null) {
                 // 任务已被取消
                 return;
@@ -777,14 +800,15 @@ public class TaskService implements ITaskService {
 
     /**
      * 轻量级轮询：只查询 Batch Job 状态直到完成，不加载任何业务数据。
+     * @param totalRequests 提交的总请求数，0 表示未知（恢复场景）
      * @return 最终的 batchState，如果任务被取消则返回 null
      */
-    private String pollBatchJobUntilDone(AsyncTask task, String jobName, String uploadedFileName) {
+    private String pollBatchJobUntilDone(AsyncTask task, String jobName, String uploadedFileName, int totalRequests) {
         long startTime = System.currentTimeMillis();
         int pollCount = 0;
 
-        log.info("[pollBatchJob] taskId={} 开始轮询: jobName={}, pollInterval={}ms, timeout={}ms",
-                task.getId(), jobName, BATCH_POLL_INTERVAL_MS, BATCH_TIMEOUT_MS);
+        log.info("[pollBatchJob] taskId={} 开始轮询: jobName={}, totalRequests={}, pollInterval={}ms, timeout={}ms",
+                task.getId(), jobName, totalRequests, BATCH_POLL_INTERVAL_MS, BATCH_TIMEOUT_MS);
 
         while (true) {
             AsyncTask freshTask = asyncTaskService.getById(task.getId());
@@ -812,7 +836,15 @@ public class TaskService implements ITaskService {
             log.info("[pollBatchJob] taskId={} 轮询#{}: state={}, completed={} (success={}, failed={}), elapsed={}ms",
                     task.getId(), pollCount, batchState, completed, successCount, failedCount, elapsed);
 
-            task.setMessage("AI翻译中: Batch " + batchState);
+            String progressDetail;
+            if (totalRequests > 0) {
+                progressDetail = String.format("AI翻译中: 已完成 %d/%d (成功 %d, 失败 %d)",
+                        completed, totalRequests, successCount, failedCount);
+            } else {
+                progressDetail = String.format("AI翻译中: 已完成 %d (成功 %d, 失败 %d)",
+                        completed, successCount, failedCount);
+            }
+            task.setMessage(progressDetail);
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, Math.min(10 + pollCount * 5, 80));
 
             if (BATCH_COMPLETED_STATES.contains(batchState)) {
