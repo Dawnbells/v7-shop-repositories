@@ -2,11 +2,9 @@ package cn.v7soft.admin.service.impl;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -31,13 +29,13 @@ import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
+import cn.v7soft.admin.service.ICountryService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductSKUService;
 import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.service.IS3Service;
 import cn.v7soft.admin.service.ITaskService;
-import cn.v7soft.admin.service.ISpuService;
 import cn.v7soft.admin.utils.MultimediaUtil;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.ConvertUtils;
@@ -74,37 +72,46 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
     private final IProductSKUService productSKUService;
     private final ILanguageService languageService;
+    private final ICountryService countryService;
     private final EntityManager entityManager;
     private final IMultimediaFileService multimediaFileService;
     private final SpuRepository spuRepository;
-    private final GeminiTranslateService geminiTranslateService;
     private final IS3Service s3Service;
     private final AsyncTaskRepository asyncTaskRepository;
     private final ITaskService taskService;
+    private final TranslateTaskMetrics translateTaskMetrics;
 
     public ProductService(ProductRepository repository, IProductSKUService productSKUService,
-                          ILanguageService languageService, EntityManager entityManager,
+                          ILanguageService languageService, ICountryService countryService,
+                          EntityManager entityManager,
                           IMultimediaFileService multimediaFileService, SpuRepository spuRepository,
-                          GeminiTranslateService geminiTranslateService, IS3Service s3Service,
-                          AsyncTaskRepository asyncTaskRepository, ITaskService taskService) {
+                          IS3Service s3Service,
+                          AsyncTaskRepository asyncTaskRepository, ITaskService taskService,
+                          TranslateTaskMetrics translateTaskMetrics) {
         super(repository);
         this.productSKUService = productSKUService;
         this.languageService = languageService;
+        this.countryService = countryService;
         this.entityManager = entityManager;
         this.multimediaFileService = multimediaFileService;
         this.spuRepository = spuRepository;
-        this.geminiTranslateService = geminiTranslateService;
         this.s3Service = s3Service;
         this.asyncTaskRepository = asyncTaskRepository;
         this.taskService = taskService;
+        this.translateTaskMetrics = translateTaskMetrics;
     }
 
     @Override
     protected void checkKeyConstraint(Product data) {
-        SystemUserDto user = SaSessionUtil.getLoginUser();
+        Long userId;
+        try {
+            userId = SaSessionUtil.getLoginUser().getLongId();
+        } catch (Exception e) {
+            userId = data.getOwner() != null ? data.getOwner().getId() : null;
+        }
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(data.getLanguage(), "请选择商品语言");
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(data.getCountry(), "请选择商品国家");
-        Product existingProduct = repository.findBySameCountryLanguageForUser(data.getSpu().getId(), data.getId(), user.getLongId(), data.getCountry().getId(), data.getLanguage().getId());
+        Product existingProduct = repository.findBySameCountryLanguageForUser(data.getSpu().getId(), data.getId(), userId, data.getCountry().getId(), data.getLanguage().getId());
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(existingProduct, "同一SPU下商品语言不允许重复");
     }
 
@@ -349,142 +356,61 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
     @Override
     @Transactional
-    public ProductResponse translateByAI(TranslateByAIRequest request) {
-        return translateByAI(request, SaSessionUtil.getLoginOwner());
-    }
-
-    @Override
-    @Transactional
-    public ProductResponse translateByAI(TranslateByAIRequest request, SystemUser owner) {
-        Product product = getById(Long.parseLong(request.getProductId()));
-        Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
-        String langName = language.getName();
-
-        // 收集需翻译的短文本（去重）
-        List<String> textsToTranslate = new ArrayList<>();
-        textsToTranslate.add(product.getTitle() != null ? product.getTitle() : "");
-        textsToTranslate.add(product.getSummary() != null ? product.getSummary() : "");
-
-        Map<String, Integer> uniqueTextIndex = new LinkedHashMap<>();
-        uniqueTextIndex.put(textsToTranslate.get(0), 0);
-        uniqueTextIndex.put(textsToTranslate.get(1), 1);
-
-        for (ProductSpecification spec : product.getSpecificationList()) {
-            for (ProductSpecificationAttributes attr : spec.getAttributes()) {
-                if (!uniqueTextIndex.containsKey(attr.getName())) {
-                    uniqueTextIndex.put(attr.getName(), textsToTranslate.size());
-                    textsToTranslate.add(attr.getName());
-                }
-                if (!uniqueTextIndex.containsKey(attr.getValue())) {
-                    uniqueTextIndex.put(attr.getValue(), textsToTranslate.size());
-                    textsToTranslate.add(attr.getValue());
-                }
-            }
-        }
-
-        // 批量翻译短文本
-        List<String> translatedTexts = geminiTranslateService.translateTexts(textsToTranslate, langName);
-        String translatedTitle = translatedTexts.get(0);
-        String translatedSummary = translatedTexts.get(1);
-
-        // 翻译 introduction HTML 文本
-        String translatedIntroduction = geminiTranslateService.translateHtml(
-                product.getIntroduction(), langName);
-
-        // 翻译 introduction 中的图片
-        if (translatedIntroduction != null) {
-            translatedIntroduction = translateIntroductionImages(translatedIntroduction, langName, owner);
-        }
-
-        // 复制规格列表并替换翻译后的 name/value
-        List<ProductSpecification> newSpecs = product.getSpecificationList().stream()
-                .map(spec -> {
-                    ProductSpecification newSpec = ProductSpecification.builder()
-                            .specificationImage(spec.getSpecificationImage())
-                            .sid(spec.getSid())
-                            .sellPrice(spec.getSellPrice())
-                            .originPrice(spec.getOriginPrice())
-                            .costPrice(spec.getCostPrice())
-                            .barcode(spec.getBarcode())
-                            .stockQuantity(spec.getStockQuantity())
-                            .linkStock(spec.isLinkStock())
-                            .sku(spec.getSku())
-                            .product(null)
-                            .attributes(null)
-                            .build();
-
-                    List<ProductSpecificationAttributes> newAttrs = spec.getAttributes().stream()
-                            .map(attr -> {
-                                Integer nameIdx = uniqueTextIndex.get(attr.getName());
-                                Integer valueIdx = uniqueTextIndex.get(attr.getValue());
-                                return ProductSpecificationAttributes.builder()
-                                        .name(nameIdx != null ? translatedTexts.get(nameIdx) : attr.getName())
-                                        .value(valueIdx != null ? translatedTexts.get(valueIdx) : attr.getValue())
-                                        .multimediaFile(attr.getMultimediaFile())
-                                        .productSpecification(newSpec)
-                                        .build();
-                            }).collect(Collectors.toList());
-                    newSpec.setAttributes(newAttrs);
-                    return newSpec;
-                }).collect(Collectors.toList());
-
-        // 构建新 Product
-        Product newProduct = Product.builder()
-                .title(translatedTitle)
-                .summary(translatedSummary)
-                .introduction(translatedIntroduction)
-                .merchandise(product.getMerchandise())
-                .waybillProductName(product.getWaybillProductName())
-                .sellPrice(product.getSellPrice())
-                .originPrice(product.getOriginPrice())
-                .costPrice(product.getCostPrice())
-                .isTaxable(product.isTaxable())
-                .taxationMethod(product.getTaxationMethod())
-                .fixedTaxAmount(product.getFixedTaxAmount())
-                .taxAmountThreshold(product.getTaxAmountThreshold())
-                .taxQuantityThreshold(product.getTaxQuantityThreshold())
-                .taxPerBase(product.getTaxPerBase())
-                .barcode(product.getBarcode())
-                .stockQuantity(product.getStockQuantity())
-                .linkStock(product.isLinkStock())
-                .isMultiSpecs(product.isMultiSpecs())
-                .specificationList(newSpecs)
-                .sku(product.getSku())
-                .videoFile(product.getVideoFile())
-                .imageFiles(product.getImageFiles())
-                .language(language)
-                .spu(product.getSpu())
-                .alternativeSkus(product.getAlternativeSkus())
-                .country(product.getCountry())
-                .botShowSpu(product.getBotShowSpu())
-                .riskUserShowSpu(product.getRiskUserShowSpu())
-                .blacklistedUserShowSpu(product.getBlacklistedUserShowSpu())
-                .build();
-        newProduct.setOwner(owner);
-        newSpecs.forEach(spec -> spec.setProduct(newProduct));
-
-        spuRepository.refreshUpdateTime(product.getSpu().getId());
-        return ProductResponse.convertEntity(multimediaFileService, saveAndFlush(newProduct));
-    }
-
-    @Override
-    @Transactional
     public AsyncTaskResponse submitTranslateByAI(TranslateByAIRequest request) {
+        Product product = getById(Long.parseLong(request.getProductId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(product, "商品不存在");
+
+        Country country = countryService.getById(Long.valueOf(request.getCountryId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(country, "目标国家不存在");
+
+        Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(language, "目标语言不存在");
+
+        boolean languageBelongsToCountry = country.getLanguages() != null
+                && country.getLanguages().stream().anyMatch(l -> l.getId().equals(language.getId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(languageBelongsToCountry,
+                "所选语言不属于目标国家支持的语言");
+
+        Long userId;
+        try {
+            userId = cn.v7soft.dao.utils.SaSessionUtil.getLoginUser().getLongId();
+        } catch (Exception e) {
+            userId = product.getOwner() != null ? product.getOwner().getId() : null;
+        }
+        Product duplicate = repository.findBySameCountryLanguageForUser(
+                product.getSpu().getId(), null, userId, country.getId(), language.getId());
+        ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
+                "同一SPU下该国家和语言已存在商品，不允许重复");
+
+        String dedupKey = "PRODUCT_AI_TRANSLATE:" + userId + ":" +
+                request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
+
+        List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndDedupKeyAndStateIn(
+                TaskType.PRODUCT_AI_TRANSLATE, dedupKey,
+                List.of(TaskState.PENDING, TaskState.PROCESSING));
+        if (!existing.isEmpty()) {
+            translateTaskMetrics.recordDedupHit();
+            return AsyncTaskResponse.convert(existing.get(0));
+        }
+
         String parameters = cn.hutool.json.JSONUtil.toJsonStr(request);
 
-        List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndParametersAndStateIn(
-                TaskType.PRODUCT_AI_TRANSLATE, parameters,
-                List.of(TaskState.PENDING, TaskState.PROCESSING));
-        ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(existing.isEmpty(), "该商品正在翻译中，请勿重复提交");
+        String title = StrUtil.isNotBlank(product.getTitle())
+                ? product.getTitle()
+                : "商品#" + product.getId();
+        String taskName = "AI翻译: " + title + " → " + language.getName();
 
         AsyncTask asyncTask = AsyncTask.builder()
                 .taskType(TaskType.PRODUCT_AI_TRANSLATE)
                 .state(TaskState.PENDING)
                 .progress(0)
                 .parameters(parameters)
+                .name(taskName)
+                .dedupKey(dedupKey)
                 .build()
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
+        translateTaskMetrics.recordSubmit();
         taskService.submitAsyncTask(asyncTask.getId());
         return AsyncTaskResponse.convert(asyncTask);
     }
@@ -492,7 +418,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     @Override
     @Transactional
     public ProductResponse assembleTranslatedProduct(
-            Product product, Language language, SystemUser owner,
+            Product product, Language language, Country country, SystemUser owner,
             List<String> translatedTexts, String translatedIntroduction,
             Map<String, byte[]> translatedImageMap) throws Exception {
 
@@ -579,7 +505,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .language(language)
                 .spu(product.getSpu())
                 .alternativeSkus(product.getAlternativeSkus())
-                .country(product.getCountry())
+                .country(country)
                 .botShowSpu(product.getBotShowSpu())
                 .riskUserShowSpu(product.getRiskUserShowSpu())
                 .blacklistedUserShowSpu(product.getBlacklistedUserShowSpu())
@@ -589,36 +515,6 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
         spuRepository.refreshUpdateTime(product.getSpu().getId());
         return ProductResponse.convertEntity(multimediaFileService, saveAndFlush(newProduct));
-    }
-
-    private String translateIntroductionImages(String introduction, String langName, SystemUser owner) {
-        Matcher matcher = IMG_ID_PATTERN.matcher(introduction);
-        StringBuffer sb = new StringBuffer();
-        while (matcher.find()) {
-            String imgId = matcher.group(1);
-            try {
-                MultimediaFile originalFile = multimediaFileService.getById(Long.valueOf(imgId));
-                InputStream originalStream = s3Service.download(originalFile.getRelativePath());
-                byte[] originalBytes = originalStream.readAllBytes();
-                String mimeType = "image/" + (originalFile.getSuffix().equalsIgnoreCase("jpg")
-                        ? "jpeg" : originalFile.getSuffix().toLowerCase());
-
-                byte[] translatedBytes = geminiTranslateService.translateImage(
-                        originalBytes, mimeType, langName);
-
-                if (translatedBytes != null) {
-                    MultimediaFile newFile = saveTranslatedImage(translatedBytes, originalFile.getSuffix(), owner);
-                    matcher.appendReplacement(sb, "/multimedia/" + newFile.getId());
-                } else {
-                    matcher.appendReplacement(sb, matcher.group());
-                }
-            } catch (Exception e) {
-                log.warn("图片翻译失败, imgId={}, 使用原图", imgId, e);
-                matcher.appendReplacement(sb, matcher.group());
-            }
-        }
-        matcher.appendTail(sb);
-        return sb.toString();
     }
 
     private MultimediaFile saveTranslatedImage(byte[] imageBytes, String suffix, SystemUser owner) throws Exception {

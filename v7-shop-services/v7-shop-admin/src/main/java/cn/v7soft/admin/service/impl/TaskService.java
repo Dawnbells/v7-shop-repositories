@@ -30,6 +30,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
@@ -63,6 +64,7 @@ import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
+import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.Order;
@@ -105,14 +107,18 @@ public class TaskService implements ITaskService {
     private final GeminiTranslateService geminiTranslateService;
     private final IMultimediaFileService multimediaFileService;
     private final cn.v7soft.admin.service.ILanguageService languageService;
+    private final cn.v7soft.admin.service.ICountryService countryService;
     private final AsyncTaskRepository asyncTaskRepository;
+    private final TranslateTaskMetrics translateTaskMetrics;
     private final ITaskService self;
 
     public TaskService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
                        @Lazy IProductService productService, GeminiTranslateService geminiTranslateService,
                        IMultimediaFileService multimediaFileService, cn.v7soft.admin.service.ILanguageService languageService,
-                       AsyncTaskRepository asyncTaskRepository, @Lazy ITaskService self) {
+                       cn.v7soft.admin.service.ICountryService countryService,
+                       AsyncTaskRepository asyncTaskRepository, TranslateTaskMetrics translateTaskMetrics,
+                       @Lazy ITaskService self) {
         this.asyncTaskService = asyncTaskService;
         this.orderService = orderService;
         this.s3Service = s3Service;
@@ -122,7 +128,9 @@ public class TaskService implements ITaskService {
         this.geminiTranslateService = geminiTranslateService;
         this.multimediaFileService = multimediaFileService;
         this.languageService = languageService;
+        this.countryService = countryService;
         this.asyncTaskRepository = asyncTaskRepository;
+        this.translateTaskMetrics = translateTaskMetrics;
         this.self = self;
     }
 
@@ -225,6 +233,7 @@ public class TaskService implements ITaskService {
     }
 
     @Override
+    @Transactional
     public AsyncTaskResponse retry(Long taskId) {
         AsyncTask task = asyncTaskService.getById(taskId);
         log.info("[retry] taskId={} 请求重试, 当前状态={}, taskType={}", taskId, task.getState(), task.getTaskType());
@@ -235,8 +244,10 @@ public class TaskService implements ITaskService {
         task.setMessage("正在重试...");
         task.setAcknowledged(false);
         asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
+        asyncTaskRepository.resetCreateTime(taskId, java.time.LocalDateTime.now());
         log.info("[retry] taskId={} 已重置为 PENDING, 重新提交任务", taskId);
         self.submitAsyncTask(task.getId());
+        task.setCreateTime(java.time.LocalDateTime.now());
         return AsyncTaskResponse.convert(task);
     }
 
@@ -503,11 +514,14 @@ public class TaskService implements ITaskService {
 
             Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
             Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
+            Country country = request.getCountryId() != null
+                    ? countryService.getById(Long.valueOf(request.getCountryId()))
+                    : product.getCountry();
             SystemUser owner = task.getOwner();
             String langName = language.getName();
 
-            log.info("[batchTranslate] taskId={} 产品: title='{}', targetLang='{}'",
-                    task.getId(), product.getTitle(), langName);
+            log.info("[batchTranslate] taskId={} 产品: title='{}', targetLang='{}', targetCountry='{}'",
+                    task.getId(), product.getTitle(), langName, country != null ? country.getName() : "null");
 
             // === Step 1: 收集并提交 ===
             task.setMessage("正在准备翻译内容...");
@@ -578,15 +592,23 @@ public class TaskService implements ITaskService {
             // Step 3 ~ 5: 处理结果、补刀、保存（已有图片数据，直接传入）
             BatchJob currentJob = geminiTranslateService.getBatchJob(jobName);
             processBatchResultAndSave(task, batchState, currentJob, jobName, uploadedFileName,
-                    product, language, owner, textsToTranslate, introduction, imgIds,
+                    product, language, country, owner, textsToTranslate, introduction, imgIds,
                     originalImageBytes, imageMimeTypes, translatableImgIds);
 
+            long elapsed = System.currentTimeMillis() - taskStart;
+            translateTaskMetrics.recordDuration(elapsed);
+            if (task.getState() == TaskState.COMPLETED) {
+                translateTaskMetrics.recordCompleted();
+            }
             log.info("[batchTranslate] taskId={} 批量翻译流程结束, 总耗时={}ms, 最终状态={}",
-                    task.getId(), System.currentTimeMillis() - taskStart, task.getState());
+                    task.getId(), elapsed, task.getState());
 
         } catch (Throwable e) {
+            long elapsed = System.currentTimeMillis() - taskStart;
+            translateTaskMetrics.recordFailed();
+            translateTaskMetrics.recordDuration(elapsed);
             log.error("[batchTranslate] taskId={} 批量翻译任务异常, 总耗时={}ms",
-                    task.getId(), System.currentTimeMillis() - taskStart, e);
+                    task.getId(), elapsed, e);
             task.setMessage(e.getMessage());
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
         }
@@ -600,16 +622,19 @@ public class TaskService implements ITaskService {
         long taskStart = System.currentTimeMillis();
         try {
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
-            log.info("[directTranslate] taskId={} 开始即时翻译, productId={}, languageId={}",
-                    task.getId(), request.getProductId(), request.getLanguageId());
+            log.info("[directTranslate] taskId={} 开始即时翻译, productId={}, languageId={}, countryId={}",
+                    task.getId(), request.getProductId(), request.getLanguageId(), request.getCountryId());
 
             Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
             Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
+            Country country = request.getCountryId() != null
+                    ? countryService.getById(Long.valueOf(request.getCountryId()))
+                    : product.getCountry();
             SystemUser owner = task.getOwner();
             String langName = language.getName();
 
-            log.info("[directTranslate] taskId={} 产品: title='{}', targetLang='{}'",
-                    task.getId(), product.getTitle(), langName);
+            log.info("[directTranslate] taskId={} 产品: title='{}', targetLang='{}', targetCountry='{}'",
+                    task.getId(), product.getTitle(), langName, country != null ? country.getName() : "null");
 
             task.setMessage("即时翻译: 正在准备...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 2);
@@ -716,7 +741,7 @@ public class TaskService implements ITaskService {
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 97);
 
             productService.assembleTranslatedProduct(
-                    product, language, owner, translatedTexts,
+                    product, language, country, owner, translatedTexts,
                     translatedHtml != null ? translatedHtml : introduction,
                     translatedImageMap);
 
@@ -724,11 +749,17 @@ public class TaskService implements ITaskService {
 
             task.setMessage("翻译完成");
             asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+            translateTaskMetrics.recordCompleted();
 
-            log.info("[directTranslate] taskId={} 即时翻译全部完成, 总耗时={}ms", task.getId(), System.currentTimeMillis() - taskStart);
+            long elapsed = System.currentTimeMillis() - taskStart;
+            translateTaskMetrics.recordDuration(elapsed);
+            log.info("[directTranslate] taskId={} 即时翻译全部完成, 总耗时={}ms", task.getId(), elapsed);
         } catch (Throwable e) {
+            long elapsed = System.currentTimeMillis() - taskStart;
+            translateTaskMetrics.recordFailed();
+            translateTaskMetrics.recordDuration(elapsed);
             log.error("[directTranslate] taskId={} 即时翻译任务异常, 总耗时={}ms",
-                    task.getId(), System.currentTimeMillis() - taskStart, e);
+                    task.getId(), elapsed, e);
             task.setMessage(e.getMessage());
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
         }
@@ -771,6 +802,9 @@ public class TaskService implements ITaskService {
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
             Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
             Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
+            Country country = request.getCountryId() != null
+                    ? countryService.getById(Long.valueOf(request.getCountryId()))
+                    : product.getCountry();
             SystemUser owner = task.getOwner();
             String langName = language.getName();
 
@@ -785,15 +819,23 @@ public class TaskService implements ITaskService {
             // === Phase 3: 下载结果并解析（无预加载图片，需要时懒加载） ===
             BatchJob currentJob = geminiTranslateService.getBatchJob(jobName);
             processBatchResultAndSave(task, batchState, currentJob, jobName, null,
-                    product, language, owner, textsToTranslate, introduction, imgIds,
+                    product, language, country, owner, textsToTranslate, introduction, imgIds,
                     null, null, null);
 
+            long elapsed = System.currentTimeMillis() - taskStart;
+            translateTaskMetrics.recordDuration(elapsed);
+            if (task.getState() == TaskState.COMPLETED) {
+                translateTaskMetrics.recordCompleted();
+            }
             log.info("[resumeTranslate] taskId={} 恢复流程全部完成, 总耗时={}ms, 最终状态={}",
-                    task.getId(), System.currentTimeMillis() - taskStart, task.getState());
+                    task.getId(), elapsed, task.getState());
 
         } catch (Throwable e) {
+            long elapsed = System.currentTimeMillis() - taskStart;
+            translateTaskMetrics.recordFailed();
+            translateTaskMetrics.recordDuration(elapsed);
             log.error("[resumeTranslate] taskId={} 恢复任务失败, 总耗时={}ms",
-                    task.getId(), System.currentTimeMillis() - taskStart, e);
+                    task.getId(), elapsed, e);
             task.setMessage(e.getMessage());
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
         }
@@ -816,6 +858,11 @@ public class TaskService implements ITaskService {
             if (freshTask.getState() == TaskState.CANCELLED) {
                 log.info("[pollBatchJob] taskId={} 任务已被用户取消", task.getId());
                 geminiTranslateService.cancelBatchJob(jobName);
+                cleanupBatchResources(jobName, uploadedFileName);
+                return null;
+            }
+            if (freshTask.getBatchJobName() == null || freshTask.getBatchJobName().isBlank()) {
+                log.info("[pollBatchJob] taskId={} batchJobName 已被清除（任务已切换模式），退出轮询", task.getId());
                 cleanupBatchResources(jobName, uploadedFileName);
                 return null;
             }
@@ -855,6 +902,7 @@ public class TaskService implements ITaskService {
             }
 
             if (elapsed >= BATCH_TIMEOUT_MS) {
+                translateTaskMetrics.recordTimeout();
                 log.warn("[pollBatchJob] taskId={} 超时({}ms), 取消 Batch Job: {}", task.getId(), BATCH_TIMEOUT_MS, jobName);
                 geminiTranslateService.cancelBatchJob(jobName);
                 ThreadUtil.sleep(10_000);
@@ -877,7 +925,7 @@ public class TaskService implements ITaskService {
      */
     private void processBatchResultAndSave(AsyncTask task, String batchState, BatchJob currentJob,
                                            String jobName, String uploadedFileName,
-                                           Product product, Language language, SystemUser owner,
+                                           Product product, Language language, Country country, SystemUser owner,
                                            List<String> textsToTranslate, String introduction,
                                            List<String> imgIds,
                                            Map<String, byte[]> preloadedImageBytes,
@@ -1008,6 +1056,7 @@ public class TaskService implements ITaskService {
 
         // --- Fallback: 文本 ---
         if (needTextFallback) {
+            translateTaskMetrics.recordFallbackText();
             long fbStart = System.currentTimeMillis();
             task.setMessage("正在补充翻译文本...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 84);
@@ -1017,6 +1066,7 @@ public class TaskService implements ITaskService {
         }
         // --- Fallback: HTML ---
         if (needHtmlFallback) {
+            translateTaskMetrics.recordFallbackHtml();
             long fbStart = System.currentTimeMillis();
             task.setMessage("正在补充翻译HTML...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 86);
@@ -1028,6 +1078,7 @@ public class TaskService implements ITaskService {
 
         // --- Fallback: 图片 ---
         if (needImageFallback) {
+            translateTaskMetrics.recordFallbackImage();
             Map<String, byte[]> fbImageBytes;
             Map<String, String> fbMimeTypes;
             List<String> fbImgIds;
@@ -1105,7 +1156,7 @@ public class TaskService implements ITaskService {
                 translatedImageMap.size());
 
         productService.assembleTranslatedProduct(
-                product, language, owner, translatedTexts,
+                product, language, country, owner, translatedTexts,
                 translatedHtml != null ? translatedHtml : introduction,
                 translatedImageMap);
 

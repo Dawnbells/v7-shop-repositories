@@ -12,6 +12,7 @@ import {
 export interface TaskItem {
   taskId: string
   taskType: string
+  name: string
   label: string
   state: 'PENDING' | 'PROCESSING' | 'RESOLVED' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
   progress: number
@@ -27,10 +28,12 @@ const POLL_FAST = 5_000
 const POLL_SLOW = 60_000
 
 function mapBackendTask(t: any): TaskItem {
+  const name = t.name || ''
   return {
     taskId: String(t.taskId),
     taskType: t.taskType,
-    label: taskTypeLabelMap[t.taskType] || t.taskType,
+    name,
+    label: name || taskTypeLabelMap[t.taskType] || t.taskType,
     state: t.state,
     progress: t.progress ?? 0,
     message: t.message ?? '',
@@ -113,6 +116,10 @@ export const useTasksStore = defineStore('tasks', {
             existing.acknowledged = bt.acknowledged
             existing.hasDownload = bt.hasDownload
             existing.inBatchMode = bt.inBatchMode
+            if (bt.name) {
+              existing.name = bt.name
+              existing.label = bt.name
+            }
           } else {
             this.tasks.push(bt)
           }
@@ -140,8 +147,10 @@ export const useTasksStore = defineStore('tasks', {
       const existing = this.tasks.find((t) => t.taskId === task.taskId)
       if (existing) return
 
+      const label = task.name || task.label
       this.tasks.unshift({
         ...task,
+        label,
         createdAt: Date.now(),
         acknowledged: false,
         hasDownload: false,
@@ -232,10 +241,14 @@ export const useTasksStore = defineStore('tasks', {
       }
     },
 
-    isTranslatingProduct(productId: string, languageId: string): boolean {
+    isTranslatingProduct(productId: string, countryId: string, languageId: string): boolean {
       return this.activeTasks.some((t) => {
         if (t.taskType !== 'PRODUCT_AI_TRANSLATE') return false
-        return t.parameters?.productId === productId && t.parameters?.languageId === languageId
+        return (
+          t.parameters?.productId === productId &&
+          t.parameters?.countryId === countryId &&
+          t.parameters?.languageId === languageId
+        )
       })
     },
 

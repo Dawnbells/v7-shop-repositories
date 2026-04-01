@@ -40,7 +40,7 @@ export function getRemoteQueryMerchandise(query: string) {
   })
 }
 
-export function translateByAI(data: { productId: string; languageId: string }) {
+export function translateByAI(data: { productId: string; countryId: string; languageId: string }) {
   return request({
     url: '/product/translateByAI',
     method: 'post',

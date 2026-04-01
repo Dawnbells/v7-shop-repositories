@@ -35,7 +35,12 @@ public class AsyncTaskService extends BaseService<AsyncTask, AsyncTaskRepository
     @Override
     @Transactional
     public void updateAsyncTask(AsyncTask task, TaskState state, int progress) {
-        log.debug("update async task >> {} >> {} >> {} ", task.getId(), state, progress);
+        TaskState current = task.getState();
+        if (!current.canTransitionTo(state)) {
+            log.warn("[updateAsyncTask] 非法状态迁移被拦截: taskId={}, {} -> {}", task.getId(), current, state);
+            return;
+        }
+        log.debug("update async task >> {} >> {} -> {} >> {} ", task.getId(), current, state, progress);
         task.setState(state);
         task.setProgress(progress);
         saveAndFlush(task);

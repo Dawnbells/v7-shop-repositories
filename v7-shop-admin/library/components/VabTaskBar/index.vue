@@ -51,7 +51,9 @@
               class="task-bar-item"
             >
               <div class="task-bar-item-header">
-                <span class="task-bar-item-label">{{ task.label }}</span>
+                <el-tooltip :content="task.label" placement="top" :show-after="300" :disabled="!task.label || task.label.length < 25">
+                  <span class="task-bar-item-label">{{ task.label }}</span>
+                </el-tooltip>
                 <div class="task-bar-item-header-right">
                   <el-tag :type="stateTagType(task.state)" size="small" effect="plain">
                     {{ stateLabel(task.state) }}
@@ -148,9 +150,14 @@
           stripe
           style="width: 100%"
         >
-          <el-table-column label="类型" width="110">
+          <el-table-column label="类型" width="80">
             <template #default="{ row }">
               <el-tag size="small" effect="plain">{{ taskTypeLabel(row.taskType) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="任务名称" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.name || taskTypeLabel(row.taskType) }}
             </template>
           </el-table-column>
           <el-table-column label="状态" width="80" align="center">

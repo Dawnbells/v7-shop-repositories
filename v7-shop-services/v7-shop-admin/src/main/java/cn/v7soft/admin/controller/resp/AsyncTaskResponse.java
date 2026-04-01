@@ -16,6 +16,8 @@ public class AsyncTaskResponse {
 
     private Long taskId;
 
+    private String name;
+
     private TaskType taskType;
 
     private TaskState state;
@@ -36,6 +38,7 @@ public class AsyncTaskResponse {
         boolean isBatch = task.getBatchJobName() != null && !task.getBatchJobName().isBlank();
         return AsyncTaskResponse.builder()
                 .taskId(task.getId())
+                .name(task.getName())
                 .taskType(task.getTaskType())
                 .state(task.getState())
                 .progress(task.getProgress())

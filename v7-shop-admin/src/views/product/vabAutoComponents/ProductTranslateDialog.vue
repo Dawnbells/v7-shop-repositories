@@ -7,11 +7,29 @@
     @close="close"
   >
     <el-form ref="formRef" label-width="80px" :model="form" :rules="rules">
+      <el-form-item label="目标国家" prop="countryId">
+        <el-select
+          v-model="form.countryId"
+          filterable
+          placeholder="请选择目标国家"
+          :loading="countryLoading"
+          style="width: 100%"
+          @change="onCountryChange"
+        >
+          <el-option
+            v-for="item in countryOptions"
+            :key="item.id"
+            :label="item.name"
+            :value="item.id"
+          />
+        </el-select>
+      </el-form-item>
       <el-form-item label="目标语言" prop="languageId">
         <el-select
           v-model="form.languageId"
+          :disabled="!form.countryId"
           filterable
-          placeholder="请选择目标语言"
+          placeholder="请先选择目标国家"
           :loading="languageLoading"
           style="width: 100%"
         >
@@ -35,7 +53,7 @@
 </template>
 
 <script lang="ts" setup>
-import { getRemoteQueryLanguage } from '/@/api/language'
+import { getRemoteQuery as getRemoteQueryCountry } from '/@/api/country'
 import { translateByAI } from '/@/api/product'
 import { useTasksStore } from '/@/store/modules/tasks'
 
@@ -49,39 +67,64 @@ const tasksStore = useTasksStore()
 const formRef = ref<any>(null)
 const dialogFormVisible = ref<boolean>(false)
 const submitLoading = ref<boolean>(false)
+const countryLoading = ref<boolean>(false)
 const languageLoading = ref<boolean>(false)
+const countryOptions = ref<any[]>([])
 const languageOptions = ref<any[]>([])
 const form = reactive<any>({
   productId: '',
+  countryId: '',
   languageId: '',
 })
 const rules = reactive<any>({
+  countryId: [{ required: true, trigger: 'change', message: '请选择目标国家' }],
   languageId: [{ required: true, trigger: 'change', message: '请选择目标语言' }],
 })
 
 let currentProductTitle = ''
+let existingLanguageCountryPairs = new Set<string>()
+
+const onCountryChange = () => {
+  form.languageId = ''
+  loadLanguagesForCountry(form.countryId)
+}
+
+const loadLanguagesForCountry = (countryId: string) => {
+  if (!countryId) {
+    languageOptions.value = []
+    return
+  }
+  languageLoading.value = true
+  const selected = countryOptions.value.find((c: any) => c.id === countryId)
+  const langs = selected?.languages ?? []
+  languageOptions.value = langs.map((lang: any) => ({
+    ...lang,
+    disabled:
+      existingLanguageCountryPairs.has(`${countryId}:${lang.id}`) ||
+      tasksStore.isTranslatingProduct(form.productId, String(countryId), String(lang.id)),
+  }))
+  languageLoading.value = false
+}
 
 const showEdit = async (spuRow: any, productRow: any) => {
   form.productId = String(productRow.id)
+  form.countryId = ''
   form.languageId = ''
   currentProductTitle = productRow.title || `商品#${productRow.id}`
   dialogFormVisible.value = true
 
-  const existingLanguageIds = new Set(
-    (spuRow.productList || []).map((p: any) => p.language?.id)
+  existingLanguageCountryPairs = new Set(
+    (spuRow.productList || []).map(
+      (p: any) => `${p.country?.id}:${p.language?.id}`
+    )
   )
 
-  languageLoading.value = true
+  countryLoading.value = true
   try {
-    const { data } = await getRemoteQueryLanguage('')
-    languageOptions.value = (data.list || data).map((lang: any) => ({
-      ...lang,
-      disabled:
-        existingLanguageIds.has(lang.id) ||
-        tasksStore.isTranslatingProduct(form.productId, String(lang.id)),
-    }))
+    const { data } = await getRemoteQueryCountry('')
+    countryOptions.value = data.list || data
   } finally {
-    languageLoading.value = false
+    countryLoading.value = false
   }
 }
 
@@ -93,7 +136,9 @@ const close = () => {
   formRef.value?.clearValidate()
   formRef.value?.resetFields()
   form.productId = ''
+  form.countryId = ''
   form.languageId = ''
+  languageOptions.value = []
   emit('fetch-data')
 }
 
@@ -104,6 +149,7 @@ const save = () => {
         submitLoading.value = true
         const { data }: any = await translateByAI({
           productId: form.productId,
+          countryId: String(form.countryId),
           languageId: String(form.languageId),
         })
 
@@ -117,12 +163,14 @@ const save = () => {
         tasksStore.addTask({
           taskId: String(data.taskId),
           taskType: 'PRODUCT_AI_TRANSLATE',
-          label: `AI翻译: ${currentProductTitle} → ${langLabel}`,
+          name: data.name || '',
+          label: data.name || `AI翻译: ${currentProductTitle} → ${langLabel}`,
           state: data.state || 'PENDING',
           progress: data.progress ?? 0,
           message: data.message || '',
           parameters: {
             productId: form.productId,
+            countryId: String(form.countryId),
             languageId: String(form.languageId),
           },
         })

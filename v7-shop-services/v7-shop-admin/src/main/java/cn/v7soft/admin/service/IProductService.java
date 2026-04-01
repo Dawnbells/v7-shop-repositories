@@ -6,6 +6,7 @@ import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.common.service.IBaseDataRangeService;
+import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.SystemUser;
@@ -19,10 +20,6 @@ public interface IProductService extends IBaseDataRangeService<Product> {
     List<String> remoteQueryMerchandise(String query);
 
     ProductResponse translate(TranslateProductRequest request);
-
-    ProductResponse translateByAI(TranslateByAIRequest request);
-
-    ProductResponse translateByAI(TranslateByAIRequest request, SystemUser owner);
 
     AsyncTaskResponse submitTranslateByAI(TranslateByAIRequest request);
 
@@ -41,7 +38,7 @@ public interface IProductService extends IBaseDataRangeService<Product> {
      * @param translatedImageMap     图片ID -> 翻译后图片字节 (null 表示使用原图)
      */
     ProductResponse assembleTranslatedProduct(
-            Product product, Language language, SystemUser owner,
+            Product product, Language language, Country country, SystemUser owner,
             List<String> translatedTexts, String translatedIntroduction,
             Map<String, byte[]> translatedImageMap) throws Exception;
 }

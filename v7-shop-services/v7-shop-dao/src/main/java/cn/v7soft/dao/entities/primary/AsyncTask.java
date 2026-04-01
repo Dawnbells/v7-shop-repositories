@@ -73,6 +73,19 @@ public class AsyncTask extends BaseDataRangeEntity {
     @Column(name = "view_mode")
     private ViewMode viewMode;
 
+    /**
+     * 任务展示名称
+     */
+    @Column(name = "name", length = 255)
+    private String name;
+
+    /**
+     * 幂等去重键，格式：{taskType}:{ownerId}:{businessKey}
+     * 用于替代 parameters JSON 字符串全等比较
+     */
+    @Column(name = "dedup_key", length = 255)
+    private String dedupKey;
+
     @Column(name = "batch_job_name")
     private String batchJobName;
 
