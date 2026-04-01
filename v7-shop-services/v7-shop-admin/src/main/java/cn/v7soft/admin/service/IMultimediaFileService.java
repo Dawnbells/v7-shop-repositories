@@ -6,9 +6,15 @@ import java.util.List;
 import cn.v7soft.admin.controller.resp.MultimediaFileResponse;
 import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
+import cn.v7soft.dao.entities.primary.SystemUser;
 import jakarta.servlet.http.HttpServletRequest;
 
 public interface IMultimediaFileService extends IBaseDataRangeService<MultimediaFile> {
+
+    /**
+     * 将翻译后的图片字节上传到 S3 并创建 MultimediaFile 记录。
+     */
+    MultimediaFile saveTranslatedImage(byte[] imageBytes, String suffix, SystemUser owner) throws Exception;
     /**
      * 下载资源
      *

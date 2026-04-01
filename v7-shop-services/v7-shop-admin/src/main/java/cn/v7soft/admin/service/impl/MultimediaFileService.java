@@ -161,6 +161,30 @@ public class MultimediaFileService
     }
 
     @Override
+    public MultimediaFile saveTranslatedImage(byte[] imageBytes, String suffix, cn.v7soft.dao.entities.primary.SystemUser owner) throws Exception {
+        String newFileName = IdUtil.fastSimpleUUID();
+        LocalDateTime now = LocalDateTime.now();
+        String relativePath = MultimediaFileProperty.makeRelativePath(
+                MediaType.IMAGE, newFileName, now, suffix);
+
+        String mimeType = "image/" + (suffix.equalsIgnoreCase("jpg") ? "jpeg" : suffix.toLowerCase());
+        s3Service.upload(new ByteArrayInputStream(imageBytes), relativePath, mimeType);
+
+        BufferedImage bufferedImage = ImageIO.read(new ByteArrayInputStream(imageBytes));
+        int width = bufferedImage != null ? bufferedImage.getWidth() : 0;
+        int height = bufferedImage != null ? bufferedImage.getHeight() : 0;
+
+        MultimediaFile file = MultimediaFile.builder()
+                .name(newFileName).suffix(suffix)
+                .width(width).height(height)
+                .fileSize(imageBytes.length).mediaType(MediaType.IMAGE)
+                .relativePath(relativePath).createTime(now)
+                .mediaState(MediaState.UPLOADED).build();
+        file.setOwner(owner);
+        return multimediaFileService.saveAndFlush(file);
+    }
+
+    @Override
     public int deleteAllInFolder(Long folderId) {
         return repository.deleteAllInFolder(folderId);
     }

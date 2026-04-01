@@ -8,6 +8,7 @@ import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Language;
+import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.SystemUser;
 
@@ -35,10 +36,10 @@ public interface IProductService extends IBaseDataRangeService<Product> {
      *
      * @param translatedTexts  翻译后的短文本列表（与原文本顺序对应）
      * @param translatedIntroduction 翻译后的 HTML
-     * @param translatedImageMap     图片ID -> 翻译后图片字节 (null 表示使用原图)
+     * @param translatedImageMap     原图ID -> 已上传的翻译后 MultimediaFile (null 表示使用原图)
      */
     ProductResponse assembleTranslatedProduct(
             Product product, Language language, Country country, SystemUser owner,
             List<String> translatedTexts, String translatedIntroduction,
-            Map<String, byte[]> translatedImageMap) throws Exception;
+            Map<String, MultimediaFile> translatedImageMap) throws Exception;
 }

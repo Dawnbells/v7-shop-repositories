@@ -30,6 +30,9 @@ import com.google.genai.types.Type;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
 import com.google.genai.types.UploadFileConfig;
+import com.google.genai.errors.ApiException;
+import com.google.genai.errors.ServerException;
+import com.google.genai.errors.GenAiIOException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -44,6 +47,10 @@ public class GeminiTranslateService {
     private static final int TIMEOUT_HTML_MS = 180_000;
     private static final int TIMEOUT_IMAGE_MS = 300_000;
     private static final int TIMEOUT_DEFAULT_MS = 180_000;
+
+    private static final int MAX_RETRIES = 3;
+    private static final long INITIAL_RETRY_DELAY_MS = 3_000;
+    private static final double RETRY_BACKOFF = 3.0;
 
     private final Client client;
 
@@ -117,13 +124,7 @@ public class GeminiTranslateService {
         log.debug("[translateTexts] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response;
-        try {
-            response = client.models.generateContent(MODEL, prompt, config);
-        } catch (Exception e) {
-            long elapsed = System.currentTimeMillis() - start;
-            throw wrapIfTimeout(e, "translateTexts", TIMEOUT_TEXT_MS, elapsed);
-        }
+        GenerateContentResponse response = generateContentWithRetry("translateTexts", prompt, config, TIMEOUT_TEXT_MS);
         long elapsed = System.currentTimeMillis() - start;
         String json = response.text();
 
@@ -179,13 +180,7 @@ public class GeminiTranslateService {
         log.debug("[translateHtml] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response;
-        try {
-            response = client.models.generateContent(MODEL, prompt, config);
-        } catch (Exception e) {
-            long elapsed = System.currentTimeMillis() - start;
-            throw wrapIfTimeout(e, "translateHtml", TIMEOUT_HTML_MS, elapsed);
-        }
+        GenerateContentResponse response = generateContentWithRetry("translateHtml", prompt, config, TIMEOUT_HTML_MS);
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
@@ -270,13 +265,7 @@ public class GeminiTranslateService {
         log.debug("[translateImage] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response;
-        try {
-            response = client.models.generateContent(MODEL, content, config);
-        } catch (Exception e) {
-            long elapsed = System.currentTimeMillis() - start;
-            throw wrapIfTimeout(e, "translateImage", TIMEOUT_IMAGE_MS, elapsed);
-        }
+        GenerateContentResponse response = generateContentWithRetry("translateImage", content, config, TIMEOUT_IMAGE_MS);
         long elapsed = System.currentTimeMillis() - start;
 
         logTokenUsage("translateImage", elapsed, response);
@@ -608,6 +597,20 @@ public class GeminiTranslateService {
                 usage.cachedContentTokenCount().orElse(null));
     }
 
+    private boolean isRetryableException(Exception e) {
+        if (e instanceof ServerException se) {
+            int code = se.code();
+            return code == 500 || code == 502 || code == 503 || code == 504;
+        }
+        if (e instanceof ApiException ae) {
+            return ae.code() == 429;
+        }
+        if (e instanceof GenAiIOException) {
+            return true;
+        }
+        return isTimeoutException(e);
+    }
+
     private boolean isTimeoutException(Throwable ex) {
         Throwable current = ex;
         while (current != null) {
@@ -624,7 +627,55 @@ public class GeminiTranslateService {
         return false;
     }
 
-    private RuntimeException wrapIfTimeout(Exception e, String method, int timeoutMs, long elapsedMs) {
+    private GenerateContentResponse generateContentWithRetry(
+            String method, String prompt, GenerateContentConfig config, int timeoutMs) {
+        return doGenerateContentWithRetry(method, timeoutMs,
+                () -> client.models.generateContent(MODEL, prompt, config));
+    }
+
+    private GenerateContentResponse generateContentWithRetry(
+            String method, Content content, GenerateContentConfig config, int timeoutMs) {
+        return doGenerateContentWithRetry(method, timeoutMs,
+                () -> client.models.generateContent(MODEL, content, config));
+    }
+
+    @FunctionalInterface
+    private interface GenerateCall {
+        GenerateContentResponse call() throws Exception;
+    }
+
+    private GenerateContentResponse doGenerateContentWithRetry(
+            String method, int timeoutMs, GenerateCall callable) {
+        Exception lastException = null;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            if (attempt > 0) {
+                long delay = (long) (INITIAL_RETRY_DELAY_MS * Math.pow(RETRY_BACKOFF, attempt - 1));
+                log.warn("[{}] 第 {}/{} 次重试, 等待 {}ms...", method, attempt, MAX_RETRIES, delay);
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Gemini API 重试被中断（" + method + "）", ie);
+                }
+            }
+            long start = System.currentTimeMillis();
+            try {
+                return callable.call();
+            } catch (Exception e) {
+                long elapsed = System.currentTimeMillis() - start;
+                lastException = e;
+                if (isRetryableException(e) && attempt < MAX_RETRIES) {
+                    log.warn("[{}] 可重试异常 (attempt={}/{}), elapsed={}ms: {}",
+                            method, attempt + 1, MAX_RETRIES + 1, elapsed, e.getMessage());
+                    continue;
+                }
+                throw wrapException(e, method, timeoutMs, elapsed);
+            }
+        }
+        throw wrapException(lastException, method, timeoutMs, 0);
+    }
+
+    private RuntimeException wrapException(Exception e, String method, int timeoutMs, long elapsedMs) {
         if (isTimeoutException(e)) {
             log.error("[{}] Gemini API 调用超时: timeout={}ms, elapsed={}ms", method, timeoutMs, elapsedMs, e);
             return new RuntimeException(

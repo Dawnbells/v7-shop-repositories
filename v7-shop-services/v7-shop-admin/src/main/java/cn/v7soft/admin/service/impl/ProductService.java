@@ -1,9 +1,6 @@
 package cn.v7soft.admin.service.impl;
 
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -11,7 +8,6 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import javax.imageio.ImageIO;
 
 import org.apache.http.util.TextUtils;
 import org.hibernate.Hibernate;
@@ -19,7 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.controller.req.EditCloakInfoRequest;
 import cn.v7soft.admin.controller.req.EditProductRequest;
@@ -52,11 +47,8 @@ import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.Spu;
-import cn.v7soft.dao.enums.MediaState;
-import cn.v7soft.dao.enums.MediaType;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
-import cn.v7soft.dao.properties.MultimediaFileProperty;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ProductRepository;
 import cn.v7soft.dao.repositories.primary.SpuRepository;
@@ -420,25 +412,21 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     public ProductResponse assembleTranslatedProduct(
             Product product, Language language, Country country, SystemUser owner,
             List<String> translatedTexts, String translatedIntroduction,
-            Map<String, byte[]> translatedImageMap) throws Exception {
+            Map<String, MultimediaFile> translatedImageMap) throws Exception {
 
         String translatedTitle = translatedTexts.get(0);
         String translatedSummary = translatedTexts.get(1);
 
-        // 按固定位置索引消费 translatedTexts: [0]=title, [1]=summary, 之后每对 = spec attr name/value
         int textIdx = 2;
 
-        // 替换 introduction 中的图片引用
         String finalIntroduction = translatedIntroduction;
         if (finalIntroduction != null && translatedImageMap != null) {
             Matcher matcher = IMG_ID_PATTERN.matcher(finalIntroduction);
             StringBuffer sb = new StringBuffer();
             while (matcher.find()) {
                 String imgId = matcher.group(1);
-                byte[] imgBytes = translatedImageMap.get(imgId);
-                if (imgBytes != null) {
-                    MultimediaFile originalFile = multimediaFileService.getById(Long.valueOf(imgId));
-                    MultimediaFile newFile = saveTranslatedImage(imgBytes, originalFile.getSuffix(), owner);
+                MultimediaFile newFile = translatedImageMap.get(imgId);
+                if (newFile != null) {
                     matcher.appendReplacement(sb, "/multimedia/" + newFile.getId());
                 } else {
                     matcher.appendReplacement(sb, matcher.group());
@@ -448,7 +436,6 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
             finalIntroduction = sb.toString();
         }
 
-        // 按固定顺序消费 translatedTexts: [0]=title, [1]=summary, 之后每对 = spec attr name/value
         List<ProductSpecification> newSpecs = new ArrayList<>();
         for (ProductSpecification spec : product.getSpecificationList()) {
             ProductSpecification newSpec = ProductSpecification.builder()
@@ -515,28 +502,5 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
         spuRepository.refreshUpdateTime(product.getSpu().getId());
         return ProductResponse.convertEntity(multimediaFileService, saveAndFlush(newProduct));
-    }
-
-    private MultimediaFile saveTranslatedImage(byte[] imageBytes, String suffix, SystemUser owner) throws Exception {
-        String newFileName = IdUtil.fastSimpleUUID();
-        LocalDateTime now = LocalDateTime.now();
-        String relativePath = MultimediaFileProperty.makeRelativePath(
-                MediaType.IMAGE, newFileName, now, suffix);
-
-        String mimeType = "image/" + (suffix.equalsIgnoreCase("jpg") ? "jpeg" : suffix.toLowerCase());
-        s3Service.upload(new ByteArrayInputStream(imageBytes), relativePath, mimeType);
-
-        BufferedImage bufferedImage = ImageIO.read(new ByteArrayInputStream(imageBytes));
-        int width = bufferedImage != null ? bufferedImage.getWidth() : 0;
-        int height = bufferedImage != null ? bufferedImage.getHeight() : 0;
-
-        MultimediaFile file = MultimediaFile.builder()
-                .name(newFileName).suffix(suffix)
-                .width(width).height(height)
-                .fileSize(imageBytes.length).mediaType(MediaType.IMAGE)
-                .relativePath(relativePath).createTime(now)
-                .mediaState(MediaState.UPLOADED).build();
-        file.setOwner(owner);
-        return multimediaFileService.saveAndFlush(file);
     }
 }
