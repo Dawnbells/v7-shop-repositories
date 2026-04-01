@@ -27,6 +27,8 @@ import com.google.genai.types.Part;
 import com.google.genai.types.GenerateContentResponseUsageMetadata;
 import com.google.genai.types.Schema;
 import com.google.genai.types.Type;
+import com.google.genai.types.HttpOptions;
+import com.google.genai.types.HttpRetryOptions;
 import com.google.genai.types.UploadFileConfig;
 
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +39,11 @@ public class GeminiTranslateService {
 
     private static final String MODEL = "gemini-3.1-flash-image-preview";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    private static final int TIMEOUT_TEXT_MS = 120_000;
+    private static final int TIMEOUT_HTML_MS = 180_000;
+    private static final int TIMEOUT_IMAGE_MS = 300_000;
+    private static final int TIMEOUT_DEFAULT_MS = 180_000;
 
     private final Client client;
 
@@ -51,7 +58,19 @@ public class GeminiTranslateService {
             System.setProperty("https.proxyPort", String.valueOf(proxyPort));
             log.info("Gemini API 代理已配置: {}:{}", proxyHost, proxyPort);
         }
-        this.client = Client.builder().apiKey(apiKey).build();
+        this.client = Client.builder()
+                .apiKey(apiKey)
+                .httpOptions(HttpOptions.builder()
+                        .timeout(TIMEOUT_DEFAULT_MS)
+                        .retryOptions(HttpRetryOptions.builder()
+                                .attempts(2)
+                                .httpStatusCodes(408, 429, 500, 502, 503, 504)
+                                .initialDelay(2.0)
+                                .maxDelay(10.0)
+                                .expBase(2.0)
+                                .build())
+                        .build())
+                .build();
     }
 
     /**
@@ -90,13 +109,21 @@ public class GeminiTranslateService {
                                         .items(Schema.builder().type(Type.Known.STRING).build())
                                         .build())
                 .temperature(0.1f)
+                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_TEXT_MS).build())
                 .build();
 
-        log.info("[translateTexts] 请求 Gemini: model={}, textCount={}, targetLang={}", MODEL, texts.size(), targetLanguageName);
+        log.info("[translateTexts] 请求 Gemini: model={}, textCount={}, targetLang={}, timeout={}ms",
+                MODEL, texts.size(), targetLanguageName, TIMEOUT_TEXT_MS);
         log.debug("[translateTexts] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = client.models.generateContent(MODEL, prompt, config);
+        GenerateContentResponse response;
+        try {
+            response = client.models.generateContent(MODEL, prompt, config);
+        } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - start;
+            throw wrapIfTimeout(e, "translateTexts", TIMEOUT_TEXT_MS, elapsed);
+        }
         long elapsed = System.currentTimeMillis() - start;
         String json = response.text();
 
@@ -141,16 +168,24 @@ public class GeminiTranslateService {
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .systemInstruction(systemInstruction)
                 .temperature(0.1f)
+                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_HTML_MS).build())
                 .build();
 
         String prompt = "Translate the text content in this HTML to "
                         + targetLanguageName + ":\n\n" + html;
 
-        log.info("[translateHtml] 请求 Gemini: model={}, targetLang={}, htmlLength={}", MODEL, targetLanguageName, html.length());
+        log.info("[translateHtml] 请求 Gemini: model={}, targetLang={}, htmlLength={}, timeout={}ms",
+                MODEL, targetLanguageName, html.length(), TIMEOUT_HTML_MS);
         log.debug("[translateHtml] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = client.models.generateContent(MODEL, prompt, config);
+        GenerateContentResponse response;
+        try {
+            response = client.models.generateContent(MODEL, prompt, config);
+        } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - start;
+            throw wrapIfTimeout(e, "translateHtml", TIMEOUT_HTML_MS, elapsed);
+        }
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
@@ -227,14 +262,21 @@ public class GeminiTranslateService {
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .responseModalities(List.of("TEXT", "IMAGE"))
                 .temperature(0.2f)
+                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_IMAGE_MS).build())
                 .build();
 
-        log.info("[translateImage] 请求 Gemini: model={}, targetLang={}, mimeType={}, imageSize={}bytes",
-                MODEL, targetLanguageName, mimeType, imageBytes.length);
+        log.info("[translateImage] 请求 Gemini: model={}, targetLang={}, mimeType={}, imageSize={}bytes, timeout={}ms",
+                MODEL, targetLanguageName, mimeType, imageBytes.length, TIMEOUT_IMAGE_MS);
         log.debug("[translateImage] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = client.models.generateContent(MODEL, content, config);
+        GenerateContentResponse response;
+        try {
+            response = client.models.generateContent(MODEL, content, config);
+        } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - start;
+            throw wrapIfTimeout(e, "translateImage", TIMEOUT_IMAGE_MS, elapsed);
+        }
         long elapsed = System.currentTimeMillis() - start;
 
         logTokenUsage("translateImage", elapsed, response);
@@ -564,5 +606,34 @@ public class GeminiTranslateService {
                 usage.totalTokenCount().orElse(null),
                 usage.thoughtsTokenCount().orElse(null),
                 usage.cachedContentTokenCount().orElse(null));
+    }
+
+    private boolean isTimeoutException(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof java.net.SocketTimeoutException
+                    || current instanceof java.util.concurrent.TimeoutException) {
+                return true;
+            }
+            String msg = current.getMessage();
+            if (msg != null && (msg.toLowerCase().contains("timeout") || msg.toLowerCase().contains("timed out"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private RuntimeException wrapIfTimeout(Exception e, String method, int timeoutMs, long elapsedMs) {
+        if (isTimeoutException(e)) {
+            log.error("[{}] Gemini API 调用超时: timeout={}ms, elapsed={}ms", method, timeoutMs, elapsedMs, e);
+            return new RuntimeException(
+                    "Gemini API 调用超时（" + method + "，超时设置 " + timeoutMs + "ms，实际耗时 " + elapsedMs + "ms）", e);
+        }
+        log.error("[{}] Gemini API 调用异常: elapsed={}ms", method, elapsedMs, e);
+        if (e instanceof RuntimeException re) {
+            return re;
+        }
+        return new RuntimeException("Gemini API 调用失败（" + method + "）", e);
     }
 }
