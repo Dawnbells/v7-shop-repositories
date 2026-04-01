@@ -56,6 +56,9 @@ public interface ITaskService {
     @Async("threadPoolTaskExecutor")
     void executeDirectTranslateAsync(Long taskId);
 
+    @Async("threadPoolTaskExecutor")
+    void resumeTranslateTask(Long taskId);
+
     /**
      * 重试失败/已取消的任务。
      */

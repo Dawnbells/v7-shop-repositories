@@ -236,7 +236,7 @@ public class TaskService implements ITaskService {
         task.setAcknowledged(false);
         asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
         log.info("[retry] taskId={} 已重置为 PENDING, 重新提交任务", taskId);
-        submitAsyncTask(task.getId());
+        self.submitAsyncTask(task.getId());
         return AsyncTaskResponse.convert(task);
     }
 
@@ -262,11 +262,11 @@ public class TaskService implements ITaskService {
                 if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE
                         && task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
                     log.info("[recoverTasks] 恢复AI翻译任务(已提交Batch): taskId={}, jobName={}", task.getId(), task.getBatchJobName());
-                    resumeTranslateTask(task.getId());
+                    self.resumeTranslateTask(task.getId());
                 } else {
                     log.info("[recoverTasks] 重新执行任务: taskId={}, type={}, state={}", task.getId(), task.getTaskType(), task.getState());
                     asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
-                    submitAsyncTask(task.getId());
+                    self.submitAsyncTask(task.getId());
                 }
             } catch (Exception e) {
                 log.error("[recoverTasks] 恢复任务失败: taskId={}", task.getId(), e);
@@ -276,8 +276,9 @@ public class TaskService implements ITaskService {
         }
     }
 
+    @Override
     @Async("threadPoolTaskExecutor")
-    void resumeTranslateTask(Long taskId) {
+    public void resumeTranslateTask(Long taskId) {
         Pair<AsyncTask, SystemUserDto> pair = asyncTaskService.getAndInitializeOwner(taskId);
         AsyncTask task = pair.getKey();
         log.info("[resumeTranslateTask] 开始恢复AI翻译: taskId={}", taskId);
