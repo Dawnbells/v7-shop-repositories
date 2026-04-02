@@ -25,7 +25,6 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,13 +46,12 @@ import cn.hutool.poi.excel.ExcelUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
-import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.IOrderTemplateService;
 import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.service.IS3Service;
-import cn.v7soft.admin.service.ITaskService;
+import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
 import cn.v7soft.admin.service.dto.OrderDownloadDto;
@@ -101,7 +99,7 @@ import org.apache.poi.ss.usermodel.WorkbookFactory;
 
 @Slf4j
 @Service
-public class TaskService implements ITaskService {
+public class TaskExecutorService implements ITaskExecutorService {
 
     private final static int BATCH_SIZE = 1000;
     private final static int RUNNING_PROGRESS = 1;
@@ -172,7 +170,7 @@ public class TaskService implements ITaskService {
     private final cn.v7soft.admin.service.ICountryService countryService;
     private final AsyncTaskRepository asyncTaskRepository;
     private final TranslateTaskMetrics translateTaskMetrics;
-    private final ITaskService self;
+    private final ITaskExecutorService self;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
     private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final cn.v7soft.admin.service.ICompanyService companyService;
@@ -181,13 +179,13 @@ public class TaskService implements ITaskService {
     private final Retry geminiDirectRetry;
     private final Retry batchPollRetry;
 
-    public TaskService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
+    public TaskExecutorService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
                        @Lazy IProductService productService, GeminiTranslateService geminiTranslateService,
                        IMultimediaFileService multimediaFileService, cn.v7soft.admin.service.ILanguageService languageService,
                        cn.v7soft.admin.service.ICountryService countryService,
                        AsyncTaskRepository asyncTaskRepository, TranslateTaskMetrics translateTaskMetrics,
-                       @Lazy ITaskService self,
+                       @Lazy ITaskExecutorService self,
                        ImageTranslationCacheRepository imageTranslationCacheRepository,
                        TextTranslationCacheRepository textTranslationCacheRepository,
                        cn.v7soft.admin.service.ICompanyService companyService,
@@ -217,146 +215,7 @@ public class TaskService implements ITaskService {
         this.batchPollRetry = batchPollRetry;
     }
 
-    // ======================== ITaskService 接口实现 ========================
-
-    @Override
-    public AsyncTaskResponse status(Long taskId) {
-        AsyncTask task = asyncTaskService.getById(taskId);
-        return AsyncTaskResponse.convert(task);
-    }
-
-    @Override
-    public AsyncTaskResponse cancel(Long taskId) {
-        AsyncTask task = asyncTaskService.getById(taskId);
-        log.info("[cancel] taskId={} 请求取消, 当前状态={}, taskType={}, batchJobName={}",
-                taskId, task.getState(), task.getTaskType(), task.getBatchJobName());
-        if (task.getState() == TaskState.PENDING || task.getState() == TaskState.PROCESSING) {
-            task.setMessage("任务已取消");
-            asyncTaskService.updateAsyncTask(task, TaskState.CANCELLED, COMPLETED_OR_FAILED_PROGRESS);
-            if (task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
-                try {
-                    geminiTranslateService.cancelBatchJob(task.getBatchJobName());
-                    geminiTranslateService.deleteBatchJob(task.getBatchJobName());
-                    log.info("[cancel] taskId={} Gemini Batch 资源已清理", taskId);
-                } catch (Exception e) {
-                    log.warn("[cancel] taskId={} 清理 Gemini Batch 资源失败: {}", taskId, e.getMessage());
-                }
-            }
-        } else {
-            log.info("[cancel] taskId={} 状态为 {}, 不可取消", taskId, task.getState());
-        }
-        return AsyncTaskResponse.convert(task);
-    }
-
-    @Override
-    public InputStream download(Long id) {
-        AsyncTask task = asyncTaskService.getById(id);
-        return s3Service.download(task.getExportRelativePath());
-    }
-
-    @Override
-    public Page<AsyncTaskResponse> list(TaskState state, int page, int size) {
-        Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size);
-        Page<AsyncTask> taskPage = (state != null)
-                ? asyncTaskRepository.findByStateOrderByCreateTimeDesc(state, pageable)
-                : asyncTaskRepository.findAllByOrderByCreateTimeDesc(pageable);
-        return taskPage.map(AsyncTaskResponse::convert);
-    }
-
-    @Override
-    public Page<AsyncTaskResponse> unacknowledged(int page, int size) {
-        Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size);
-        return asyncTaskRepository.findByAcknowledgedFalseOrderByCreateTimeDesc(pageable)
-                .map(AsyncTaskResponse::convert);
-    }
-
-    @Override
-    public void acknowledge(Long taskId) {
-        AsyncTask task = asyncTaskService.getById(taskId);
-        task.setAcknowledged(true);
-        asyncTaskRepository.saveAndFlush(task);
-    }
-
-    @Override
-    public void acknowledgeAllCompleted() {
-        List<AsyncTask> unacked = asyncTaskRepository.findByAcknowledgedFalseOrderByCreateTimeDesc();
-        for (AsyncTask task : unacked) {
-            if (task.getState() == TaskState.COMPLETED || task.getState() == TaskState.FAILED || task.getState() == TaskState.CANCELLED) {
-                task.setAcknowledged(true);
-            }
-        }
-        asyncTaskRepository.saveAllAndFlush(unacked);
-    }
-
-    @Override
-    public AsyncTaskResponse switchToDirectTranslate(Long taskId) {
-        AsyncTask task = asyncTaskService.getById(taskId);
-        log.info("[switchToDirectTranslate] taskId={} 请求切换, 当前状态={}, batchJobName={}",
-                taskId, task.getState(), task.getBatchJobName());
-
-        if (task.getTaskType() != TaskType.PRODUCT_AI_TRANSLATE) {
-            throw new IllegalArgumentException("只有批量 AI 翻译任务支持此操作");
-        }
-        if (task.getState() != TaskState.PROCESSING && task.getState() != TaskState.PENDING) {
-            throw new IllegalStateException("只有执行中或等待中的任务才能切换模式");
-        }
-
-        if (task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
-            BatchJob batchJob = geminiTranslateService.getBatchJob(task.getBatchJobName());
-            try {
-                JsonNode jobJson = OBJECT_MAPPER.readTree(batchJob.toJson());
-                JsonNode statsNode = jobJson.path("batchStats");
-                if (!statsNode.isMissingNode()) {
-                    long requestCount = Long.parseLong(statsNode.path("requestCount").asText("0"));
-                    long pendingCount = Long.parseLong(statsNode.path("pendingRequestCount").asText("0"));
-                    if (pendingCount < requestCount) {
-                        throw new IllegalStateException(
-                                "批量任务已有部分请求在处理中，不允许切换为即时翻译 (pending="
-                                        + pendingCount + "/" + requestCount + ")");
-                    }
-                }
-            } catch (IllegalStateException e) {
-                throw e;
-            } catch (Exception e) {
-                log.warn("[switchToDirectTranslate] taskId={} 读取 batchStats 失败, 继续切换", task.getId(), e);
-            }
-            try {
-                geminiTranslateService.cancelBatchJob(task.getBatchJobName());
-                geminiTranslateService.deleteBatchJob(task.getBatchJobName());
-            } catch (Exception e) {
-                log.warn("[switchToDirectTranslate] taskId={} 清理 Batch Job 失败: {}", taskId, e.getMessage());
-            }
-        }
-
-        task.setBatchJobName(null);
-        task.setTaskType(TaskType.PRODUCT_AI_TRANSLATE_DIRECT);
-        task.setMessage("正在切换为即时翻译...");
-        asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
-        asyncTaskRepository.resetCreateTime(taskId, LocalDateTime.now());
-        log.info("[switchToDirectTranslate] taskId={} 已重置为 PENDING (DIRECT), 启动即时翻译", taskId);
-        self.submitAsyncTask(task.getId());
-        task.setCreateTime(LocalDateTime.now());
-        return AsyncTaskResponse.convert(task);
-    }
-
-    @Override
-    @Transactional
-    public AsyncTaskResponse retry(Long taskId) {
-        AsyncTask task = asyncTaskService.getById(taskId);
-        log.info("[retry] taskId={} 请求重试, 当前状态={}, taskType={}", taskId, task.getState(), task.getTaskType());
-        if (task.getState() != TaskState.FAILED && task.getState() != TaskState.CANCELLED) {
-            throw new IllegalStateException("只有失败或已取消的任务才能重试");
-        }
-        task.setBatchJobName(null);
-        task.setMessage("正在重试...");
-        task.setAcknowledged(false);
-        asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
-        asyncTaskRepository.resetCreateTime(taskId, LocalDateTime.now());
-        log.info("[retry] taskId={} 已重置为 PENDING, 重新提交任务", taskId);
-        self.submitAsyncTask(task.getId());
-        task.setCreateTime(LocalDateTime.now());
-        return AsyncTaskResponse.convert(task);
-    }
+    // ======================== ITaskExecutorService 接口实现 ========================
 
     @Override
     public void recoverUnfinishedTasks() {

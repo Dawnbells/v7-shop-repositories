@@ -31,7 +31,7 @@ import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductSKUService;
 import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.service.IS3Service;
-import cn.v7soft.admin.service.ITaskService;
+import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.utils.MultimediaUtil;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.ConvertUtils;
@@ -71,7 +71,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     private final SpuRepository spuRepository;
     private final IS3Service s3Service;
     private final AsyncTaskRepository asyncTaskRepository;
-    private final ITaskService taskService;
+    private final ITaskExecutorService taskExecutorService;
     private final TranslateTaskMetrics translateTaskMetrics;
 
     public ProductService(ProductRepository repository, IProductSKUService productSKUService,
@@ -79,7 +79,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                           EntityManager entityManager,
                           IMultimediaFileService multimediaFileService, SpuRepository spuRepository,
                           IS3Service s3Service,
-                          AsyncTaskRepository asyncTaskRepository, ITaskService taskService,
+                          AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService,
                           TranslateTaskMetrics translateTaskMetrics) {
         super(repository);
         this.productSKUService = productSKUService;
@@ -90,7 +90,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         this.spuRepository = spuRepository;
         this.s3Service = s3Service;
         this.asyncTaskRepository = asyncTaskRepository;
-        this.taskService = taskService;
+        this.taskExecutorService = taskExecutorService;
         this.translateTaskMetrics = translateTaskMetrics;
     }
 
@@ -393,7 +393,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         translateTaskMetrics.recordSubmit();
-        taskService.submitAsyncTask(asyncTask.getId());
+        taskExecutorService.submitAsyncTask(asyncTask.getId());
         return AsyncTaskResponse.convert(asyncTask);
     }
 
@@ -448,7 +448,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         translateTaskMetrics.recordSubmit();
-        taskService.submitAsyncTask(asyncTask.getId());
+        taskExecutorService.submitAsyncTask(asyncTask.getId());
         return AsyncTaskResponse.convert(asyncTask);
     }
 

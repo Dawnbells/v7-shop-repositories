@@ -28,9 +28,10 @@ const POLL_FAST = 5_000
 const POLL_SLOW = 60_000
 
 function mapBackendTask(t: any): TaskItem {
+  const taskId = String(t.id ?? t.taskId)
   const name = t.name || ''
   return {
-    taskId: String(t.taskId),
+    taskId,
     taskType: t.taskType,
     name,
     label: name || taskTypeLabelMap[t.taskType] || t.taskType,

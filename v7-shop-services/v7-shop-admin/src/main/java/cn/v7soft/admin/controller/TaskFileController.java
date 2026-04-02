@@ -1,6 +1,6 @@
 package cn.v7soft.admin.controller;
 
-import cn.v7soft.admin.service.ITaskService;
+import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.ServletException;
@@ -22,15 +22,13 @@ import java.io.OutputStream;
 @Tag(name = "异步任务-文件下载")
 @RequiredArgsConstructor
 public class TaskFileController {
-    private final ITaskService taskService;
+    private final IAsyncTaskService asyncTaskService;
     @GetMapping("/download/{id}")
     public void show(HttpServletResponse response, @PathVariable(value = "id") Long id) throws ServletException, IOException {
-        try(InputStream imageStream = taskService.download(id)) {
-            // 使用缓冲流逐步读取并写入数据
-            byte[] buffer = new byte[1024 * 1024]; // 1M 缓冲区
+        try(InputStream imageStream = asyncTaskService.download(id)) {
+            byte[] buffer = new byte[1024 * 1024];
             int bytesRead;
             OutputStream outStream = response.getOutputStream();
-            // 边读取边写入
             while ((bytesRead = imageStream.read(buffer)) != -1) {
                 outStream.write(buffer, 0, bytesRead);
             }

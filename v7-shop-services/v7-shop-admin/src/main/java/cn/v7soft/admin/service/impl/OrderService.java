@@ -19,7 +19,7 @@ import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.service.IOrderService;
-import cn.v7soft.admin.service.ITaskService;
+import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.common.controller.req.attributes.AccessDataRangeAttribute;
 import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
@@ -40,12 +40,12 @@ import lombok.extern.slf4j.Slf4j;
 public class OrderService extends BaseDataRangeService<Order, OrderRepository> implements IOrderService {
 
     private final AsyncTaskRepository asyncTaskRepository;
-    private final ITaskService taskService;
+    private final ITaskExecutorService taskExecutorService;
 
-    public OrderService(OrderRepository repository, AsyncTaskRepository asyncTaskRepository, ITaskService taskService) {
+    public OrderService(OrderRepository repository, AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService) {
         super(repository);
         this.asyncTaskRepository = asyncTaskRepository;
-        this.taskService = taskService;
+        this.taskExecutorService = taskExecutorService;
     }
 
     @Override
@@ -108,7 +108,7 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         // 提交异步任务执行
-        taskService.submitAsyncTask(asyncTask.getId());
+        taskExecutorService.submitAsyncTask(asyncTask.getId());
         // 返回任务ID
         return asyncTask.getId();
     }
@@ -146,7 +146,7 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
                     .fillOwner();
             asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
             // 提交异步任务执行
-            taskService.submitAsyncTask(asyncTask.getId());
+            taskExecutorService.submitAsyncTask(asyncTask.getId());
             // 文件上传成功，返回 true
             return asyncTask.getId();
         } catch (IOException e) {

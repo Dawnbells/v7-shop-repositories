@@ -23,11 +23,11 @@ export function cancelTask(taskId: string) {
   })
 }
 
-export function listTasks(params: { state?: string; page?: number; size?: number }) {
+export function listTasks(data: { state?: string; pageNo?: number; pageSize?: number; unacknowledgedOnly?: boolean }) {
   return request({
-    url: '/tasks/list',
-    method: 'get',
-    params,
+    url: '/tasks/page',
+    method: 'post',
+    data,
   })
 }
 
@@ -41,11 +41,15 @@ export function downloadFile(taskId: string) {
   return fetch(href)
 }
 
-export function fetchUnacknowledged(params?: { page?: number; size?: number }) {
+export function fetchUnacknowledged(params?: { pageNo?: number; pageSize?: number }) {
   return request({
-    url: '/tasks/unacknowledged',
-    method: 'get',
-    params,
+    url: '/tasks/page',
+    method: 'post',
+    data: {
+      pageNo: params?.pageNo ?? 1,
+      pageSize: params?.pageSize ?? 50,
+      unacknowledgedOnly: true,
+    },
   })
 }
 

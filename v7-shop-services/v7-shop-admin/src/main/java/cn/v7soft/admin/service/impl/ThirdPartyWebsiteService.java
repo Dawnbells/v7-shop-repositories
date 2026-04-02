@@ -55,7 +55,7 @@ import java.util.regex.Pattern;
 public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWebsite, ThirdPartyWebsiteRepository> implements IThirdPartyWebsiteService {
     private final RestTemplate restTemplate;
     private final AsyncTaskRepository asyncTaskRepository;
-    private final ITaskService taskService;
+    private final ITaskExecutorService taskExecutorService;
     private final ICurrencyService currencyService;
     private final ILanguageService languageService;
     private final ICountryService countryService;
@@ -66,11 +66,11 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     @Lazy
     private ThirdPartyWebsiteService thirdPartyWebsiteService;
 
-    public ThirdPartyWebsiteService(ThirdPartyWebsiteRepository repository, RestTemplate restTemplate, AsyncTaskRepository asyncTaskRepository, ITaskService taskService, ICurrencyService currencyService, ILanguageService languageService, ICountryService countryService, BotOrderCheckInfoRepository botOrderCheckInfoRepository, LogisticsInfoRepository logisticsInfoRepository, OrderService orderService) {
+    public ThirdPartyWebsiteService(ThirdPartyWebsiteRepository repository, RestTemplate restTemplate, AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService, ICurrencyService currencyService, ILanguageService languageService, ICountryService countryService, BotOrderCheckInfoRepository botOrderCheckInfoRepository, LogisticsInfoRepository logisticsInfoRepository, OrderService orderService) {
         super(repository);
         this.restTemplate = restTemplate;
         this.asyncTaskRepository = asyncTaskRepository;
-        this.taskService = taskService;
+        this.taskExecutorService = taskExecutorService;
         this.currencyService = currencyService;
         this.languageService = languageService;
         this.countryService = countryService;
@@ -382,7 +382,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         // 提交异步任务执行
-        taskService.submitAsyncTask(asyncTask.getId());
+        taskExecutorService.submitAsyncTask(asyncTask.getId());
         // 返回任务ID
         return asyncTask.getId();
     }

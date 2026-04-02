@@ -172,7 +172,7 @@ const save = (mode: 'batch' | 'direct') => {
         const modeLabel = isDirect ? '即时翻译' : 'AI翻译'
 
         tasksStore.addTask({
-          taskId: String(data.taskId),
+          taskId: String(data.id ?? data.taskId),
           taskType,
           name: data.name || '',
           label: data.name || `${modeLabel}: ${currentProductTitle} → ${langLabel}`,

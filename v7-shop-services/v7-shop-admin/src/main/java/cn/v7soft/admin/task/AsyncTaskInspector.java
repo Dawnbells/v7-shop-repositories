@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import cn.v7soft.admin.service.IAsyncTaskService;
-import cn.v7soft.admin.service.ITaskService;
+import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.service.impl.TranslateTaskMetrics;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.enums.TaskState;
@@ -17,10 +17,6 @@ import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * 运行期异步任务巡检：定时扫描 PENDING / PROCESSING 状态的翻译任务，
- * 识别卡死任务并自动恢复或标记为失败。
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -32,12 +28,9 @@ public class AsyncTaskInspector {
 
     private final AsyncTaskRepository asyncTaskRepository;
     private final IAsyncTaskService asyncTaskService;
-    private final ITaskService taskService;
+    private final ITaskExecutorService taskExecutorService;
     private final TranslateTaskMetrics translateTaskMetrics;
 
-    /**
-     * 每 5 分钟执行一次巡检
-     */
     @Scheduled(fixedDelay = 5 * 60 * 1000, initialDelay = 3 * 60 * 1000)
     public void inspectStuckTasks() {
         List<AsyncTask> stuckTasks = asyncTaskRepository.findByStateIn(
@@ -63,7 +56,7 @@ public class AsyncTaskInspector {
                             && task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
                         log.warn("[TaskInspector] 任务 {} 处于 PROCESSING 超过 {} 分钟且有 batchJobName，尝试恢复",
                                 task.getId(), minutesSinceUpdate);
-                        taskService.resumeTranslateTask(task.getId());
+                        taskExecutorService.resumeTranslateTask(task.getId());
                         recovered++;
                     } else {
                         log.warn("[TaskInspector] 任务 {} 处于 PROCESSING 超过 {} 分钟且无 batchJobName，标记失败",
@@ -77,7 +70,7 @@ public class AsyncTaskInspector {
                     log.warn("[TaskInspector] 任务 {} 处于 PENDING 超过 {} 分钟，重新投递",
                             task.getId(), minutesSinceUpdate);
                     asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
-                    taskService.submitAsyncTask(task.getId());
+                    taskExecutorService.submitAsyncTask(task.getId());
                     recovered++;
                 }
             } catch (Exception e) {

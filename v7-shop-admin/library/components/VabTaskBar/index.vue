@@ -180,7 +180,7 @@
                 link
                 type="primary"
                 size="small"
-                @click="handleDownload(row.taskId)"
+                @click="handleDownload(row.id ?? row.taskId)"
               >
                 下载
               </el-button>
@@ -338,8 +338,8 @@ const loadHistory = async (page?: number) => {
   historyLoading.value = true
   try {
     const params: Record<string, any> = {
-      page: historyPage.value - 1,
-      size: historyPageSize,
+      pageNo: historyPage.value,
+      pageSize: historyPageSize,
     }
     if (historyFilter.value) params.state = historyFilter.value
     const res = await listTasks(params)

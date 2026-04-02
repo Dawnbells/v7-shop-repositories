@@ -1,61 +1,95 @@
 package cn.v7soft.admin.controller;
 
-import org.springframework.data.domain.Page;
+import org.jetbrains.annotations.Nullable;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import cn.v7soft.admin.controller.req.EditAsyncTaskRequest;
+import cn.v7soft.admin.controller.req.QueryAsyncTaskRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
-import cn.v7soft.admin.service.ITaskService;
-import cn.v7soft.dao.enums.TaskState;
-import lombok.RequiredArgsConstructor;
+import cn.v7soft.admin.service.IAsyncTaskService;
+import cn.v7soft.admin.service.ITaskExecutorService;
+import cn.v7soft.common.controller.BaseDataRangeController;
+import cn.v7soft.core.controller.request.QueryPageRequest;
+import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
+import cn.v7soft.dao.entities.primary.AsyncTask;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
+@Validated
 @RestController
 @RequestMapping("/tasks")
-@RequiredArgsConstructor
-public class TaskController {
-    private final ITaskService taskService;
+@Tag(name = "异步任务管理")
+public class TaskController extends BaseDataRangeController<AsyncTask, IAsyncTaskService, AsyncTaskResponse, QueryAsyncTaskRequest, EditAsyncTaskRequest> {
+
+    private final ITaskExecutorService taskExecutorService;
+
+    protected TaskController(IAsyncTaskService service, ITaskExecutorService taskExecutorService) {
+        super(service);
+        this.taskExecutorService = taskExecutorService;
+    }
+
+    @Override
+    protected QueryPageRequest<AsyncTask> convertQueryPageRequest(QueryAsyncTaskRequest request) {
+        if (cn.hutool.core.util.StrUtil.isBlank(request.getSortBy())) {
+            request.setSortBy("createTime desc");
+        }
+        QueryPageRequest<AsyncTask> pageRequest = super.convertQueryPageRequest(request);
+        pageRequest.addConstraint(request.getState() != null,
+                EqualsQueryAttribute.builder().name("state").value(request.getState()).build());
+        pageRequest.addConstraint(Boolean.TRUE.equals(request.getUnacknowledgedOnly()),
+                EqualsQueryAttribute.builder().name("acknowledged").value(false).build());
+        return pageRequest;
+    }
+
+    @Override
+    protected AsyncTaskResponse convertEntity(AsyncTask task) {
+        return AsyncTaskResponse.convert(task);
+    }
+
+    @Override
+    protected AsyncTask convertRequest(@Nullable AsyncTask dbEntity, EditAsyncTaskRequest request) {
+        return AsyncTask.builder().build();
+    }
+
+    @Override
+    protected String getPermissionPrefix() {
+        return "tasks";
+    }
 
     @GetMapping("/status/{taskId}")
+    @Operation(summary = "查询任务状态")
     public AsyncTaskResponse status(@PathVariable("taskId") Long taskId) {
-        return taskService.status(taskId);
+        return service.status(taskId);
     }
 
     @PostMapping("/cancel/{taskId}")
+    @Operation(summary = "取消任务")
     public AsyncTaskResponse cancel(@PathVariable("taskId") Long taskId) {
-        return taskService.cancel(taskId);
-    }
-
-    @GetMapping("/list")
-    public Page<AsyncTaskResponse> list(
-            @RequestParam(required = false) TaskState state,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return taskService.list(state, page, size);
-    }
-
-    @GetMapping("/unacknowledged")
-    public Page<AsyncTaskResponse> unacknowledged(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return taskService.unacknowledged(page, size);
+        return service.cancel(taskId);
     }
 
     @PostMapping("/acknowledge/{taskId}")
+    @Operation(summary = "确认任务")
     public void acknowledge(@PathVariable("taskId") Long taskId) {
-        taskService.acknowledge(taskId);
+        service.acknowledge(taskId);
     }
 
     @PostMapping("/acknowledge-all-completed")
+    @Operation(summary = "确认所有已完成任务")
     public void acknowledgeAllCompleted() {
-        taskService.acknowledgeAllCompleted();
+        service.acknowledgeAllCompleted();
     }
 
     @PostMapping("/switch-to-direct/{taskId}")
+    @Operation(summary = "切换为即时翻译")
     public AsyncTaskResponse switchToDirectTranslate(@PathVariable("taskId") Long taskId) {
-        return taskService.switchToDirectTranslate(taskId);
+        return service.switchToDirectTranslate(taskId);
     }
 
     @PostMapping("/retry/{taskId}")
+    @Operation(summary = "重试任务")
     public AsyncTaskResponse retry(@PathVariable("taskId") Long taskId) {
-        return taskService.retry(taskId);
+        return service.retry(taskId);
     }
 }
