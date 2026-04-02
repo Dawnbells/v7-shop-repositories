@@ -1119,6 +1119,7 @@ public class TaskService implements ITaskService {
         Map<String, String> uniqueTextMap = new LinkedHashMap<>();
         addTextIfPresent(uniqueTextMap, product.getTitle());
         addTextIfPresent(uniqueTextMap, product.getSummary());
+        addTextIfPresent(uniqueTextMap, product.getWaybillProductName());
         for (ProductSpecification spec : product.getSpecificationList()) {
             for (ProductSpecificationAttributes attr : spec.getAttributes()) {
                 addTextIfPresent(uniqueTextMap, attr.getName());

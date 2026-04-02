@@ -47,3 +47,11 @@ export function translateByAI(data: { productId: string; countryId: string; lang
     data,
   })
 }
+
+export function translateByAIDirect(data: { productId: string; countryId: string; languageId: string }) {
+  return request({
+    url: '/product/translateByAIDirect',
+    method: 'post',
+    data,
+  })
+}

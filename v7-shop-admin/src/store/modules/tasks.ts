@@ -48,7 +48,8 @@ const taskTypeLabelMap: Record<string, string> = {
   ORDER_DOWNLOAD: '订单下载',
   ORDER_UPLOAD: '订单上传',
   THIRD_PARTY_ORDER_SYNC: '第三方订单同步',
-  PRODUCT_AI_TRANSLATE: 'AI 翻译',
+  PRODUCT_AI_TRANSLATE: 'AI批量翻译',
+  PRODUCT_AI_TRANSLATE_DIRECT: 'AI即时翻译',
 }
 
 export const useTasksStore = defineStore('tasks', {
@@ -242,8 +243,9 @@ export const useTasksStore = defineStore('tasks', {
     },
 
     isTranslatingProduct(productId: string, countryId: string, languageId: string): boolean {
+      const translateTypes = new Set(['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_TRANSLATE_DIRECT'])
       return this.activeTasks.some((t) => {
-        if (t.taskType !== 'PRODUCT_AI_TRANSLATE') return false
+        if (!translateTypes.has(t.taskType)) return false
         return (
           t.parameters?.productId === productId &&
           t.parameters?.countryId === countryId &&

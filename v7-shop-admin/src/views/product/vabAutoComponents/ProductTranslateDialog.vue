@@ -45,8 +45,11 @@
     </el-form>
     <template #footer>
       <el-button @click="dialogFormVisible = false">取消</el-button>
-      <el-button :loading="submitLoading" type="primary" @click="save">
-        提交翻译
+      <el-button :loading="batchLoading" type="primary" @click="save('batch')">
+        批量翻译
+      </el-button>
+      <el-button :loading="directLoading" type="success" @click="save('direct')">
+        即时翻译
       </el-button>
     </template>
   </vab-dialog>
@@ -54,7 +57,7 @@
 
 <script lang="ts" setup>
 import { getRemoteQuery as getRemoteQueryCountry } from '/@/api/country'
-import { translateByAI } from '/@/api/product'
+import { translateByAI, translateByAIDirect } from '/@/api/product'
 import { useTasksStore } from '/@/store/modules/tasks'
 
 defineOptions({
@@ -66,7 +69,8 @@ const $baseMessage = inject<any>('$baseMessage')
 const tasksStore = useTasksStore()
 const formRef = ref<any>(null)
 const dialogFormVisible = ref<boolean>(false)
-const submitLoading = ref<boolean>(false)
+const batchLoading = ref<boolean>(false)
+const directLoading = ref<boolean>(false)
 const countryLoading = ref<boolean>(false)
 const languageLoading = ref<boolean>(false)
 const countryOptions = ref<any[]>([])
@@ -142,12 +146,17 @@ const close = () => {
   emit('fetch-data')
 }
 
-const save = () => {
+const save = (mode: 'batch' | 'direct') => {
   formRef.value.validate(async (valid: any) => {
     if (valid) {
+      const isDirect = mode === 'direct'
+      const loading = isDirect ? directLoading : batchLoading
       try {
-        submitLoading.value = true
-        const { data }: any = await translateByAI({
+        loading.value = true
+        const apiFn = isDirect ? translateByAIDirect : translateByAI
+        const taskType = isDirect ? 'PRODUCT_AI_TRANSLATE_DIRECT' : 'PRODUCT_AI_TRANSLATE'
+
+        const { data }: any = await apiFn({
           productId: form.productId,
           countryId: String(form.countryId),
           languageId: String(form.languageId),
@@ -160,11 +169,13 @@ const save = () => {
           ? `${selectedLang.cname}(${selectedLang.name})`
           : form.languageId
 
+        const modeLabel = isDirect ? '即时翻译' : 'AI翻译'
+
         tasksStore.addTask({
           taskId: String(data.taskId),
-          taskType: 'PRODUCT_AI_TRANSLATE',
+          taskType,
           name: data.name || '',
-          label: data.name || `AI翻译: ${currentProductTitle} → ${langLabel}`,
+          label: data.name || `${modeLabel}: ${currentProductTitle} → ${langLabel}`,
           state: data.state || 'PENDING',
           progress: data.progress ?? 0,
           message: data.message || '',
@@ -180,7 +191,7 @@ const save = () => {
       } catch (e: any) {
         $baseMessage(e?.response?.data?.msg || e?.msg || '提交失败，请重试', 'error', 'hey')
       } finally {
-        submitLoading.value = false
+        loading.value = false
       }
     }
   })

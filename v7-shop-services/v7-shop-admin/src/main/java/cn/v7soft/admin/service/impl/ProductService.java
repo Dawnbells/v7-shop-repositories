@@ -465,6 +465,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
         String translatedTitle = lookupTranslation(translatedTextMap, product.getTitle());
         String translatedSummary = lookupTranslation(translatedTextMap, product.getSummary());
+        String translatedWaybillProductName = lookupTranslation(translatedTextMap, product.getWaybillProductName());
 
         String finalIntroduction = translatedIntroduction;
         if (finalIntroduction != null && translatedImageMap != null) {
@@ -541,7 +542,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .summary(translatedSummary)
                 .introduction(finalIntroduction)
                 .merchandise(product.getMerchandise())
-                .waybillProductName(product.getWaybillProductName())
+                .waybillProductName(translatedWaybillProductName)
                 .sellPrice(product.getSellPrice())
                 .originPrice(product.getOriginPrice())
                 .costPrice(product.getCostPrice())
