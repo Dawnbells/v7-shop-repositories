@@ -25,10 +25,8 @@ import com.google.genai.types.GenerateContentResponseUsageMetadata;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
 import com.google.genai.types.UploadFileConfig;
-import com.google.genai.errors.ApiException;
-import com.google.genai.errors.ServerException;
-import com.google.genai.errors.GenAiIOException;
 
+import io.github.resilience4j.retry.Retry;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -43,16 +41,15 @@ public class GeminiTranslateService {
     private static final int TIMEOUT_IMAGE_MS = 300_000;
     private static final int TIMEOUT_DEFAULT_MS = 180_000;
 
-    private static final int MAX_RETRIES = 3;
-    private static final long INITIAL_RETRY_DELAY_MS = 3_000;
-    private static final double RETRY_BACKOFF = 3.0;
-
     private final Client client;
+    private final Retry geminiInternalRetry;
 
     public GeminiTranslateService(
             @Value("${gemini.api-key}") String apiKey,
             @Value("${gemini.proxy-host:}") String proxyHost,
-            @Value("${gemini.proxy-port:0}") int proxyPort) {
+            @Value("${gemini.proxy-port:0}") int proxyPort,
+            Retry geminiInternalRetry) {
+        this.geminiInternalRetry = geminiInternalRetry;
         if (proxyHost != null && !proxyHost.isBlank()) {
             System.setProperty("http.proxyHost", proxyHost);
             System.setProperty("http.proxyPort", String.valueOf(proxyPort));
@@ -75,10 +72,38 @@ public class GeminiTranslateService {
                 .build();
     }
 
+    // ======================== 带 Resilience4j 重试的翻译方法 ========================
+
     /**
-     * 翻译单条短文本（title/summary/spec name/value 等）。
+     * 翻译单条短文本（带 3 次内部重试）。
      */
     public String translateText(String text, String targetLanguageName) {
+        return Retry.decorateSupplier(geminiInternalRetry,
+                () -> translateTextRaw(text, targetLanguageName)).get();
+    }
+
+    /**
+     * 翻译 HTML 富文本（带 3 次内部重试）。
+     */
+    public String translateHtml(String html, String targetLanguageName) {
+        return Retry.decorateSupplier(geminiInternalRetry,
+                () -> translateHtmlRaw(html, targetLanguageName)).get();
+    }
+
+    /**
+     * 翻译图片中的叠加设计文字（带 3 次内部重试）。
+     */
+    public byte[] translateImage(byte[] imageBytes, String mimeType, String targetLanguageName) {
+        return Retry.decorateSupplier(geminiInternalRetry,
+                () -> translateImageRaw(imageBytes, mimeType, targetLanguageName)).get();
+    }
+
+    // ======================== Raw 方法（无内部重试，供 Phase C 外层 Retry 使用） ========================
+
+    /**
+     * 翻译单条短文本，单次调用不重试。
+     */
+    public String translateTextRaw(String text, String targetLanguageName) {
         if (text == null || text.isBlank()) {
             return text;
         }
@@ -102,39 +127,35 @@ public class GeminiTranslateService {
 
         log.info("[translateText] 请求 Gemini: model={}, targetLang={}, textLength={}, timeout={}ms",
                 MODEL, targetLanguageName, text.length(), TIMEOUT_TEXT_MS);
-        log.debug("[translateText] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = generateContentWithRetry("translateText", prompt, config, TIMEOUT_TEXT_MS);
+        GenerateContentResponse response = client.models.generateContent(MODEL, prompt, config);
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
         logTokenUsage("translateText", elapsed, response);
-        log.debug("[translateText] result={}", result);
-
         return result;
     }
 
     /**
-     * 翻译 HTML 富文本。
-     * 保留 HTML 标签结构不变，仅翻译可见文本内容。
+     * 翻译 HTML 富文本，单次调用不重试。
      */
-    public String translateHtml(String html, String targetLanguageName) {
+    public String translateHtmlRaw(String html, String targetLanguageName) {
         if (html == null || html.isBlank()) {
             return html;
         }
 
         Content systemInstruction = Content.fromParts(Part.fromText("""
-                                                                            You are a professional HTML content translator for e-commerce product pages.
-                                                                            You MUST follow these rules strictly:
-                                                                            - Translate ONLY the visible text content to %s
-                                                                            - Preserve ALL HTML tags, attributes, and structure exactly as they are
-                                                                            - Do NOT modify any tag names, class names, style attributes, src URLs, or href URLs
-                                                                            - Do NOT modify <img> tags or their src/alt attributes in any way
-                                                                            - Do NOT add or remove any HTML tags
-                                                                            - Keep brand names, product model numbers unchanged
-                                                                            - Output the complete translated HTML, nothing else
-                                                                            """.formatted(targetLanguageName)));
+                You are a professional HTML content translator for e-commerce product pages.
+                You MUST follow these rules strictly:
+                - Translate ONLY the visible text content to %s
+                - Preserve ALL HTML tags, attributes, and structure exactly as they are
+                - Do NOT modify any tag names, class names, style attributes, src URLs, or href URLs
+                - Do NOT modify <img> tags or their src/alt attributes in any way
+                - Do NOT add or remove any HTML tags
+                - Keep brand names, product model numbers unchanged
+                - Output the complete translated HTML, nothing else
+                """.formatted(targetLanguageName)));
 
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .systemInstruction(systemInstruction)
@@ -147,24 +168,21 @@ public class GeminiTranslateService {
 
         log.info("[translateHtml] 请求 Gemini: model={}, targetLang={}, htmlLength={}, timeout={}ms",
                 MODEL, targetLanguageName, html.length(), TIMEOUT_HTML_MS);
-        log.debug("[translateHtml] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = generateContentWithRetry("translateHtml", prompt, config, TIMEOUT_HTML_MS);
+        GenerateContentResponse response = client.models.generateContent(MODEL, prompt, config);
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
         logTokenUsage("translateHtml", elapsed, response);
-        log.debug("[translateHtml] responseText={}", result);
-
         return result;
     }
 
     /**
-     * 翻译图片中的叠加设计文字。
-     * 单次调用完成分析+翻译：无需翻译时返回 null，需要翻译时返回新图片字节数组。
+     * 翻译图片中的叠加设计文字，单次调用不重试。
+     * 无需翻译时返回 null。
      */
-    public byte[] translateImage(byte[] imageBytes, String mimeType, String targetLanguageName) {
+    public byte[] translateImageRaw(byte[] imageBytes, String mimeType, String targetLanguageName) {
         String prompt = """
                 First, analyze whether the image contains any readable text.
                 
@@ -232,14 +250,17 @@ public class GeminiTranslateService {
 
         log.info("[translateImage] 请求 Gemini: model={}, targetLang={}, mimeType={}, imageSize={}bytes, timeout={}ms",
                 MODEL, targetLanguageName, mimeType, imageBytes.length, TIMEOUT_IMAGE_MS);
-        log.debug("[translateImage] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = generateContentWithRetry("translateImage", content, config, TIMEOUT_IMAGE_MS);
+        GenerateContentResponse response = client.models.generateContent(MODEL, content, config);
         long elapsed = System.currentTimeMillis() - start;
 
         logTokenUsage("translateImage", elapsed, response);
 
+        return extractImageResult(response);
+    }
+
+    private byte[] extractImageResult(GenerateContentResponse response) {
         List<Part> parts = response.parts();
         if (parts == null || parts.isEmpty()) {
             log.warn("[translateImage] Gemini 响应中没有 parts");
@@ -250,11 +271,11 @@ public class GeminiTranslateService {
             Part part = parts.get(i);
             if (part.inlineData().isPresent()) {
                 var blob = part.inlineData().get();
-                int dataSize = blob.data().isPresent() ? ((byte[]) blob.data().get()).length : 0;
+                int dataSize = blob.data().isPresent() ? blob.data().get().length : 0;
                 log.info("[translateImage] part[{}] 类型=IMAGE, mimeType={}, dataSize={}bytes",
                         i, blob.mimeType().orElse("unknown"), dataSize);
                 if (blob.data().isPresent()) {
-                    imageResult = (byte[]) blob.data().get();
+                    imageResult = blob.data().get();
                 }
             } else if (part.text().isPresent()) {
                 boolean isThought = part.thought().orElse(false);
@@ -278,9 +299,6 @@ public class GeminiTranslateService {
         return MODEL;
     }
 
-    /**
-     * 构建单条文本翻译的 JSONL 行。
-     */
     public String buildTextTranslateJsonlEntry(String key, String text, String targetLanguageName) {
         String prompt = """
                 You are a professional e-commerce product translator.
@@ -311,9 +329,6 @@ public class GeminiTranslateService {
         return root.toString();
     }
 
-    /**
-     * 构建 HTML 翻译的 JSONL 行。
-     */
     public String buildHtmlTranslateJsonlEntry(String key, String html, String targetLanguageName) {
         String systemText = """
                 You are a professional HTML content translator for e-commerce product pages.
@@ -352,9 +367,6 @@ public class GeminiTranslateService {
         return root.toString();
     }
 
-    /**
-     * 构建单张图片翻译的 JSONL 行。
-     */
     public String buildImageTranslateJsonlEntry(String key, byte[] imageBytes, String mimeType, String targetLanguageName) {
         String prompt = """
                 First, analyze whether the image contains any readable text.
@@ -439,10 +451,6 @@ public class GeminiTranslateService {
         return root.toString();
     }
 
-    /**
-     * 上传 JSONL 内容到 Gemini File API。
-     * @return 上传后的文件名 (如 "files/xxx")
-     */
     public String uploadBatchFile(String jsonlContent) throws IOException {
         File tempFile = File.createTempFile("batch-translate-", ".jsonl");
         try {
@@ -464,9 +472,6 @@ public class GeminiTranslateService {
         }
     }
 
-    /**
-     * 创建 Batch Job。
-     */
     public BatchJob createBatchJob(String uploadedFileName) {
         BatchJobSource source = BatchJobSource.builder()
                 .fileName(uploadedFileName)
@@ -479,16 +484,10 @@ public class GeminiTranslateService {
         return job;
     }
 
-    /**
-     * 查询 Batch Job 状态。
-     */
     public BatchJob getBatchJob(String jobName) {
         return client.batches.get(jobName, null);
     }
 
-    /**
-     * 取消 Batch Job。
-     */
     public void cancelBatchJob(String jobName) {
         try {
             client.batches.cancel(jobName, null);
@@ -498,9 +497,6 @@ public class GeminiTranslateService {
         }
     }
 
-    /**
-     * 删除 Batch Job。
-     */
     public void deleteBatchJob(String jobName) {
         try {
             client.batches.delete(jobName, null);
@@ -510,10 +506,6 @@ public class GeminiTranslateService {
         }
     }
 
-    /**
-     * 下载 Batch 结果文件内容。
-     * @return 结果文件的文本内容 (JSONL 格式)
-     */
     public String downloadBatchResult(String fileName) throws IOException {
         log.info("[downloadBatchResult] 下载结果文件: {}", fileName);
         File tempFile = File.createTempFile("batch-result-", ".jsonl");
@@ -527,9 +519,6 @@ public class GeminiTranslateService {
         }
     }
 
-    /**
-     * 删除 Gemini File API 中的文件。
-     */
     public void deleteFile(String fileName) {
         try {
             client.files.delete(fileName, null);
@@ -553,96 +542,5 @@ public class GeminiTranslateService {
                 usage.totalTokenCount().orElse(null),
                 usage.thoughtsTokenCount().orElse(null),
                 usage.cachedContentTokenCount().orElse(null));
-    }
-
-    private boolean isRetryableException(Exception e) {
-        if (e instanceof ServerException se) {
-            int code = se.code();
-            return code == 500 || code == 502 || code == 503 || code == 504;
-        }
-        if (e instanceof ApiException ae) {
-            return ae.code() == 429;
-        }
-        if (e instanceof GenAiIOException) {
-            return true;
-        }
-        return isTimeoutException(e);
-    }
-
-    private boolean isTimeoutException(Throwable ex) {
-        Throwable current = ex;
-        while (current != null) {
-            if (current instanceof java.net.SocketTimeoutException
-                    || current instanceof java.util.concurrent.TimeoutException) {
-                return true;
-            }
-            String msg = current.getMessage();
-            if (msg != null && (msg.toLowerCase().contains("timeout") || msg.toLowerCase().contains("timed out"))) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    private GenerateContentResponse generateContentWithRetry(
-            String method, String prompt, GenerateContentConfig config, int timeoutMs) {
-        return doGenerateContentWithRetry(method, timeoutMs,
-                () -> client.models.generateContent(MODEL, prompt, config));
-    }
-
-    private GenerateContentResponse generateContentWithRetry(
-            String method, Content content, GenerateContentConfig config, int timeoutMs) {
-        return doGenerateContentWithRetry(method, timeoutMs,
-                () -> client.models.generateContent(MODEL, content, config));
-    }
-
-    @FunctionalInterface
-    private interface GenerateCall {
-        GenerateContentResponse call() throws Exception;
-    }
-
-    private GenerateContentResponse doGenerateContentWithRetry(
-            String method, int timeoutMs, GenerateCall callable) {
-        Exception lastException = null;
-        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            if (attempt > 0) {
-                long delay = (long) (INITIAL_RETRY_DELAY_MS * Math.pow(RETRY_BACKOFF, attempt - 1));
-                log.warn("[{}] 第 {}/{} 次重试, 等待 {}ms...", method, attempt, MAX_RETRIES, delay);
-                try {
-                    Thread.sleep(delay);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("Gemini API 重试被中断（" + method + "）", ie);
-                }
-            }
-            long start = System.currentTimeMillis();
-            try {
-                return callable.call();
-            } catch (Exception e) {
-                long elapsed = System.currentTimeMillis() - start;
-                lastException = e;
-                if (isRetryableException(e) && attempt < MAX_RETRIES) {
-                    log.warn("[{}] 可重试异常 (attempt={}/{}), elapsed={}ms: {}",
-                            method, attempt + 1, MAX_RETRIES + 1, elapsed, e.getMessage());
-                    continue;
-                }
-                throw wrapException(e, method, timeoutMs, elapsed);
-            }
-        }
-        throw wrapException(lastException, method, timeoutMs, 0);
-    }
-
-    private RuntimeException wrapException(Exception e, String method, int timeoutMs, long elapsedMs) {
-        if (isTimeoutException(e)) {
-            log.error("[{}] Gemini API 调用超时: timeout={}ms, elapsed={}ms", method, timeoutMs, elapsedMs, e);
-            return new RuntimeException(
-                    "Gemini API 调用超时（" + method + "，超时设置 " + timeoutMs + "ms，实际耗时 " + elapsedMs + "ms）", e);
-        }
-        log.error("[{}] Gemini API 调用异常: elapsed={}ms", method, elapsedMs, e);
-        if (e instanceof RuntimeException re) {
-            return re;
-        }
-        return new RuntimeException("Gemini API 调用失败（" + method + "）", e);
     }
 }

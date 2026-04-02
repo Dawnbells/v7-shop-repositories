@@ -36,6 +36,10 @@ dependencies {
 
     // Google Gemini AI SDK
     implementation("com.google.genai:google-genai:1.43.0")
+
+    // Resilience4j - RateLimiter + Retry
+    implementation("io.github.resilience4j:resilience4j-ratelimiter:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-retry:2.2.0")
 }
 
 tasks.test {

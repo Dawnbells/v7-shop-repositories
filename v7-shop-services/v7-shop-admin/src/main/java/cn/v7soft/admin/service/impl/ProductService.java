@@ -335,7 +335,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .imageFiles(product.getImageFiles())
                 .language(language)
                 .spu(product.getSpu())
-                .alternativeSkus(product.getAlternativeSkus())
+                .alternativeSkus(new ArrayList<>(product.getAlternativeSkus()))
                 .country(product.getCountry())
                 .build();
         product.getSpecificationList().forEach(productSpecification -> productSpecification.setProduct(newProduct));
@@ -399,10 +399,69 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
     @Override
     @Transactional
+    public AsyncTaskResponse submitTranslateByAIDirect(TranslateByAIRequest request) {
+        Product product = getById(Long.parseLong(request.getProductId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(product, "商品不存在");
+
+        Country country = countryService.getById(Long.valueOf(request.getCountryId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(country, "目标国家不存在");
+
+        Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(language, "目标语言不存在");
+
+        boolean languageBelongsToCountry = country.getLanguages() != null
+                && country.getLanguages().stream().anyMatch(l -> l.getId().equals(language.getId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(languageBelongsToCountry,
+                "所选语言不属于目标国家支持的语言");
+
+        Product duplicate = repository.findBySameCountryLanguage(
+                product.getSpu().getId(), null, country.getId(), language.getId());
+        ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
+                "同一SPU下该国家和语言已存在商品，不允许重复");
+
+        String dedupKey = "PRODUCT_AI_TRANSLATE_DIRECT:" +
+                request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
+
+        List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndDedupKeyAndStateIn(
+                TaskType.PRODUCT_AI_TRANSLATE_DIRECT, dedupKey,
+                List.of(TaskState.PENDING, TaskState.PROCESSING));
+        if (!existing.isEmpty()) {
+            translateTaskMetrics.recordDedupHit();
+            return AsyncTaskResponse.convert(existing.get(0));
+        }
+
+        String parameters = cn.hutool.json.JSONUtil.toJsonStr(request);
+
+        String title = StrUtil.isNotBlank(product.getTitle())
+                ? product.getTitle()
+                : "商品#" + product.getId();
+        String taskName = "AI即时翻译: " + title + " → " + language.getName();
+
+        AsyncTask asyncTask = AsyncTask.builder()
+                .taskType(TaskType.PRODUCT_AI_TRANSLATE_DIRECT)
+                .state(TaskState.PENDING)
+                .progress(0)
+                .parameters(parameters)
+                .name(taskName)
+                .dedupKey(dedupKey)
+                .build()
+                .fillOwner();
+        asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
+        translateTaskMetrics.recordSubmit();
+        taskService.submitAsyncTask(asyncTask.getId());
+        return AsyncTaskResponse.convert(asyncTask);
+    }
+
+    @Override
+    @Transactional
     public ProductResponse assembleTranslatedProduct(
             Product product, Language language, Country country, SystemUser owner,
             Map<String, String> translatedTextMap, String translatedIntroduction,
             Map<String, MultimediaFile> translatedImageMap) throws Exception {
+
+        product = getByIdWithSpecifications(product.getId());
+        language = languageService.getById(language.getId());
+        country = countryService.getById(country.getId());
 
         String translatedTitle = lookupTranslation(translatedTextMap, product.getTitle());
         String translatedSummary = lookupTranslation(translatedTextMap, product.getSummary());
@@ -502,7 +561,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .imageFiles(newImageFiles)
                 .language(language)
                 .spu(product.getSpu())
-                .alternativeSkus(product.getAlternativeSkus())
+                .alternativeSkus(new ArrayList<>(product.getAlternativeSkus()))
                 .country(country)
                 .botShowSpu(product.getBotShowSpu())
                 .riskUserShowSpu(product.getRiskUserShowSpu())

@@ -90,10 +90,16 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
         return service.translate(request);
     }
 
-    @Operation(summary = "AI翻译（异步任务）")
+    @Operation(summary = "AI批量翻译（异步任务）")
     @PostMapping("/translateByAI")
     public AsyncTaskResponse translateByAI(@Valid @RequestBody TranslateByAIRequest request) {
         return service.submitTranslateByAI(request);
+    }
+
+    @Operation(summary = "AI即时翻译（异步任务）")
+    @PostMapping("/translateByAIDirect")
+    public AsyncTaskResponse translateByAIDirect(@Valid @RequestBody TranslateByAIRequest request) {
+        return service.submitTranslateByAIDirect(request);
     }
 
     @Override

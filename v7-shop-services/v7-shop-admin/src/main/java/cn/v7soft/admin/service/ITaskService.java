@@ -12,10 +12,10 @@ public interface ITaskService {
     InputStream download(Long id);
 
     /**
-     * 提交异步任务，必须是PENDING状态
-     * @param taskId 异步任务ID
+     * 提交异步任务，必须是PENDING状态。
+     * 根据 TaskType 自动分发到批量翻译或即时翻译流程。
      */
-    @Async
+    @Async("threadPoolTaskExecutor")
     void submitAsyncTask(Long taskId);
 
     AsyncTaskResponse status(Long taskId);
@@ -27,40 +27,26 @@ public interface ITaskService {
      */
     void recoverUnfinishedTasks();
 
-    /**
-     * 分页查询任务列表，支持按状态过滤。
-     */
     Page<AsyncTaskResponse> list(TaskState state, int page, int size);
 
-    /**
-     * 分页获取未确认的任务（活动的 + 已完成但未读的）。
-     */
     Page<AsyncTaskResponse> unacknowledged(int page, int size);
 
-    /**
-     * 标记单个任务为已确认。
-     */
     void acknowledge(Long taskId);
 
-    /**
-     * 批量标记所有已完成（COMPLETED/FAILED/CANCELLED）的未确认任务为已确认。
-     */
     void acknowledgeAllCompleted();
 
     /**
-     * 将正在进行的批量翻译任务切换为即时逐条翻译。
-     * 取消 Gemini Batch Job，清除 batchJobName，从头以直接 API 调用方式重新翻译。
+     * 将正在进行的批量翻译任务切换为即时翻译。
+     * 仅当 Batch Job 所有请求仍为 pending 时才允许切换。
+     * 修改 TaskType 为 PRODUCT_AI_TRANSLATE_DIRECT，重置 createTime，重新提交。
      */
     AsyncTaskResponse switchToDirectTranslate(Long taskId);
-
-    @Async("threadPoolTaskExecutor")
-    void executeDirectTranslateAsync(Long taskId);
 
     @Async("threadPoolTaskExecutor")
     void resumeTranslateTask(Long taskId);
 
     /**
-     * 重试失败/已取消的任务。
+     * 重试失败/已取消的任务，重置 createTime（前端重新计时）。
      */
     AsyncTaskResponse retry(Long taskId);
 }
