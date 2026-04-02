@@ -113,6 +113,14 @@ public class TaskExecutorService implements ITaskExecutorService {
 
     private static final long BATCH_POLL_INTERVAL_MS = 5 * 60 * 1000L;
     private static final long BATCH_TIMEOUT_MS = 24 * 60 * 60 * 1000L;
+
+    private volatile boolean shutdownRequested = false;
+
+    @jakarta.annotation.PreDestroy
+    public void onShutdown() {
+        shutdownRequested = true;
+        log.info("[TaskExecutorService] 收到应用关闭信号，通知所有长时间运行任务尽快退出");
+    }
     private static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Set<String> BATCH_COMPLETED_STATES = Set.of(
@@ -529,8 +537,12 @@ public class TaskExecutorService implements ITaskExecutorService {
             translateTaskMetrics.recordFailed();
             translateTaskMetrics.recordDuration(elapsed);
             log.error("[batchTranslate] taskId={} 异常, 总耗时={}ms", task.getId(), elapsed, e);
-            task.setMessage(e.getMessage());
-            asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+            if (!shutdownRequested) {
+                task.setMessage(e.getMessage());
+                asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+            } else {
+                log.info("[batchTranslate] taskId={} 应用关闭中, 跳过标记失败, 任务将在重启后恢复", task.getId());
+            }
         }
     }
 
@@ -541,6 +553,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                 task.getId(), jobName, BATCH_POLL_INTERVAL_MS, BATCH_TIMEOUT_MS);
 
         while (true) {
+            if (shutdownRequested) {
+                log.info("[pollBatchJob] taskId={} 应用正在关闭, 退出轮询, 任务将在重启后自动恢复", task.getId());
+                return null;
+            }
             AsyncTask freshTask = asyncTaskService.getById(task.getId());
             if (freshTask.getState() == TaskState.CANCELLED) {
                 log.info("[pollBatchJob] taskId={} 任务已取消", task.getId());
@@ -561,7 +577,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                         () -> geminiTranslateService.getBatchJob(jobName)).get();
             } catch (Exception e) {
                 log.warn("[pollBatchJob] taskId={} 本轮网络异常(重试3次仍失败), 跳过等待下次轮询", task.getId(), e);
-                ThreadUtil.sleep(BATCH_POLL_INTERVAL_MS);
+                sleepWithShutdownCheck(BATCH_POLL_INTERVAL_MS);
                 continue;
             }
 
@@ -609,7 +625,19 @@ public class TaskExecutorService implements ITaskExecutorService {
                 return batchState;
             }
 
-            ThreadUtil.sleep(BATCH_POLL_INTERVAL_MS);
+            sleepWithShutdownCheck(BATCH_POLL_INTERVAL_MS);
+        }
+    }
+
+    /**
+     * 分段 sleep，每 5 秒检查一次 shutdown 信号，使长时间 sleep 可被快速中断。
+     */
+    private void sleepWithShutdownCheck(long totalMs) {
+        long slept = 0;
+        while (slept < totalMs && !shutdownRequested) {
+            long chunk = Math.min(5000, totalMs - slept);
+            ThreadUtil.sleep(chunk);
+            slept += chunk;
         }
     }
 
@@ -816,8 +844,12 @@ public class TaskExecutorService implements ITaskExecutorService {
             translateTaskMetrics.recordFailed();
             translateTaskMetrics.recordDuration(elapsed);
             log.error("[resumeTranslate] taskId={} 恢复失败, 总耗时={}ms", task.getId(), elapsed, e);
-            task.setMessage(e.getMessage());
-            asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+            if (!shutdownRequested) {
+                task.setMessage(e.getMessage());
+                asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+            } else {
+                log.info("[resumeTranslate] taskId={} 应用关闭中, 跳过标记失败, 任务将在重启后恢复", task.getId());
+            }
         }
     }
 
@@ -851,8 +883,12 @@ public class TaskExecutorService implements ITaskExecutorService {
             translateTaskMetrics.recordFailed();
             translateTaskMetrics.recordDuration(elapsed);
             log.error("[directTranslate] taskId={} 异常, 总耗时={}ms", task.getId(), elapsed, e);
-            task.setMessage(e.getMessage());
-            asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+            if (!shutdownRequested) {
+                task.setMessage(e.getMessage());
+                asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+            } else {
+                log.info("[directTranslate] taskId={} 应用关闭中, 跳过标记失败, 任务将在重启后恢复", task.getId());
+            }
         }
     }
 
@@ -881,6 +917,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             String sourceText = entry.getValue();
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
+                if (shutdownRequested) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -891,12 +928,16 @@ public class TaskExecutorService implements ITaskExecutorService {
                         translatedTextMap.put(hash, translated);
                         writeSingleTextCache(sourceText, translated, ctx.getLanguage());
                     }
-                    saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
-                            false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
+                    if (!shutdownRequested) {
+                        saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
+                                false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
+                    }
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} text hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
-                    updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    if (!shutdownRequested) {
+                        updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    }
                     TenantContext.clear();
                 }
             }, translationExecutor));
@@ -907,6 +948,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             String htmlHash = DigestUtil.sha256Hex(ctx.getUncachedHtml());
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
+                if (shutdownRequested) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -917,12 +959,16 @@ public class TaskExecutorService implements ITaskExecutorService {
                         translatedHtmlRef.set(html);
                         writeHtmlTranslationCache(ctx.getUncachedHtml(), html, ctx.getLanguage());
                     }
-                    saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
-                            false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
+                    if (!shutdownRequested) {
+                        saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
+                                false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
+                    }
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} HTML 翻译失败", task.getId(), e);
                 } finally {
-                    updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    if (!shutdownRequested) {
+                        updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    }
                     TenantContext.clear();
                 }
             }, translationExecutor));
@@ -936,6 +982,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             MultimediaFile sourceFile = ctx.getImageHashToSourceFile().get(hash);
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
+                if (shutdownRequested) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -947,17 +994,23 @@ public class TaskExecutorService implements ITaskExecutorService {
                                 result, sourceFile.getSuffix(), ctx.getOwner());
                         translatedImageMap.put(hash, newFile);
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
-                        saveTokenUsageRecord(task.getId(), TranslationContentType.IMAGE, hash, langName,
-                                false, InvokeMode.STANDARD, usageRef.get(), true, null, null, null, owner);
+                        if (!shutdownRequested) {
+                            saveTokenUsageRecord(task.getId(), TranslationContentType.IMAGE, hash, langName,
+                                    false, InvokeMode.STANDARD, usageRef.get(), true, null, null, null, owner);
+                        }
                     } else if (sourceFile != null) {
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), null, true);
-                        saveNoOutputImageTokenRecord(task.getId(), hash, langName,
-                                InvokeMode.STANDARD, usageRef.get(), sourceFile, owner);
+                        if (!shutdownRequested) {
+                            saveNoOutputImageTokenRecord(task.getId(), hash, langName,
+                                    InvokeMode.STANDARD, usageRef.get(), sourceFile, owner);
+                        }
                     }
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} img hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
-                    updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    if (!shutdownRequested) {
+                        updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    }
                     TenantContext.clear();
                 }
             }, translationExecutor));
