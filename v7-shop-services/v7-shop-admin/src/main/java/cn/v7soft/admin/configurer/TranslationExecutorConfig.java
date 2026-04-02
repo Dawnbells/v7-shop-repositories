@@ -28,7 +28,7 @@ public class TranslationExecutorConfig {
 
     @Bean("translationExecutor")
     public ExecutorService translationExecutor() {
-        int threads = Runtime.getRuntime().availableProcessors();
+        int threads = Runtime.getRuntime().availableProcessors() * 2;
         return new ThreadPoolExecutor(threads, threads,
                 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(512),

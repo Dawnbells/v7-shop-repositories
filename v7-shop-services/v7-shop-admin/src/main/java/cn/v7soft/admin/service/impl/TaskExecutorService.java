@@ -870,10 +870,16 @@ public class TaskExecutorService implements ITaskExecutorService {
         String langName = ctx.getLangName();
         SystemUser owner = ctx.getOwner();
 
+        int totalTasks = ctx.getUncachedTextMap().size()
+                + ctx.getUncachedImageData().size()
+                + (ctx.getUncachedHtml() != null ? 1 : 0);
+        java.util.concurrent.atomic.AtomicInteger completedTasks = new java.util.concurrent.atomic.AtomicInteger(0);
+
         // 文本任务
         for (Map.Entry<String, String> entry : ctx.getUncachedTextMap().entrySet()) {
             String hash = entry.getKey();
             String sourceText = entry.getValue();
+            final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
@@ -890,6 +896,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} text hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
+                    updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
                     TenantContext.clear();
                 }
             }, translationExecutor));
@@ -898,6 +905,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         // HTML 任务
         if (ctx.getUncachedHtml() != null) {
             String htmlHash = DigestUtil.sha256Hex(ctx.getUncachedHtml());
+            final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
@@ -914,6 +922,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} HTML 翻译失败", task.getId(), e);
                 } finally {
+                    updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
                     TenantContext.clear();
                 }
             }, translationExecutor));
@@ -925,6 +934,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             byte[] imgBytes = entry.getValue();
             String mimeType = ctx.getUncachedImageMimeTypes().get(hash);
             MultimediaFile sourceFile = ctx.getImageHashToSourceFile().get(hash);
+            final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
@@ -947,6 +957,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} img hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
+                    updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
                     TenantContext.clear();
                 }
             }, translationExecutor));
@@ -969,6 +980,22 @@ public class TaskExecutorService implements ITaskExecutorService {
         java.util.function.Supplier<T> rateLimited = RateLimiter.decorateSupplier(geminiRateLimiter, supplier);
         java.util.function.Supplier<T> retried = Retry.decorateSupplier(geminiDirectRetry, rateLimited);
         return retried.get();
+    }
+
+    /**
+     * 即时翻译进度更新：将完成比例映射到 5%~95% 区间。
+     * synchronized 保证多线程串行更新，updateAsyncTask 内部会自动 getById 取最新版本。
+     */
+    private synchronized void updateDirectTranslateProgress(AsyncTask task, int completed, int total) {
+        try {
+            if (total <= 0) return;
+            int progress = 5 + (int) ((completed * 90.0) / total);
+            progress = Math.min(progress, 95);
+            task.setMessage(String.format("即时翻译中: %d/%d 已完成", completed, total));
+            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progress);
+        } catch (Exception e) {
+            log.debug("[directTranslate] 更新进度失败: taskId={}", task.getId(), e);
+        }
     }
 
     // ======================== Phase D: 保存新产品 ========================

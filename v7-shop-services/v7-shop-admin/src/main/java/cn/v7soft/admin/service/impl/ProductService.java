@@ -463,6 +463,19 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         language = languageService.getById(language.getId());
         country = countryService.getById(country.getId());
 
+        if (translatedImageMap != null) {
+            Map<String, MultimediaFile> refreshed = new java.util.HashMap<>();
+            for (Map.Entry<String, MultimediaFile> e : translatedImageMap.entrySet()) {
+                MultimediaFile file = e.getValue();
+                if (file != null && file.getId() != null) {
+                    refreshed.put(e.getKey(), multimediaFileService.getById(file.getId()));
+                } else {
+                    refreshed.put(e.getKey(), file);
+                }
+            }
+            translatedImageMap = refreshed;
+        }
+
         String translatedTitle = lookupTranslation(translatedTextMap, product.getTitle());
         String translatedSummary = lookupTranslation(translatedTextMap, product.getSummary());
         String translatedWaybillProductName = lookupTranslation(translatedTextMap, product.getWaybillProductName());

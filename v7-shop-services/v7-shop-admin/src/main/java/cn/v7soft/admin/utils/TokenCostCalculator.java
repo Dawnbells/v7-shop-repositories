@@ -5,6 +5,7 @@ import cn.v7soft.dao.enums.TranslationContentType;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.concurrent.ThreadLocalRandom;
 
 public final class TokenCostCalculator {
 
@@ -27,7 +28,8 @@ public final class TokenCostCalculator {
             {2048, 1680},
             {4096, 2520},
     };
-    private static final int EXTRA_OVERHEAD_TOKENS = 50;
+    private static final int MIN_EXTRA_OVERHEAD_TOKENS = 300;
+    private static final int MAX_EXTRA_OVERHEAD_TOKENS = 600;
 
     /**
      * 根据图片最大边长度（宽/高的较大值）计算档位 token。
@@ -43,14 +45,18 @@ public final class TokenCostCalculator {
      * 计算图片的业务 prompt token = 档位 token + 50。
      */
     public static int imageBusinessPromptTokens(int maxDimension) {
-        return resolveImageTierTokens(maxDimension) + EXTRA_OVERHEAD_TOKENS;
+        return resolveImageTierTokens(maxDimension) + getExtraOverheadTokens();
+    }
+
+    private static int getExtraOverheadTokens() {
+        return ThreadLocalRandom.current().nextInt(MIN_EXTRA_OVERHEAD_TOKENS, MAX_EXTRA_OVERHEAD_TOKENS + 1);
     }
 
     /**
      * 计算图片的业务 completion token = 档位 token + 50。
      */
     public static int imageBusinessCompletionTokens(int maxDimension) {
-        return resolveImageTierTokens(maxDimension) + EXTRA_OVERHEAD_TOKENS;
+        return resolveImageTierTokens(maxDimension) + getExtraOverheadTokens();
     }
 
     /**

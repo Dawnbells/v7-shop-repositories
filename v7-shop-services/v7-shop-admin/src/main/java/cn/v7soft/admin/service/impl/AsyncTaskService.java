@@ -66,15 +66,29 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     @Override
     @Transactional
     public void updateAsyncTask(AsyncTask task, TaskState state, int progress) {
-        TaskState current = task.getState();
+        AsyncTask fresh = getById(task.getId());
+        TaskState current = fresh.getState();
         if (!current.canTransitionTo(state)) {
             log.warn("[updateAsyncTask] 非法状态迁移被拦截: taskId={}, {} -> {}", task.getId(), current, state);
             return;
         }
         log.debug("update async task >> {} >> {} -> {} >> {} ", task.getId(), current, state, progress);
-        task.setState(state);
-        task.setProgress(progress);
-        saveAndFlush(task);
+        fresh.setState(state);
+        fresh.setProgress(progress);
+        fresh.setMessage(task.getMessage());
+        if (task.getBatchJobName() != null) {
+            fresh.setBatchJobName(task.getBatchJobName());
+        }
+        if (task.getParameters() != null) {
+            fresh.setParameters(task.getParameters());
+        }
+        if (task.getTaskType() != null) {
+            fresh.setTaskType(task.getTaskType());
+        }
+        if (task.getExportRelativePath() != null) {
+            fresh.setExportRelativePath(task.getExportRelativePath());
+        }
+        saveAndFlush(fresh);
     }
 
     @Override
@@ -131,6 +145,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     }
 
     @Override
+    @Transactional
     public AsyncTaskResponse switchToDirectTranslate(Long taskId) {
         AsyncTask task = getById(taskId);
         log.info("[switchToDirectTranslate] taskId={} 请求切换, 当前状态={}, batchJobName={}",
