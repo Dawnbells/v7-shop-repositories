@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,16 @@ public class GeminiTranslateService {
     private static final int TIMEOUT_HTML_MS = 180_000;
     private static final int TIMEOUT_IMAGE_MS = 300_000;
     private static final int TIMEOUT_DEFAULT_MS = 180_000;
+
+    @lombok.Data
+    @lombok.Builder
+    public static class TokenUsage {
+        private Integer promptTokens;
+        private Integer completionTokens;
+        private Integer thinkingTokens;
+        private Integer totalTokens;
+        private Long elapsedMs;
+    }
 
     private final Client client;
     private final Retry geminiInternalRetry;
@@ -104,6 +115,10 @@ public class GeminiTranslateService {
      * 翻译单条短文本，单次调用不重试。
      */
     public String translateTextRaw(String text, String targetLanguageName) {
+        return translateTextRaw(text, targetLanguageName, null);
+    }
+
+    public String translateTextRaw(String text, String targetLanguageName, Consumer<TokenUsage> usageCallback) {
         if (text == null || text.isBlank()) {
             return text;
         }
@@ -134,6 +149,7 @@ public class GeminiTranslateService {
         String result = response.text();
 
         logTokenUsage("translateText", elapsed, response);
+        emitTokenUsage(response, elapsed, usageCallback);
         return result;
     }
 
@@ -141,6 +157,10 @@ public class GeminiTranslateService {
      * 翻译 HTML 富文本，单次调用不重试。
      */
     public String translateHtmlRaw(String html, String targetLanguageName) {
+        return translateHtmlRaw(html, targetLanguageName, null);
+    }
+
+    public String translateHtmlRaw(String html, String targetLanguageName, Consumer<TokenUsage> usageCallback) {
         if (html == null || html.isBlank()) {
             return html;
         }
@@ -175,6 +195,7 @@ public class GeminiTranslateService {
         String result = response.text();
 
         logTokenUsage("translateHtml", elapsed, response);
+        emitTokenUsage(response, elapsed, usageCallback);
         return result;
     }
 
@@ -183,6 +204,11 @@ public class GeminiTranslateService {
      * 无需翻译时返回 null。
      */
     public byte[] translateImageRaw(byte[] imageBytes, String mimeType, String targetLanguageName) {
+        return translateImageRaw(imageBytes, mimeType, targetLanguageName, null);
+    }
+
+    public byte[] translateImageRaw(byte[] imageBytes, String mimeType, String targetLanguageName,
+                                    Consumer<TokenUsage> usageCallback) {
         String prompt = """
                 First, analyze whether the image contains any readable text.
                 
@@ -256,6 +282,7 @@ public class GeminiTranslateService {
         long elapsed = System.currentTimeMillis() - start;
 
         logTokenUsage("translateImage", elapsed, response);
+        emitTokenUsage(response, elapsed, usageCallback);
 
         return extractImageResult(response);
     }
@@ -525,6 +552,41 @@ public class GeminiTranslateService {
             log.info("[deleteFile] 已删除文件: {}", fileName);
         } catch (Exception e) {
             log.warn("[deleteFile] 删除文件失败: {}, error={}", fileName, e.getMessage());
+        }
+    }
+
+    /**
+     * 从 Batch JSONL 结果行的 response.usageMetadata 节点提取 TokenUsage。
+     */
+    public static TokenUsage extractTokenUsageFromBatchResponse(com.fasterxml.jackson.databind.JsonNode responseNode) {
+        com.fasterxml.jackson.databind.JsonNode meta = responseNode.path("usageMetadata");
+        if (meta.isMissingNode()) return null;
+        return TokenUsage.builder()
+                .promptTokens(meta.has("promptTokenCount") ? meta.get("promptTokenCount").asInt(0) : 0)
+                .completionTokens(meta.has("candidatesTokenCount") ? meta.get("candidatesTokenCount").asInt(0) : 0)
+                .thinkingTokens(meta.has("thoughtsTokenCount") ? meta.get("thoughtsTokenCount").asInt(0) : 0)
+                .totalTokens(meta.has("totalTokenCount") ? meta.get("totalTokenCount").asInt(0) : 0)
+                .build();
+    }
+
+    private TokenUsage extractTokenUsage(GenerateContentResponse response, long elapsedMs) {
+        Optional<GenerateContentResponseUsageMetadata> opt = response.usageMetadata();
+        if (opt.isEmpty()) return null;
+        GenerateContentResponseUsageMetadata usage = opt.get();
+        return TokenUsage.builder()
+                .promptTokens(usage.promptTokenCount().orElse(0))
+                .completionTokens(usage.candidatesTokenCount().orElse(0))
+                .thinkingTokens(usage.thoughtsTokenCount().orElse(0))
+                .totalTokens(usage.totalTokenCount().orElse(0))
+                .elapsedMs(elapsedMs)
+                .build();
+    }
+
+    private void emitTokenUsage(GenerateContentResponse response, long elapsedMs, Consumer<TokenUsage> callback) {
+        if (callback == null) return;
+        TokenUsage usage = extractTokenUsage(response, elapsedMs);
+        if (usage != null) {
+            callback.accept(usage);
         }
     }
 

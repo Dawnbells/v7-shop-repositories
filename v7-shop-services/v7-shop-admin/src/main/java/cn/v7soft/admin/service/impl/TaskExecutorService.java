@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.lang.reflect.Type;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -59,6 +60,7 @@ import cn.v7soft.admin.utils.OrderQueryHelper;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.admin.service.IMultimediaFileService;
+import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
@@ -70,12 +72,15 @@ import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.Company;
+import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.TextTranslationCache;
 import cn.v7soft.dao.tenant.TenantContext;
+import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
+import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
@@ -142,6 +147,8 @@ public class TaskExecutorService implements ITaskExecutorService {
         private Map<String, MultimediaFile> imageHashToSourceFile;
         /** A.5: 命中缓存或动图的图片 (hash -> targetFile, null=skipped) */
         private Map<String, MultimediaFile> cachedImageMap;
+        /** 动图跳过的图片 (imgId -> sourceFile) */
+        private Map<String, MultimediaFile> animatedImageSourceFiles;
         /** A.6: 未命中缓存的 HTML（翻译前 html，null 表示已缓存或无 html） */
         private String uncachedHtml;
         /** A.7: 已命中缓存的 HTML（翻译后 html，null 表示需要翻译） */
@@ -178,6 +185,7 @@ public class TaskExecutorService implements ITaskExecutorService {
     private final RateLimiter geminiRateLimiter;
     private final Retry geminiDirectRetry;
     private final Retry batchPollRetry;
+    private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
 
     public TaskExecutorService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
@@ -192,7 +200,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                        @Qualifier("translationExecutor") ExecutorService translationExecutor,
                        RateLimiter geminiRateLimiter,
                        @Qualifier("geminiDirectRetry") Retry geminiDirectRetry,
-                       @Qualifier("batchPollRetry") Retry batchPollRetry) {
+                       @Qualifier("batchPollRetry") Retry batchPollRetry,
+                       AiTokenUsageRecordRepository aiTokenUsageRecordRepository) {
         this.asyncTaskService = asyncTaskService;
         this.orderService = orderService;
         this.s3Service = s3Service;
@@ -213,6 +222,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         this.geminiRateLimiter = geminiRateLimiter;
         this.geminiDirectRetry = geminiDirectRetry;
         this.batchPollRetry = batchPollRetry;
+        this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
     }
 
     // ======================== ITaskExecutorService 接口实现 ========================
@@ -314,9 +324,11 @@ public class TaskExecutorService implements ITaskExecutorService {
         Map<String, String> uncachedImageMimeTypes = new HashMap<>();
         Map<String, MultimediaFile> imageHashToSourceFile = new HashMap<>();
         Map<String, MultimediaFile> cachedImageMap = new HashMap<>();
+        Map<String, MultimediaFile> animatedImageSourceFiles = new HashMap<>();
 
         downloadAndFilterImages(imgIds, language, imageIdToHash,
-                uncachedImageData, uncachedImageMimeTypes, imageHashToSourceFile, cachedImageMap);
+                uncachedImageData, uncachedImageMimeTypes, imageHashToSourceFile, cachedImageMap,
+                animatedImageSourceFiles);
 
         // A.1~A.2: 文本缓存拆分
         Map<String, String> cachedTextMap = new LinkedHashMap<>();
@@ -354,6 +366,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 .imageIdToHash(imageIdToHash)
                 .uncachedImageData(uncachedImageData).uncachedImageMimeTypes(uncachedImageMimeTypes)
                 .imageHashToSourceFile(imageHashToSourceFile).cachedImageMap(cachedImageMap)
+                .animatedImageSourceFiles(animatedImageSourceFiles)
                 .uncachedHtml(uncachedHtml).cachedTranslatedHtml(cachedTranslatedHtml)
                 .build();
     }
@@ -363,7 +376,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                                          Map<String, byte[]> uncachedImageData,
                                          Map<String, String> uncachedImageMimeTypes,
                                          Map<String, MultimediaFile> imageHashToSourceFile,
-                                         Map<String, MultimediaFile> cachedImageMap) {
+                                         Map<String, MultimediaFile> cachedImageMap,
+                                         Map<String, MultimediaFile> animatedImageSourceFiles) {
         log.info("[downloadImages] 开始处理 {} 张图片 (hash-keyed, 缓存+去重)", imgIds.size());
         int cachedCount = 0, skippedAnimated = 0, dedupCount = 0;
         for (int i = 0; i < imgIds.size(); i++) {
@@ -375,6 +389,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 if ("gif".equalsIgnoreCase(suffix)) {
                     log.info("[downloadImages] [{}/{}] imgId={} 跳过动图 gif", i + 1, imgIds.size(), imgId);
                     skippedAnimated++;
+                    animatedImageSourceFiles.put(imgId, file);
                     continue;
                 }
 
@@ -386,6 +401,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 if ("webp".equalsIgnoreCase(suffix) && isAnimatedWebp(bytes)) {
                     log.info("[downloadImages] [{}/{}] imgId={} 跳过动图 webp", i + 1, imgIds.size(), imgId);
                     skippedAnimated++;
+                    animatedImageSourceFiles.put(imgId, file);
                     continue;
                 }
 
@@ -434,6 +450,8 @@ public class TaskExecutorService implements ITaskExecutorService {
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 2);
 
             TranslateContext ctx = prepareTranslateContext(task, request);
+
+            writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.BATCH);
 
             // B.1: 构建 JSONL
             StringBuilder jsonl = new StringBuilder();
@@ -631,16 +649,23 @@ public class TaskExecutorService implements ITaskExecutorService {
                 }
             }
 
+            String langName = ctx.getLangName();
+            SystemUser owner = ctx.getOwner();
+
             // 文本
             for (Map.Entry<String, String> entry : ctx.getUncachedTextMap().entrySet()) {
                 String hash = entry.getKey();
                 JsonNode textNode = resultMap.get("text-" + hash);
                 if (textNode != null && textNode.has("response")) {
-                    String translated = extractTextFromResponse(textNode.get("response"));
+                    JsonNode respNode = textNode.get("response");
+                    String translated = extractTextFromResponse(respNode);
                     if (translated != null && !translated.isBlank()) {
                         translatedTextMap.put(hash, translated);
                         writeSingleTextCache(entry.getValue(), translated, ctx.getLanguage());
                     }
+                    GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(respNode);
+                    saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
+                            false, InvokeMode.BATCH, usage, false, null, null, null, owner);
                 }
             }
 
@@ -648,10 +673,15 @@ public class TaskExecutorService implements ITaskExecutorService {
             if (ctx.getUncachedHtml() != null) {
                 JsonNode htmlNode = resultMap.get("html");
                 if (htmlNode != null && htmlNode.has("response")) {
-                    translatedHtml = extractTextFromResponse(htmlNode.get("response"));
+                    JsonNode respNode = htmlNode.get("response");
+                    translatedHtml = extractTextFromResponse(respNode);
                     if (translatedHtml != null) {
                         writeHtmlTranslationCache(ctx.getUncachedHtml(), translatedHtml, ctx.getLanguage());
                     }
+                    String htmlHash = DigestUtil.sha256Hex(ctx.getUncachedHtml());
+                    GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(respNode);
+                    saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
+                            false, InvokeMode.BATCH, usage, false, null, null, null, owner);
                 }
             }
 
@@ -659,19 +689,24 @@ public class TaskExecutorService implements ITaskExecutorService {
             for (String hash : ctx.getUncachedImageData().keySet()) {
                 JsonNode imgNode = resultMap.get("img-" + hash);
                 if (imgNode == null || !imgNode.has("response")) continue;
-                byte[] imgBytes = extractImageFromResponse(imgNode.get("response"));
+                JsonNode respNode = imgNode.get("response");
+                byte[] imgBytes = extractImageFromResponse(respNode);
                 MultimediaFile sourceFile = ctx.getImageHashToSourceFile().get(hash);
+                GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(respNode);
                 if (imgBytes != null && sourceFile != null) {
                     try {
                         MultimediaFile newFile = multimediaFileService.saveTranslatedImage(
                                 imgBytes, sourceFile.getSuffix(), ctx.getOwner());
                         translatedImageMap.put(hash, newFile);
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
+                        saveTokenUsageRecord(task.getId(), TranslationContentType.IMAGE, hash, langName,
+                                false, InvokeMode.BATCH, usage, true, null, null, null, owner);
                     } catch (Exception e) {
                         log.warn("[processResult] taskId={} 图片 hash={} 保存失败", task.getId(), hash, e);
                     }
                 } else if (sourceFile != null) {
                     saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), null, true);
+                    saveNoOutputImageTokenRecord(task.getId(), hash, langName, InvokeMode.BATCH, usage, sourceFile, owner);
                 }
             }
 
@@ -733,6 +768,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 .imageIdToHash(ctx.getImageIdToHash())
                 .uncachedImageData(failedImageData).uncachedImageMimeTypes(failedImageMimeTypes)
                 .imageHashToSourceFile(failedImageSourceFiles).cachedImageMap(new HashMap<>())
+                .animatedImageSourceFiles(new HashMap<>())
                 .uncachedHtml(needHtmlFallback ? ctx.getUncachedHtml() : null)
                 .cachedTranslatedHtml(null)
                 .build();
@@ -799,6 +835,8 @@ public class TaskExecutorService implements ITaskExecutorService {
 
             TranslateContext ctx = prepareTranslateContext(task, request);
 
+            writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.STANDARD);
+
             TranslateResult result = executeDirectTranslateCore(task, ctx);
 
             saveTranslatedProduct(task, ctx, result);
@@ -829,6 +867,8 @@ public class TaskExecutorService implements ITaskExecutorService {
 
         Long tenantId = TenantContext.getCurrentTenant();
         Company tenantCompany = TenantContext.getCurrentTenantEntity();
+        String langName = ctx.getLangName();
+        SystemUser owner = ctx.getOwner();
 
         // 文本任务
         for (Map.Entry<String, String> entry : ctx.getUncachedTextMap().entrySet()) {
@@ -837,12 +877,16 @@ public class TaskExecutorService implements ITaskExecutorService {
             futures.add(CompletableFuture.runAsync(() -> {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
+                    java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
+                            new java.util.concurrent.atomic.AtomicReference<>();
                     String translated = callWithRateLimitAndRetry(
-                            () -> geminiTranslateService.translateTextRaw(sourceText, ctx.getLangName()));
+                            () -> geminiTranslateService.translateTextRaw(sourceText, langName, usageRef::set));
                     if (translated != null && !translated.isBlank()) {
                         translatedTextMap.put(hash, translated);
                         writeSingleTextCache(sourceText, translated, ctx.getLanguage());
                     }
+                    saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
+                            false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} text hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
@@ -853,15 +897,20 @@ public class TaskExecutorService implements ITaskExecutorService {
 
         // HTML 任务
         if (ctx.getUncachedHtml() != null) {
+            String htmlHash = DigestUtil.sha256Hex(ctx.getUncachedHtml());
             futures.add(CompletableFuture.runAsync(() -> {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
+                    java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
+                            new java.util.concurrent.atomic.AtomicReference<>();
                     String html = callWithRateLimitAndRetry(
-                            () -> geminiTranslateService.translateHtmlRaw(ctx.getUncachedHtml(), ctx.getLangName()));
+                            () -> geminiTranslateService.translateHtmlRaw(ctx.getUncachedHtml(), langName, usageRef::set));
                     if (html != null) {
                         translatedHtmlRef.set(html);
                         writeHtmlTranslationCache(ctx.getUncachedHtml(), html, ctx.getLanguage());
                     }
+                    saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
+                            false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} HTML 翻译失败", task.getId(), e);
                 } finally {
@@ -879,15 +928,21 @@ public class TaskExecutorService implements ITaskExecutorService {
             futures.add(CompletableFuture.runAsync(() -> {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
+                    java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
+                            new java.util.concurrent.atomic.AtomicReference<>();
                     byte[] result = callWithRateLimitAndRetry(
-                            () -> geminiTranslateService.translateImageRaw(imgBytes, mimeType, ctx.getLangName()));
+                            () -> geminiTranslateService.translateImageRaw(imgBytes, mimeType, langName, usageRef::set));
                     if (result != null && sourceFile != null) {
                         MultimediaFile newFile = multimediaFileService.saveTranslatedImage(
                                 result, sourceFile.getSuffix(), ctx.getOwner());
                         translatedImageMap.put(hash, newFile);
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
+                        saveTokenUsageRecord(task.getId(), TranslationContentType.IMAGE, hash, langName,
+                                false, InvokeMode.STANDARD, usageRef.get(), true, null, null, null, owner);
                     } else if (sourceFile != null) {
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), null, true);
+                        saveNoOutputImageTokenRecord(task.getId(), hash, langName,
+                                InvokeMode.STANDARD, usageRef.get(), sourceFile, owner);
                     }
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} img hash={} 翻译失败", task.getId(), hash, e);
@@ -1152,6 +1207,149 @@ public class TaskExecutorService implements ITaskExecutorService {
             log.debug("[htmlCache] 缓存已存在(并发写入)");
         } catch (Exception e) {
             log.warn("[htmlCache] 写入缓存失败", e);
+        }
+    }
+
+    // ======================== AI Token 使用记录写入 ========================
+
+    private void saveTokenUsageRecord(Long taskId, TranslationContentType contentType, String contentHash,
+                                      String targetLanguage, boolean cacheHit, InvokeMode invokeMode,
+                                      GeminiTranslateService.TokenUsage actual, boolean hasImageOutput,
+                                      Integer bizPrompt, Integer bizCompletion, Integer bizThinking,
+                                      SystemUser owner) {
+        try {
+            int aPrompt = actual != null && actual.getPromptTokens() != null ? actual.getPromptTokens() : 0;
+            int aCompletion = actual != null && actual.getCompletionTokens() != null ? actual.getCompletionTokens() : 0;
+            int aThinking = actual != null && actual.getThinkingTokens() != null ? actual.getThinkingTokens() : 0;
+            int aTotal = actual != null && actual.getTotalTokens() != null ? actual.getTotalTokens() : 0;
+            Long elapsed = actual != null ? actual.getElapsedMs() : null;
+
+            int bPrompt = bizPrompt != null ? bizPrompt : aPrompt;
+            int bCompletion = bizCompletion != null ? bizCompletion : aCompletion;
+            int bThinking = bizThinking != null ? bizThinking : aThinking;
+            int bTotal = bPrompt + bCompletion + bThinking;
+
+            BigDecimal actualCost = TokenCostCalculator.calculateCost(
+                    contentType, invokeMode, aPrompt, aCompletion, aThinking, hasImageOutput);
+            BigDecimal businessCost = TokenCostCalculator.calculateCost(
+                    contentType, invokeMode, bPrompt, bCompletion, bThinking, hasImageOutput);
+
+            AiTokenUsageRecord record = AiTokenUsageRecord.builder()
+                    .taskId(taskId)
+                    .contentType(contentType)
+                    .contentHash(contentHash)
+                    .targetLanguage(targetLanguage)
+                    .cacheHit(cacheHit)
+                    .model(geminiTranslateService.getModel())
+                    .invokeMode(invokeMode)
+                    .actualPromptTokens(aPrompt)
+                    .actualCompletionTokens(aCompletion)
+                    .actualThinkingTokens(aThinking)
+                    .actualTotalTokens(aTotal)
+                    .businessPromptTokens(bPrompt)
+                    .businessCompletionTokens(bCompletion)
+                    .businessThinkingTokens(bThinking)
+                    .businessTotalTokens(bTotal)
+                    .actualCost(actualCost)
+                    .businessCost(businessCost)
+                    .elapsedMs(elapsed)
+                    .hasImageOutput(hasImageOutput)
+                    .build();
+            record.setOwner(owner);
+            aiTokenUsageRecordRepository.save(record);
+        } catch (Exception e) {
+            log.warn("[tokenUsage] 写入 token 记录失败: taskId={}, hash={}", taskId, contentHash, e);
+        }
+    }
+
+    /**
+     * 缓存命中场景：查历史同 contentHash+targetLanguage 首次翻译记录，复制业务 token。
+     */
+    private void saveCacheHitTokenRecord(Long taskId, TranslationContentType contentType,
+                                         String contentHash, String targetLanguage, InvokeMode invokeMode,
+                                         SystemUser owner) {
+        try {
+            Optional<AiTokenUsageRecord> historyOpt = aiTokenUsageRecordRepository
+                    .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(contentHash, targetLanguage);
+            Integer bizPrompt = null, bizCompletion = null, bizThinking = null;
+            boolean hasImageOutput = false;
+            if (historyOpt.isPresent()) {
+                AiTokenUsageRecord history = historyOpt.get();
+                bizPrompt = history.getActualPromptTokens();
+                bizCompletion = history.getActualCompletionTokens();
+                bizThinking = history.getActualThinkingTokens();
+                hasImageOutput = Boolean.TRUE.equals(history.getHasImageOutput());
+            }
+            saveTokenUsageRecord(taskId, contentType, contentHash, targetLanguage,
+                    true, invokeMode, null, hasImageOutput, bizPrompt, bizCompletion, bizThinking, owner);
+        } catch (Exception e) {
+            log.warn("[tokenUsage] 缓存命中记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
+        }
+    }
+
+    /**
+     * 动图跳过场景：用分辨率档位公式计算业务 token。
+     */
+    private void saveAnimatedImageTokenRecord(Long taskId, String contentHash, String targetLanguage,
+                                              MultimediaFile sourceFile, SystemUser owner) {
+        try {
+            int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
+            if (maxDim <= 0) maxDim = 512;
+            int bizPrompt = TokenCostCalculator.imageBusinessPromptTokens(maxDim);
+            int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
+            saveTokenUsageRecord(taskId, TranslationContentType.IMAGE, contentHash, targetLanguage,
+                    false, InvokeMode.STANDARD, null, false, bizPrompt, bizCompletion, 0, owner);
+        } catch (Exception e) {
+            log.warn("[tokenUsage] 动图记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
+        }
+    }
+
+    /**
+     * 首次翻译图片但无图片输出（2b）：实际 token 从 API，业务输入=实际输入，业务输出=档位公式。
+     */
+    private void saveNoOutputImageTokenRecord(Long taskId, String contentHash, String targetLanguage,
+                                              InvokeMode invokeMode, GeminiTranslateService.TokenUsage actual,
+                                              MultimediaFile sourceFile, SystemUser owner) {
+        try {
+            int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
+            if (maxDim <= 0) maxDim = 512;
+            int bizPrompt = actual != null && actual.getPromptTokens() != null ? actual.getPromptTokens() : 0;
+            int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
+            saveTokenUsageRecord(taskId, TranslationContentType.IMAGE, contentHash, targetLanguage,
+                    false, invokeMode, actual, false, bizPrompt, bizCompletion, 0, owner);
+        } catch (Exception e) {
+            log.warn("[tokenUsage] 无输出图片记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
+        }
+    }
+
+    /**
+     * Phase A 完成后，为缓存命中的文本/HTML/图片和动图写入业务 token 记录。
+     */
+    private void writeCacheHitAndAnimatedTokenRecords(AsyncTask task, TranslateContext ctx, InvokeMode invokeMode) {
+        String langName = ctx.getLangName();
+        SystemUser owner = ctx.getOwner();
+
+        // 缓存命中的文本
+        for (String hash : ctx.getCachedTextMap().keySet()) {
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.TEXT, hash, langName, invokeMode, owner);
+        }
+
+        // 缓存命中的 HTML
+        if (ctx.getCachedTranslatedHtml() != null && ctx.getIntroduction() != null) {
+            String htmlHash = DigestUtil.sha256Hex(ctx.getIntroduction());
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName, invokeMode, owner);
+        }
+
+        // 缓存命中的图片（cachedImageMap 中非 null 值 = 有翻译后的文件）
+        for (Map.Entry<String, MultimediaFile> entry : ctx.getCachedImageMap().entrySet()) {
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.IMAGE, entry.getKey(), langName, invokeMode, owner);
+        }
+
+        // 动图跳过的图片
+        for (Map.Entry<String, MultimediaFile> entry : ctx.getAnimatedImageSourceFiles().entrySet()) {
+            MultimediaFile sourceFile = entry.getValue();
+            String hash = DigestUtil.sha256Hex(entry.getKey());
+            saveAnimatedImageTokenRecord(task.getId(), hash, langName, sourceFile, owner);
         }
     }
 
