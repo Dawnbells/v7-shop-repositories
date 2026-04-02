@@ -11,7 +11,7 @@ import cn.v7soft.dao.entities.primary.Product;
 public interface ProductRepository extends BaseRepository<Product> {
 
     /**
-     * 同一用户同一spu下不允许存在相同语言的商品
+     * 同一SPU下不允许存在相同国家和语言的商品
      */
     @Query("""
             from Product
@@ -20,17 +20,15 @@ public interface ProductRepository extends BaseRepository<Product> {
             and
             (:id is null or id <> :id)
             and
-            (:userId is null or owner.id = :userId)
+            country.id = :countryId
             and
-            (:languageId is null or language.id = :languageId)
-            and
-            (:countryId is null or country.id = :countryId)
+            language.id = :languageId
             and
             status = 'VALID'
             """)
-    Product findBySameCountryLanguageForUser(@Param("spuId") Long spuId, @Param("id") Long id,
-                                             @Param("userId") Long userId, @Param("countryId") Long countryId,
-                                             @Param("languageId") Long languageId);
+    Product findBySameCountryLanguage(@Param("spuId") Long spuId, @Param("id") Long id,
+                                      @Param("countryId") Long countryId,
+                                      @Param("languageId") Long languageId);
 
     @Query("""
                 SELECT

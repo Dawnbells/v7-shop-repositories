@@ -3,13 +3,12 @@ package cn.v7soft.admin.service.impl;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.lang.reflect.Type;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +27,7 @@ import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
@@ -37,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.bean.copier.ValueProvider;
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.lang.Pair;
@@ -75,15 +76,15 @@ import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.Company;
-import cn.v7soft.dao.entities.primary.ImageTranslation;
-import cn.v7soft.dao.entities.primary.TranslationCache;
+import cn.v7soft.dao.entities.primary.ImageTranslationCache;
+import cn.v7soft.dao.entities.primary.TextTranslationCache;
 import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
-import cn.v7soft.dao.repositories.primary.ImageTranslationRepository;
-import cn.v7soft.dao.repositories.primary.TranslationCacheRepository;
+import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
+import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.types.BatchJob;
@@ -107,6 +108,34 @@ public class TaskService implements ITaskService {
     private static final Set<String> BATCH_COMPLETED_STATES = Set.of(
             "JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED");
 
+    /**
+     * 翻译任务的准备数据上下文，由 {@link #prepareTranslateContext} 统一构建。
+     */
+    @lombok.Data
+    @lombok.Builder
+    private static class TranslateContext {
+        private Product product;
+        private Language language;
+        private Country country;
+        private SystemUser owner;
+        private String langName;
+        private String introduction;
+
+        private Map<String, String> uniqueTextMap;
+        private List<String> imgIds;
+
+        private Map<String, byte[]> originalImageBytes;
+        private Map<String, String> imageMimeTypes;
+        private List<String> translatableImgIds;
+        private Map<String, MultimediaFile> preCachedImageMap;
+        private Map<String, String> imageHashByImgId;
+        private Map<String, List<String>> hashToDeferredImgIds;
+
+        private Map<String, String> cachedTextMap;
+        private Map<String, String> uncachedTextMap;
+        private String cachedTranslatedHtml;
+    }
+
     private final IOrderService orderService;
     private final IS3Service s3Service;
     private final IThirdPartyWebsiteService thirdPartyWebsiteService;
@@ -120,8 +149,8 @@ public class TaskService implements ITaskService {
     private final AsyncTaskRepository asyncTaskRepository;
     private final TranslateTaskMetrics translateTaskMetrics;
     private final ITaskService self;
-    private final ImageTranslationRepository imageTranslationRepository;
-    private final TranslationCacheRepository translationCacheRepository;
+    private final ImageTranslationCacheRepository imageTranslationCacheRepository;
+    private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final cn.v7soft.admin.service.ICompanyService companyService;
 
     public TaskService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
@@ -131,8 +160,8 @@ public class TaskService implements ITaskService {
                        cn.v7soft.admin.service.ICountryService countryService,
                        AsyncTaskRepository asyncTaskRepository, TranslateTaskMetrics translateTaskMetrics,
                        @Lazy ITaskService self,
-                       ImageTranslationRepository imageTranslationRepository,
-                       TranslationCacheRepository translationCacheRepository,
+                       ImageTranslationCacheRepository imageTranslationCacheRepository,
+                       TextTranslationCacheRepository textTranslationCacheRepository,
                        cn.v7soft.admin.service.ICompanyService companyService) {
         this.asyncTaskService = asyncTaskService;
         this.orderService = orderService;
@@ -147,8 +176,8 @@ public class TaskService implements ITaskService {
         this.asyncTaskRepository = asyncTaskRepository;
         this.translateTaskMetrics = translateTaskMetrics;
         this.self = self;
-        this.imageTranslationRepository = imageTranslationRepository;
-        this.translationCacheRepository = translationCacheRepository;
+        this.imageTranslationCacheRepository = imageTranslationCacheRepository;
+        this.textTranslationCacheRepository = textTranslationCacheRepository;
         this.companyService = companyService;
     }
 
@@ -545,57 +574,34 @@ public class TaskService implements ITaskService {
             log.info("[batchTranslate] taskId={} 开始批量翻译, productId={}, languageId={}",
                     task.getId(), request.getProductId(), request.getLanguageId());
 
-            Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
-            Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
-            Country country = request.getCountryId() != null
-                    ? countryService.getById(Long.valueOf(request.getCountryId()))
-                    : product.getCountry();
-            SystemUser owner = task.getOwner();
-            String langName = language.getName();
-
-            log.info("[batchTranslate] taskId={} 产品: title='{}', targetLang='{}', targetCountry='{}'",
-                    task.getId(), product.getTitle(), langName, country != null ? country.getName() : "null");
-
-            // === Step 1: 收集并提交 ===
             task.setMessage("正在准备翻译内容...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 2);
 
-            List<String> textsToTranslate = collectTextsToTranslate(product);
-            String introduction = product.getIntroduction();
-            List<String> imgIds = collectImageIds(introduction);
-
-            log.info("[batchTranslate] taskId={} 收集内容: texts={} 条, htmlLength={}, 详情图片={} 张",
-                    task.getId(), textsToTranslate.size(),
-                    introduction != null ? introduction.length() : 0, imgIds.size());
-
-            // === 缓存前置过滤 ===
-            Map<String, byte[]> originalImageBytes = new HashMap<>();
-            Map<String, String> imageMimeTypes = new HashMap<>();
-            List<String> translatableImgIds = new ArrayList<>();
-            Map<String, MultimediaFile> preCachedImageMap = new HashMap<>();
-
-            downloadAndFilterImages(imgIds, language, originalImageBytes, imageMimeTypes, translatableImgIds, preCachedImageMap);
-
-            // 文本缓存前置
-            List<String> cachedTranslatedTexts = lookupTextCache(textsToTranslate, language);
-
-            // HTML 缓存前置
-            String cachedTranslatedHtml = null;
-            if (introduction != null && !introduction.isBlank()) {
-                cachedTranslatedHtml = lookupHtmlCache(introduction, language);
-            }
-
-            log.info("[batchTranslate] taskId={} 缓存前置: 图片缓存命中={}, 待翻译图片={}, 文本缓存={}, HTML缓存={}",
-                    task.getId(), preCachedImageMap.size(), translatableImgIds.size(),
-                    cachedTranslatedTexts != null ? "HIT" : "MISS",
-                    cachedTranslatedHtml != null ? "HIT" : "MISS");
+            TranslateContext ctx = prepareTranslateContext(task, request);
+            Product product = ctx.getProduct();
+            Language language = ctx.getLanguage();
+            Country country = ctx.getCountry();
+            SystemUser owner = ctx.getOwner();
+            String langName = ctx.getLangName();
+            String introduction = ctx.getIntroduction();
+            Map<String, String> uniqueTextMap = ctx.getUniqueTextMap();
+            List<String> imgIds = ctx.getImgIds();
+            Map<String, byte[]> originalImageBytes = ctx.getOriginalImageBytes();
+            Map<String, String> imageMimeTypes = ctx.getImageMimeTypes();
+            List<String> translatableImgIds = ctx.getTranslatableImgIds();
+            Map<String, MultimediaFile> preCachedImageMap = ctx.getPreCachedImageMap();
+            Map<String, String> imageHashByImgId = ctx.getImageHashByImgId();
+            Map<String, String> uncachedTextMap = ctx.getUncachedTextMap();
+            Map<String, String> cachedTextMap = ctx.getCachedTextMap();
+            String cachedTranslatedHtml = ctx.getCachedTranslatedHtml();
 
             // === 构建 JSONL（跳过已缓存项） ===
             StringBuilder jsonl = new StringBuilder();
             int totalRequests = 0;
 
-            if (cachedTranslatedTexts == null) {
-                jsonl.append(geminiTranslateService.buildTextsTranslateJsonlEntry("texts", textsToTranslate, langName)).append("\n");
+            for (Map.Entry<String, String> entry : uncachedTextMap.entrySet()) {
+                jsonl.append(geminiTranslateService.buildTextTranslateJsonlEntry(
+                        "text-" + entry.getKey(), entry.getValue(), langName)).append("\n");
                 totalRequests++;
             }
 
@@ -614,15 +620,18 @@ public class TaskService implements ITaskService {
                     task.getId(), totalRequests, jsonl.length());
 
             if (totalRequests == 0) {
-                // 全部命中缓存，跳过 Batch，直接组装保存
                 log.info("[batchTranslate] taskId={} 全部命中缓存, 跳过 Batch API, 直接保存", task.getId());
                 task.setMessage("全部缓存命中, 保存结果...");
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 97);
 
+                Map<String, String> translatedTextMap = new HashMap<>(cachedTextMap);
+                Map<String, MultimediaFile> translatedImageMap = buildTranslatedImageMap(
+                        imgIds, imageHashByImgId, new HashMap<>(), preCachedImageMap);
+
                 productService.assembleTranslatedProduct(
-                        product, language, country, owner, cachedTranslatedTexts,
+                        product, language, country, owner, translatedTextMap,
                         cachedTranslatedHtml != null ? cachedTranslatedHtml : introduction,
-                        preCachedImageMap);
+                        translatedImageMap);
 
                 task.setMessage("翻译完成");
                 asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
@@ -645,19 +654,14 @@ public class TaskService implements ITaskService {
                 task.setMessage("AI翻译中: 等待Batch完成...");
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
 
-                // Step 2: 轮询等待 Batch 完成
                 String batchState = pollBatchJobUntilDone(task, jobName, uploadedFileName, totalRequests);
                 if (batchState == null) {
                     log.info("[batchTranslate] taskId={} 轮询期间任务被取消", task.getId());
                     return;
                 }
 
-                // Step 3 ~ 5: 处理结果、补刀、保存
                 BatchJob currentJob = geminiTranslateService.getBatchJob(jobName);
-                processBatchResultAndSave(task, batchState, currentJob, jobName, uploadedFileName,
-                        product, language, country, owner, textsToTranslate, introduction, imgIds,
-                        originalImageBytes, imageMimeTypes, translatableImgIds,
-                        cachedTranslatedTexts, cachedTranslatedHtml, preCachedImageMap);
+                processBatchResultAndSave(task, batchState, currentJob, jobName, uploadedFileName, ctx);
             }
 
             long elapsed = System.currentTimeMillis() - taskStart;
@@ -681,7 +685,7 @@ public class TaskService implements ITaskService {
 
     /**
      * 即时翻译模式：不走 Batch API，逐条调用 Gemini 直接翻译。
-     * Token 消耗更多，但速度更快。
+     * 文本和图片均按 hash 去重，同 hash 内容只翻译一次。
      */
     private void executeProductAITranslateDirect(AsyncTask task) {
         long taskStart = System.currentTimeMillis();
@@ -690,46 +694,41 @@ public class TaskService implements ITaskService {
             log.info("[directTranslate] taskId={} 开始即时翻译, productId={}, languageId={}, countryId={}",
                     task.getId(), request.getProductId(), request.getLanguageId(), request.getCountryId());
 
-            Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
-            Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
-            Country country = request.getCountryId() != null
-                    ? countryService.getById(Long.valueOf(request.getCountryId()))
-                    : product.getCountry();
-            SystemUser owner = task.getOwner();
-            String langName = language.getName();
-
-            log.info("[directTranslate] taskId={} 产品: title='{}', targetLang='{}', targetCountry='{}'",
-                    task.getId(), product.getTitle(), langName, country != null ? country.getName() : "null");
-
             task.setMessage("即时翻译: 正在准备...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 2);
 
-            List<String> textsToTranslate = collectTextsToTranslate(product);
-            String introduction = product.getIntroduction();
-            List<String> imgIds = collectImageIds(introduction);
+            TranslateContext ctx = prepareTranslateContext(task, request);
+            Product product = ctx.getProduct();
+            Language language = ctx.getLanguage();
+            Country country = ctx.getCountry();
+            SystemUser owner = ctx.getOwner();
+            String langName = ctx.getLangName();
+            String introduction = ctx.getIntroduction();
+            Map<String, String> uniqueTextMap = ctx.getUniqueTextMap();
+            List<String> imgIds = ctx.getImgIds();
+            Map<String, byte[]> originalImageBytes = ctx.getOriginalImageBytes();
+            Map<String, String> imageMimeTypes = ctx.getImageMimeTypes();
+            List<String> translatableImgIds = ctx.getTranslatableImgIds();
+            Map<String, MultimediaFile> preCachedImageMap = ctx.getPreCachedImageMap();
+            Map<String, String> imageHashByImgId = ctx.getImageHashByImgId();
 
-            Map<String, byte[]> originalImageBytes = new HashMap<>();
-            Map<String, String> imageMimeTypes = new HashMap<>();
-            List<String> translatableImgIds = new ArrayList<>();
-            Map<String, MultimediaFile> preCachedImageMap = new HashMap<>();
-            downloadAndFilterImages(imgIds, language, originalImageBytes, imageMimeTypes, translatableImgIds, preCachedImageMap);
-
-            log.info("[directTranslate] taskId={} 收集内容: texts={} 条, htmlLength={}, 缓存命中图片={} 张, 待翻译图片={} 张",
-                    task.getId(), textsToTranslate.size(),
-                    introduction != null ? introduction.length() : 0, preCachedImageMap.size(), translatableImgIds.size());
-
-            int totalSteps = 1 + (introduction != null && !introduction.isBlank() ? 1 : 0) + translatableImgIds.size() + 1;
+            int totalSteps = uniqueTextMap.size() + (introduction != null && !introduction.isBlank() ? 1 : 0) + translatableImgIds.size() + 1;
             int doneSteps = 0;
 
-            // --- 翻译文本（带缓存） ---
+            // --- 逐条翻译去重后的文本（带缓存） ---
             long stepStart = System.currentTimeMillis();
             task.setMessage("即时翻译: 翻译文本...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 5);
-            List<String> translatedTexts = translateTextsWithCache(textsToTranslate, language, langName);
-            doneSteps++;
-            log.info("[directTranslate] taskId={} 文本翻译完成: {} 条, 耗时={}ms",
-                    task.getId(), translatedTexts.size(), System.currentTimeMillis() - stepStart);
-            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progressOf(doneSteps, totalSteps));
+
+            Map<String, String> translatedTextMap = new HashMap<>();
+            for (Map.Entry<String, String> entry : uniqueTextMap.entrySet()) {
+                String translated = translateTextWithCache(entry.getValue(), language, langName);
+                translatedTextMap.put(entry.getKey(), translated);
+                doneSteps++;
+                asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progressOf(doneSteps, totalSteps));
+            }
+            log.info("[directTranslate] taskId={} 文本翻译完成: {} 条(去重后), 耗时={}ms",
+                    task.getId(), translatedTextMap.size(), System.currentTimeMillis() - stepStart);
 
             // --- 翻译 HTML（带缓存） ---
             String translatedHtml = introduction;
@@ -751,8 +750,8 @@ public class TaskService implements ITaskService {
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progressOf(doneSteps, totalSteps));
             }
 
-            // --- 翻译图片（translatableImgIds 仅包含未缓存的，直接调 API） ---
-            Map<String, MultimediaFile> translatedImageMap = new HashMap<>(preCachedImageMap);
+            // --- 翻译图片（translatableImgIds 仅包含未缓存且去重后的，直接调 API） ---
+            Map<String, MultimediaFile> translatedImageHashMap = new HashMap<>();
             int imgTranslated = 0, imgSkipped = 0, imgFailed = 0;
             for (int i = 0; i < translatableImgIds.size(); i++) {
                 AsyncTask check = asyncTaskService.getById(task.getId());
@@ -762,6 +761,7 @@ public class TaskService implements ITaskService {
                 }
 
                 String imgId = translatableImgIds.get(i);
+                String imageHash = imageHashByImgId.get(imgId);
                 task.setMessage("即时翻译: 翻译图片 (" + (i + 1) + "/" + translatableImgIds.size() + ")...");
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progressOf(doneSteps, totalSteps));
                 try {
@@ -773,14 +773,14 @@ public class TaskService implements ITaskService {
                         MultimediaFile sourceFile = multimediaFileService.getById(Long.valueOf(imgId));
                         if (result != null) {
                             MultimediaFile newFile = multimediaFileService.saveTranslatedImage(result, sourceFile.getSuffix(), owner);
-                            translatedImageMap.put(imgId, newFile);
-                            saveImageTranslationCache(sourceFile, language, newFile, false, owner);
+                            translatedImageHashMap.put(imageHash, newFile);
+                            saveImageTranslationCache(imageHash, sourceFile, language, newFile, false, owner);
                             imgTranslated++;
                             log.info("[directTranslate] taskId={} 图片[{}/{}] imgId={} 翻译成功: 原始={}bytes, 结果={}bytes, newFileId={}, 耗时={}ms",
                                     task.getId(), i + 1, translatableImgIds.size(), imgId,
                                     imgBytes.length, result.length, newFile.getId(), System.currentTimeMillis() - stepStart);
                         } else {
-                            saveImageTranslationCache(sourceFile, language, null, true, owner);
+                            saveImageTranslationCache(imageHash, sourceFile, language, null, true, owner);
                             imgSkipped++;
                             log.info("[directTranslate] taskId={} 图片[{}/{}] imgId={} 无需翻译(无文字), 耗时={}ms",
                                     task.getId(), i + 1, translatableImgIds.size(), imgId,
@@ -810,8 +810,11 @@ public class TaskService implements ITaskService {
             task.setMessage("即时翻译: 保存结果...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 97);
 
+            Map<String, MultimediaFile> translatedImageMap = buildTranslatedImageMap(
+                    imgIds, imageHashByImgId, translatedImageHashMap, preCachedImageMap);
+
             productService.assembleTranslatedProduct(
-                    product, language, country, owner, translatedTexts,
+                    product, language, country, owner, translatedTextMap,
                     translatedHtml != null ? translatedHtml : introduction,
                     translatedImageMap);
 
@@ -840,6 +843,78 @@ public class TaskService implements ITaskService {
     }
 
     /**
+     * 统一准备翻译所需的上下文数据：加载产品、收集文本/图片、执行缓存前置过滤。
+     */
+    private TranslateContext prepareTranslateContext(AsyncTask task, TranslateByAIRequest request) {
+        Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
+        Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
+        Country country = request.getCountryId() != null
+                ? countryService.getById(Long.valueOf(request.getCountryId()))
+                : product.getCountry();
+        SystemUser owner = task.getOwner();
+        String langName = language.getName();
+        String introduction = product.getIntroduction();
+
+        Map<String, String> uniqueTextMap = collectTextsToTranslate(product);
+        List<String> imgIds = collectImageIds(product);
+
+        Map<String, byte[]> originalImageBytes = new HashMap<>();
+        Map<String, String> imageMimeTypes = new HashMap<>();
+        List<String> translatableImgIds = new ArrayList<>();
+        Map<String, MultimediaFile> preCachedImageMap = new HashMap<>();
+        Map<String, String> imageHashByImgId = new HashMap<>();
+        Map<String, List<String>> hashToDeferredImgIds = new HashMap<>();
+
+        downloadAndFilterImages(imgIds, language, originalImageBytes, imageMimeTypes,
+                translatableImgIds, preCachedImageMap, imageHashByImgId, hashToDeferredImgIds);
+
+        Map<String, String> cachedTextMap = new LinkedHashMap<>();
+        Map<String, String> uncachedTextMap = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : uniqueTextMap.entrySet()) {
+            String cached = lookupSingleTextCache(entry.getValue(), language);
+            if (cached != null) {
+                cachedTextMap.put(entry.getKey(), cached);
+            } else {
+                uncachedTextMap.put(entry.getKey(), entry.getValue());
+            }
+        }
+
+        String cachedTranslatedHtml = null;
+        if (introduction != null && !introduction.isBlank()) {
+            cachedTranslatedHtml = lookupHtmlCache(introduction, language);
+        }
+
+        log.info("[prepareContext] taskId={} 产品: title='{}', targetLang='{}', targetCountry='{}', " +
+                        "uniqueTexts={}, htmlLength={}, imgIds={}, " +
+                        "缓存: text={}/{}, img={}/{}, html={}",
+                task.getId(), product.getTitle(), langName, country != null ? country.getName() : "null",
+                uniqueTextMap.size(), introduction != null ? introduction.length() : 0, imgIds.size(),
+                cachedTextMap.size(), uniqueTextMap.size(),
+                preCachedImageMap.size(), imgIds.size(),
+                cachedTranslatedHtml != null ? "HIT" : "MISS");
+
+        return TranslateContext.builder()
+                .product(product)
+                .language(language)
+                .country(country)
+                .owner(owner)
+                .langName(langName)
+                .introduction(introduction)
+                .uniqueTextMap(uniqueTextMap)
+                .imgIds(imgIds)
+                .originalImageBytes(originalImageBytes)
+                .imageMimeTypes(imageMimeTypes)
+                .translatableImgIds(translatableImgIds)
+                .preCachedImageMap(preCachedImageMap)
+                .imageHashByImgId(imageHashByImgId)
+                .hashToDeferredImgIds(hashToDeferredImgIds)
+                .cachedTextMap(cachedTextMap)
+                .uncachedTextMap(uncachedTextMap)
+                .cachedTranslatedHtml(cachedTranslatedHtml)
+                .build();
+    }
+
+    /**
      * 恢复已提交 Batch Job 的 AI 翻译任务。
      * 延迟加载策略：先只用 jobName 轮询 Batch 状态，完成后再加载产品/图片等重量级数据。
      */
@@ -855,43 +930,22 @@ public class TaskService implements ITaskService {
             task.setMessage("正在恢复AI翻译任务，等待Batch完成...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
 
-            // === Phase 1: 轻量轮询，只查 Batch Job 状态 ===
             String batchState = pollBatchJobUntilDone(task, jobName, null, savedTotalRequests);
             if (batchState == null) {
-                // 任务已被取消
                 return;
             }
 
             log.info("[resumeTranslate] taskId={} Batch轮询结束, state={}, 轮询耗时={}ms, 开始加载产品数据...",
                     task.getId(), batchState, System.currentTimeMillis() - taskStart);
 
-            // === Phase 2: Batch 完成，现在才加载产品信息和图片 ===
             task.setMessage("正在加载产品数据...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 82);
 
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
-            Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
-            Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
-            Country country = request.getCountryId() != null
-                    ? countryService.getById(Long.valueOf(request.getCountryId()))
-                    : product.getCountry();
-            SystemUser owner = task.getOwner();
-            String langName = language.getName();
+            TranslateContext ctx = prepareTranslateContext(task, request);
 
-            List<String> textsToTranslate = collectTextsToTranslate(product);
-            String introduction = product.getIntroduction();
-            List<String> imgIds = collectImageIds(introduction);
-
-            log.info("[resumeTranslate] taskId={} 产品数据加载完成: title='{}', texts={} 条, htmlLength={}, 详情图片={} 张",
-                    task.getId(), product.getTitle(), textsToTranslate.size(),
-                    introduction != null ? introduction.length() : 0, imgIds.size());
-
-            // === Phase 3: 下载结果并解析（无预加载图片，需要时懒加载） ===
             BatchJob currentJob = geminiTranslateService.getBatchJob(jobName);
-            processBatchResultAndSave(task, batchState, currentJob, jobName, null,
-                    product, language, country, owner, textsToTranslate, introduction, imgIds,
-                    null, null, null,
-                    null, null, null);
+            processBatchResultAndSave(task, batchState, currentJob, jobName, null, ctx);
 
             long elapsed = System.currentTimeMillis() - taskStart;
             translateTaskMetrics.recordDuration(elapsed);
@@ -989,42 +1043,48 @@ public class TaskService implements ITaskService {
 
     /**
      * Batch Job 完成后：下载结果、按需补刀、组装保存。
-     *
-     * @param preloadedImageBytes 预下载的原图数据，null 表示需要补刀时再懒加载（恢复场景）
-     * @param preloadedMimeTypes  预下载的 MIME 类型，与 preloadedImageBytes 配对
-     * @param preloadedTranslatableImgIds 预下载时筛选出的可翻译图片 ID，null 则从结果中推断
-     * @param cachedTranslatedTexts  前置缓存命中的翻译文本，null 表示需要从 Batch 结果获取
-     * @param cachedTranslatedHtml   前置缓存命中的翻译 HTML，null 表示需要从 Batch 结果获取
-     * @param preCachedImageMap      前置缓存命中的已翻译图片 Map，null 或空 Map 表示无缓存
+     * 文本结果按 text-{hash} 逐条提取，图片结果按 img-{imgId} 提取。
      */
     private void processBatchResultAndSave(AsyncTask task, String batchState, BatchJob currentJob,
                                            String jobName, String uploadedFileName,
-                                           Product product, Language language, Country country, SystemUser owner,
-                                           List<String> textsToTranslate, String introduction,
-                                           List<String> imgIds,
-                                           Map<String, byte[]> preloadedImageBytes,
-                                           Map<String, String> preloadedMimeTypes,
-                                           List<String> preloadedTranslatableImgIds,
-                                           List<String> cachedTranslatedTexts,
-                                           String cachedTranslatedHtml,
-                                           Map<String, MultimediaFile> preCachedImageMap) throws Exception {
-        String langName = language.getName();
+                                           TranslateContext ctx) throws Exception {
+        Product product = ctx.getProduct();
+        Language language = ctx.getLanguage();
+        Country country = ctx.getCountry();
+        SystemUser owner = ctx.getOwner();
+        String langName = ctx.getLangName();
+        String introduction = ctx.getIntroduction();
+        List<String> imgIds = ctx.getImgIds();
+        Map<String, String> uniqueTextMap = ctx.getUniqueTextMap();
+        Map<String, byte[]> preloadedImageBytes = ctx.getOriginalImageBytes();
+        Map<String, String> preloadedMimeTypes = ctx.getImageMimeTypes();
+        List<String> preloadedTranslatableImgIds = ctx.getTranslatableImgIds();
+        Map<String, String> preloadedImageHashByImgId = ctx.getImageHashByImgId();
+        Map<String, String> uncachedTextMap = ctx.getUncachedTextMap();
+        Map<String, String> cachedTextMap = ctx.getCachedTextMap();
+        String cachedTranslatedHtml = ctx.getCachedTranslatedHtml();
+        Map<String, MultimediaFile> preCachedImageMap = ctx.getPreCachedImageMap();
+
         boolean hasPreloadedImages = (preloadedImageBytes != null && !preloadedImageBytes.isEmpty());
 
         log.info("[processResult] taskId={} 开始处理Batch结果: batchState={}, 预加载图片={}, 文本缓存={}, HTML缓存={}, 图片缓存={}",
                 task.getId(), batchState, hasPreloadedImages,
-                cachedTranslatedTexts != null ? "HIT" : "MISS",
+                cachedTextMap != null ? cachedTextMap.size() : 0,
                 cachedTranslatedHtml != null ? "HIT" : "MISS",
                 preCachedImageMap != null ? preCachedImageMap.size() : 0);
 
         // --- 合并前置缓存 ---
-        List<String> translatedTexts = cachedTranslatedTexts;
-        String translatedHtml = cachedTranslatedHtml;
-        Map<String, MultimediaFile> translatedImageMap = new HashMap<>();
-        if (preCachedImageMap != null) {
-            translatedImageMap.putAll(preCachedImageMap);
+        Map<String, String> translatedTextMap = new HashMap<>();
+        if (cachedTextMap != null) {
+            translatedTextMap.putAll(cachedTextMap);
         }
+        String translatedHtml = cachedTranslatedHtml;
+        Map<String, MultimediaFile> translatedImageHashMap = new HashMap<>();
         List<String> batchFailedImgIds = new ArrayList<>();
+
+        if (uncachedTextMap == null) {
+            uncachedTextMap = new LinkedHashMap<>(uniqueTextMap);
+        }
 
         if ("JOB_STATE_SUCCEEDED".equals(batchState) || "JOB_STATE_CANCELLED".equals(batchState)) {
             String resultFileName = currentJob.dest()
@@ -1041,43 +1101,46 @@ public class TaskService implements ITaskService {
                             task.getId(), resultContent.length(), System.currentTimeMillis() - dlStart);
 
                     Map<String, JsonNode> resultMap = new HashMap<>();
+                    int duplicateResultKeys = 0;
                     for (String line : resultContent.split("\n")) {
                         if (line.isBlank()) continue;
                         try {
                             JsonNode node = OBJECT_MAPPER.readTree(line);
                             String key = node.has("key") ? node.get("key").asText() : null;
-                            if (key != null) resultMap.put(key, node);
+                            if (key != null) {
+                                if (resultMap.containsKey(key)) {
+                                    duplicateResultKeys++;
+                                }
+                                resultMap.put(key, node);
+                            }
                         } catch (Exception e) {
                             log.warn("[processResult] taskId={} 解析结果行失败: {}", task.getId(), e.getMessage());
                         }
                     }
+                    if (duplicateResultKeys > 0) {
+                        translateTaskMetrics.recordDedupHit();
+                        log.warn("[processResult] taskId={} Batch结果存在重复key: count={}", task.getId(), duplicateResultKeys);
+                    }
                     log.info("[processResult] taskId={} 结果解析完成: keys={}", task.getId(), resultMap.keySet());
 
-                    // 文本（跳过已有前置缓存的）
-                    if (translatedTexts == null) {
-                        JsonNode textsNode = resultMap.get("texts");
-                        if (textsNode != null && textsNode.has("response")) {
-                            try {
-                                String textsJson = extractTextFromResponse(textsNode.get("response"));
-                                List<String> parsed = OBJECT_MAPPER.readValue(textsJson,
-                                        new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
-                                if (parsed.size() == textsToTranslate.size()) {
-                                    translatedTexts = parsed;
-                                    writeTextTranslationCache(textsToTranslate, translatedTexts, language, owner);
-                                    log.info("[processResult] taskId={} 文本翻译结果OK: {} 条", task.getId(), parsed.size());
-                                } else {
-                                    log.warn("[processResult] taskId={} 文本数量不匹配: expected={}, actual={}, 走fallback",
-                                            task.getId(), textsToTranslate.size(), parsed.size());
-                                }
-                            } catch (Exception e) {
-                                log.error("[processResult] taskId={} 解析文本翻译结果失败", task.getId(), e);
+                    // 文本结果：按 text-{hash} 逐条提取
+                    int textHit = 0, textMiss = 0;
+                    for (Map.Entry<String, String> entry : uncachedTextMap.entrySet()) {
+                        String hash = entry.getKey();
+                        JsonNode textNode = resultMap.get("text-" + hash);
+                        if (textNode != null && textNode.has("response")) {
+                            String translated = extractTextFromResponse(textNode.get("response"));
+                            if (translated != null && !translated.isBlank()) {
+                                translatedTextMap.put(hash, translated);
+                                writeSingleTextCache(entry.getValue(), translated, language);
+                                textHit++;
+                                continue;
                             }
-                        } else {
-                            log.warn("[processResult] taskId={} 文本翻译结果缺失, 走fallback", task.getId());
                         }
-                    } else {
-                        log.info("[processResult] taskId={} 文本使用前置缓存: {} 条", task.getId(), translatedTexts.size());
+                        textMiss++;
+                        log.warn("[processResult] taskId={} 文本 hash={} 无Batch结果, 需补刀", task.getId(), hash);
                     }
+                    log.info("[processResult] taskId={} 文本Batch结果: 命中={}, 缺失={}", task.getId(), textHit, textMiss);
 
                     // HTML（跳过已有前置缓存的）
                     if (translatedHtml == null) {
@@ -1096,7 +1159,7 @@ public class TaskService implements ITaskService {
                         log.info("[processResult] taskId={} HTML使用前置缓存: length={}", task.getId(), translatedHtml.length());
                     }
 
-                    // 图片：确定哪些图片ID在 Batch 中有结果
+                    // 图片
                     List<String> imgIdsInBatch = new ArrayList<>();
                     for (String key : resultMap.keySet()) {
                         if (key.startsWith("img-")) {
@@ -1104,18 +1167,23 @@ public class TaskService implements ITaskService {
                         }
                     }
 
-                    // 使用预加载的列表或从结果推断
                     List<String> translatableImgIds = (preloadedTranslatableImgIds != null)
                             ? preloadedTranslatableImgIds : imgIdsInBatch;
 
                     for (String imgId : translatableImgIds) {
-                        // 先查缓存
-                        Optional<ImageTranslation> cached = imageTranslationRepository
-                                .findBySourceFileIdAndLanguageId(Long.valueOf(imgId), language.getId());
+                        String imageHash = resolveImageHash(imgId, preloadedImageHashByImgId, preloadedImageBytes);
+                        if (imageHash == null) {
+                            batchFailedImgIds.add(imgId);
+                            log.warn("[processResult] taskId={} 图片 imgId={} 无法计算源图hash, 需补刀", task.getId(), imgId);
+                            continue;
+                        }
+
+                        Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
+                                .findByImageHashAndLanguageId(imageHash, language.getId());
                         if (cached.isPresent()) {
-                            ImageTranslation it = cached.get();
+                            ImageTranslationCache it = cached.get();
                             if (!it.isSkipped() && it.getTranslatedFile() != null) {
-                                translatedImageMap.put(imgId, it.getTranslatedFile());
+                                translatedImageHashMap.put(imageHash, it.getTranslatedFile());
                             }
                             log.info("[processResult] taskId={} 图片 imgId={} 命中缓存, skipped={}", task.getId(), imgId, it.isSkipped());
                             continue;
@@ -1132,8 +1200,8 @@ public class TaskService implements ITaskService {
                             try {
                                 MultimediaFile sourceFile = multimediaFileService.getById(Long.valueOf(imgId));
                                 MultimediaFile newFile = multimediaFileService.saveTranslatedImage(imgBytes, sourceFile.getSuffix(), owner);
-                                translatedImageMap.put(imgId, newFile);
-                                saveImageTranslationCache(sourceFile, language, newFile, false, owner);
+                                translatedImageHashMap.put(imageHash, newFile);
+                                saveImageTranslationCache(imageHash, sourceFile, language, newFile, false, owner);
                                 log.info("[processResult] taskId={} 图片 imgId={} 翻译成功: {}bytes, newFileId={}", task.getId(), imgId, imgBytes.length, newFile.getId());
                             } catch (Exception e) {
                                 log.warn("[processResult] taskId={} 图片 imgId={} 保存翻译图片失败", task.getId(), imgId, e);
@@ -1142,7 +1210,7 @@ public class TaskService implements ITaskService {
                         } else {
                             try {
                                 MultimediaFile sourceFile = multimediaFileService.getById(Long.valueOf(imgId));
-                                saveImageTranslationCache(sourceFile, language, null, true, owner);
+                                saveImageTranslationCache(imageHash, sourceFile, language, null, true, owner);
                             } catch (Exception e) {
                                 log.warn("[processResult] taskId={} 图片 imgId={} 保存跳过记录失败", task.getId(), imgId, e);
                             }
@@ -1166,26 +1234,35 @@ public class TaskService implements ITaskService {
 
         cleanupBatchResources(jobName, uploadedFileName);
 
-        boolean needTextFallback = (translatedTexts == null);
-        boolean needHtmlFallback = (translatedHtml == null && introduction != null && !introduction.isBlank());
-        boolean needImageFallback = !batchFailedImgIds.isEmpty();
-
-        log.info("[processResult] taskId={} 结果汇总: texts={}, html={}, batchImages={}, 需补刀图片={}",
-                task.getId(),
-                translatedTexts != null ? "OK(" + translatedTexts.size() + ")" : "FALLBACK",
-                translatedHtml != null ? "OK" : (needHtmlFallback ? "FALLBACK" : "N/A"),
-                translatedImageMap.size(), batchFailedImgIds.size());
-
-        // --- Fallback: 文本（带缓存） ---
-        if (needTextFallback) {
+        // --- Fallback: 文本（逐条补刀缺失的 hash） ---
+        List<String> missingTextHashes = new ArrayList<>();
+        for (String hash : uniqueTextMap.keySet()) {
+            if (!translatedTextMap.containsKey(hash)) {
+                missingTextHashes.add(hash);
+            }
+        }
+        if (!missingTextHashes.isEmpty()) {
             translateTaskMetrics.recordFallbackText();
             long fbStart = System.currentTimeMillis();
             task.setMessage("正在补充翻译文本...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 84);
-            translatedTexts = translateTextsWithCache(textsToTranslate, language, langName);
+            for (String hash : missingTextHashes) {
+                String original = uniqueTextMap.get(hash);
+                String translated = translateTextWithCache(original, language, langName);
+                translatedTextMap.put(hash, translated);
+            }
             log.info("[processResult] taskId={} 文本补刀完成: {} 条, 耗时={}ms",
-                    task.getId(), translatedTexts.size(), System.currentTimeMillis() - fbStart);
+                    task.getId(), missingTextHashes.size(), System.currentTimeMillis() - fbStart);
         }
+
+        boolean needHtmlFallback = (translatedHtml == null && introduction != null && !introduction.isBlank());
+        boolean needImageFallback = !batchFailedImgIds.isEmpty();
+
+        log.info("[processResult] taskId={} 结果汇总: texts=OK({}), html={}, images(hash)={}, 需补刀图片={}",
+                task.getId(), translatedTextMap.size(),
+                translatedHtml != null ? "OK" : (needHtmlFallback ? "FALLBACK" : "N/A"),
+                translatedImageHashMap.size(), batchFailedImgIds.size());
+
         // --- Fallback: HTML（带缓存） ---
         if (needHtmlFallback) {
             translateTaskMetrics.recordFallbackHtml();
@@ -1204,15 +1281,15 @@ public class TaskService implements ITaskService {
             Map<String, byte[]> fbImageBytes;
             Map<String, String> fbMimeTypes;
             List<String> fbImgIds;
+            Map<String, String> fbImageHashByImgId;
 
             if (hasPreloadedImages) {
-                // 新提交场景：图片已在内存，直接用
                 fbImageBytes = preloadedImageBytes;
                 fbMimeTypes = preloadedMimeTypes;
                 fbImgIds = batchFailedImgIds;
+                fbImageHashByImgId = preloadedImageHashByImgId != null ? preloadedImageHashByImgId : new HashMap<>();
                 log.info("[processResult] taskId={} 使用预加载图片数据补刀 {} 张", task.getId(), fbImgIds.size());
             } else {
-                // 恢复场景：只下载需要补刀的图片（同样前置过滤缓存）
                 log.info("[processResult] taskId={} 需补刀 {} 张图片, 开始按需下载原图...", task.getId(), batchFailedImgIds.size());
                 task.setMessage("正在下载待补刀的图片...");
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 88);
@@ -1221,8 +1298,14 @@ public class TaskService implements ITaskService {
                 fbMimeTypes = new HashMap<>();
                 fbImgIds = new ArrayList<>();
                 Map<String, MultimediaFile> fbCachedImages = new HashMap<>();
-                downloadAndFilterImages(batchFailedImgIds, language, fbImageBytes, fbMimeTypes, fbImgIds, fbCachedImages);
-                translatedImageMap.putAll(fbCachedImages);
+                fbImageHashByImgId = new HashMap<>();
+                downloadAndFilterImages(batchFailedImgIds, language, fbImageBytes, fbMimeTypes, fbImgIds, fbCachedImages, fbImageHashByImgId, null);
+                for (Map.Entry<String, MultimediaFile> e : fbCachedImages.entrySet()) {
+                    String hash = fbImageHashByImgId.get(e.getKey());
+                    if (hash != null) {
+                        translatedImageHashMap.put(hash, e.getValue());
+                    }
+                }
             }
 
             int fbSuccess = 0, fbFail = 0, fbCached = 0;
@@ -1234,17 +1317,31 @@ public class TaskService implements ITaskService {
                 }
 
                 String imgId = fbImgIds.get(i);
+                String imageHash = resolveImageHash(imgId, fbImageHashByImgId, fbImageBytes);
+                if (imageHash == null) {
+                    fbFail++;
+                    log.warn("[processResult] taskId={} 补刀图片[{}/{}] imgId={} 无法计算源图hash",
+                            task.getId(), i + 1, fbImgIds.size(), imgId);
+                    continue;
+                }
                 task.setMessage("正在补充翻译图片 (" + (i + 1) + "/" + fbImgIds.size() + ")...");
                 int fallbackProgress = 88 + (int) (8.0 * (i + 1) / fbImgIds.size());
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, Math.min(fallbackProgress, 96));
 
                 try {
-                    Optional<ImageTranslation> cached = imageTranslationRepository
-                            .findBySourceFileIdAndLanguageId(Long.valueOf(imgId), language.getId());
+                    if (translatedImageHashMap.containsKey(imageHash)) {
+                        fbCached++;
+                        log.info("[processResult] taskId={} 补刀图片[{}/{}] imgId={} 已有翻译(同hash)",
+                                task.getId(), i + 1, fbImgIds.size(), imgId);
+                        continue;
+                    }
+
+                    Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
+                            .findByImageHashAndLanguageId(imageHash, language.getId());
                     if (cached.isPresent()) {
-                        ImageTranslation it = cached.get();
+                        ImageTranslationCache it = cached.get();
                         if (!it.isSkipped() && it.getTranslatedFile() != null) {
-                            translatedImageMap.put(imgId, it.getTranslatedFile());
+                            translatedImageHashMap.put(imageHash, it.getTranslatedFile());
                         }
                         fbCached++;
                         log.info("[processResult] taskId={} 补刀图片[{}/{}] imgId={} 命中缓存",
@@ -1260,13 +1357,13 @@ public class TaskService implements ITaskService {
                         MultimediaFile sourceFile = multimediaFileService.getById(Long.valueOf(imgId));
                         if (result != null) {
                             MultimediaFile newFile = multimediaFileService.saveTranslatedImage(result, sourceFile.getSuffix(), owner);
-                            translatedImageMap.put(imgId, newFile);
-                            saveImageTranslationCache(sourceFile, language, newFile, false, owner);
+                            translatedImageHashMap.put(imageHash, newFile);
+                            saveImageTranslationCache(imageHash, sourceFile, language, newFile, false, owner);
                             fbSuccess++;
                             log.info("[processResult] taskId={} 补刀图片[{}/{}] imgId={} 成功: {}bytes, newFileId={}, 耗时={}ms",
                                     task.getId(), i + 1, fbImgIds.size(), imgId, result.length, newFile.getId(), System.currentTimeMillis() - fbStart);
                         } else {
-                            saveImageTranslationCache(sourceFile, language, null, true, owner);
+                            saveImageTranslationCache(imageHash, sourceFile, language, null, true, owner);
                             log.info("[processResult] taskId={} 补刀图片[{}/{}] imgId={} 无需翻译, 耗时={}ms",
                                     task.getId(), i + 1, fbImgIds.size(), imgId, System.currentTimeMillis() - fbStart);
                         }
@@ -1291,13 +1388,16 @@ public class TaskService implements ITaskService {
         task.setMessage("正在保存翻译结果...");
         asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 97);
 
-        log.info("[processResult] taskId={} 开始组装保存: texts={} 条, html={}, images={} 张",
-                task.getId(), translatedTexts.size(),
+        Map<String, MultimediaFile> translatedImageMap = buildTranslatedImageMap(
+                imgIds, preloadedImageHashByImgId, translatedImageHashMap, preCachedImageMap);
+
+        log.info("[processResult] taskId={} 开始组装保存: textMap={} 条, html={}, images={} 张",
+                task.getId(), translatedTextMap.size(),
                 translatedHtml != null ? translatedHtml.length() + "chars" : "null",
                 translatedImageMap.size());
 
         productService.assembleTranslatedProduct(
-                product, language, country, owner, translatedTexts,
+                product, language, country, owner, translatedTextMap,
                 translatedHtml != null ? translatedHtml : introduction,
                 translatedImageMap);
 
@@ -1309,35 +1409,29 @@ public class TaskService implements ITaskService {
 
     /**
      * 下载原图并过滤动图，填充输出参数。
-     * 前置查 ImageTranslation 缓存：已缓存的图片不下载、不加入 translatableImgIds，
-     * 而是直接放入 preCachedImageMap。
+     * 基于源图内容 hash 查 ImageTranslationCache 缓存：
+     * 命中则不加入 translatableImgIds，而是直接放入 preCachedImageMap。
+     */
+    /**
+     * 下载原图并过滤动图，填充输出参数。
+     * 基于源图内容 hash 查 ImageTranslationCache 缓存并进行内存去重：
+     * 同 hash 的图片只保留第一个进入 translatableImgIds，其余记录在 hashToDeferredImgIds 中。
+     *
+     * @param hashToDeferredImgIds 同 hash 但延迟处理的 imgId 列表（hash -> List<imgId>），可为 null 表示不需要去重跟踪
      */
     private void downloadAndFilterImages(List<String> imgIds, Language language,
                                          Map<String, byte[]> originalImageBytes,
                                          Map<String, String> imageMimeTypes,
                                          List<String> translatableImgIds,
-                                         Map<String, MultimediaFile> preCachedImageMap) {
-        log.info("[downloadImages] 开始处理 {} 张图片 (含缓存前置过滤)", imgIds.size());
-        int cachedCount = 0, skippedAnimated = 0;
+                                         Map<String, MultimediaFile> preCachedImageMap,
+                                         Map<String, String> imageHashByImgId,
+                                         Map<String, List<String>> hashToDeferredImgIds) {
+        log.info("[downloadImages] 开始处理 {} 张图片 (按hash缓存+内存去重)", imgIds.size());
+        int cachedCount = 0, skippedAnimated = 0, dedupCount = 0;
+        Set<String> seenHashes = new HashSet<>();
         for (int i = 0; i < imgIds.size(); i++) {
             String imgId = imgIds.get(i);
             try {
-                Optional<ImageTranslation> cached = imageTranslationRepository
-                        .findBySourceFileIdAndLanguageId(Long.valueOf(imgId), language.getId());
-                if (cached.isPresent()) {
-                    ImageTranslation it = cached.get();
-                    if (!it.isSkipped() && it.getTranslatedFile() != null) {
-                        preCachedImageMap.put(imgId, it.getTranslatedFile());
-                        log.info("[downloadImages] [{}/{}] imgId={} 命中缓存, translatedFileId={}",
-                                i + 1, imgIds.size(), imgId, it.getTranslatedFile().getId());
-                    } else {
-                        log.info("[downloadImages] [{}/{}] imgId={} 命中缓存(skipped=true, 无需翻译)",
-                                i + 1, imgIds.size(), imgId);
-                    }
-                    cachedCount++;
-                    continue;
-                }
-
                 MultimediaFile file = multimediaFileService.getById(Long.valueOf(imgId));
                 String suffix = file.getSuffix().toLowerCase();
 
@@ -1358,39 +1452,121 @@ public class TaskService implements ITaskService {
                     continue;
                 }
 
+                String imageHash = DigestUtil.sha256Hex(bytes);
+                imageHashByImgId.put(imgId, imageHash);
+
+                Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
+                        .findByImageHashAndLanguageId(imageHash, language.getId());
+                if (cached.isPresent()) {
+                    ImageTranslationCache it = cached.get();
+                    if (!it.isSkipped() && it.getTranslatedFile() != null) {
+                        preCachedImageMap.put(imgId, it.getTranslatedFile());
+                        log.info("[downloadImages] [{}/{}] imgId={} 命中hash缓存, translatedFileId={}",
+                                i + 1, imgIds.size(), imgId, it.getTranslatedFile().getId());
+                    } else {
+                        log.info("[downloadImages] [{}/{}] imgId={} 命中hash缓存(skipped=true, 无需翻译)",
+                                i + 1, imgIds.size(), imgId);
+                    }
+                    cachedCount++;
+                    continue;
+                }
+
+                if (!seenHashes.add(imageHash)) {
+                    if (hashToDeferredImgIds != null) {
+                        hashToDeferredImgIds.computeIfAbsent(imageHash, k -> new ArrayList<>()).add(imgId);
+                    }
+                    dedupCount++;
+                    log.info("[downloadImages] [{}/{}] imgId={} 内存去重(hash已存在), hash={}",
+                            i + 1, imgIds.size(), imgId, imageHash);
+                    continue;
+                }
+
                 String mimeType = "image/" + ("jpg".equalsIgnoreCase(suffix) ? "jpeg" : suffix);
                 originalImageBytes.put(imgId, bytes);
                 imageMimeTypes.put(imgId, mimeType);
                 translatableImgIds.add(imgId);
-                log.info("[downloadImages] [{}/{}] imgId={} 下载完成: suffix={}, mimeType={}, size={}bytes",
+                log.info("[downloadImages] [{}/{}] imgId={} 待翻译: suffix={}, mimeType={}, size={}bytes",
                         i + 1, imgIds.size(), imgId, suffix, mimeType, bytes.length);
             } catch (Exception e) {
                 log.warn("[downloadImages] [{}/{}] imgId={} 下载失败, 使用原图", i + 1, imgIds.size(), imgId, e);
             }
         }
-        log.info("[downloadImages] 处理完成: 总计={}, 缓存命中={}, 跳过动图={}, 待翻译={}",
-                imgIds.size(), cachedCount, skippedAnimated, translatableImgIds.size());
+        if (dedupCount > 0) {
+            translateTaskMetrics.recordDedupHit();
+        }
+        log.info("[downloadImages] 处理完成: 总计={}, 缓存命中={}, 跳过动图={}, 内存去重={}, 待翻译={}",
+                imgIds.size(), cachedCount, skippedAnimated, dedupCount, translatableImgIds.size());
     }
 
-    private List<String> collectTextsToTranslate(Product product) {
-        List<String> texts = new ArrayList<>();
-        texts.add(product.getTitle() != null ? product.getTitle() : "");
-        texts.add(product.getSummary() != null ? product.getSummary() : "");
+    /**
+     * 收集产品中所有需要翻译的文本，按内容 hash 去重。
+     * @return hash -> 原文 的有序 Map（LinkedHashMap）
+     */
+    private Map<String, String> collectTextsToTranslate(Product product) {
+        Map<String, String> uniqueTextMap = new LinkedHashMap<>();
+        addTextIfPresent(uniqueTextMap, product.getTitle());
+        addTextIfPresent(uniqueTextMap, product.getSummary());
         for (ProductSpecification spec : product.getSpecificationList()) {
             for (ProductSpecificationAttributes attr : spec.getAttributes()) {
-                texts.add(attr.getName() != null ? attr.getName() : "");
-                texts.add(attr.getValue() != null ? attr.getValue() : "");
+                addTextIfPresent(uniqueTextMap, attr.getName());
+                addTextIfPresent(uniqueTextMap, attr.getValue());
             }
         }
-        return texts;
+        return uniqueTextMap;
     }
 
-    private List<String> collectImageIds(String introduction) {
-        List<String> imgIds = new ArrayList<>();
-        if (introduction == null) return imgIds;
-        Matcher matcher = IMG_ID_PATTERN.matcher(introduction);
-        while (matcher.find()) {
-            imgIds.add(matcher.group(1));
+    private void addTextIfPresent(Map<String, String> map, String text) {
+        if (text != null && !text.isBlank()) {
+            map.putIfAbsent(DigestUtil.sha256Hex(text), text);
+        }
+    }
+
+    /**
+     * 收集产品中所有需要翻译的图片 ID（去重）。
+     * 包括：商品主图、规格图片、规格属性图片、详情 HTML 中引用的图片。
+     */
+    private List<String> collectImageIds(Product product) {
+        Set<String> dedup = new java.util.LinkedHashSet<>();
+        int rawCount = 0;
+
+        if (product.getImageFiles() != null) {
+            for (MultimediaFile img : product.getImageFiles()) {
+                if (img != null && img.getId() != null) {
+                    rawCount++;
+                    dedup.add(String.valueOf(img.getId()));
+                }
+            }
+        }
+
+        for (ProductSpecification spec : product.getSpecificationList()) {
+            MultimediaFile specImg = spec.getSpecificationImage();
+            if (specImg != null && specImg.getId() != null) {
+                rawCount++;
+                dedup.add(String.valueOf(specImg.getId()));
+            }
+            for (ProductSpecificationAttributes attr : spec.getAttributes()) {
+                MultimediaFile attrImg = attr.getMultimediaFile();
+                if (attrImg != null && attrImg.getId() != null) {
+                    rawCount++;
+                    dedup.add(String.valueOf(attrImg.getId()));
+                }
+            }
+        }
+
+        String introduction = product.getIntroduction();
+        if (introduction != null) {
+            Matcher matcher = IMG_ID_PATTERN.matcher(introduction);
+            while (matcher.find()) {
+                rawCount++;
+                dedup.add(matcher.group(1));
+            }
+        }
+
+        List<String> imgIds = new ArrayList<>(dedup);
+        int duplicated = rawCount - imgIds.size();
+        if (duplicated > 0) {
+            translateTaskMetrics.recordDedupHit();
+            log.info("[collectImageIds] 发现重复图片引用: raw={}, unique={}, duplicated={}", rawCount, imgIds.size(), duplicated);
         }
         return imgIds;
     }
@@ -1462,6 +1638,69 @@ public class TaskService implements ITaskService {
         return null;
     }
 
+    private String resolveImageHash(String imgId,
+                                    Map<String, String> imageHashByImgId,
+                                    Map<String, byte[]> preloadedImageBytes) {
+        try {
+            if (imageHashByImgId != null) {
+                String existing = imageHashByImgId.get(imgId);
+                if (existing != null && !existing.isBlank()) {
+                    return existing;
+                }
+            }
+            if (preloadedImageBytes != null) {
+                byte[] bytes = preloadedImageBytes.get(imgId);
+                if (bytes != null && bytes.length > 0) {
+                    String hash = DigestUtil.sha256Hex(bytes);
+                    if (imageHashByImgId != null) {
+                        imageHashByImgId.put(imgId, hash);
+                    }
+                    return hash;
+                }
+            }
+            MultimediaFile file = multimediaFileService.getById(Long.valueOf(imgId));
+            try (InputStream stream = s3Service.download(file.getRelativePath())) {
+                byte[] bytes = stream.readAllBytes();
+                String hash = DigestUtil.sha256Hex(bytes);
+                if (imageHashByImgId != null) {
+                    imageHashByImgId.put(imgId, hash);
+                }
+                return hash;
+            }
+        } catch (Exception e) {
+            log.warn("[resolveImageHash] imgId={} 计算hash失败", imgId, e);
+            return null;
+        }
+    }
+
+    /**
+     * 将按 hash 存储的翻译结果映射回 imgId -> MultimediaFile。
+     * 遍历原始 imgIds，通过 imageHashByImgId 取 hash，再从 translatedImageHashMap / preCachedImageMap 取翻译结果。
+     */
+    private Map<String, MultimediaFile> buildTranslatedImageMap(
+            List<String> imgIds,
+            Map<String, String> imageHashByImgId,
+            Map<String, MultimediaFile> translatedImageHashMap,
+            Map<String, MultimediaFile> preCachedImageMap) {
+        Map<String, MultimediaFile> result = new HashMap<>();
+        if (preCachedImageMap != null) {
+            result.putAll(preCachedImageMap);
+        }
+        if (imageHashByImgId != null && translatedImageHashMap != null) {
+            for (String imgId : imgIds) {
+                if (result.containsKey(imgId)) continue;
+                String hash = imageHashByImgId.get(imgId);
+                if (hash != null) {
+                    MultimediaFile translated = translatedImageHashMap.get(hash);
+                    if (translated != null) {
+                        result.put(imgId, translated);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
     private void cleanupBatchResources(String jobName, String uploadedFileName) {
         try {
             if (uploadedFileName != null) {
@@ -1512,92 +1751,83 @@ public class TaskService implements ITaskService {
 
     // ======================== 翻译缓存辅助方法 ========================
 
-    private void saveImageTranslationCache(MultimediaFile sourceFile, Language language,
+    private void saveImageTranslationCache(String imageHash, MultimediaFile sourceFile, Language language,
                                            MultimediaFile translatedFile, boolean skipped, SystemUser owner) {
         try {
-            ImageTranslation record = ImageTranslation.builder()
+            if (imageHash == null || imageHash.isBlank()) {
+                log.warn("[imageTranslationCache] imageHash 为空, 跳过写缓存: sourceFileId={}, langId={}",
+                        sourceFile.getId(), language.getId());
+                return;
+            }
+            ImageTranslationCache record = ImageTranslationCache.builder()
+                    .imageHash(imageHash)
                     .sourceFile(sourceFile)
                     .language(language)
                     .translatedFile(translatedFile)
                     .skipped(skipped)
                     .build();
-            record.setOwner(owner);
-            imageTranslationRepository.save(record);
+            imageTranslationCacheRepository.save(record);
+        } catch (DataIntegrityViolationException e) {
+            log.debug("[imageTranslationCache] 缓存已存在(并发写入): sourceFileId={}, langId={}", sourceFile.getId(), language.getId());
         } catch (Exception e) {
             log.warn("[imageTranslationCache] 写入缓存失败: sourceFileId={}, langId={}", sourceFile.getId(), language.getId(), e);
         }
     }
 
-    private List<String> translateTextsWithCache(List<String> textsToTranslate, Language language, String langName) {
+    /**
+     * 查询单条文本的翻译缓存，命中返回译文，未命中返回 null。
+     */
+    private String lookupSingleTextCache(String text, Language language) {
         try {
-            String sourceJson = OBJECT_MAPPER.writeValueAsString(textsToTranslate);
-            String hash = sha256(sourceJson);
-            Optional<TranslationCache> cached = translationCacheRepository
+            String hash = DigestUtil.sha256Hex(text);
+            Optional<TextTranslationCache> cached = textTranslationCacheRepository
                     .findByContentHashAndLanguageIdAndContentType(hash, language.getId(), TranslationContentType.TEXT);
             if (cached.isPresent()) {
-                List<String> result = OBJECT_MAPPER.readValue(cached.get().getTranslatedText(),
-                        new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
-                if (result.size() == textsToTranslate.size()) {
-                    log.info("[textCache] 命中文本翻译缓存: hash={}, langId={}, size={}", hash, language.getId(), result.size());
-                    return result;
+                String translated = cached.get().getTranslatedText();
+                if (translated == null || translated.isBlank()) {
+                    log.warn("[textCache] 命中脏缓存(空内容): hash={}, langId={}", hash, language.getId());
+                    return null;
                 }
-                log.warn("[textCache] 缓存数量不匹配, 重新翻译: expected={}, cached={}", textsToTranslate.size(), result.size());
+                log.info("[textCache] 单条文本缓存命中: hash={}, langId={}", hash, language.getId());
+                return translated;
             }
-            List<String> translated = geminiTranslateService.translateTexts(textsToTranslate, langName);
-            writeTextTranslationCache(textsToTranslate, translated, language, null);
-            return translated;
         } catch (Exception e) {
-            log.warn("[textCache] 缓存查询失败, 直接调用API", e);
-            return geminiTranslateService.translateTexts(textsToTranslate, langName);
+            log.warn("[textCache] 单条文本缓存查询失败: text.length={}", text.length(), e);
         }
-    }
-
-    private void writeTextTranslationCache(List<String> source, List<String> translated, Language language, SystemUser owner) {
-        try {
-            String sourceJson = OBJECT_MAPPER.writeValueAsString(source);
-            String translatedJson = OBJECT_MAPPER.writeValueAsString(translated);
-            String hash = sha256(sourceJson);
-            Optional<TranslationCache> existing = translationCacheRepository
-                    .findByContentHashAndLanguageIdAndContentType(hash, language.getId(), TranslationContentType.TEXT);
-            if (existing.isPresent()) return;
-            TranslationCache cache = TranslationCache.builder()
-                    .contentHash(hash)
-                    .language(language)
-                    .contentType(TranslationContentType.TEXT)
-                    .sourceText(sourceJson)
-                    .translatedText(translatedJson)
-                    .build();
-            if (owner != null) cache.setOwner(owner);
-            translationCacheRepository.save(cache);
-            log.info("[textCache] 写入文本翻译缓存: hash={}, langId={}", hash, language.getId());
-        } catch (Exception e) {
-            log.warn("[textCache] 写入缓存失败", e);
-        }
+        return null;
     }
 
     /**
-     * 仅查询文本翻译缓存（不调 API），用于 Batch 提交前的前置过滤。
-     * 命中返回翻译结果列表，未命中或异常返回 null。
+     * 翻译单条文本并写入缓存，返回译文。
      */
-    private List<String> lookupTextCache(List<String> textsToTranslate, Language language) {
+    private String translateTextWithCache(String text, Language language, String langName) {
+        String cached = lookupSingleTextCache(text, language);
+        if (cached != null) return cached;
+        String translated = geminiTranslateService.translateText(text, langName);
+        writeSingleTextCache(text, translated, language);
+        return translated;
+    }
+
+    private void writeSingleTextCache(String source, String translated, Language language) {
         try {
-            String sourceJson = OBJECT_MAPPER.writeValueAsString(textsToTranslate);
-            String hash = sha256(sourceJson);
-            Optional<TranslationCache> cached = translationCacheRepository
+            String hash = DigestUtil.sha256Hex(source);
+            Optional<TextTranslationCache> existing = textTranslationCacheRepository
                     .findByContentHashAndLanguageIdAndContentType(hash, language.getId(), TranslationContentType.TEXT);
-            if (cached.isPresent()) {
-                List<String> result = OBJECT_MAPPER.readValue(cached.get().getTranslatedText(),
-                        new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
-                if (result.size() == textsToTranslate.size()) {
-                    log.info("[lookupTextCache] 命中: hash={}, langId={}, size={}", hash, language.getId(), result.size());
-                    return result;
-                }
-                log.warn("[lookupTextCache] 缓存数量不匹配: expected={}, cached={}", textsToTranslate.size(), result.size());
-            }
+            if (existing.isPresent()) return;
+            TextTranslationCache cache = TextTranslationCache.builder()
+                    .contentHash(hash)
+                    .language(language)
+                    .contentType(TranslationContentType.TEXT)
+                    .sourceText(source)
+                    .translatedText(translated)
+                    .build();
+            textTranslationCacheRepository.save(cache);
+            log.info("[textCache] 写入单条文本缓存: hash={}, langId={}", hash, language.getId());
+        } catch (DataIntegrityViolationException e) {
+            log.debug("[textCache] 缓存已存在(并发写入): langId={}", language.getId());
         } catch (Exception e) {
-            log.warn("[lookupTextCache] 查询失败", e);
+            log.warn("[textCache] 写入缓存失败", e);
         }
-        return null;
     }
 
     /**
@@ -1606,10 +1836,14 @@ public class TaskService implements ITaskService {
      */
     private String lookupHtmlCache(String html, Language language) {
         try {
-            String hash = sha256(html);
-            Optional<TranslationCache> cached = translationCacheRepository
+            String hash = DigestUtil.sha256Hex(html);
+            Optional<TextTranslationCache> cached = textTranslationCacheRepository
                     .findByContentHashAndLanguageIdAndContentType(hash, language.getId(), TranslationContentType.HTML);
             if (cached.isPresent()) {
+                if (cached.get().getTranslatedText() == null || cached.get().getTranslatedText().isBlank()) {
+                    log.warn("[lookupHtmlCache] 命中脏缓存(空内容): hash={}, langId={}", hash, language.getId());
+                    return null;
+                }
                 log.info("[lookupHtmlCache] 命中: hash={}, langId={}", hash, language.getId());
                 return cached.get().getTranslatedText();
             }
@@ -1621,56 +1855,50 @@ public class TaskService implements ITaskService {
 
     private String translateHtmlWithCache(String html, Language language, String langName) {
         try {
-            String hash = sha256(html);
-            Optional<TranslationCache> cached = translationCacheRepository
+            String hash = DigestUtil.sha256Hex(html);
+            Optional<TextTranslationCache> cached = textTranslationCacheRepository
                     .findByContentHashAndLanguageIdAndContentType(hash, language.getId(), TranslationContentType.HTML);
             if (cached.isPresent()) {
-                log.info("[htmlCache] 命中HTML翻译缓存: hash={}, langId={}", hash, language.getId());
-                return cached.get().getTranslatedText();
+                if (cached.get().getTranslatedText() == null || cached.get().getTranslatedText().isBlank()) {
+                    log.warn("[htmlCache] 命中脏缓存(空内容), 重新翻译: hash={}, langId={}", hash, language.getId());
+                } else {
+                    log.info("[htmlCache] 命中HTML翻译缓存: hash={}, langId={}", hash, language.getId());
+                    return cached.get().getTranslatedText();
+                }
             }
             String translated = geminiTranslateService.translateHtml(html, langName);
             writeHtmlTranslationCache(html, translated, language, null);
             return translated;
         } catch (Exception e) {
-            log.warn("[htmlCache] 缓存查询失败, 直接调用API", e);
-            return geminiTranslateService.translateHtml(html, langName);
+            log.warn("[htmlCache] 缓存查询失败, 改走直调并尝试回写缓存", e);
+            String translated = geminiTranslateService.translateHtml(html, langName);
+            writeHtmlTranslationCache(html, translated, language, null);
+            return translated;
         }
     }
 
     private void writeHtmlTranslationCache(String source, String translated, Language language, SystemUser owner) {
         try {
-            String hash = sha256(source);
-            Optional<TranslationCache> existing = translationCacheRepository
+            String hash = DigestUtil.sha256Hex(source);
+            Optional<TextTranslationCache> existing = textTranslationCacheRepository
                     .findByContentHashAndLanguageIdAndContentType(hash, language.getId(), TranslationContentType.HTML);
             if (existing.isPresent()) return;
-            TranslationCache cache = TranslationCache.builder()
+            TextTranslationCache cache = TextTranslationCache.builder()
                     .contentHash(hash)
                     .language(language)
                     .contentType(TranslationContentType.HTML)
                     .sourceText(source.length() > 65535 ? source.substring(0, 65535) : source)
                     .translatedText(translated)
                     .build();
-            if (owner != null) cache.setOwner(owner);
-            translationCacheRepository.save(cache);
+            textTranslationCacheRepository.save(cache);
             log.info("[htmlCache] 写入HTML翻译缓存: hash={}, langId={}", hash, language.getId());
+        } catch (DataIntegrityViolationException e) {
+            log.debug("[htmlCache] 缓存已存在(并发写入): langId={}", language.getId());
         } catch (Exception e) {
             log.warn("[htmlCache] 写入缓存失败", e);
         }
     }
 
-    private static String sha256(String input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(64);
-            for (byte b : hash) {
-                hex.append(String.format("%02x", b));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            throw new RuntimeException("SHA-256 计算失败", e);
-        }
-    }
 
     /**
      * 在异步线程中恢复多租户上下文。

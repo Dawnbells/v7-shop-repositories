@@ -32,14 +32,14 @@ public interface IProductService extends IBaseDataRangeService<Product> {
 
     /**
      * 使用已翻译好的文本/HTML/图片组装并保存新 Product。
-     * 由 TaskService 在 Batch 翻译完成后调用。
+     * 由 TaskService 在翻译完成后调用。
      *
-     * @param translatedTexts  翻译后的短文本列表（与原文本顺序对应）
+     * @param translatedTextMap  翻译后的文本 Map（contentHash -> 译文）
      * @param translatedIntroduction 翻译后的 HTML
      * @param translatedImageMap     原图ID -> 已上传的翻译后 MultimediaFile (null 表示使用原图)
      */
     ProductResponse assembleTranslatedProduct(
             Product product, Language language, Country country, SystemUser owner,
-            List<String> translatedTexts, String translatedIntroduction,
+            Map<String, String> translatedTextMap, String translatedIntroduction,
             Map<String, MultimediaFile> translatedImageMap) throws Exception;
 }

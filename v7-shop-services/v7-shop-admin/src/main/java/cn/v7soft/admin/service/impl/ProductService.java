@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.v7soft.admin.controller.req.EditCloakInfoRequest;
 import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.EditProductSpecification;
@@ -95,15 +96,9 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
     @Override
     protected void checkKeyConstraint(Product data) {
-        Long userId;
-        try {
-            userId = SaSessionUtil.getLoginUser().getLongId();
-        } catch (Exception e) {
-            userId = data.getOwner() != null ? data.getOwner().getId() : null;
-        }
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(data.getLanguage(), "请选择商品语言");
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(data.getCountry(), "请选择商品国家");
-        Product existingProduct = repository.findBySameCountryLanguageForUser(data.getSpu().getId(), data.getId(), userId, data.getCountry().getId(), data.getLanguage().getId());
+        Product existingProduct = repository.findBySameCountryLanguage(data.getSpu().getId(), data.getId(), data.getCountry().getId(), data.getLanguage().getId());
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(existingProduct, "同一SPU下商品语言不允许重复");
     }
 
@@ -274,6 +269,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     @Transactional(readOnly = true)
     public Product getByIdWithSpecifications(Long id) {
         Product product = getById(id);
+        Hibernate.initialize(product.getImageFiles());
         Hibernate.initialize(product.getSpecificationList());
         for (ProductSpecification spec : product.getSpecificationList()) {
             Hibernate.initialize(spec.getAttributes());
@@ -363,18 +359,12 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(languageBelongsToCountry,
                 "所选语言不属于目标国家支持的语言");
 
-        Long userId;
-        try {
-            userId = cn.v7soft.dao.utils.SaSessionUtil.getLoginUser().getLongId();
-        } catch (Exception e) {
-            userId = product.getOwner() != null ? product.getOwner().getId() : null;
-        }
-        Product duplicate = repository.findBySameCountryLanguageForUser(
-                product.getSpu().getId(), null, userId, country.getId(), language.getId());
+        Product duplicate = repository.findBySameCountryLanguage(
+                product.getSpu().getId(), null, country.getId(), language.getId());
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
                 "同一SPU下该国家和语言已存在商品，不允许重复");
 
-        String dedupKey = "PRODUCT_AI_TRANSLATE:" + userId + ":" +
+        String dedupKey = "PRODUCT_AI_TRANSLATE:" +
                 request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
 
         List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndDedupKeyAndStateIn(
@@ -411,13 +401,11 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     @Transactional
     public ProductResponse assembleTranslatedProduct(
             Product product, Language language, Country country, SystemUser owner,
-            List<String> translatedTexts, String translatedIntroduction,
+            Map<String, String> translatedTextMap, String translatedIntroduction,
             Map<String, MultimediaFile> translatedImageMap) throws Exception {
 
-        String translatedTitle = translatedTexts.get(0);
-        String translatedSummary = translatedTexts.get(1);
-
-        int textIdx = 2;
+        String translatedTitle = lookupTranslation(translatedTextMap, product.getTitle());
+        String translatedSummary = lookupTranslation(translatedTextMap, product.getSummary());
 
         String finalIntroduction = translatedIntroduction;
         if (finalIntroduction != null && translatedImageMap != null) {
@@ -438,8 +426,13 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
         List<ProductSpecification> newSpecs = new ArrayList<>();
         for (ProductSpecification spec : product.getSpecificationList()) {
+            MultimediaFile specImg = spec.getSpecificationImage();
+            MultimediaFile translatedSpecImg = specImg != null && specImg.getId() != null && translatedImageMap != null
+                    ? translatedImageMap.getOrDefault(String.valueOf(specImg.getId()), specImg)
+                    : specImg;
+
             ProductSpecification newSpec = ProductSpecification.builder()
-                    .specificationImage(spec.getSpecificationImage())
+                    .specificationImage(translatedSpecImg)
                     .sid(spec.getSid())
                     .sellPrice(spec.getSellPrice())
                     .originPrice(spec.getOriginPrice())
@@ -453,17 +446,35 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                     .build();
             List<ProductSpecificationAttributes> newAttrs = new ArrayList<>();
             for (ProductSpecificationAttributes attr : spec.getAttributes()) {
-                String translatedName = textIdx < translatedTexts.size() ? translatedTexts.get(textIdx++) : attr.getName();
-                String translatedValue = textIdx < translatedTexts.size() ? translatedTexts.get(textIdx++) : attr.getValue();
+                String translatedName = lookupTranslation(translatedTextMap, attr.getName());
+                String translatedValue = lookupTranslation(translatedTextMap, attr.getValue());
+
+                MultimediaFile attrImg = attr.getMultimediaFile();
+                MultimediaFile translatedAttrImg = attrImg != null && attrImg.getId() != null && translatedImageMap != null
+                        ? translatedImageMap.getOrDefault(String.valueOf(attrImg.getId()), attrImg)
+                        : attrImg;
+
                 newAttrs.add(ProductSpecificationAttributes.builder()
                         .name(translatedName)
                         .value(translatedValue)
-                        .multimediaFile(attr.getMultimediaFile())
+                        .multimediaFile(translatedAttrImg)
                         .productSpecification(newSpec)
                         .build());
             }
             newSpec.setAttributes(newAttrs);
             newSpecs.add(newSpec);
+        }
+
+        List<MultimediaFile> newImageFiles = new ArrayList<>();
+        if (product.getImageFiles() != null && translatedImageMap != null) {
+            for (MultimediaFile img : product.getImageFiles()) {
+                MultimediaFile translated = img != null && img.getId() != null
+                        ? translatedImageMap.get(String.valueOf(img.getId()))
+                        : null;
+                newImageFiles.add(translated != null ? translated : img);
+            }
+        } else if (product.getImageFiles() != null) {
+            newImageFiles.addAll(product.getImageFiles());
         }
 
         Product newProduct = Product.builder()
@@ -488,7 +499,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .specificationList(newSpecs)
                 .sku(product.getSku())
                 .videoFile(product.getVideoFile())
-                .imageFiles(product.getImageFiles())
+                .imageFiles(newImageFiles)
                 .language(language)
                 .spu(product.getSpu())
                 .alternativeSkus(product.getAlternativeSkus())
@@ -502,5 +513,11 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
         spuRepository.refreshUpdateTime(product.getSpu().getId());
         return ProductResponse.convertEntity(multimediaFileService, saveAndFlush(newProduct));
+    }
+
+    private String lookupTranslation(Map<String, String> translatedTextMap, String original) {
+        if (original == null || original.isBlank()) return original;
+        String hash = DigestUtil.sha256Hex(original);
+        return translatedTextMap.getOrDefault(hash, original);
     }
 }

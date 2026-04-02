@@ -7,12 +7,9 @@ import java.nio.file.Files;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -25,8 +22,6 @@ import com.google.genai.types.GenerateContentConfig;
 import com.google.genai.types.GenerateContentResponse;
 import com.google.genai.types.Part;
 import com.google.genai.types.GenerateContentResponseUsageMetadata;
-import com.google.genai.types.Schema;
-import com.google.genai.types.Type;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
 import com.google.genai.types.UploadFileConfig;
@@ -81,68 +76,43 @@ public class GeminiTranslateService {
     }
 
     /**
-     * 批量翻译短文本（title/summary/spec name/value 等）。
-     * 将多段文本打包为一次 API 请求，返回翻译后的文本列表（与输入等长、顺序对应）。
+     * 翻译单条短文本（title/summary/spec name/value 等）。
      */
-    public List<String> translateTexts(List<String> texts, String targetLanguageName) {
-        if (texts == null || texts.isEmpty()) {
-            return List.of();
+    public String translateText(String text, String targetLanguageName) {
+        if (text == null || text.isBlank()) {
+            return text;
         }
-
-        String numberedTexts = IntStream.range(0, texts.size())
-                .mapToObj(i -> (i + 1) + ". " + texts.get(i))
-                .collect(Collectors.joining("\n"));
 
         String prompt = """
                 You are a professional e-commerce product translator.
-                Translate the following numbered texts to %s.
+                Translate the following text to %s.
                 Rules:
-                - Keep the same numbering format
-                - Translate each line independently
-                - Do NOT add, remove, or reorder any lines
                 - Keep brand names, model numbers, and units unchanged
-                - If a text is already in the target language, keep it as is
-                - Output ONLY a JSON array of strings, in the same order as input
-                - The array must have exactly %d elements
+                - If the text is already in the target language, keep it as is
+                - Output ONLY the translated text, nothing else
                 
-                Texts:
+                Text:
                 %s
-                """.formatted(targetLanguageName, texts.size(), numberedTexts);
+                """.formatted(targetLanguageName, text);
 
         GenerateContentConfig config = GenerateContentConfig.builder()
-                .responseMimeType("application/json")
-                .responseSchema(Schema.builder()
-                                        .type(Type.Known.ARRAY)
-                                        .items(Schema.builder().type(Type.Known.STRING).build())
-                                        .build())
                 .temperature(0.1f)
                 .httpOptions(HttpOptions.builder().timeout(TIMEOUT_TEXT_MS).build())
                 .build();
 
-        log.info("[translateTexts] 请求 Gemini: model={}, textCount={}, targetLang={}, timeout={}ms",
-                MODEL, texts.size(), targetLanguageName, TIMEOUT_TEXT_MS);
-        log.debug("[translateTexts] prompt={}", prompt);
+        log.info("[translateText] 请求 Gemini: model={}, targetLang={}, textLength={}, timeout={}ms",
+                MODEL, targetLanguageName, text.length(), TIMEOUT_TEXT_MS);
+        log.debug("[translateText] prompt={}", prompt);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = generateContentWithRetry("translateTexts", prompt, config, TIMEOUT_TEXT_MS);
+        GenerateContentResponse response = generateContentWithRetry("translateText", prompt, config, TIMEOUT_TEXT_MS);
         long elapsed = System.currentTimeMillis() - start;
-        String json = response.text();
+        String result = response.text();
 
-        logTokenUsage("translateTexts", elapsed, response);
-        log.debug("[translateTexts] responseJson={}", json);
+        logTokenUsage("translateText", elapsed, response);
+        log.debug("[translateText] result={}", result);
 
-        try {
-            List<String> result = OBJECT_MAPPER.readValue(json, new TypeReference<List<String>>() {
-            });
-            if (result.size() != texts.size()) {
-                log.warn("翻译结果数量不匹配: expected={}, actual={}", texts.size(), result.size());
-                throw new RuntimeException("翻译结果数量不匹配");
-            }
-            return result;
-        } catch (Exception e) {
-            log.error("解析翻译结果失败, json={}", json, e);
-            throw new RuntimeException("解析翻译结果失败", e);
-        }
+        return result;
     }
 
     /**
@@ -309,28 +279,20 @@ public class GeminiTranslateService {
     }
 
     /**
-     * 构建文本翻译的 JSONL 行。
+     * 构建单条文本翻译的 JSONL 行。
      */
-    public String buildTextsTranslateJsonlEntry(String key, List<String> texts, String targetLanguageName) {
-        String numberedTexts = IntStream.range(0, texts.size())
-                .mapToObj(i -> (i + 1) + ". " + texts.get(i))
-                .collect(Collectors.joining("\n"));
-
+    public String buildTextTranslateJsonlEntry(String key, String text, String targetLanguageName) {
         String prompt = """
                 You are a professional e-commerce product translator.
-                Translate the following numbered texts to %s.
+                Translate the following text to %s.
                 Rules:
-                - Keep the same numbering format
-                - Translate each line independently
-                - Do NOT add, remove, or reorder any lines
                 - Keep brand names, model numbers, and units unchanged
-                - If a text is already in the target language, keep it as is
-                - Output ONLY a JSON array of strings, in the same order as input
-                - The array must have exactly %d elements
+                - If the text is already in the target language, keep it as is
+                - Output ONLY the translated text, nothing else
                 
-                Texts:
+                Text:
                 %s
-                """.formatted(targetLanguageName, texts.size(), numberedTexts);
+                """.formatted(targetLanguageName, text);
 
         ObjectNode root = OBJECT_MAPPER.createObjectNode();
         root.put("key", key);
@@ -342,13 +304,9 @@ public class GeminiTranslateService {
         parts.addObject().put("text", prompt);
 
         ObjectNode genConfig = request.putObject("generation_config");
-        genConfig.put("response_mime_type", "application/json");
         genConfig.put("temperature", 0.1);
         ObjectNode thinkingConfig = genConfig.putObject("thinking_config");
         thinkingConfig.put("thinking_budget", 0);
-        ObjectNode responseSchema = genConfig.putObject("response_schema");
-        responseSchema.put("type", "ARRAY");
-        responseSchema.putObject("items").put("type", "STRING");
 
         return root.toString();
     }

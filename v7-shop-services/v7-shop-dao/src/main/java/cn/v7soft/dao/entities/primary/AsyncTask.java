@@ -80,7 +80,7 @@ public class AsyncTask extends BaseDataRangeEntity {
     private String name;
 
     /**
-     * 幂等去重键，格式：{taskType}:{ownerId}:{businessKey}
+     * 幂等去重键，格式：{taskType}:{businessKey}
      * 用于替代 parameters JSON 字符串全等比较
      */
     @Column(name = "dedup_key", length = 255)
