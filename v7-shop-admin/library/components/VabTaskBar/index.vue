@@ -76,7 +76,7 @@
               <!-- 活动任务: 等待时间 + 消息 -->
               <div v-if="!isFinished(task.state)" class="task-bar-item-msg task-bar-item-msg--info">
                 {{ elapsedText(task.createdAt) }}
-                <template v-if="task.message && task.state === 'PROCESSING'">
+                <template v-if="task.message && (task.state === 'PROCESSING' || task.state === 'PENDING')">
                   · {{ task.message }}
                 </template>
               </div>

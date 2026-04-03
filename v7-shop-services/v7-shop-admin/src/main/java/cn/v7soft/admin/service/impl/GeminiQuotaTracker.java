@@ -29,16 +29,30 @@ public class GeminiQuotaTracker {
         this.dailyLimitPerKey = dailyLimitPerKey;
         this.apiKeys = List.of(apiKeysConfig.split(","));
         this.redis = redis;
-        redis.opsForValue().set(quotaKey(apiKeys.get(0)), "995");
+        redis.opsForValue().set(quotaKey(apiKeys.get(0)), "999");
         log.info("[QuotaTracker] 初始化: keys={}, dailyLimitPerKey={}", apiKeys.size(), dailyLimitPerKey);
     }
 
-    public void increment(String apiKey) {
+    public boolean increment(String apiKey) {
         String key = quotaKey(apiKey);
         Long count = redis.opsForValue().increment(key);
         if (count != null && count == 1) {
             redis.expireAt(key, ptMidnightInstant());
         }
+        if (count != null && count > dailyLimitPerKey) {
+            redis.opsForValue().decrement(key);
+            return false;
+        }
+        return true;
+    }
+
+    public String tryAcquire() {
+        for (String key : apiKeys) {
+            if (increment(key)) {
+                return key;
+            }
+        }
+        return null;
     }
 
     public void decrement(String apiKey) {

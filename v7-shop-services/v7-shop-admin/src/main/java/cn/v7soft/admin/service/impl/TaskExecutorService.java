@@ -863,6 +863,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         java.util.concurrent.atomic.AtomicReference<String> translatedHtmlRef = new java.util.concurrent.atomic.AtomicReference<>();
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         java.util.concurrent.atomic.AtomicBoolean cancelledFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.atomic.AtomicBoolean quotaExhaustedFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
 
         Long tenantId = TenantContext.getCurrentTenant();
         Company tenantCompany = TenantContext.getCurrentTenantEntity();
@@ -880,7 +881,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             String sourceText = entry.getValue();
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested || cancelledFlag.get()) return;
+                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -895,10 +896,13 @@ public class TaskExecutorService implements ITaskExecutorService {
                         saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
                                 false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
                     }
+                } catch (DailyQuotaExhaustedException e) {
+                    quotaExhaustedFlag.set(true);
+                    throw e;
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} text hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
-                    if (!shutdownRequested && !cancelledFlag.get()) {
+                    if (!shutdownRequested && !cancelledFlag.get() && !quotaExhaustedFlag.get()) {
                         if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
                             cancelledFlag.set(true);
                         }
@@ -913,7 +917,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             String htmlHash = DigestUtil.sha256Hex(ctx.getUncachedHtml());
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested || cancelledFlag.get()) return;
+                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -928,10 +932,13 @@ public class TaskExecutorService implements ITaskExecutorService {
                         saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
                                 false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
                     }
+                } catch (DailyQuotaExhaustedException e) {
+                    quotaExhaustedFlag.set(true);
+                    throw e;
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} HTML 翻译失败", task.getId(), e);
                 } finally {
-                    if (!shutdownRequested && !cancelledFlag.get()) {
+                    if (!shutdownRequested && !cancelledFlag.get() && !quotaExhaustedFlag.get()) {
                         if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
                             cancelledFlag.set(true);
                         }
@@ -949,7 +956,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             MultimediaFile sourceFile = ctx.getImageHashToSourceFile().get(hash);
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested || cancelledFlag.get()) return;
+                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -972,10 +979,13 @@ public class TaskExecutorService implements ITaskExecutorService {
                                     InvokeMode.STANDARD, usageRef.get(), sourceFile, owner);
                         }
                     }
+                } catch (DailyQuotaExhaustedException e) {
+                    quotaExhaustedFlag.set(true);
+                    throw e;
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} img hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
-                    if (!shutdownRequested && !cancelledFlag.get()) {
+                    if (!shutdownRequested && !cancelledFlag.get() && !quotaExhaustedFlag.get()) {
                         if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
                             cancelledFlag.set(true);
                         }
@@ -985,7 +995,14 @@ public class TaskExecutorService implements ITaskExecutorService {
             }, translationExecutor));
         }
 
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        } catch (java.util.concurrent.CompletionException e) {
+            if (e.getCause() instanceof DailyQuotaExhaustedException dqe) {
+                throw dqe;
+            }
+            throw e;
+        }
 
         log.info("[directTranslate] taskId={} 并发翻译完成: texts={}, images={}, html={}",
                 task.getId(), translatedTextMap.size(), translatedImageMap.size(),

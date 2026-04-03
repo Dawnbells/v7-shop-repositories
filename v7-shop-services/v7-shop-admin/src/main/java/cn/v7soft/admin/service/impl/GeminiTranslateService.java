@@ -21,14 +21,14 @@ import com.google.genai.Client;
 import com.google.genai.errors.ApiException;
 import com.google.genai.types.BatchJob;
 import com.google.genai.types.BatchJobSource;
-import com.google.genai.types.CreateBatchJobConfig;
 import com.google.genai.types.Content;
+import com.google.genai.types.CreateBatchJobConfig;
 import com.google.genai.types.GenerateContentConfig;
 import com.google.genai.types.GenerateContentResponse;
-import com.google.genai.types.Part;
 import com.google.genai.types.GenerateContentResponseUsageMetadata;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
+import com.google.genai.types.Part;
 import com.google.genai.types.UploadFileConfig;
 
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
@@ -50,6 +50,7 @@ public class GeminiTranslateService {
     @lombok.Data
     @lombok.Builder
     public static class TokenUsage {
+
         private Integer promptTokens;
         private Integer completionTokens;
         private Integer thinkingTokens;
@@ -90,36 +91,34 @@ public class GeminiTranslateService {
         return Client.builder()
                 .apiKey(apiKey)
                 .httpOptions(HttpOptions.builder()
-                        .timeout(TIMEOUT_DEFAULT_MS)
-                        .retryOptions(HttpRetryOptions.builder()
-                                .attempts(2)
-                                .httpStatusCodes(408, 500, 502, 503, 504)
-                                .initialDelay(2.0)
-                                .maxDelay(10.0)
-                                .expBase(2.0)
-                                .build())
-                        .build())
+                                     .timeout(TIMEOUT_DEFAULT_MS)
+                                     .retryOptions(HttpRetryOptions.builder()
+                                                           .attempts(2)
+                                                           .httpStatusCodes(408, 500, 502, 503, 504)
+                                                           .initialDelay(2.0)
+                                                           .maxDelay(10.0)
+                                                           .expBase(2.0)
+                                                           .build())
+                                     .build())
                 .build();
     }
 
     // ======================== callGemini: 统一配额管理入口 ========================
 
     private <T> T callGemini(Function<Client, T> action) {
-        String apiKey = tracker.getFirstAvailableKey();
+        String apiKey = tracker.tryAcquire();
         if (apiKey == null) {
             throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽");
         }
-        tracker.increment(apiKey);
         try {
             return action.apply(clientMap.get(apiKey));
         } catch (ApiException e) {
             if (isDailyQuota429(e)) {
                 tracker.markExhausted(apiKey);
-                String nextKey = tracker.getFirstAvailableKey();
+                String nextKey = tracker.tryAcquire();
                 if (nextKey == null) {
                     throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽", e);
                 }
-                tracker.increment(nextKey);
                 try {
                     return action.apply(clientMap.get(nextKey));
                 } catch (ApiException e2) {
@@ -127,11 +126,13 @@ public class GeminiTranslateService {
                         tracker.markExhausted(nextKey);
                         throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽", e2);
                     }
-                    if (shouldDecrement(e2)) tracker.decrement(nextKey);
+                    if (shouldDecrement(e2))
+                        tracker.decrement(nextKey);
                     throw e2;
                 }
             }
-            if (shouldDecrement(e)) tracker.decrement(apiKey);
+            if (shouldDecrement(e))
+                tracker.decrement(apiKey);
             throw e;
         }
     }
@@ -149,17 +150,17 @@ public class GeminiTranslateService {
 
     public String translateText(String text, String targetLanguageName) {
         return Retry.decorateSupplier(geminiInternalRetry,
-                () -> translateTextRaw(text, targetLanguageName)).get();
+                                      () -> translateTextRaw(text, targetLanguageName)).get();
     }
 
     public String translateHtml(String html, String targetLanguageName) {
         return Retry.decorateSupplier(geminiInternalRetry,
-                () -> translateHtmlRaw(html, targetLanguageName)).get();
+                                      () -> translateHtmlRaw(html, targetLanguageName)).get();
     }
 
     public byte[] translateImage(byte[] imageBytes, String mimeType, String targetLanguageName) {
         return Retry.decorateSupplier(geminiInternalRetry,
-                () -> translateImageRaw(imageBytes, mimeType, targetLanguageName)).get();
+                                      () -> translateImageRaw(imageBytes, mimeType, targetLanguageName)).get();
     }
 
     // ======================== Raw 方法 ========================
@@ -190,11 +191,12 @@ public class GeminiTranslateService {
                 .httpOptions(HttpOptions.builder().timeout(TIMEOUT_TEXT_MS).build())
                 .build();
 
-        log.info("[translateText] 请求 Gemini: model={}, targetLang={}, textLength={}, timeout={}ms",
-                MODEL, targetLanguageName, text.length(), TIMEOUT_TEXT_MS);
-
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = callGemini(c -> c.models.generateContent(MODEL, prompt, config));
+        GenerateContentResponse response = callGemini(client -> {
+            log.info("[translateText] 请求 Gemini: model={}, targetLang={}, textLength={}, timeout={}ms",
+                     MODEL, targetLanguageName, text.length(), TIMEOUT_TEXT_MS);
+            return client.models.generateContent(MODEL, prompt, config);
+        });
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
@@ -213,16 +215,16 @@ public class GeminiTranslateService {
         }
 
         Content systemInstruction = Content.fromParts(Part.fromText("""
-                You are a professional HTML content translator for e-commerce product pages.
-                You MUST follow these rules strictly:
-                - Translate ONLY the visible text content to %s
-                - Preserve ALL HTML tags, attributes, and structure exactly as they are
-                - Do NOT modify any tag names, class names, style attributes, src URLs, or href URLs
-                - Do NOT modify <img> tags or their src/alt attributes in any way
-                - Do NOT add or remove any HTML tags
-                - Keep brand names, product model numbers unchanged
-                - Output the complete translated HTML, nothing else
-                """.formatted(targetLanguageName)));
+                                                                            You are a professional HTML content translator for e-commerce product pages.
+                                                                            You MUST follow these rules strictly:
+                                                                            - Translate ONLY the visible text content to %s
+                                                                            - Preserve ALL HTML tags, attributes, and structure exactly as they are
+                                                                            - Do NOT modify any tag names, class names, style attributes, src URLs, or href URLs
+                                                                            - Do NOT modify <img> tags or their src/alt attributes in any way
+                                                                            - Do NOT add or remove any HTML tags
+                                                                            - Keep brand names, product model numbers unchanged
+                                                                            - Output the complete translated HTML, nothing else
+                                                                            """.formatted(targetLanguageName)));
 
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .systemInstruction(systemInstruction)
@@ -233,11 +235,12 @@ public class GeminiTranslateService {
         String prompt = "Translate the text content in this HTML to "
                         + targetLanguageName + ":\n\n" + html;
 
-        log.info("[translateHtml] 请求 Gemini: model={}, targetLang={}, htmlLength={}, timeout={}ms",
-                MODEL, targetLanguageName, html.length(), TIMEOUT_HTML_MS);
-
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = callGemini(c -> c.models.generateContent(MODEL, prompt, config));
+        GenerateContentResponse response = callGemini(c -> {
+            log.info("[translateHtml] 请求 Gemini: model={}, targetLang={}, htmlLength={}, timeout={}ms",
+                     MODEL, targetLanguageName, html.length(), TIMEOUT_HTML_MS);
+            return c.models.generateContent(MODEL, prompt, config);
+        });
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
@@ -317,11 +320,14 @@ public class GeminiTranslateService {
                 .httpOptions(HttpOptions.builder().timeout(TIMEOUT_IMAGE_MS).build())
                 .build();
 
-        log.info("[translateImage] 请求 Gemini: model={}, targetLang={}, mimeType={}, imageSize={}bytes, timeout={}ms",
-                MODEL, targetLanguageName, mimeType, imageBytes.length, TIMEOUT_IMAGE_MS);
+
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = callGemini(c -> c.models.generateContent(MODEL, content, config));
+        GenerateContentResponse response = callGemini(c -> {
+            log.info("[translateImage] 请求 Gemini: model={}, targetLang={}, mimeType={}, imageSize={}bytes, timeout={}ms",
+                     MODEL, targetLanguageName, mimeType, imageBytes.length, TIMEOUT_IMAGE_MS);
+            return c.models.generateContent(MODEL, content, config);
+        });
         long elapsed = System.currentTimeMillis() - start;
 
         logTokenUsage("translateImage", elapsed, response);
@@ -343,14 +349,14 @@ public class GeminiTranslateService {
                 var blob = part.inlineData().get();
                 int dataSize = blob.data().isPresent() ? blob.data().get().length : 0;
                 log.info("[translateImage] part[{}] 类型=IMAGE, mimeType={}, dataSize={}bytes",
-                        i, blob.mimeType().orElse("unknown"), dataSize);
+                         i, blob.mimeType().orElse("unknown"), dataSize);
                 if (blob.data().isPresent()) {
                     imageResult = blob.data().get();
                 }
             } else if (part.text().isPresent()) {
                 boolean isThought = part.thought().orElse(false);
                 log.info("[translateImage] part[{}] 类型=TEXT, thought={}, text={}",
-                        i, isThought, part.text().get());
+                         i, isThought, part.text().get());
             } else {
                 log.info("[translateImage] part[{}] 类型=OTHER, content={}", i, part.toJson());
             }
@@ -602,7 +608,8 @@ public class GeminiTranslateService {
 
     public static TokenUsage extractTokenUsageFromBatchResponse(com.fasterxml.jackson.databind.JsonNode responseNode) {
         com.fasterxml.jackson.databind.JsonNode meta = responseNode.path("usageMetadata");
-        if (meta.isMissingNode()) return null;
+        if (meta.isMissingNode())
+            return null;
         return TokenUsage.builder()
                 .promptTokens(meta.has("promptTokenCount") ? meta.get("promptTokenCount").asInt(0) : 0)
                 .completionTokens(meta.has("candidatesTokenCount") ? meta.get("candidatesTokenCount").asInt(0) : 0)
@@ -613,7 +620,8 @@ public class GeminiTranslateService {
 
     private TokenUsage extractTokenUsage(GenerateContentResponse response, long elapsedMs) {
         Optional<GenerateContentResponseUsageMetadata> opt = response.usageMetadata();
-        if (opt.isEmpty()) return null;
+        if (opt.isEmpty())
+            return null;
         GenerateContentResponseUsageMetadata usage = opt.get();
         return TokenUsage.builder()
                 .promptTokens(usage.promptTokenCount().orElse(0))
@@ -625,7 +633,8 @@ public class GeminiTranslateService {
     }
 
     private void emitTokenUsage(GenerateContentResponse response, long elapsedMs, Consumer<TokenUsage> callback) {
-        if (callback == null) return;
+        if (callback == null)
+            return;
         TokenUsage usage = extractTokenUsage(response, elapsedMs);
         if (usage != null) {
             callback.accept(usage);
@@ -640,11 +649,11 @@ public class GeminiTranslateService {
         }
         GenerateContentResponseUsageMetadata usage = opt.get();
         log.info("[{}] Gemini 响应: elapsed={}ms, promptTokens={}, candidatesTokens={}, totalTokens={}, thoughtsTokens={}, cachedTokens={}",
-                method, elapsedMs,
-                usage.promptTokenCount().orElse(null),
-                usage.candidatesTokenCount().orElse(null),
-                usage.totalTokenCount().orElse(null),
-                usage.thoughtsTokenCount().orElse(null),
-                usage.cachedContentTokenCount().orElse(null));
+                 method, elapsedMs,
+                 usage.promptTokenCount().orElse(null),
+                 usage.candidatesTokenCount().orElse(null),
+                 usage.totalTokenCount().orElse(null),
+                 usage.thoughtsTokenCount().orElse(null),
+                 usage.cachedContentTokenCount().orElse(null));
     }
 }
