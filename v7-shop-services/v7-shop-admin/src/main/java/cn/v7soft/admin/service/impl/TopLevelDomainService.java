@@ -27,6 +27,7 @@ import cn.v7soft.admin.utils.NginxConfigWriter;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.core.enums.ClientResponseEnum;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.entities.primary.PixelAccount;
 import cn.v7soft.dao.entities.primary.Protocol;
@@ -103,7 +104,8 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
         TopLevelDomain topLevelDomain = getById(id);
         List<SubDomain> subDomains = topLevelDomain.getSubDomains();
         subDomainService.doDeleteAll(subDomains.stream().map(SubDomain::getId).toList());
-        super.delete(id);
+        topLevelDomain.setStatus(StatusEnum.DELETED);
+        repository.save(topLevelDomain);
     }
 
     @Override
