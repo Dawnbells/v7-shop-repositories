@@ -207,7 +207,7 @@
 import { Close, Sort } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import { useTasksStore, type TaskItem } from '/@/store/modules/tasks'
-import { listTasks, downloadTaskFile } from '/@/api/taskManagement'
+import { listTasks, downloadFile } from '/@/api/taskManagement'
 
 defineOptions({
   name: 'VabTaskBar',
@@ -360,7 +360,15 @@ const onTabChange = (tab: string | number) => {
 }
 
 const handleDownload = (taskId: number) => {
-  downloadTaskFile(taskId)
+  downloadFile(String(taskId))
+    .then((response) => response.blob())
+    .then((blob) => {
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = `任务导出_${new Date().toLocaleDateString()}.xlsx`
+      link.click()
+      URL.revokeObjectURL(link.href)
+    })
 }
 
 // --- 公共方法 ---
