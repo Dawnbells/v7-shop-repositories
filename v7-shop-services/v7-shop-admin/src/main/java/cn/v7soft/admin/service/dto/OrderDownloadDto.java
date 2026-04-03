@@ -289,10 +289,10 @@ public class OrderDownloadDto {
         OrderBotCheckInfo botOrderCheckInfo = order.getBotOrderCheckInfo();
         OrderFinancialInfo financialInfo = order.getFinancialInfo();
         List<OrderItemInfo> orderItemInfos = order.getItemInfos();
-        OrderItemInfo orderItemInfo = order.getItemInfos().get(0);
+        OrderItemInfo orderItemInfo = orderItemInfos.isEmpty() ? null : orderItemInfos.get(0);
         String orderNoAlias = order.getOrderNoAlias();
         String orderNo = StrUtil.isBlank(orderNoAlias) ? String.valueOf(order.getId()) : orderNoAlias;
-        Long quantity = order.getItemInfos().stream().map(OrderItemInfo::getQuantity).reduce(0L, Long::sum);
+        Long quantity = orderItemInfos.stream().map(OrderItemInfo::getQuantity).reduce(0L, Long::sum);
 
         String province = deliveryInfo.getProvince();
         String city = deliveryInfo.getCity();
@@ -341,7 +341,7 @@ public class OrderDownloadDto {
         }
 
         String merchandiseLeft = null;
-        if(orderItemInfo.getMerchandise() != null && orderItemInfo.getMerchandise().contains("=") && order.getPlatform() == WebsiteTypeEnum.V7_SHOP) {
+        if(orderItemInfo != null && orderItemInfo.getMerchandise() != null && orderItemInfo.getMerchandise().contains("=") && order.getPlatform() == WebsiteTypeEnum.V7_SHOP) {
             merchandiseLeft = orderItemInfo.getMerchandise().split("=")[0] + "=";
         }
 
@@ -350,9 +350,9 @@ public class OrderDownloadDto {
                 .cod(order.getPaymentInfo().getPaymentMethod() == PaymentMethod.COD ? "是" : "否")
                 .totalAmount(financialInfo.getTotalAmount().setScale(currencyFractionDigits, RoundingMode.HALF_UP).toPlainString())
                 .orderNo(orderNo)
-                .productId(String.valueOf(orderItemInfo.getId()))
-                .skuName((merchandiseLeft == null? "": merchandiseLeft) + orderItemInfo.getSkuName())
-                .skuCode(orderItemInfo.getSkuCode())
+                .productId(orderItemInfo == null ? "" : String.valueOf(orderItemInfo.getId()))
+                .skuName((merchandiseLeft == null ? "" : merchandiseLeft) + (orderItemInfo == null ? "" : orderItemInfo.getSkuName()))
+                .skuCode(orderItemInfo == null ? "" : orderItemInfo.getSkuCode())
                 .quantity(String.valueOf(quantity))
                 .freebiesName("")
                 .freebiesSkuCode("")
@@ -362,20 +362,20 @@ public class OrderDownloadDto {
                 .checkOrderRemark(order.getOrderCheckRemark())
                 .checkOrderReminder(botOrderCheckInfo.toTip())
                 .fromPlatform(order.getFrom())
-                .sku(orderItemInfos.stream().map(OrderItemInfo::getSkuCode).collect(Collectors.joining(",")))
-                .merchandise(orderItemInfo.getMerchandise())
+                .sku(orderItemInfos.isEmpty()? "":orderItemInfos.stream().map(OrderItemInfo::getSkuCode).collect(Collectors.joining(",")))
+                .merchandise(orderItemInfo == null ? "" : orderItemInfo.getMerchandise())
                 .waybillProductName(logisticsInfo.getWaybillProductName())
                 .deliveryChannel(logisticsInfo.getDeliveryChannel())
-                .productName(orderItemInfo.getTitle())
+                .productName(orderItemInfo == null ? "" : orderItemInfo.getTitle())
                 .orderDuplicationCount(botOrderCheckInfo.getPhoneRepeatCount())
                 .ipDuplicationCount(botOrderCheckInfo.getRemoteIpRepeatCount())
                 .remoteIp(riskInfo.getRemoteIp())
                 .email(deliveryInfo.getEmail())
                 .weight("")
                 .dimensions("")
-                .specTitle(orderItemInfo.getSpecTitle())
-                .itemQuantity(orderItemInfo.getQuantity().toString())
-                .itemPrice(orderItemInfo.getSellPrice().setScale(currencyFractionDigits, RoundingMode.HALF_UP).toPlainString())
+                .specTitle(orderItemInfo == null ? "" : orderItemInfo.getSpecTitle())
+                .itemQuantity(orderItemInfo == null ? "0" : orderItemInfo.getQuantity().toString())
+                .itemPrice(orderItemInfo == null ? "0" : orderItemInfo.getSellPrice().setScale(currencyFractionDigits, RoundingMode.HALF_UP).toPlainString())
                 .name(deliveryInfo.getFirstName() + (TextUtils.isBlank(deliveryInfo.getLastName()) ? "" : (" " + deliveryInfo.getLastName())))
                 .phone(deliveryInfo.getPhone() == null ? "" : deliveryInfo.getPhone().replaceAll(" ", ""))
                 .country(contextInfo.getCountry())
