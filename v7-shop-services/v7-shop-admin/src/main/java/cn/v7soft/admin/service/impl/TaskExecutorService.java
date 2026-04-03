@@ -886,8 +886,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
-                    String translated = callWithRateLimitAndRetry(
-                            () -> geminiTranslateService.translateTextRaw(sourceText, langName, usageRef::set));
+                    String translated = callWithRateLimitAndRetry(() -> {
+                        checkCancelledBeforeApiCall(cancelledFlag, task);
+                        return geminiTranslateService.translateTextRaw(sourceText, langName, usageRef::set);
+                    });
                     if (translated != null && !translated.isBlank()) {
                         translatedTextMap.put(hash, translated);
                         writeSingleTextCache(sourceText, translated, ctx.getLanguage());
@@ -899,6 +901,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
+                } catch (java.util.concurrent.CancellationException e) {
+                    log.debug("[directTranslate] taskId={} text hash={} 任务已取消, 跳过", task.getId(), hash);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} text hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
@@ -922,8 +926,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
-                    String html = callWithRateLimitAndRetry(
-                            () -> geminiTranslateService.translateHtmlRaw(ctx.getUncachedHtml(), langName, usageRef::set));
+                    String html = callWithRateLimitAndRetry(() -> {
+                        checkCancelledBeforeApiCall(cancelledFlag, task);
+                        return geminiTranslateService.translateHtmlRaw(ctx.getUncachedHtml(), langName, usageRef::set);
+                    });
                     if (html != null) {
                         translatedHtmlRef.set(html);
                         writeHtmlTranslationCache(ctx.getUncachedHtml(), html, ctx.getLanguage());
@@ -935,6 +941,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
+                } catch (java.util.concurrent.CancellationException e) {
+                    log.debug("[directTranslate] taskId={} HTML 任务已取消, 跳过", task.getId());
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} HTML 翻译失败", task.getId(), e);
                 } finally {
@@ -961,8 +969,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
-                    byte[] result = callWithRateLimitAndRetry(
-                            () -> geminiTranslateService.translateImageRaw(imgBytes, mimeType, langName, usageRef::set));
+                    byte[] result = callWithRateLimitAndRetry(() -> {
+                        checkCancelledBeforeApiCall(cancelledFlag, task);
+                        return geminiTranslateService.translateImageRaw(imgBytes, mimeType, langName, usageRef::set);
+                    });
                     if (result != null && sourceFile != null) {
                         MultimediaFile newFile = multimediaFileService.saveTranslatedImage(
                                 result, sourceFile.getSuffix(), ctx.getOwner());
@@ -982,6 +992,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
+                } catch (java.util.concurrent.CancellationException e) {
+                    log.debug("[directTranslate] taskId={} img hash={} 任务已取消, 跳过", task.getId(), hash);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} img hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
@@ -1098,6 +1110,13 @@ public class TaskExecutorService implements ITaskExecutorService {
 
     private boolean isCancelled(AsyncTask task) {
         return asyncTaskService.getById(task.getId()).getState() == TaskState.CANCELLED;
+    }
+
+    private void checkCancelledBeforeApiCall(java.util.concurrent.atomic.AtomicBoolean cancelledFlag, AsyncTask task) {
+        if (cancelledFlag.get() || isCancelled(task)) {
+            cancelledFlag.set(true);
+            throw new java.util.concurrent.CancellationException("任务已取消");
+        }
     }
 
     private Map<String, String> collectTextsToTranslate(Product product) {
