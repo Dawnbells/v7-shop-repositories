@@ -84,6 +84,7 @@ import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
+import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.types.BatchJob;
@@ -111,10 +112,11 @@ public class TaskExecutorService implements ITaskExecutorService {
     private static final int RESOLVE_PROGRESS = 99;
     private static final int COMPLETED_OR_FAILED_PROGRESS = 100;
 
-    private static final long BATCH_POLL_INTERVAL_MS = 5 * 60 * 1000L;
-    private static final long BATCH_TIMEOUT_MS = 24 * 60 * 60 * 1000L;
+    public static final String QUOTA_EXHAUSTED_MSG = "当前任务已暂停，API今日配额已用尽，恢复配额后将自动重试";
+    private static final int MAX_ACTIVE_BATCH_JOBS = 100;
 
     private volatile boolean shutdownRequested = false;
+    private final java.util.concurrent.atomic.AtomicInteger activeBatchJobs = new java.util.concurrent.atomic.AtomicInteger(0);
 
     @jakarta.annotation.PreDestroy
     public void onShutdown() {
@@ -194,6 +196,7 @@ public class TaskExecutorService implements ITaskExecutorService {
     private final Retry geminiDirectRetry;
     private final Retry batchPollRetry;
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
+    private final GeminiQuotaTracker geminiQuotaTracker;
 
     public TaskExecutorService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
@@ -209,7 +212,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                        RateLimiter geminiRateLimiter,
                        @Qualifier("geminiDirectRetry") Retry geminiDirectRetry,
                        @Qualifier("batchPollRetry") Retry batchPollRetry,
-                       AiTokenUsageRecordRepository aiTokenUsageRecordRepository) {
+                       AiTokenUsageRecordRepository aiTokenUsageRecordRepository,
+                       GeminiQuotaTracker geminiQuotaTracker) {
         this.asyncTaskService = asyncTaskService;
         this.orderService = orderService;
         this.s3Service = s3Service;
@@ -231,6 +235,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         this.geminiDirectRetry = geminiDirectRetry;
         this.batchPollRetry = batchPollRetry;
         this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
+        this.geminiQuotaTracker = geminiQuotaTracker;
     }
 
     // ======================== ITaskExecutorService 接口实现 ========================
@@ -238,6 +243,18 @@ public class TaskExecutorService implements ITaskExecutorService {
     @Override
     public void recoverUnfinishedTasks() {
         List<AsyncTask> unfinished = asyncTaskRepository.findByStateIn(List.of(TaskState.PENDING, TaskState.PROCESSING));
+
+        int batchJobCount = 0;
+        for (AsyncTask task : unfinished) {
+            if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE
+                    && task.getState() == TaskState.PROCESSING
+                    && task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
+                batchJobCount++;
+            }
+        }
+        activeBatchJobs.set(batchJobCount);
+        log.info("[recoverTasks] activeBatchJobs 校准: {}", batchJobCount);
+
         if (unfinished.isEmpty()) {
             log.info("[recoverTasks] 没有需要恢复的未完成任务");
             return;
@@ -248,7 +265,6 @@ public class TaskExecutorService implements ITaskExecutorService {
                 if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE
                         && task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
                     log.info("[recoverTasks] 恢复AI翻译任务(已提交Batch): taskId={}, jobName={}", task.getId(), task.getBatchJobName());
-                    self.resumeTranslateTask(task.getId());
                 } else {
                     log.info("[recoverTasks] 重新执行任务: taskId={}, type={}, state={}", task.getId(), task.getTaskType(), task.getState());
                     asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
@@ -448,20 +464,29 @@ public class TaskExecutorService implements ITaskExecutorService {
     // ======================== Phase B: 批量翻译 ========================
 
     private void executeBatchTranslate(AsyncTask task) {
-        long taskStart = System.currentTimeMillis();
         try {
+            if (activeBatchJobs.get() >= MAX_ACTIVE_BATCH_JOBS) {
+                log.info("[batchTranslate] taskId={} 活跃 Batch Job 已达上限({}), 任务保持 PENDING 等待下次调度",
+                        task.getId(), MAX_ACTIVE_BATCH_JOBS);
+                task.setMessage("批量任务队列已满，等待空位后自动重试");
+                asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
+                return;
+            }
+
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
             log.info("[batchTranslate] taskId={} 开始批量翻译, productId={}, languageId={}",
                     task.getId(), request.getProductId(), request.getLanguageId());
 
             task.setMessage("正在准备翻译内容...");
-            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 2);
+            if (!asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 2)) {
+                log.info("[batchTranslate] taskId={} 任务已被取消或终止, 跳过执行", task.getId());
+                return;
+            }
 
             TranslateContext ctx = prepareTranslateContext(task, request);
 
             writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.BATCH);
 
-            // B.1: 构建 JSONL
             StringBuilder jsonl = new StringBuilder();
             int totalRequests = 0;
 
@@ -500,144 +525,29 @@ public class TaskExecutorService implements ITaskExecutorService {
             request.setTotalRequests(totalRequests);
             task.setParameters(JSONUtil.toJsonStr(request));
             task.setMessage("正在上传翻译请求...");
-            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 5);
+            if (!asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 5)) {
+                log.info("[batchTranslate] taskId={} 上传前发现任务已取消, 跳过", task.getId());
+                return;
+            }
 
             String uploadedFileName = geminiTranslateService.uploadBatchFile(jsonl.toString());
             BatchJob batchJob = geminiTranslateService.createBatchJob(uploadedFileName);
             String jobName = batchJob.name().orElseThrow(() -> new RuntimeException("Batch Job 创建后无 name"));
             task.setBatchJobName(jobName);
-            log.info("[batchTranslate] taskId={} Batch Job 创建: jobName={}", task.getId(), jobName);
+            activeBatchJobs.incrementAndGet();
+            log.info("[batchTranslate] taskId={} Batch Job 创建成功: jobName={}, activeBatchJobs={}",
+                    task.getId(), jobName, activeBatchJobs.get());
 
             task.setMessage("AI翻译中: 等待Batch完成...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
 
-            // B.2: 轮询
-            String batchState = pollBatchJobUntilDone(task, jobName, uploadedFileName, totalRequests);
-            if (batchState == null) return;
-
-            // B.3: 处理结果
-            BatchJob currentJob = geminiTranslateService.getBatchJob(jobName);
-            TranslateResult batchResult = processBatchResult(task, batchState, currentJob, ctx);
-            cleanupBatchResources(jobName, uploadedFileName);
-
-            // B.4: 失败项补刀 (Phase C)
-            TranslateResult fallbackResult = fallbackFailedItems(task, ctx, batchResult);
-            TranslateResult mergedResult = mergeResults(batchResult, fallbackResult);
-
-            // Phase D: 保存
-            saveTranslatedProduct(task, ctx, mergedResult);
-
-            long elapsed = System.currentTimeMillis() - taskStart;
-            translateTaskMetrics.recordDuration(elapsed);
-            if (task.getState() == TaskState.COMPLETED) translateTaskMetrics.recordCompleted();
-            log.info("[batchTranslate] taskId={} 完成, 总耗时={}ms, 状态={}", task.getId(), elapsed, task.getState());
-
         } catch (Throwable e) {
-            long elapsed = System.currentTimeMillis() - taskStart;
-            translateTaskMetrics.recordFailed();
-            translateTaskMetrics.recordDuration(elapsed);
-            log.error("[batchTranslate] taskId={} 异常, 总耗时={}ms", task.getId(), elapsed, e);
+            log.error("[batchTranslate] taskId={} 提交异常", task.getId(), e);
             if (!shutdownRequested) {
                 task.setMessage(e.getMessage());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
-            } else {
-                log.info("[batchTranslate] taskId={} 应用关闭中, 跳过标记失败, 任务将在重启后恢复", task.getId());
+                translateTaskMetrics.recordFailed();
             }
-        }
-    }
-
-    private String pollBatchJobUntilDone(AsyncTask task, String jobName, String uploadedFileName, int totalRequests) {
-        long startTime = System.currentTimeMillis();
-        int pollCount = 0;
-        log.info("[pollBatchJob] taskId={} 开始轮询: jobName={}, interval={}ms, timeout={}ms",
-                task.getId(), jobName, BATCH_POLL_INTERVAL_MS, BATCH_TIMEOUT_MS);
-
-        while (true) {
-            if (shutdownRequested) {
-                log.info("[pollBatchJob] taskId={} 应用正在关闭, 退出轮询, 任务将在重启后自动恢复", task.getId());
-                return null;
-            }
-            AsyncTask freshTask = asyncTaskService.getById(task.getId());
-            if (freshTask.getState() == TaskState.CANCELLED) {
-                log.info("[pollBatchJob] taskId={} 任务已取消", task.getId());
-                geminiTranslateService.cancelBatchJob(jobName);
-                cleanupBatchResources(jobName, uploadedFileName);
-                return null;
-            }
-            if (freshTask.getBatchJobName() == null || freshTask.getBatchJobName().isBlank()) {
-                log.info("[pollBatchJob] taskId={} batchJobName 已被清除, 退出轮询", task.getId());
-                cleanupBatchResources(jobName, uploadedFileName);
-                return null;
-            }
-
-            pollCount++;
-            BatchJob currentJob;
-            try {
-                currentJob = Retry.decorateSupplier(batchPollRetry,
-                        () -> geminiTranslateService.getBatchJob(jobName)).get();
-            } catch (Exception e) {
-                log.warn("[pollBatchJob] taskId={} 本轮网络异常(重试3次仍失败), 跳过等待下次轮询", task.getId(), e);
-                sleepWithShutdownCheck(BATCH_POLL_INTERVAL_MS);
-                continue;
-            }
-
-            String batchState = currentJob.state().map(Object::toString).orElse("UNKNOWN");
-            long elapsed = System.currentTimeMillis() - startTime;
-
-            long successCount = 0, failedCount = 0, pendingCount = 0, totalCount = 0;
-            int completed = 0;
-            try {
-                JsonNode jobJson = OBJECT_MAPPER.readTree(currentJob.toJson());
-                JsonNode statsNode = jobJson.path("batchStats");
-                if (!statsNode.isMissingNode()) {
-                    totalCount = Long.parseLong(statsNode.path("requestCount").asText("0"));
-                    successCount = Long.parseLong(statsNode.path("successfulRequestCount").asText("0"));
-                    failedCount = Long.parseLong(statsNode.path("failedRequestCount").asText("0"));
-                    pendingCount = Long.parseLong(statsNode.path("pendingRequestCount").asText("0"));
-                    completed = (int) (successCount + failedCount);
-                }
-            } catch (Exception e) {
-                log.warn("[pollBatchJob] taskId={} 解析 batchStats 失败", task.getId(), e);
-            }
-
-            log.info("[pollBatchJob] taskId={} 轮询#{}: state={}, completed={}/{} (success={}, failed={}), elapsed={}ms",
-                    task.getId(), pollCount, batchState, completed, totalRequests, successCount, failedCount, elapsed);
-
-            String progressDetail = totalRequests > 0
-                    ? String.format("AI翻译中: 已完成 %d/%d (成功 %d, 失败 %d)", completed, totalRequests, successCount, failedCount)
-                    : String.format("AI翻译中: 已完成 %d (成功 %d, 失败 %d)", completed, successCount, failedCount);
-            task.setMessage(progressDetail);
-            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, Math.min(10 + pollCount * 5, 80));
-
-            if (BATCH_COMPLETED_STATES.contains(batchState)) {
-                log.info("[pollBatchJob] taskId={} Batch 已结束: state={}, 共轮询 {} 次, 耗时={}ms",
-                        task.getId(), batchState, pollCount, elapsed);
-                return batchState;
-            }
-
-            if (elapsed >= BATCH_TIMEOUT_MS) {
-                translateTaskMetrics.recordTimeout();
-                log.warn("[pollBatchJob] taskId={} 超时({}ms), 取消 Batch Job", task.getId(), BATCH_TIMEOUT_MS);
-                geminiTranslateService.cancelBatchJob(jobName);
-                ThreadUtil.sleep(10_000);
-                currentJob = geminiTranslateService.getBatchJob(jobName);
-                batchState = currentJob.state().map(Object::toString).orElse("UNKNOWN");
-                return batchState;
-            }
-
-            sleepWithShutdownCheck(BATCH_POLL_INTERVAL_MS);
-        }
-    }
-
-    /**
-     * 分段 sleep，每 5 秒检查一次 shutdown 信号，使长时间 sleep 可被快速中断。
-     */
-    private void sleepWithShutdownCheck(long totalMs) {
-        long slept = 0;
-        while (slept < totalMs && !shutdownRequested) {
-            long chunk = Math.min(5000, totalMs - slept);
-            ThreadUtil.sleep(chunk);
-            slept += chunk;
         }
     }
 
@@ -806,18 +716,65 @@ public class TaskExecutorService implements ITaskExecutorService {
 
     private void resumeProductAITranslate(AsyncTask task) {
         long taskStart = System.currentTimeMillis();
+        String jobName = task.getBatchJobName();
         try {
-            String jobName = task.getBatchJobName();
-            log.info("[resumeTranslate] taskId={} 开始恢复, jobName={}", task.getId(), jobName);
+            log.info("[resumeTranslate] taskId={} 单次检查, jobName={}", task.getId(), jobName);
 
-            TranslateByAIRequest resumeRequest = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
-            int savedTotalRequests = resumeRequest.getTotalRequests() != null ? resumeRequest.getTotalRequests() : 0;
+            AsyncTask freshTask = asyncTaskService.getById(task.getId());
+            if (freshTask.getState() == TaskState.CANCELLED) {
+                log.info("[resumeTranslate] taskId={} 任务已取消", task.getId());
+                geminiTranslateService.cancelBatchJob(jobName);
+                activeBatchJobs.decrementAndGet();
+                return;
+            }
 
-            task.setMessage("正在恢复AI翻译任务...");
-            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
+            BatchJob currentJob;
+            try {
+                currentJob = Retry.decorateSupplier(batchPollRetry,
+                        () -> geminiTranslateService.getBatchJob(jobName)).get();
+            } catch (Exception e) {
+                log.warn("[resumeTranslate] taskId={} 查询 Batch 状态失败, 等待下次巡检", task.getId(), e);
+                return;
+            }
 
-            String batchState = pollBatchJobUntilDone(task, jobName, null, savedTotalRequests);
-            if (batchState == null) return;
+            String batchState = currentJob.state().map(Object::toString).orElse("UNKNOWN");
+            log.info("[resumeTranslate] taskId={} Batch 状态: {}", task.getId(), batchState);
+
+            if (!BATCH_COMPLETED_STATES.contains(batchState)) {
+                if (isCancelled(task)) {
+                    log.info("[resumeTranslate] taskId={} 更新进度前发现已取消", task.getId());
+                    return;
+                }
+                TranslateByAIRequest resumeRequest = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+                int totalRequests = resumeRequest.getTotalRequests() != null ? resumeRequest.getTotalRequests() : 0;
+
+                long successCount = 0, failedCount = 0;
+                int completed = 0;
+                try {
+                    JsonNode jobJson = OBJECT_MAPPER.readTree(currentJob.toJson());
+                    JsonNode statsNode = jobJson.path("batchStats");
+                    if (!statsNode.isMissingNode()) {
+                        successCount = Long.parseLong(statsNode.path("successfulRequestCount").asText("0"));
+                        failedCount = Long.parseLong(statsNode.path("failedRequestCount").asText("0"));
+                        completed = (int) (successCount + failedCount);
+                    }
+                } catch (Exception ignored) {}
+
+                task.setMessage(String.format("AI翻译中: 已完成 %d/%d (成功 %d, 失败 %d)",
+                        completed, totalRequests, successCount, failedCount));
+                asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, Math.min(10 + completed * 80 / Math.max(totalRequests, 1), 80));
+                return;
+            }
+
+            if (isCancelled(task)) {
+                log.info("[resumeTranslate] taskId={} 处理结果前发现已取消", task.getId());
+                activeBatchJobs.decrementAndGet();
+                cleanupBatchResources(jobName, null);
+                return;
+            }
+
+            activeBatchJobs.decrementAndGet();
+            log.info("[resumeTranslate] taskId={} Batch 已结束: {}, activeBatchJobs={}", task.getId(), batchState, activeBatchJobs.get());
 
             task.setMessage("正在加载产品数据...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 82);
@@ -825,7 +782,6 @@ public class TaskExecutorService implements ITaskExecutorService {
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
             TranslateContext ctx = prepareTranslateContext(task, request);
 
-            BatchJob currentJob = geminiTranslateService.getBatchJob(jobName);
             TranslateResult batchResult = processBatchResult(task, batchState, currentJob, ctx);
             cleanupBatchResources(jobName, null);
 
@@ -844,11 +800,10 @@ public class TaskExecutorService implements ITaskExecutorService {
             translateTaskMetrics.recordFailed();
             translateTaskMetrics.recordDuration(elapsed);
             log.error("[resumeTranslate] taskId={} 恢复失败, 总耗时={}ms", task.getId(), elapsed, e);
+            activeBatchJobs.decrementAndGet();
             if (!shutdownRequested) {
                 task.setMessage(e.getMessage());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
-            } else {
-                log.info("[resumeTranslate] taskId={} 应用关闭中, 跳过标记失败, 任务将在重启后恢复", task.getId());
             }
         }
     }
@@ -863,7 +818,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                     task.getId(), request.getProductId(), request.getLanguageId());
 
             task.setMessage("即时翻译: 正在准备...");
-            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 2);
+            if (!asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 2)) {
+                log.info("[directTranslate] taskId={} 任务已被取消或终止, 跳过执行", task.getId());
+                return;
+            }
 
             TranslateContext ctx = prepareTranslateContext(task, request);
 
@@ -878,6 +836,10 @@ public class TaskExecutorService implements ITaskExecutorService {
             translateTaskMetrics.recordCompleted();
             log.info("[directTranslate] taskId={} 完成, 总耗时={}ms", task.getId(), elapsed);
 
+        } catch (DailyQuotaExhaustedException e) {
+            log.warn("[directTranslate] taskId={} 每日配额已耗尽, 暂停任务等待配额恢复", task.getId());
+            task.setMessage(QUOTA_EXHAUSTED_MSG);
+            asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
         } catch (Throwable e) {
             long elapsed = System.currentTimeMillis() - taskStart;
             translateTaskMetrics.recordFailed();
@@ -900,6 +862,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         Map<String, MultimediaFile> translatedImageMap = new ConcurrentHashMap<>();
         java.util.concurrent.atomic.AtomicReference<String> translatedHtmlRef = new java.util.concurrent.atomic.AtomicReference<>();
         List<CompletableFuture<Void>> futures = new ArrayList<>();
+        java.util.concurrent.atomic.AtomicBoolean cancelledFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
 
         Long tenantId = TenantContext.getCurrentTenant();
         Company tenantCompany = TenantContext.getCurrentTenantEntity();
@@ -917,7 +880,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             String sourceText = entry.getValue();
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested) return;
+                if (shutdownRequested || cancelledFlag.get()) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -928,15 +891,17 @@ public class TaskExecutorService implements ITaskExecutorService {
                         translatedTextMap.put(hash, translated);
                         writeSingleTextCache(sourceText, translated, ctx.getLanguage());
                     }
-                    if (!shutdownRequested) {
+                    if (!shutdownRequested && !cancelledFlag.get()) {
                         saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
                                 false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
                     }
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} text hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
-                    if (!shutdownRequested) {
-                        updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    if (!shutdownRequested && !cancelledFlag.get()) {
+                        if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
+                            cancelledFlag.set(true);
+                        }
                     }
                     TenantContext.clear();
                 }
@@ -948,7 +913,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             String htmlHash = DigestUtil.sha256Hex(ctx.getUncachedHtml());
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested) return;
+                if (shutdownRequested || cancelledFlag.get()) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -959,15 +924,17 @@ public class TaskExecutorService implements ITaskExecutorService {
                         translatedHtmlRef.set(html);
                         writeHtmlTranslationCache(ctx.getUncachedHtml(), html, ctx.getLanguage());
                     }
-                    if (!shutdownRequested) {
+                    if (!shutdownRequested && !cancelledFlag.get()) {
                         saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
                                 false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
                     }
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} HTML 翻译失败", task.getId(), e);
                 } finally {
-                    if (!shutdownRequested) {
-                        updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    if (!shutdownRequested && !cancelledFlag.get()) {
+                        if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
+                            cancelledFlag.set(true);
+                        }
                     }
                     TenantContext.clear();
                 }
@@ -982,7 +949,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             MultimediaFile sourceFile = ctx.getImageHashToSourceFile().get(hash);
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested) return;
+                if (shutdownRequested || cancelledFlag.get()) return;
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -994,13 +961,13 @@ public class TaskExecutorService implements ITaskExecutorService {
                                 result, sourceFile.getSuffix(), ctx.getOwner());
                         translatedImageMap.put(hash, newFile);
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
-                        if (!shutdownRequested) {
+                        if (!shutdownRequested && !cancelledFlag.get()) {
                             saveTokenUsageRecord(task.getId(), TranslationContentType.IMAGE, hash, langName,
                                     false, InvokeMode.STANDARD, usageRef.get(), true, null, null, null, owner);
                         }
                     } else if (sourceFile != null) {
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), null, true);
-                        if (!shutdownRequested) {
+                        if (!shutdownRequested && !cancelledFlag.get()) {
                             saveNoOutputImageTokenRecord(task.getId(), hash, langName,
                                     InvokeMode.STANDARD, usageRef.get(), sourceFile, owner);
                         }
@@ -1008,8 +975,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} img hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
-                    if (!shutdownRequested) {
-                        updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total);
+                    if (!shutdownRequested && !cancelledFlag.get()) {
+                        if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
+                            cancelledFlag.set(true);
+                        }
                     }
                     TenantContext.clear();
                 }
@@ -1039,15 +1008,16 @@ public class TaskExecutorService implements ITaskExecutorService {
      * 即时翻译进度更新：将完成比例映射到 5%~95% 区间。
      * synchronized 保证多线程串行更新，updateAsyncTask 内部会自动 getById 取最新版本。
      */
-    private synchronized void updateDirectTranslateProgress(AsyncTask task, int completed, int total) {
+    private synchronized boolean updateDirectTranslateProgress(AsyncTask task, int completed, int total) {
         try {
-            if (total <= 0) return;
+            if (total <= 0) return true;
             int progress = 5 + (int) ((completed * 90.0) / total);
             progress = Math.min(progress, 95);
             task.setMessage(String.format("即时翻译中: %d/%d 已完成", completed, total));
-            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progress);
+            return asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progress);
         } catch (Exception e) {
             log.debug("[directTranslate] 更新进度失败: taskId={}", task.getId(), e);
+            return true;
         }
     }
 
@@ -1108,6 +1078,10 @@ public class TaskExecutorService implements ITaskExecutorService {
     }
 
     // ======================== 辅助方法 ========================
+
+    private boolean isCancelled(AsyncTask task) {
+        return asyncTaskService.getById(task.getId()).getState() == TaskState.CANCELLED;
+    }
 
     private Map<String, String> collectTextsToTranslate(Product product) {
         Map<String, String> uniqueTextMap = new LinkedHashMap<>();

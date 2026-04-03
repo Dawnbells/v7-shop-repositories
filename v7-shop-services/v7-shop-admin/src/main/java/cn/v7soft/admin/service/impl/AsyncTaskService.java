@@ -65,12 +65,12 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
 
     @Override
     @Transactional
-    public void updateAsyncTask(AsyncTask task, TaskState state, int progress) {
+    public boolean updateAsyncTask(AsyncTask task, TaskState state, int progress) {
         AsyncTask fresh = getById(task.getId());
         TaskState current = fresh.getState();
         if (!current.canTransitionTo(state)) {
-            log.warn("[updateAsyncTask] 非法状态迁移被拦截: taskId={}, {} -> {}", task.getId(), current, state);
-            return;
+            log.debug("[updateAsyncTask] 状态迁移跳过: taskId={}, {} -> {}", task.getId(), current, state);
+            return false;
         }
         log.debug("update async task >> {} >> {} -> {} >> {} ", task.getId(), current, state, progress);
         fresh.setState(state);
@@ -89,6 +89,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
             fresh.setExportRelativePath(task.getExportRelativePath());
         }
         saveAndFlush(fresh);
+        return true;
     }
 
     @Override

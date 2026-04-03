@@ -5,9 +5,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -15,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.genai.Client;
+import com.google.genai.errors.ApiException;
 import com.google.genai.types.BatchJob;
 import com.google.genai.types.BatchJobSource;
 import com.google.genai.types.CreateBatchJobConfig;
@@ -27,6 +31,7 @@ import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
 import com.google.genai.types.UploadFileConfig;
 
+import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
 import io.github.resilience4j.retry.Retry;
 import lombok.extern.slf4j.Slf4j;
 
@@ -52,14 +57,18 @@ public class GeminiTranslateService {
         private Long elapsedMs;
     }
 
-    private final Client client;
+    private final Map<String, Client> clientMap;
+    private final Client primaryClient;
+    private final GeminiQuotaTracker tracker;
     private final Retry geminiInternalRetry;
 
     public GeminiTranslateService(
-            @Value("${gemini.api-key}") String apiKey,
+            @Value("${gemini.api-keys}") String apiKeysConfig,
             @Value("${gemini.proxy-host:}") String proxyHost,
             @Value("${gemini.proxy-port:0}") int proxyPort,
+            GeminiQuotaTracker tracker,
             Retry geminiInternalRetry) {
+        this.tracker = tracker;
         this.geminiInternalRetry = geminiInternalRetry;
         if (proxyHost != null && !proxyHost.isBlank()) {
             System.setProperty("http.proxyHost", proxyHost);
@@ -68,13 +77,23 @@ public class GeminiTranslateService {
             System.setProperty("https.proxyPort", String.valueOf(proxyPort));
             log.info("Gemini API 代理已配置: {}:{}", proxyHost, proxyPort);
         }
-        this.client = Client.builder()
+        String[] keys = apiKeysConfig.split(",");
+        this.clientMap = new LinkedHashMap<>();
+        for (String key : keys) {
+            clientMap.put(key, buildClient(key));
+        }
+        this.primaryClient = clientMap.values().iterator().next();
+        log.info("[GeminiTranslateService] 初始化完成: {} 个 API Key", keys.length);
+    }
+
+    private Client buildClient(String apiKey) {
+        return Client.builder()
                 .apiKey(apiKey)
                 .httpOptions(HttpOptions.builder()
                         .timeout(TIMEOUT_DEFAULT_MS)
                         .retryOptions(HttpRetryOptions.builder()
                                 .attempts(2)
-                                .httpStatusCodes(408, 429, 500, 502, 503, 504)
+                                .httpStatusCodes(408, 500, 502, 503, 504)
                                 .initialDelay(2.0)
                                 .maxDelay(10.0)
                                 .expBase(2.0)
@@ -83,37 +102,68 @@ public class GeminiTranslateService {
                 .build();
     }
 
+    // ======================== callGemini: 统一配额管理入口 ========================
+
+    private <T> T callGemini(Function<Client, T> action) {
+        String apiKey = tracker.getFirstAvailableKey();
+        if (apiKey == null) {
+            throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽");
+        }
+        tracker.increment(apiKey);
+        try {
+            return action.apply(clientMap.get(apiKey));
+        } catch (ApiException e) {
+            if (isDailyQuota429(e)) {
+                tracker.markExhausted(apiKey);
+                String nextKey = tracker.getFirstAvailableKey();
+                if (nextKey == null) {
+                    throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽", e);
+                }
+                tracker.increment(nextKey);
+                try {
+                    return action.apply(clientMap.get(nextKey));
+                } catch (ApiException e2) {
+                    if (isDailyQuota429(e2)) {
+                        tracker.markExhausted(nextKey);
+                        throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽", e2);
+                    }
+                    if (shouldDecrement(e2)) tracker.decrement(nextKey);
+                    throw e2;
+                }
+            }
+            if (shouldDecrement(e)) tracker.decrement(apiKey);
+            throw e;
+        }
+    }
+
+    private static boolean isDailyQuota429(ApiException e) {
+        return e.code() == 429 && e.getMessage() != null && e.getMessage().contains("per_day");
+    }
+
+    private static boolean shouldDecrement(ApiException e) {
+        int code = e.code();
+        return code == 400 || code == 401 || code == 403 || code == 429;
+    }
+
     // ======================== 带 Resilience4j 重试的翻译方法 ========================
 
-    /**
-     * 翻译单条短文本（带 3 次内部重试）。
-     */
     public String translateText(String text, String targetLanguageName) {
         return Retry.decorateSupplier(geminiInternalRetry,
                 () -> translateTextRaw(text, targetLanguageName)).get();
     }
 
-    /**
-     * 翻译 HTML 富文本（带 3 次内部重试）。
-     */
     public String translateHtml(String html, String targetLanguageName) {
         return Retry.decorateSupplier(geminiInternalRetry,
                 () -> translateHtmlRaw(html, targetLanguageName)).get();
     }
 
-    /**
-     * 翻译图片中的叠加设计文字（带 3 次内部重试）。
-     */
     public byte[] translateImage(byte[] imageBytes, String mimeType, String targetLanguageName) {
         return Retry.decorateSupplier(geminiInternalRetry,
                 () -> translateImageRaw(imageBytes, mimeType, targetLanguageName)).get();
     }
 
-    // ======================== Raw 方法（无内部重试，供 Phase C 外层 Retry 使用） ========================
+    // ======================== Raw 方法 ========================
 
-    /**
-     * 翻译单条短文本，单次调用不重试。
-     */
     public String translateTextRaw(String text, String targetLanguageName) {
         return translateTextRaw(text, targetLanguageName, null);
     }
@@ -144,7 +194,7 @@ public class GeminiTranslateService {
                 MODEL, targetLanguageName, text.length(), TIMEOUT_TEXT_MS);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = client.models.generateContent(MODEL, prompt, config);
+        GenerateContentResponse response = callGemini(c -> c.models.generateContent(MODEL, prompt, config));
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
@@ -153,9 +203,6 @@ public class GeminiTranslateService {
         return result;
     }
 
-    /**
-     * 翻译 HTML 富文本，单次调用不重试。
-     */
     public String translateHtmlRaw(String html, String targetLanguageName) {
         return translateHtmlRaw(html, targetLanguageName, null);
     }
@@ -190,7 +237,7 @@ public class GeminiTranslateService {
                 MODEL, targetLanguageName, html.length(), TIMEOUT_HTML_MS);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = client.models.generateContent(MODEL, prompt, config);
+        GenerateContentResponse response = callGemini(c -> c.models.generateContent(MODEL, prompt, config));
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
@@ -199,10 +246,6 @@ public class GeminiTranslateService {
         return result;
     }
 
-    /**
-     * 翻译图片中的叠加设计文字，单次调用不重试。
-     * 无需翻译时返回 null。
-     */
     public byte[] translateImageRaw(byte[] imageBytes, String mimeType, String targetLanguageName) {
         return translateImageRaw(imageBytes, mimeType, targetLanguageName, null);
     }
@@ -278,7 +321,7 @@ public class GeminiTranslateService {
                 MODEL, targetLanguageName, mimeType, imageBytes.length, TIMEOUT_IMAGE_MS);
 
         long start = System.currentTimeMillis();
-        GenerateContentResponse response = client.models.generateContent(MODEL, content, config);
+        GenerateContentResponse response = callGemini(c -> c.models.generateContent(MODEL, content, config));
         long elapsed = System.currentTimeMillis() - start;
 
         logTokenUsage("translateImage", elapsed, response);
@@ -320,7 +363,7 @@ public class GeminiTranslateService {
         return null;
     }
 
-    // ======================== Batch API 方法 ========================
+    // ======================== Batch API 方法（固定用主 Key） ========================
 
     public String getModel() {
         return MODEL;
@@ -344,8 +387,8 @@ public class GeminiTranslateService {
 
         ObjectNode request = root.putObject("request");
         ArrayNode contents = request.putArray("contents");
-        ObjectNode content = contents.addObject();
-        ArrayNode parts = content.putArray("parts");
+        ObjectNode contentNode = contents.addObject();
+        ArrayNode parts = contentNode.putArray("parts");
         parts.addObject().put("text", prompt);
 
         ObjectNode genConfig = request.putObject("generation_config");
@@ -382,8 +425,8 @@ public class GeminiTranslateService {
         sysParts.addObject().put("text", systemText);
 
         ArrayNode contents = request.putArray("contents");
-        ObjectNode content = contents.addObject();
-        ArrayNode parts = content.putArray("parts");
+        ObjectNode contentNode = contents.addObject();
+        ArrayNode parts = contentNode.putArray("parts");
         parts.addObject().put("text", prompt);
 
         ObjectNode genConfig = request.putObject("generation_config");
@@ -457,8 +500,8 @@ public class GeminiTranslateService {
 
         ObjectNode request = root.putObject("request");
         ArrayNode contents = request.putArray("contents");
-        ObjectNode content = contents.addObject();
-        ArrayNode parts = content.putArray("parts");
+        ObjectNode contentNode = contents.addObject();
+        ArrayNode parts = contentNode.putArray("parts");
 
         ObjectNode imagePart = parts.addObject();
         ObjectNode inlineData = imagePart.putObject("inline_data");
@@ -485,7 +528,7 @@ public class GeminiTranslateService {
                 writer.write(jsonlContent);
             }
             log.info("[uploadBatchFile] 上传 JSONL 文件: size={}bytes", jsonlContent.length());
-            var uploadedFile = client.files.upload(
+            var uploadedFile = primaryClient.files.upload(
                     tempFile,
                     UploadFileConfig.builder()
                             .displayName("product-ai-translate-" + System.currentTimeMillis())
@@ -506,18 +549,18 @@ public class GeminiTranslateService {
         CreateBatchJobConfig config = CreateBatchJobConfig.builder()
                 .displayName("product-ai-translate-" + System.currentTimeMillis())
                 .build();
-        BatchJob job = client.batches.create(MODEL, source, config);
+        BatchJob job = primaryClient.batches.create(MODEL, source, config);
         log.info("[createBatchJob] 批量任务已创建: name={}", job.name().orElse("N/A"));
         return job;
     }
 
     public BatchJob getBatchJob(String jobName) {
-        return client.batches.get(jobName, null);
+        return primaryClient.batches.get(jobName, null);
     }
 
     public void cancelBatchJob(String jobName) {
         try {
-            client.batches.cancel(jobName, null);
+            primaryClient.batches.cancel(jobName, null);
             log.info("[cancelBatchJob] 已取消: {}", jobName);
         } catch (Exception e) {
             log.warn("[cancelBatchJob] 取消失败: {}, error={}", jobName, e.getMessage());
@@ -526,7 +569,7 @@ public class GeminiTranslateService {
 
     public void deleteBatchJob(String jobName) {
         try {
-            client.batches.delete(jobName, null);
+            primaryClient.batches.delete(jobName, null);
             log.info("[deleteBatchJob] 已删除: {}", jobName);
         } catch (Exception e) {
             log.warn("[deleteBatchJob] 删除失败: {}, error={}", jobName, e.getMessage());
@@ -537,7 +580,7 @@ public class GeminiTranslateService {
         log.info("[downloadBatchResult] 下载结果文件: {}", fileName);
         File tempFile = File.createTempFile("batch-result-", ".jsonl");
         try {
-            client.files.download(fileName, tempFile.getAbsolutePath(), null);
+            primaryClient.files.download(fileName, tempFile.getAbsolutePath(), null);
             String result = Files.readString(tempFile.toPath(), java.nio.charset.StandardCharsets.UTF_8);
             log.info("[downloadBatchResult] 下载完成: size={}bytes", result.length());
             return result;
@@ -548,16 +591,15 @@ public class GeminiTranslateService {
 
     public void deleteFile(String fileName) {
         try {
-            client.files.delete(fileName, null);
+            primaryClient.files.delete(fileName, null);
             log.info("[deleteFile] 已删除文件: {}", fileName);
         } catch (Exception e) {
             log.warn("[deleteFile] 删除文件失败: {}, error={}", fileName, e.getMessage());
         }
     }
 
-    /**
-     * 从 Batch JSONL 结果行的 response.usageMetadata 节点提取 TokenUsage。
-     */
+    // ======================== Token 辅助方法 ========================
+
     public static TokenUsage extractTokenUsageFromBatchResponse(com.fasterxml.jackson.databind.JsonNode responseNode) {
         com.fasterxml.jackson.databind.JsonNode meta = responseNode.path("usageMetadata");
         if (meta.isMissingNode()) return null;

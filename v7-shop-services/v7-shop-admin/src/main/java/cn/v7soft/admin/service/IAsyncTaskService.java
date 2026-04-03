@@ -11,7 +11,7 @@ import java.io.InputStream;
 
 public interface IAsyncTaskService extends IBaseDataRangeService<AsyncTask> {
 
-    void updateAsyncTask(AsyncTask task, TaskState taskState, int progress);
+    boolean updateAsyncTask(AsyncTask task, TaskState taskState, int progress);
 
     Pair<AsyncTask, SystemUserDto> getAndInitializeOwner(Long taskId);
 

@@ -15,6 +15,7 @@ import com.google.genai.errors.ApiException;
 import com.google.genai.errors.GenAiIOException;
 import com.google.genai.errors.ServerException;
 
+import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
 import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import io.github.resilience4j.ratelimiter.RateLimiterConfig;
@@ -92,12 +93,19 @@ public class TranslationExecutorConfig {
     }
 
     public static boolean isRetryable(Throwable e) {
+        if (e instanceof DailyQuotaExhaustedException) {
+            return false;
+        }
         if (e instanceof ServerException se) {
             int code = se.code();
             return code == 500 || code == 502 || code == 503 || code == 504;
         }
         if (e instanceof ApiException ae) {
-            return ae.code() == 429;
+            if (ae.code() == 429) {
+                String msg = ae.getMessage();
+                return msg == null || !msg.contains("per_day");
+            }
+            return false;
         }
         if (e instanceof GenAiIOException) {
             return true;
