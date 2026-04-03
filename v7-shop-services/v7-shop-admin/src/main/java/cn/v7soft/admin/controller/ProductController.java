@@ -94,7 +94,7 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @Operation(summary = "AI批量翻译（异步任务）")
     @PostMapping("/translateByAI")
     public AsyncTaskResponse translateByAI(@Valid @RequestBody TranslateByAIRequest request) {
-        if(SaSessionUtil.getLoginUser().getDepartmentId() != 1103627419648L) {
+        if(SaSessionUtil.getLoginUser().getDepartmentId() != 1103627419648L || SaSessionUtil.getLoginUser().isAdmin()) {
             ClientResponseEnum.NO_PERMISSION.throwException("暂无权限");
         }
         return service.submitTranslateByAI(request);
@@ -103,7 +103,7 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @Operation(summary = "AI即时翻译（异步任务）")
     @PostMapping("/translateByAIDirect")
     public AsyncTaskResponse translateByAIDirect(@Valid @RequestBody TranslateByAIRequest request) {
-        if(SaSessionUtil.getLoginUser().getDepartmentId() != 1103627419648L) {
+        if(SaSessionUtil.getLoginUser().getDepartmentId() != 1103627419648L || SaSessionUtil.getLoginUser().isAdmin()) {
             ClientResponseEnum.NO_PERMISSION.throwException("暂无权限");
         }
         return service.submitTranslateByAIDirect(request);

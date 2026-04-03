@@ -10,6 +10,7 @@ import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.common.controller.BaseDataRangeController;
+import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.dao.entities.primary.AsyncTask;
@@ -22,11 +23,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "异步任务管理")
 public class TaskController extends BaseDataRangeController<AsyncTask, IAsyncTaskService, AsyncTaskResponse, QueryAsyncTaskRequest, EditAsyncTaskRequest> {
 
-    private final ITaskExecutorService taskExecutorService;
-
-    protected TaskController(IAsyncTaskService service, ITaskExecutorService taskExecutorService) {
+    protected TaskController(IAsyncTaskService service) {
         super(service);
-        this.taskExecutorService = taskExecutorService;
     }
 
     @Override
@@ -91,5 +89,10 @@ public class TaskController extends BaseDataRangeController<AsyncTask, IAsyncTas
     @Operation(summary = "重试任务")
     public AsyncTaskResponse retry(@PathVariable("taskId") Long taskId) {
         return service.retry(taskId);
+    }
+
+    @Override
+    protected AccessDataRangeLevel getPageAccessDataRangeLevel(QueryAsyncTaskRequest request) {
+        return AccessDataRangeLevel.PERSON;
     }
 }
