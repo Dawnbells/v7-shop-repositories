@@ -29,7 +29,6 @@ public class GeminiQuotaTracker {
         this.dailyLimitPerKey = dailyLimitPerKey;
         this.apiKeys = List.of(apiKeysConfig.split(","));
         this.redis = redis;
-        redis.opsForValue().set(quotaKey(apiKeys.get(0)), "999");
         log.info("[QuotaTracker] 初始化: keys={}, dailyLimitPerKey={}", apiKeys.size(), dailyLimitPerKey);
     }
 

@@ -13,7 +13,9 @@ import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
+import cn.v7soft.core.controller.request.attributes.InAttribute;
 import cn.v7soft.dao.entities.primary.AsyncTask;
+import cn.v7soft.dao.enums.TaskType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -37,6 +39,8 @@ public class TaskController extends BaseDataRangeController<AsyncTask, IAsyncTas
                 EqualsQueryAttribute.builder().name("state").value(request.getState()).build());
         pageRequest.addConstraint(Boolean.TRUE.equals(request.getUnacknowledgedOnly()),
                 EqualsQueryAttribute.builder().name("acknowledged").value(false).build());
+        pageRequest.addConstraint(request.getTaskTypes() != null && !request.getTaskTypes().isEmpty(),
+                InAttribute.<TaskType>builder().name("taskType").value(request.getTaskTypes()).build());
         return pageRequest;
     }
 

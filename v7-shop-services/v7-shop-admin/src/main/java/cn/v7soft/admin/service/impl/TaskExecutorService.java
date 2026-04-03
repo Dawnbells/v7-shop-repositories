@@ -113,7 +113,7 @@ public class TaskExecutorService implements ITaskExecutorService {
     private static final int COMPLETED_OR_FAILED_PROGRESS = 100;
 
     public static final String QUOTA_EXHAUSTED_MSG = "当前任务已暂停，API今日配额已用尽，恢复配额后将自动重试";
-    private static final int MAX_ACTIVE_BATCH_JOBS = 100;
+    private static final int MAX_ACTIVE_BATCH_JOBS = 90;
 
     private volatile boolean shutdownRequested = false;
     private final java.util.concurrent.atomic.AtomicInteger activeBatchJobs = new java.util.concurrent.atomic.AtomicInteger(0);
@@ -316,12 +316,22 @@ public class TaskExecutorService implements ITaskExecutorService {
             } else if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE) {
                 executeBatchTranslate(task);
             } else if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE_DIRECT) {
+                if (geminiQuotaTracker.isAllExhausted()) {
+                    log.info("[submitAsyncTask] taskId={} API配额已耗尽, 保持PENDING等待配额恢复", task.getId());
+                    task.setMessage(QUOTA_EXHAUSTED_MSG);
+                    asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
+                    return;
+                }
                 executeDirectTranslate(task);
             } else {
                 task.setMessage("未知任务类型: " + task.getTaskType());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, 100);
             }
-            log.debug("任务完成: {}", task.getId());
+            if (task.getState() == TaskState.FAILED) {
+                log.debug("任务挂起: {}", task.getId());
+            } else {
+                log.debug("任务完成: {}", task.getId());
+            }
         } finally {
             TenantContext.clear();
         }

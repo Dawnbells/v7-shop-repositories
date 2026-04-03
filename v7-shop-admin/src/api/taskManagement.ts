@@ -49,6 +49,7 @@ export function fetchUnacknowledged(params?: { pageNo?: number; pageSize?: numbe
       pageNo: params?.pageNo ?? 1,
       pageSize: params?.pageSize ?? 50,
       unacknowledgedOnly: true,
+      taskTypes: ['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_TRANSLATE_DIRECT'],
     },
   })
 }
