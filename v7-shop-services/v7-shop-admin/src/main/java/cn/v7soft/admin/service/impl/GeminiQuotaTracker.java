@@ -71,14 +71,18 @@ public class GeminiQuotaTracker {
 
     public boolean isAllExhausted() {
         for (String key : apiKeys) {
-            if (!isExhausted(key)) return false;
+            if (!isExhausted(key)) {
+                return false;
+            }
         }
         return true;
     }
 
     public String getFirstAvailableKey() {
         for (String key : apiKeys) {
-            if (!isExhausted(key)) return key;
+            if (!isExhausted(key)) {
+                return key;
+            }
         }
         return null;
     }

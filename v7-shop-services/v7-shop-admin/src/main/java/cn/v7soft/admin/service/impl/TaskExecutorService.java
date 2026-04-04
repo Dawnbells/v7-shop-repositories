@@ -524,7 +524,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             if (!hasUncached) {
                 log.info("[batchTranslate] taskId={} 全部命中缓存, 设置标记等待下次轮询处理", task.getId());
                 task.setBatchJobName(ALL_CACHED_BATCH_JOB_NAME);
-                task.setMessage("全部命中缓存，等待保存...");
+                task.setMessage("AI翻译中: 等待Batch完成...");
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
                 return;
             }
