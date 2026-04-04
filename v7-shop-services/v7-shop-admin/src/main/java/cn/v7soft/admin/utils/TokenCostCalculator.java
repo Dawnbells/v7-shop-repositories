@@ -6,6 +6,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
@@ -141,14 +142,20 @@ public final class TokenCostCalculator {
     public static int getProductImageEstimateTokens(Product product) {
         int imageCount = 0;
         if (product.getImageFiles() != null) {
-            imageCount += product.getImageFiles().size();
+            for (MultimediaFile img : product.getImageFiles()) {
+                if (img != null && !"gif".equalsIgnoreCase(img.getSuffix())) {
+                    imageCount++;
+                }
+            }
         }
         for (ProductSpecification spec : product.getSpecificationList()) {
-            if (spec.getSpecificationImage() != null) {
+            MultimediaFile specImg = spec.getSpecificationImage();
+            if (specImg != null && !"gif".equalsIgnoreCase(specImg.getSuffix())) {
                 imageCount++;
             }
             for (ProductSpecificationAttributes attr : spec.getAttributes()) {
-                if (attr.getMultimediaFile() != null) {
+                MultimediaFile attrImg = attr.getMultimediaFile();
+                if (attrImg != null && !"gif".equalsIgnoreCase(attrImg.getSuffix())) {
                     imageCount++;
                 }
             }

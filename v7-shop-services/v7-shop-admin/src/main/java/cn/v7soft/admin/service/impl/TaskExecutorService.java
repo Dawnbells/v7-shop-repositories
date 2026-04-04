@@ -112,6 +112,7 @@ public class TaskExecutorService implements ITaskExecutorService {
     private static final int COMPLETED_OR_FAILED_PROGRESS = 100;
 
     public static final String QUOTA_EXHAUSTED_MSG = "当前任务已暂停，API今日配额已用尽，恢复配额后将自动重试";
+    private static final String ALL_CACHED_BATCH_JOB_NAME = "ALL_CACHED";
     private static final int MAX_ACTIVE_BATCH_JOBS = 90;
 
     private volatile boolean shutdownRequested = false;
@@ -154,10 +155,8 @@ public class TaskExecutorService implements ITaskExecutorService {
         private Map<String, String> uncachedImageMimeTypes;
         /** A.4 辅助: hash -> 源文件 (存缓存用) */
         private Map<String, MultimediaFile> imageHashToSourceFile;
-        /** A.5: 命中缓存或动图的图片 (hash -> targetFile, null=skipped) */
+        /** A.5: 命中缓存的图片 (hash -> targetFile, null=skipped) */
         private Map<String, MultimediaFile> cachedImageMap;
-        /** 动图跳过的图片 (imgId -> sourceFile) */
-        private Map<String, MultimediaFile> animatedImageSourceFiles;
         /** A.6: 未命中缓存的 HTML（翻译前 html，null 表示已缓存或无 html） */
         private String uncachedHtml;
         /** A.7: 已命中缓存的 HTML（翻译后 html，null 表示需要翻译） */
@@ -357,11 +356,9 @@ public class TaskExecutorService implements ITaskExecutorService {
         Map<String, String> uncachedImageMimeTypes = new HashMap<>();
         Map<String, MultimediaFile> imageHashToSourceFile = new HashMap<>();
         Map<String, MultimediaFile> cachedImageMap = new HashMap<>();
-        Map<String, MultimediaFile> animatedImageSourceFiles = new HashMap<>();
 
         downloadAndFilterImages(imgIds, language, imageIdToHash,
-                uncachedImageData, uncachedImageMimeTypes, imageHashToSourceFile, cachedImageMap,
-                animatedImageSourceFiles);
+                uncachedImageData, uncachedImageMimeTypes, imageHashToSourceFile, cachedImageMap);
 
         // A.1~A.2: 文本缓存拆分
         Map<String, String> cachedTextMap = new LinkedHashMap<>();
@@ -399,7 +396,6 @@ public class TaskExecutorService implements ITaskExecutorService {
                 .imageIdToHash(imageIdToHash)
                 .uncachedImageData(uncachedImageData).uncachedImageMimeTypes(uncachedImageMimeTypes)
                 .imageHashToSourceFile(imageHashToSourceFile).cachedImageMap(cachedImageMap)
-                .animatedImageSourceFiles(animatedImageSourceFiles)
                 .uncachedHtml(uncachedHtml).cachedTranslatedHtml(cachedTranslatedHtml)
                 .build();
     }
@@ -409,8 +405,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                                          Map<String, byte[]> uncachedImageData,
                                          Map<String, String> uncachedImageMimeTypes,
                                          Map<String, MultimediaFile> imageHashToSourceFile,
-                                         Map<String, MultimediaFile> cachedImageMap,
-                                         Map<String, MultimediaFile> animatedImageSourceFiles) {
+                                         Map<String, MultimediaFile> cachedImageMap) {
         log.info("[downloadImages] 开始处理 {} 张图片 (hash-keyed, 缓存+去重)", imgIds.size());
         int cachedCount = 0, skippedAnimated = 0, dedupCount = 0;
         for (int i = 0; i < imgIds.size(); i++) {
@@ -420,9 +415,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 String suffix = file.getSuffix().toLowerCase();
 
                 if ("gif".equalsIgnoreCase(suffix)) {
-                    log.info("[downloadImages] [{}/{}] imgId={} 跳过动图 gif", i + 1, imgIds.size(), imgId);
+                    log.info("[downloadImages] [{}/{}] imgId={} 跳过GIF", i + 1, imgIds.size(), imgId);
                     skippedAnimated++;
-                    animatedImageSourceFiles.put(imgId, file);
                     continue;
                 }
 
@@ -434,7 +428,6 @@ public class TaskExecutorService implements ITaskExecutorService {
                 if ("webp".equalsIgnoreCase(suffix) && isAnimatedWebp(bytes)) {
                     log.info("[downloadImages] [{}/{}] imgId={} 跳过动图 webp", i + 1, imgIds.size(), imgId);
                     skippedAnimated++;
-                    animatedImageSourceFiles.put(imgId, file);
                     continue;
                 }
 
@@ -496,8 +489,7 @@ public class TaskExecutorService implements ITaskExecutorService {
 
             int cachedCount = ctx.getCachedTextMap().size()
                     + (ctx.getCachedTranslatedHtml() != null ? 1 : 0)
-                    + ctx.getCachedImageMap().size()
-                    + ctx.getAnimatedImageSourceFiles().size();
+                    + ctx.getCachedImageMap().size();
             int totalRequests = cachedCount;
 
             StringBuilder jsonl = new StringBuilder();
@@ -530,12 +522,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                     task.getId(), totalRequests, cachedCount, jsonl.length());
 
             if (!hasUncached) {
-                log.info("[batchTranslate] taskId={} 全部命中缓存, 直接保存", task.getId());
-                writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.BATCH);
-                saveTranslatedProduct(task, ctx, TranslateResult.builder()
-                        .translatedTextMap(new HashMap<>())
-                        .translatedImageMap(new HashMap<>())
-                        .translatedHtml(null).build());
+                log.info("[batchTranslate] taskId={} 全部命中缓存, 设置标记等待下次轮询处理", task.getId());
+                task.setBatchJobName(ALL_CACHED_BATCH_JOB_NAME);
+                task.setMessage("全部命中缓存，等待保存...");
+                asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
                 return;
             }
 
@@ -723,7 +713,6 @@ public class TaskExecutorService implements ITaskExecutorService {
                 .imageIdToHash(ctx.getImageIdToHash())
                 .uncachedImageData(failedImageData).uncachedImageMimeTypes(failedImageMimeTypes)
                 .imageHashToSourceFile(failedImageSourceFiles).cachedImageMap(new HashMap<>())
-                .animatedImageSourceFiles(new HashMap<>())
                 .uncachedHtml(needHtmlFallback ? ctx.getUncachedHtml() : null)
                 .cachedTranslatedHtml(null)
                 .build();
@@ -736,6 +725,19 @@ public class TaskExecutorService implements ITaskExecutorService {
         String jobName = task.getBatchJobName();
         try {
             log.info("[resumeTranslate] taskId={} 单次检查, jobName={}", task.getId(), jobName);
+
+            if (ALL_CACHED_BATCH_JOB_NAME.equals(jobName)) {
+                log.info("[resumeTranslate] taskId={} 全部命中缓存, 直接保存", task.getId());
+                TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+                TranslateContext ctx = prepareTranslateContext(task, request);
+                writeCacheHitTokenRecords(task, ctx, InvokeMode.BATCH);
+                saveTranslatedProduct(task, ctx, TranslateResult.builder()
+                        .translatedTextMap(new HashMap<>())
+                        .translatedImageMap(new HashMap<>())
+                        .translatedHtml(null).build());
+                translateTaskMetrics.recordCompleted();
+                return;
+            }
 
             AsyncTask freshTask = asyncTaskService.getById(task.getId());
             if (freshTask.getState() == TaskState.CANCELLED) {
@@ -799,7 +801,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
             TranslateContext ctx = prepareTranslateContext(task, request);
 
-            writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.BATCH);
+            writeCacheHitTokenRecords(task, ctx, InvokeMode.BATCH);
 
             TranslateResult batchResult = processBatchResult(task, batchState, currentJob, ctx);
             cleanupBatchResources(jobName, null);
@@ -848,7 +850,7 @@ public class TaskExecutorService implements ITaskExecutorService {
 
             TranslateContext ctx = prepareTranslateContext(task, request);
 
-            writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.STANDARD);
+            writeCacheHitTokenRecords(task, ctx, InvokeMode.STANDARD);
 
             TranslateResult result = executeDirectTranslateCore(task, ctx);
 
@@ -1166,15 +1168,18 @@ public class TaskExecutorService implements ITaskExecutorService {
         Set<String> dedup = new LinkedHashSet<>();
         if (product.getImageFiles() != null) {
             for (MultimediaFile img : product.getImageFiles()) {
-                if (img != null && img.getId() != null) dedup.add(String.valueOf(img.getId()));
+                if (img != null && img.getId() != null && !"gif".equalsIgnoreCase(img.getSuffix()))
+                    dedup.add(String.valueOf(img.getId()));
             }
         }
         for (ProductSpecification spec : product.getSpecificationList()) {
             MultimediaFile specImg = spec.getSpecificationImage();
-            if (specImg != null && specImg.getId() != null) dedup.add(String.valueOf(specImg.getId()));
+            if (specImg != null && specImg.getId() != null && !"gif".equalsIgnoreCase(specImg.getSuffix()))
+                dedup.add(String.valueOf(specImg.getId()));
             for (ProductSpecificationAttributes attr : spec.getAttributes()) {
                 MultimediaFile attrImg = attr.getMultimediaFile();
-                if (attrImg != null && attrImg.getId() != null) dedup.add(String.valueOf(attrImg.getId()));
+                if (attrImg != null && attrImg.getId() != null && !"gif".equalsIgnoreCase(attrImg.getSuffix()))
+                    dedup.add(String.valueOf(attrImg.getId()));
             }
         }
         if (product.getIntroduction() != null) {
@@ -1404,23 +1409,6 @@ public class TaskExecutorService implements ITaskExecutorService {
     }
 
     /**
-     * 动图跳过场景：用分辨率档位公式计算业务 token。
-     */
-    private void saveAnimatedImageTokenRecord(Long taskId, String contentHash, String targetLanguage,
-                                              MultimediaFile sourceFile, SystemUser owner) {
-        try {
-            int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
-            if (maxDim <= 0) maxDim = 512;
-            int bizPrompt = TokenCostCalculator.imageBusinessPromptTokens(maxDim);
-            int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
-            saveTokenUsageRecord(taskId, TranslationContentType.IMAGE, contentHash, targetLanguage,
-                    false, InvokeMode.STANDARD, null, false, bizPrompt, bizCompletion, 0, owner);
-        } catch (Exception e) {
-            log.warn("[tokenUsage] 动图记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
-        }
-    }
-
-    /**
      * 首次翻译图片但无图片输出（2b）：实际 token 从 API，业务输入=实际输入，业务输出=档位公式。
      */
     private void saveNoOutputImageTokenRecord(Long taskId, String contentHash, String targetLanguage,
@@ -1439,9 +1427,9 @@ public class TaskExecutorService implements ITaskExecutorService {
     }
 
     /**
-     * Phase A 完成后，为缓存命中的文本/HTML/图片和动图写入业务 token 记录。
+     * Phase A 完成后，为缓存命中的文本/HTML/图片写入业务 token 记录。
      */
-    private void writeCacheHitAndAnimatedTokenRecords(AsyncTask task, TranslateContext ctx, InvokeMode invokeMode) {
+    private void writeCacheHitTokenRecords(AsyncTask task, TranslateContext ctx, InvokeMode invokeMode) {
         String langName = ctx.getLangName();
         SystemUser owner = ctx.getOwner();
 
@@ -1459,13 +1447,6 @@ public class TaskExecutorService implements ITaskExecutorService {
         // 缓存命中的图片（cachedImageMap 中非 null 值 = 有翻译后的文件）
         for (Map.Entry<String, MultimediaFile> entry : ctx.getCachedImageMap().entrySet()) {
             saveCacheHitTokenRecord(task.getId(), TranslationContentType.IMAGE, entry.getKey(), langName, invokeMode, owner);
-        }
-
-        // 动图跳过的图片
-        for (Map.Entry<String, MultimediaFile> entry : ctx.getAnimatedImageSourceFiles().entrySet()) {
-            MultimediaFile sourceFile = entry.getValue();
-            String hash = DigestUtil.sha256Hex(entry.getKey());
-            saveAnimatedImageTokenRecord(task.getId(), hash, langName, sourceFile, owner);
         }
     }
 
