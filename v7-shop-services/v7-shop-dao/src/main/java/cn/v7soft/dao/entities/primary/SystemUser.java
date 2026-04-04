@@ -77,4 +77,19 @@ public class SystemUser extends BaseDataRangeEntity {
     @OneToOne
     @JoinColumn(name = "product_library_id")
     private ProductLibrary productLibrary;
+
+    /**
+     * 每月 AI Credits 额度。null/0=禁用AI, -1=无限制, >0=月度额度。
+     * 1 Credit = $0.001
+     */
+    @Column(name = "monthly_ai_credits")
+    private Integer monthlyAiCredits;
+
+    @Builder.Default
+    @Column(name = "used_ai_credits", nullable = false)
+    private Integer usedAiCredits = 0;
+
+    @Builder.Default
+    @Column(name = "frozen_ai_credits", nullable = false)
+    private Integer frozenAiCredits = 0;
 }

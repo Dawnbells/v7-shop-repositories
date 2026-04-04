@@ -34,4 +34,13 @@ public class EmployeeResponse extends IdResponse {
     @Builder.Default
     @Schema(title = "角色列表", example = "1")
     private List<RoleResponse> roles = new ArrayList<>();
+
+    @Schema(title = "每月AI额度", description = "null/0=禁用, -1=无限制, >0=月度额度")
+    private Integer monthlyAiCredits;
+
+    @Schema(title = "当月已用AI额度")
+    private Integer usedAiCredits;
+
+    @Schema(title = "当月冻结中AI额度")
+    private Integer frozenAiCredits;
 }

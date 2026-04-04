@@ -86,4 +86,10 @@ public class AiTokenUsageRecord extends BaseDataRangeEntity {
      */
     @Column(name = "has_image_output")
     private Boolean hasImageOutput;
+
+    /**
+     * = CEIL(businessCost * 1000)，整数 Credits，作为扣费依据
+     */
+    @Column(name = "business_credits")
+    private Integer businessCredits;
 }

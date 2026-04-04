@@ -25,6 +25,7 @@ import cn.v7soft.admin.controller.req.DispatchDepartmentRequest;
 import cn.v7soft.admin.controller.req.EditEmployeeRequest;
 import cn.v7soft.admin.controller.req.GrantRoleRequest;
 import cn.v7soft.admin.controller.req.QueryEmployeeRequest;
+import cn.v7soft.admin.controller.req.SetAiCreditsRequest;
 import cn.v7soft.admin.controller.resp.DepartmentResponse;
 import cn.v7soft.admin.controller.resp.EmployeeResponse;
 import cn.v7soft.admin.controller.resp.RoleResponse;
@@ -86,6 +87,15 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
         service.dispatchDepartment(request);
     }
 
+    @PostMapping("/setAiCredits")
+    @Operation(summary = "设置员工AI额度")
+    @SaCheckPermission("employee.edit")
+    public void setAiCredits(@Valid @RequestBody SetAiCreditsRequest request) {
+        SystemUser user = service.getById(request.getId());
+        user.setMonthlyAiCredits(request.getMonthlyAiCredits());
+        service.saveAndFlush(user);
+    }
+
     @Override
     protected EmployeeResponse convertEntity(SystemUser systemUser) {
         EmployeeResponse.EmployeeResponseBuilder<?, ?> builder = EmployeeResponse.builder()
@@ -101,6 +111,9 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
                                         .description(role.getDescription())
                                         .build()
                                 ).collect(Collectors.toList()));
+        builder.monthlyAiCredits(systemUser.getMonthlyAiCredits())
+                .usedAiCredits(systemUser.getUsedAiCredits())
+                .frozenAiCredits(systemUser.getFrozenAiCredits());
         Department department = systemUser.getDepartment();
         if (department != null) {
             builder.department(filling(department, DepartmentResponse.convertEntity(department)));

@@ -6,6 +6,7 @@ import java.util.List;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.ITaskExecutorService;
@@ -16,6 +17,7 @@ import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
+import cn.v7soft.dao.repositories.primary.SystemUserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -33,6 +35,7 @@ public class AsyncTaskInspector {
     private final ITaskExecutorService taskExecutorService;
     private final TranslateTaskMetrics translateTaskMetrics;
     private final GeminiQuotaTracker geminiQuotaTracker;
+    private final SystemUserRepository systemUserRepository;
 
     @Scheduled(fixedDelay = 5 * 60 * 1000, initialDelay = 3 * 60 * 1000)
     public void inspectStuckTasks() {
@@ -122,5 +125,12 @@ public class AsyncTaskInspector {
     private boolean isTranslateTask(AsyncTask task) {
         return task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE
                 || task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE_DIRECT;
+    }
+
+    @Transactional
+    @Scheduled(cron = "0 0 0 1 * ?")
+    public void resetMonthlyCredits() {
+        int rows = systemUserRepository.resetAllCredits();
+        log.info("[creditsReset] 已重置 {} 个用户的AI额度", rows);
     }
 }

@@ -4,6 +4,7 @@ import cn.v7soft.core.repository.BaseRepository;
 import cn.v7soft.dao.entities.primary.Role;
 import cn.v7soft.dao.entities.primary.SystemUser;
 
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -29,4 +30,29 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
 
     @Query(value = "SELECT * FROM t_system_users WHERE name=:userName and status <> 'DELETED' LIMIT 1 ", nativeQuery = true)
     Optional<SystemUser> findByUserName(@Param("userName") String userName);
+
+    @Modifying
+    @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits + :amount " +
+           "WHERE u.id = :userId " +
+           "AND u.monthlyAiCredits > 0 " +
+           "AND (u.usedAiCredits + u.frozenAiCredits + :amount) <= u.monthlyAiCredits")
+    int freezeCredits(@Param("userId") Long userId, @Param("amount") int amount);
+
+    @Modifying
+    @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits - :freezeAmount, " +
+           "u.usedAiCredits = u.usedAiCredits + :actualAmount " +
+           "WHERE u.id = :userId")
+    int settleCredits(@Param("userId") Long userId,
+                      @Param("freezeAmount") int freezeAmount,
+                      @Param("actualAmount") int actualAmount);
+
+    @Modifying
+    @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits - :amount " +
+           "WHERE u.id = :userId")
+    int unfreezeCredits(@Param("userId") Long userId, @Param("amount") int amount);
+
+    @Modifying
+    @Query("UPDATE SystemUser u SET u.usedAiCredits = 0, u.frozenAiCredits = 0 " +
+           "WHERE u.monthlyAiCredits > 0")
+    int resetAllCredits();
 }

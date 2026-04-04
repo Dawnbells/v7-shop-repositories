@@ -69,3 +69,11 @@ export function remoteQuerySpuSharedUser(query: string, spuId: string) {
     params: { query, spuId },
   })
 }
+
+export function setAiCredits(data: { id: number; monthlyAiCredits: number }) {
+  return request({
+    url: '/employee/setAiCredits',
+    method: 'post',
+    data,
+  })
+}

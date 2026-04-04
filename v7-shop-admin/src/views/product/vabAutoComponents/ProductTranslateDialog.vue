@@ -188,8 +188,8 @@ const save = (mode: 'batch' | 'direct') => {
 
         $baseMessage('翻译任务已提交，请在右上角任务栏查看进度', 'success', 'hey')
         dialogFormVisible.value = false
-      } catch (e: any) {
-        $baseMessage(e?.response?.data?.msg || e?.msg || '提交失败，请重试', 'error', 'hey')
+      } catch {
+        // Error already displayed by global interceptor
       } finally {
         loading.value = false
       }

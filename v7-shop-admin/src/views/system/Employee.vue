@@ -47,6 +47,19 @@
           </el-space>
         </template>
       </el-table-column>
+      <el-table-column align="center" label="AI额度" width="150">
+        <template #default="{ row }">
+          <template v-if="row.monthlyAiCredits === -1">
+            <el-tag type="info">不限</el-tag>
+          </template>
+          <template v-else-if="row.monthlyAiCredits > 0">
+            <el-text>{{ (row.usedAiCredits || 0) + (row.frozenAiCredits || 0) }} / {{ row.monthlyAiCredits }}</el-text>
+          </template>
+          <template v-else>
+            <el-tag type="danger">已禁用</el-tag>
+          </template>
+        </template>
+      </el-table-column>
       <el-table-column align="center" label="状态" prop="status">
         <template #default="{ row }">
           <el-switch
@@ -58,11 +71,12 @@
           />
         </template>
       </el-table-column>
-      <el-table-column align="center" label="操作" width="280">
+      <el-table-column align="center" label="操作" width="340">
         <template #default="{ row }">
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button text type="primary" @click="handleDispatchDepartments(row)">部门</el-button>
           <el-button text type="primary" @click="handleGrantRole(row)">角色</el-button>
+          <el-button text type="primary" @click="handleAiCredits(row)">AI额度</el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -81,6 +95,29 @@
     <employee-edit ref="editRef" @fetch-data="fetchData" />
     <employee-grant-role ref="grantRoleRef" @fetch-data="fetchData" />
     <employee-dispatch-departments ref="dispatchDepartmentsRef" @fetch-data="fetchData" />
+
+    <el-dialog v-model="aiCreditsDialogVisible" title="设置AI额度" width="420px" append-to-body>
+      <el-form label-width="100px">
+        <el-form-item label="员工">
+          <el-text>{{ aiCreditsForm.name }}</el-text>
+        </el-form-item>
+        <el-form-item label="额度模式">
+          <el-radio-group v-model="aiCreditsForm.mode">
+            <el-radio value="unlimited">不限制</el-radio>
+            <el-radio value="limited">限额</el-radio>
+            <el-radio value="disabled">禁用</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="aiCreditsForm.mode === 'limited'" label="月度额度">
+          <el-input-number v-model="aiCreditsForm.credits" :min="1" :step="100" />
+          <el-text type="info" style="margin-left: 8px">Credits</el-text>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="aiCreditsDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="aiCreditsSaving" @click="saveAiCredits">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -88,7 +125,7 @@
 import { Delete, Plus, Search } from '@element-plus/icons-vue'
 import type { Department } from '/@/api/department'
 import { getTree } from '/@/api/department'
-import { doDelete, page, switchValidity } from '/@/api/employee'
+import { doDelete, page, setAiCredits, switchValidity } from '/@/api/employee'
 import type { Role } from '/@/api/role'
 import { getList } from '/@/api/role'
 
@@ -194,6 +231,53 @@ const handleSwitchValidity = (newVal: string | number | boolean, row: { id: numb
       row.statusLoading = false
       row.status = newVal == 'VALID' ? 'INVALID' : 'VALID'
     })
+}
+
+const aiCreditsDialogVisible = ref(false)
+const aiCreditsSaving = ref(false)
+const aiCreditsForm = reactive({
+  id: 0,
+  name: '',
+  mode: 'unlimited' as 'unlimited' | 'limited' | 'disabled',
+  credits: 1000,
+})
+
+const handleAiCredits = (row: any) => {
+  aiCreditsForm.id = row.id
+  aiCreditsForm.name = row.name
+  if (row.monthlyAiCredits === -1) {
+    aiCreditsForm.mode = 'unlimited'
+    aiCreditsForm.credits = 1000
+  } else if (row.monthlyAiCredits > 0) {
+    aiCreditsForm.mode = 'limited'
+    aiCreditsForm.credits = row.monthlyAiCredits
+  } else {
+    aiCreditsForm.mode = 'disabled'
+    aiCreditsForm.credits = 1000
+  }
+  aiCreditsDialogVisible.value = true
+}
+
+const saveAiCredits = async () => {
+  aiCreditsSaving.value = true
+  try {
+    let monthlyAiCredits: number
+    if (aiCreditsForm.mode === 'unlimited') {
+      monthlyAiCredits = -1
+    } else if (aiCreditsForm.mode === 'limited') {
+      monthlyAiCredits = aiCreditsForm.credits
+    } else {
+      monthlyAiCredits = 0
+    }
+    await setAiCredits({ id: aiCreditsForm.id, monthlyAiCredits })
+    $baseMessage('AI额度设置成功', 'success', 'hey')
+    aiCreditsDialogVisible.value = false
+    await fetchData()
+  } catch (e: any) {
+    $baseMessage(e?.response?.data?.msg || '设置失败', 'error', 'hey')
+  } finally {
+    aiCreditsSaving.value = false
+  }
 }
 
 const fetchAllRoles = () => {

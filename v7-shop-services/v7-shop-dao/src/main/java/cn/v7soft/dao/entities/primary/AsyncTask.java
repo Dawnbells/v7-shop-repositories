@@ -95,4 +95,10 @@ public class AsyncTask extends BaseDataRangeEntity {
     @lombok.Builder.Default
     @Column(name = "acknowledged", nullable = false)
     private Boolean acknowledged = false;
+
+    /**
+     * 提交时冻结的预估 AI Credits。null 表示该用户不限制额度，无需结算。
+     */
+    @Column(name = "estimated_credits")
+    private Integer estimatedCredits;
 }

@@ -21,7 +21,10 @@ import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
+import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
+import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
+import cn.v7soft.admin.utils.TokenCostCalculator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.types.BatchJob;
@@ -38,16 +41,22 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     private final IS3Service s3Service;
     private final GeminiTranslateService geminiTranslateService;
     private final ITaskExecutorService taskExecutorService;
+    private final AiCreditsService aiCreditsService;
+    private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
 
     public AsyncTaskService(AsyncTaskRepository repository,
                             IS3Service s3Service,
                             GeminiTranslateService geminiTranslateService,
-                            @Lazy ITaskExecutorService taskExecutorService) {
+                            @Lazy ITaskExecutorService taskExecutorService,
+                            AiCreditsService aiCreditsService,
+                            AiTokenUsageRecordRepository aiTokenUsageRecordRepository) {
         super(repository);
         this.asyncTaskRepository = repository;
         this.s3Service = s3Service;
         this.geminiTranslateService = geminiTranslateService;
         this.taskExecutorService = taskExecutorService;
+        this.aiCreditsService = aiCreditsService;
+        this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
     }
 
     @Override
@@ -88,8 +97,34 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         if (task.getExportRelativePath() != null) {
             fresh.setExportRelativePath(task.getExportRelativePath());
         }
+        if (task.getEstimatedCredits() != null && fresh.getEstimatedCredits() == null) {
+            fresh.setEstimatedCredits(task.getEstimatedCredits());
+        }
+
+        if (isTerminalState(state) && fresh.getEstimatedCredits() != null) {
+            settleOrUnfreezeCredits(fresh);
+        }
+
         saveAndFlush(fresh);
         return true;
+    }
+
+    private boolean isTerminalState(TaskState state) {
+        return state == TaskState.COMPLETED || state == TaskState.FAILED || state == TaskState.CANCELLED;
+    }
+
+    private void settleOrUnfreezeCredits(AsyncTask task) {
+        try {
+            Long ownerId = task.getOwner().getId();
+            if (aiTokenUsageRecordRepository.existsByTaskId(task.getId())) {
+                int actualCredits = aiTokenUsageRecordRepository.sumBusinessCreditsByTaskId(task.getId());
+                aiCreditsService.settle(ownerId, task.getEstimatedCredits(), actualCredits);
+            } else {
+                aiCreditsService.unfreeze(ownerId, task.getEstimatedCredits());
+            }
+        } catch (Exception e) {
+            log.error("[settleCredits] taskId={} 结算/解冻失败", task.getId(), e);
+        }
     }
 
     @Override
@@ -186,6 +221,15 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
             }
         }
 
+        if (task.getEstimatedCredits() != null) {
+            int newEstimated = (int) (task.getEstimatedCredits() * 2.0);
+            int diff = newEstimated - task.getEstimatedCredits();
+            if (diff > 0) {
+                aiCreditsService.freeze(task.getOwner().getId(), diff);
+                task.setEstimatedCredits(newEstimated);
+            }
+        }
+
         task.setBatchJobName(null);
         task.setTaskType(TaskType.PRODUCT_AI_TRANSLATE_DIRECT);
         task.setMessage("正在切换为即时翻译...");
@@ -200,19 +244,40 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     @Override
     @Transactional
     public AsyncTaskResponse retry(Long taskId) {
-        AsyncTask task = getById(taskId);
-        log.info("[retry] taskId={} 请求重试, 当前状态={}, taskType={}", taskId, task.getState(), task.getTaskType());
-        if (task.getState() != TaskState.FAILED && task.getState() != TaskState.CANCELLED) {
+        AsyncTask oldTask = getById(taskId);
+        log.info("[retry] taskId={} 请求重试, 当前状态={}, taskType={}", taskId, oldTask.getState(), oldTask.getTaskType());
+        if (oldTask.getState() != TaskState.FAILED && oldTask.getState() != TaskState.CANCELLED) {
             throw new IllegalStateException("只有失败或已取消的任务才能重试");
         }
-        task.setBatchJobName(null);
-        task.setMessage("正在重试...");
-        task.setAcknowledged(false);
-        updateAsyncTask(task, TaskState.PENDING, 0);
-        asyncTaskRepository.resetCreateTime(taskId, LocalDateTime.now());
-        log.info("[retry] taskId={} 已重置为 PENDING, 重新提交任务", taskId);
-        taskExecutorService.submitAsyncTask(task.getId());
-        task.setCreateTime(LocalDateTime.now());
-        return AsyncTaskResponse.convert(task);
+
+        Integer estimated = oldTask.getEstimatedCredits();
+        if (estimated != null) {
+            aiCreditsService.freeze(oldTask.getOwner().getId(), estimated);
+        }
+
+        oldTask.setAcknowledged(true);
+        asyncTaskRepository.save(oldTask);
+
+        String newName = oldTask.getName();
+        if (newName != null && !newName.startsWith("（重试）")) {
+            newName = "（重试）" + newName;
+        }
+
+        AsyncTask newTask = AsyncTask.builder()
+                .taskType(oldTask.getTaskType())
+                .state(TaskState.PENDING)
+                .progress(0)
+                .parameters(oldTask.getParameters())
+                .name(newName)
+                .dedupKey(oldTask.getDedupKey())
+                .estimatedCredits(estimated)
+                .build();
+        newTask.setOwner(oldTask.getOwner());
+        newTask.setCompanyId(oldTask.getCompanyId());
+        newTask = asyncTaskRepository.saveAndFlush(newTask);
+
+        log.info("[retry] oldTaskId={} -> newTaskId={}, estimatedCredits={}", taskId, newTask.getId(), estimated);
+        taskExecutorService.submitAsyncTask(newTask.getId());
+        return AsyncTaskResponse.convert(newTask);
     }
 }

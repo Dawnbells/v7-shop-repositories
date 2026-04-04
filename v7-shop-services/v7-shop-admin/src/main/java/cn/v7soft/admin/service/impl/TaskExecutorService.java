@@ -28,7 +28,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
@@ -123,7 +122,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         shutdownRequested = true;
         log.info("[TaskExecutorService] 收到应用关闭信号，通知所有长时间运行任务尽快退出");
     }
-    private static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
+    public static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Set<String> BATCH_COMPLETED_STATES = Set.of(
             "JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED",
@@ -805,6 +804,10 @@ public class TaskExecutorService implements ITaskExecutorService {
             if (task.getState() == TaskState.COMPLETED) translateTaskMetrics.recordCompleted();
             log.info("[resumeTranslate] taskId={} 恢复完成, 总耗时={}ms", task.getId(), elapsed);
 
+        } catch (DailyQuotaExhaustedException e) {
+            log.warn("[resumeTranslate] taskId={} 每日配额已耗尽, 暂停任务等待配额恢复", task.getId());
+            task.setMessage(QUOTA_EXHAUSTED_MSG);
+            asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
         } catch (Throwable e) {
             long elapsed = System.currentTimeMillis() - taskStart;
             translateTaskMetrics.recordFailed();
@@ -1330,9 +1333,11 @@ public class TaskExecutorService implements ITaskExecutorService {
             int bTotal = bPrompt + bCompletion + bThinking;
 
             BigDecimal actualCost = TokenCostCalculator.calculateCost(
-                    contentType, invokeMode, aPrompt, aCompletion, aThinking, hasImageOutput);
+                    contentType, invokeMode, aPrompt, aCompletion, aThinking);
             BigDecimal businessCost = TokenCostCalculator.calculateCost(
-                    contentType, invokeMode, bPrompt, bCompletion, bThinking, hasImageOutput);
+                    contentType, invokeMode, bPrompt, bCompletion, bThinking);
+
+            int businessCredits = TokenCostCalculator.usdToCredits(businessCost);
 
             AiTokenUsageRecord record = AiTokenUsageRecord.builder()
                     .taskId(taskId)
@@ -1352,6 +1357,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                     .businessTotalTokens(bTotal)
                     .actualCost(actualCost)
                     .businessCost(businessCost)
+                    .businessCredits(businessCredits)
                     .elapsedMs(elapsed)
                     .hasImageOutput(hasImageOutput)
                     .build();

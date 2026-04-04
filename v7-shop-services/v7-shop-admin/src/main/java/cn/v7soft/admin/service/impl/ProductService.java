@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.http.util.TextUtils;
@@ -17,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
-import cn.v7soft.admin.controller.req.EditCloakInfoRequest;
 import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.EditProductSpecification;
 import cn.v7soft.admin.controller.req.EditProductSpecificationAttribute;
@@ -33,11 +31,12 @@ import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.service.IS3Service;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.utils.MultimediaUtil;
+import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
-import cn.v7soft.dao.entities.primary.CloakInfo;
+import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
@@ -45,9 +44,9 @@ import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
-import cn.v7soft.dao.entities.primary.AsyncTask;
-import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.Spu;
+import cn.v7soft.dao.entities.primary.SystemUser;
+import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
@@ -57,41 +56,38 @@ import cn.v7soft.dao.utils.SaSessionUtil;
 import jakarta.persistence.EntityManager;
 import lombok.extern.slf4j.Slf4j;
 
+import static cn.v7soft.admin.service.impl.TaskExecutorService.IMG_ID_PATTERN;
+
 @Slf4j
 @Service
 public class ProductService extends BaseDataRangeService<Product, ProductRepository> implements IProductService {
 
-    private static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
-
     private final IProductSKUService productSKUService;
     private final ILanguageService languageService;
     private final ICountryService countryService;
-    private final EntityManager entityManager;
     private final IMultimediaFileService multimediaFileService;
     private final SpuRepository spuRepository;
-    private final IS3Service s3Service;
     private final AsyncTaskRepository asyncTaskRepository;
     private final ITaskExecutorService taskExecutorService;
     private final TranslateTaskMetrics translateTaskMetrics;
+    private final AiCreditsService aiCreditsService;
 
     public ProductService(ProductRepository repository, IProductSKUService productSKUService,
                           ILanguageService languageService, ICountryService countryService,
-                          EntityManager entityManager,
                           IMultimediaFileService multimediaFileService, SpuRepository spuRepository,
-                          IS3Service s3Service,
                           AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService,
-                          TranslateTaskMetrics translateTaskMetrics) {
+                          TranslateTaskMetrics translateTaskMetrics,
+                          AiCreditsService aiCreditsService) {
         super(repository);
         this.productSKUService = productSKUService;
         this.languageService = languageService;
         this.countryService = countryService;
-        this.entityManager = entityManager;
         this.multimediaFileService = multimediaFileService;
         this.spuRepository = spuRepository;
-        this.s3Service = s3Service;
         this.asyncTaskRepository = asyncTaskRepository;
         this.taskExecutorService = taskExecutorService;
         this.translateTaskMetrics = translateTaskMetrics;
+        this.aiCreditsService = aiCreditsService;
     }
 
     @Override
@@ -125,7 +121,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                                              .build();
 
                 return productSKUService.getOrSaveBySkuCode(tempSku);
-            }).collect(Collectors.toList());
+            }).toList();
         } else {
             productSKU = TextUtils.isBlank(request.getSkuId()) ?
                          // 非多规格的情况下，新建产品或者更新SKU
@@ -218,27 +214,6 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
             }
             product.getSpecificationList().addAll(specificationList);
         }
-        // 处理斗篷规则
-//        List<CloakInfo> cloakInfos = new ArrayList<>();
-//        if (request.getCloakInfos() != null) {
-//            List<EditCloakInfoRequest> requestCloakInfos = request.getCloakInfos();
-//            for (int i = 0; i < requestCloakInfos.size(); i++) {
-//                EditCloakInfoRequest editCloakInfo = requestCloakInfos.get(i);
-//                CloakInfo cloakInfo = CloakInfo.builder()
-//                        .ordering(i)
-//                        .name(editCloakInfo.getName())
-//                        .spuId(editCloakInfo.getSpuId())
-//                        .includeCountryCode(editCloakInfo.getIncludeCountryCode())
-//                        .excludeCountryCode(editCloakInfo.getExcludeCountryCode())
-//                        .includeCrawler(String.join(",", editCloakInfo.getIncludeCrawler()))
-//                        .excludeCrawler(String.join(",", editCloakInfo.getExcludeCrawler()))
-//                        .build();
-//                cloakInfos.add(cloakInfo);
-//            }
-//        }
-//        product.getCloakInfos().clear();
-//        product.getCloakInfos().addAll(cloakInfos);
-//        cloakInfos.forEach(cloakInfo -> cloakInfo.setProduct(product));
         if (ConvertUtils.isLong(request.getBotShowSpuId())) {
             product.setBotShowSpu(Spu.builder().id(Long.valueOf(request.getBotShowSpuId())).build());
         } else {
@@ -355,17 +330,17 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(language, "目标语言不存在");
 
         boolean languageBelongsToCountry = country.getLanguages() != null
-                && country.getLanguages().stream().anyMatch(l -> l.getId().equals(language.getId()));
+                                           && country.getLanguages().stream().anyMatch(l -> l.getId().equals(language.getId()));
         ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(languageBelongsToCountry,
-                "所选语言不属于目标国家支持的语言");
+                                                    "所选语言不属于目标国家支持的语言");
 
         Product duplicate = repository.findBySameCountryLanguage(
                 product.getSpu().getId(), null, country.getId(), language.getId());
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
-                "同一SPU下该国家和语言已存在商品，不允许重复");
+                                                    "同一SPU下该国家和语言已存在商品，不允许重复");
 
         String dedupKey = "PRODUCT_AI_TRANSLATE:" +
-                request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
+                          request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
 
         List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndDedupKeyAndStateIn(
                 TaskType.PRODUCT_AI_TRANSLATE, dedupKey,
@@ -378,9 +353,11 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         String parameters = cn.hutool.json.JSONUtil.toJsonStr(request);
 
         String title = StrUtil.isNotBlank(product.getTitle())
-                ? product.getTitle()
-                : "商品#" + product.getId();
+                       ? product.getTitle()
+                       : "商品#" + product.getId();
         String taskName = "AI翻译: " + title + " → " + language.getName();
+
+        Integer estimated = estimateAndFreezeCredits(product, InvokeMode.BATCH);
 
         AsyncTask asyncTask = AsyncTask.builder()
                 .taskType(TaskType.PRODUCT_AI_TRANSLATE)
@@ -389,6 +366,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .parameters(parameters)
                 .name(taskName)
                 .dedupKey(dedupKey)
+                .estimatedCredits(estimated)
                 .build()
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
@@ -410,17 +388,17 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(language, "目标语言不存在");
 
         boolean languageBelongsToCountry = country.getLanguages() != null
-                && country.getLanguages().stream().anyMatch(l -> l.getId().equals(language.getId()));
+                                           && country.getLanguages().stream().anyMatch(l -> l.getId().equals(language.getId()));
         ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(languageBelongsToCountry,
-                "所选语言不属于目标国家支持的语言");
+                                                    "所选语言不属于目标国家支持的语言");
 
         Product duplicate = repository.findBySameCountryLanguage(
                 product.getSpu().getId(), null, country.getId(), language.getId());
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
-                "同一SPU下该国家和语言已存在商品，不允许重复");
+                                                    "同一SPU下该国家和语言已存在商品，不允许重复");
 
         String dedupKey = "PRODUCT_AI_TRANSLATE_DIRECT:" +
-                request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
+                          request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
 
         List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndDedupKeyAndStateIn(
                 TaskType.PRODUCT_AI_TRANSLATE_DIRECT, dedupKey,
@@ -433,9 +411,11 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         String parameters = cn.hutool.json.JSONUtil.toJsonStr(request);
 
         String title = StrUtil.isNotBlank(product.getTitle())
-                ? product.getTitle()
-                : "商品#" + product.getId();
+                       ? product.getTitle()
+                       : "商品#" + product.getId();
         String taskName = "AI即时翻译: " + title + " → " + language.getName();
+
+        Integer estimated = estimateAndFreezeCredits(product, InvokeMode.STANDARD);
 
         AsyncTask asyncTask = AsyncTask.builder()
                 .taskType(TaskType.PRODUCT_AI_TRANSLATE_DIRECT)
@@ -444,6 +424,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .parameters(parameters)
                 .name(taskName)
                 .dedupKey(dedupKey)
+                .estimatedCredits(estimated)
                 .build()
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
@@ -501,8 +482,8 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         for (ProductSpecification spec : product.getSpecificationList()) {
             MultimediaFile specImg = spec.getSpecificationImage();
             MultimediaFile translatedSpecImg = specImg != null && specImg.getId() != null && translatedImageMap != null
-                    ? translatedImageMap.getOrDefault(String.valueOf(specImg.getId()), specImg)
-                    : specImg;
+                                               ? translatedImageMap.getOrDefault(String.valueOf(specImg.getId()), specImg)
+                                               : specImg;
 
             ProductSpecification newSpec = ProductSpecification.builder()
                     .specificationImage(translatedSpecImg)
@@ -524,15 +505,15 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
                 MultimediaFile attrImg = attr.getMultimediaFile();
                 MultimediaFile translatedAttrImg = attrImg != null && attrImg.getId() != null && translatedImageMap != null
-                        ? translatedImageMap.getOrDefault(String.valueOf(attrImg.getId()), attrImg)
-                        : attrImg;
+                                                   ? translatedImageMap.getOrDefault(String.valueOf(attrImg.getId()), attrImg)
+                                                   : attrImg;
 
                 newAttrs.add(ProductSpecificationAttributes.builder()
-                        .name(translatedName)
-                        .value(translatedValue)
-                        .multimediaFile(translatedAttrImg)
-                        .productSpecification(newSpec)
-                        .build());
+                                     .name(translatedName)
+                                     .value(translatedValue)
+                                     .multimediaFile(translatedAttrImg)
+                                     .productSpecification(newSpec)
+                                     .build());
             }
             newSpec.setAttributes(newAttrs);
             newSpecs.add(newSpec);
@@ -542,8 +523,8 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         if (product.getImageFiles() != null && translatedImageMap != null) {
             for (MultimediaFile img : product.getImageFiles()) {
                 MultimediaFile translated = img != null && img.getId() != null
-                        ? translatedImageMap.get(String.valueOf(img.getId()))
-                        : null;
+                                            ? translatedImageMap.get(String.valueOf(img.getId()))
+                                            : null;
                 newImageFiles.add(translated != null ? translated : img);
             }
         } else if (product.getImageFiles() != null) {
@@ -588,8 +569,25 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         return ProductResponse.convertEntity(multimediaFileService, saveAndFlush(newProduct));
     }
 
+    /**
+     * 计算预估 AI Credits 并冻结。如果用户无限制则返回 null。
+     * 冻结失败会抛出 InsufficientCreditsException，事务回滚。
+     */
+    private Integer estimateAndFreezeCredits(Product product, InvokeMode mode) {
+        int textEstimateTokens = TokenCostCalculator.getProductTextEstimateTokens(product);
+        int imageEstimateTokens = TokenCostCalculator.getProductImageEstimateTokens(product);
+
+        int estimated = TokenCostCalculator.estimateCredits(textEstimateTokens, imageEstimateTokens, mode);
+
+        Long userId = SaSessionUtil.getLoginUser().getLongId();
+        boolean frozen = aiCreditsService.freeze(userId, estimated);
+        return frozen ? estimated : null;
+    }
+
     private String lookupTranslation(Map<String, String> translatedTextMap, String original) {
-        if (original == null || original.isBlank()) return original;
+        if (original == null || original.isBlank()) {
+            return original;
+        }
         String hash = DigestUtil.sha256Hex(original);
         return translatedTextMap.getOrDefault(hash, original);
     }

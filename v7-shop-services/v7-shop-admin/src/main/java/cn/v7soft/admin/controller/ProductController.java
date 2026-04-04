@@ -87,7 +87,7 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
         return service.remoteQueryMerchandise(query);
     }
 
-    @Operation(summary = "翻译")
+    @Operation(summary = "复制")
     @GetMapping("/translate")
     public ProductResponse translate(@Valid @RequestBody TranslateProductRequest request) {
         return service.translate(request);

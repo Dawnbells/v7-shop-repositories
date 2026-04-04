@@ -218,12 +218,14 @@ export const useTasksStore = defineStore('tasks', {
       try {
         const res = await apiRetryTask(taskId)
         const data = res?.data ?? res
-        const task = this.tasks.find((t) => t.taskId === taskId)
-        if (task) {
-          task.state = data.state ?? 'PENDING'
-          task.progress = data.progress ?? 0
-          task.message = data.message ?? '正在重试...'
-          task.acknowledged = false
+        const oldTask = this.tasks.find((t) => t.taskId === taskId)
+        if (oldTask) {
+          oldTask.acknowledged = true
+        }
+        this.tasks = this.tasks.filter((t) => !(t.taskId === taskId && t.acknowledged))
+        const newTaskId = String(data.id ?? data.taskId)
+        if (newTaskId && !this.tasks.find((t) => t.taskId === newTaskId)) {
+          this.tasks.unshift(mapBackendTask(data))
         }
         this.ensurePolling()
       } catch (e) {
