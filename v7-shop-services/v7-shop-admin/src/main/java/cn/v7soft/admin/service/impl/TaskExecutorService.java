@@ -494,10 +494,13 @@ public class TaskExecutorService implements ITaskExecutorService {
 
             TranslateContext ctx = prepareTranslateContext(task, request);
 
-            writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.BATCH);
+            int cachedCount = ctx.getCachedTextMap().size()
+                    + (ctx.getCachedTranslatedHtml() != null ? 1 : 0)
+                    + ctx.getCachedImageMap().size()
+                    + ctx.getAnimatedImageSourceFiles().size();
+            int totalRequests = cachedCount;
 
             StringBuilder jsonl = new StringBuilder();
-            int totalRequests = 0;
 
             for (Map.Entry<String, String> entry : ctx.getUncachedTextMap().entrySet()) {
                 jsonl.append(geminiTranslateService.buildTextTranslateJsonlEntry(
@@ -519,11 +522,16 @@ public class TaskExecutorService implements ITaskExecutorService {
                 totalRequests++;
             }
 
-            log.info("[batchTranslate] taskId={} JSONL: totalRequests={}, size={}bytes",
-                    task.getId(), totalRequests, jsonl.length());
+            boolean hasUncached = !ctx.getUncachedTextMap().isEmpty()
+                    || ctx.getUncachedHtml() != null
+                    || !ctx.getUncachedImageData().isEmpty();
 
-            if (totalRequests == 0) {
+            log.info("[batchTranslate] taskId={} JSONL: totalRequests={}, cachedCount={}, size={}bytes",
+                    task.getId(), totalRequests, cachedCount, jsonl.length());
+
+            if (!hasUncached) {
                 log.info("[batchTranslate] taskId={} 全部命中缓存, 直接保存", task.getId());
+                writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.BATCH);
                 saveTranslatedProduct(task, ctx, TranslateResult.builder()
                         .translatedTextMap(new HashMap<>())
                         .translatedImageMap(new HashMap<>())
@@ -790,6 +798,8 @@ public class TaskExecutorService implements ITaskExecutorService {
 
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
             TranslateContext ctx = prepareTranslateContext(task, request);
+
+            writeCacheHitAndAnimatedTokenRecords(task, ctx, InvokeMode.BATCH);
 
             TranslateResult batchResult = processBatchResult(task, batchState, currentJob, ctx);
             cleanupBatchResources(jobName, null);
