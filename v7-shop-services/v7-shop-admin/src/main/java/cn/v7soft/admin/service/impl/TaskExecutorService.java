@@ -923,7 +923,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                     return;
                 }
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
+                Long recordId = null;
                 try {
+                    recordId = saveEstimatedTokenRecord(task.getId(), TranslationContentType.TEXT,
+                            hash, langName, InvokeMode.STANDARD, sourceText, null, owner);
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     String translated = callWithRateLimitAndRetry(() -> {
@@ -934,15 +937,13 @@ public class TaskExecutorService implements ITaskExecutorService {
                         translatedTextMap.put(hash, translated);
                         writeSingleTextCache(sourceText, translated, ctx.getLanguage());
                     }
-                    if (!shutdownRequested && !cancelledFlag.get()) {
-                        saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
-                                false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
-                    }
+                    updateTokenRecordWithActual(recordId, TranslationContentType.TEXT,
+                            InvokeMode.STANDARD, usageRef.get(), false, null, null, null);
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
                 } catch (java.util.concurrent.CancellationException e) {
-                    log.debug("[directTranslate] taskId={} text hash={} 任务已取消, 跳过", task.getId(), hash);
+                    log.debug("[directTranslate] taskId={} text hash={} 任务已取消, 按预估计费 recordId={}", task.getId(), hash, recordId);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} text hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
@@ -965,7 +966,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                     return;
                 }
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
+                Long recordId = null;
                 try {
+                    recordId = saveEstimatedTokenRecord(task.getId(), TranslationContentType.HTML,
+                            htmlHash, langName, InvokeMode.STANDARD, ctx.getUncachedHtml(), null, owner);
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     String html = callWithRateLimitAndRetry(() -> {
@@ -976,15 +980,13 @@ public class TaskExecutorService implements ITaskExecutorService {
                         translatedHtmlRef.set(html);
                         writeHtmlTranslationCache(ctx.getUncachedHtml(), html, ctx.getLanguage());
                     }
-                    if (!shutdownRequested && !cancelledFlag.get()) {
-                        saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
-                                false, InvokeMode.STANDARD, usageRef.get(), false, null, null, null, owner);
-                    }
+                    updateTokenRecordWithActual(recordId, TranslationContentType.HTML,
+                            InvokeMode.STANDARD, usageRef.get(), false, null, null, null);
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
                 } catch (java.util.concurrent.CancellationException e) {
-                    log.debug("[directTranslate] taskId={} HTML 任务已取消, 跳过", task.getId());
+                    log.debug("[directTranslate] taskId={} HTML 任务已取消, 按预估计费 recordId={}", task.getId(), recordId);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} HTML 翻译失败", task.getId(), e);
                 } finally {
@@ -1010,7 +1012,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                     return;
                 }
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
+                Long recordId = null;
                 try {
+                    recordId = saveEstimatedTokenRecord(task.getId(), TranslationContentType.IMAGE,
+                            hash, langName, InvokeMode.STANDARD, null, sourceFile, owner);
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     byte[] result = callWithRateLimitAndRetry(() -> {
@@ -1022,22 +1027,24 @@ public class TaskExecutorService implements ITaskExecutorService {
                                 result, sourceFile.getSuffix(), ctx.getOwner());
                         translatedImageMap.put(hash, newFile);
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
-                        if (!shutdownRequested && !cancelledFlag.get()) {
-                            saveTokenUsageRecord(task.getId(), TranslationContentType.IMAGE, hash, langName,
-                                    false, InvokeMode.STANDARD, usageRef.get(), true, null, null, null, owner);
-                        }
+                        updateTokenRecordWithActual(recordId, TranslationContentType.IMAGE,
+                                InvokeMode.STANDARD, usageRef.get(), true, null, null, null);
                     } else if (sourceFile != null) {
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), null, true);
-                        if (!shutdownRequested && !cancelledFlag.get()) {
-                            saveNoOutputImageTokenRecord(task.getId(), hash, langName,
-                                    InvokeMode.STANDARD, usageRef.get(), sourceFile, owner);
-                        }
+                        int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
+                        if (maxDim <= 0) maxDim = 512;
+                        int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
+                        updateTokenRecordWithActual(recordId, TranslationContentType.IMAGE,
+                                InvokeMode.STANDARD, usageRef.get(), false,
+                                usageRef.get() != null && usageRef.get().getPromptTokens() != null
+                                        ? usageRef.get().getPromptTokens() : null,
+                                bizCompletion, 0);
                     }
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
                 } catch (java.util.concurrent.CancellationException e) {
-                    log.debug("[directTranslate] taskId={} img hash={} 任务已取消, 跳过", task.getId(), hash);
+                    log.debug("[directTranslate] taskId={} img hash={} 任务已取消, 按预估计费 recordId={}", task.getId(), hash, recordId);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} img hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
@@ -1409,6 +1416,120 @@ public class TaskExecutorService implements ITaskExecutorService {
             aiTokenUsageRecordRepository.save(record);
         } catch (Exception e) {
             log.warn("[tokenUsage] 写入 token 记录失败: taskId={}, hash={}", taskId, contentHash, e);
+        }
+    }
+
+    /**
+     * API 调用前写入预估记录，取消时按预估值计费。返回记录 ID 供后续更新。
+     */
+    private Long saveEstimatedTokenRecord(Long taskId, TranslationContentType contentType,
+                                          String contentHash, String targetLanguage, InvokeMode invokeMode,
+                                          String sourceText, MultimediaFile sourceFile, SystemUser owner) {
+        try {
+            if (aiTokenUsageRecordRepository.existsByTaskIdAndContentHashAndTargetLanguage(
+                    taskId, contentHash, targetLanguage)) {
+                log.debug("[tokenUsage] 预估幂等跳过: taskId={}, hash={}", taskId, contentHash);
+                return null;
+            }
+
+            int estPrompt, estCompletion, estThinking;
+            boolean estHasImageOutput;
+            if (contentType == TranslationContentType.IMAGE) {
+                int maxDim = sourceFile != null
+                        ? Math.max(sourceFile.getWidth(), sourceFile.getHeight()) : 512;
+                if (maxDim <= 0) maxDim = 512;
+                estPrompt = TokenCostCalculator.imageBusinessPromptTokens(maxDim);
+                estCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
+                estThinking = 0;
+                estHasImageOutput = true;
+            } else {
+                estPrompt = TokenCostCalculator.estimateTextTokens(sourceText);
+                estCompletion = estPrompt;
+                estThinking = estPrompt / 2;
+                estHasImageOutput = false;
+            }
+
+            BigDecimal businessCost = TokenCostCalculator.calculateCost(
+                    contentType, invokeMode, estPrompt, estCompletion, estThinking);
+            int businessCredits = TokenCostCalculator.usdToCredits(businessCost);
+
+            AiTokenUsageRecord record = AiTokenUsageRecord.builder()
+                    .taskId(taskId)
+                    .contentType(contentType)
+                    .contentHash(contentHash)
+                    .targetLanguage(targetLanguage)
+                    .cacheHit(false)
+                    .model(geminiTranslateService.getModel())
+                    .invokeMode(invokeMode)
+                    .actualPromptTokens(0)
+                    .actualCompletionTokens(0)
+                    .actualThinkingTokens(0)
+                    .actualTotalTokens(0)
+                    .businessPromptTokens(estPrompt)
+                    .businessCompletionTokens(estCompletion)
+                    .businessThinkingTokens(estThinking)
+                    .businessTotalTokens(estPrompt + estCompletion + estThinking)
+                    .actualCost(BigDecimal.ZERO)
+                    .businessCost(businessCost)
+                    .businessCredits(businessCredits)
+                    .elapsedMs(null)
+                    .hasImageOutput(estHasImageOutput)
+                    .build();
+            record.setOwner(owner);
+            record = aiTokenUsageRecordRepository.save(record);
+            return record.getId();
+        } catch (Exception e) {
+            log.warn("[tokenUsage] 预估记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
+            return null;
+        }
+    }
+
+    /**
+     * API 返回后用真实值更新预估记录。如果任务已取消导致未更新，预估值将作为计费依据。
+     */
+    private void updateTokenRecordWithActual(Long recordId, TranslationContentType contentType,
+                                             InvokeMode invokeMode, GeminiTranslateService.TokenUsage actual,
+                                             boolean hasImageOutput,
+                                             Integer bizPrompt, Integer bizCompletion, Integer bizThinking) {
+        if (recordId == null) return;
+        try {
+            Optional<AiTokenUsageRecord> opt = aiTokenUsageRecordRepository.findById(recordId);
+            if (opt.isEmpty()) return;
+            AiTokenUsageRecord record = opt.get();
+
+            int aPrompt = actual != null && actual.getPromptTokens() != null ? actual.getPromptTokens() : 0;
+            int aCompletion = actual != null && actual.getCompletionTokens() != null ? actual.getCompletionTokens() : 0;
+            int aThinking = actual != null && actual.getThinkingTokens() != null ? actual.getThinkingTokens() : 0;
+            int aTotal = actual != null && actual.getTotalTokens() != null ? actual.getTotalTokens() : 0;
+            Long elapsed = actual != null ? actual.getElapsedMs() : null;
+
+            int bPrompt = bizPrompt != null ? bizPrompt : aPrompt;
+            int bCompletion = bizCompletion != null ? bizCompletion : aCompletion;
+            int bThinking = bizThinking != null ? bizThinking : aThinking;
+            int bTotal = bPrompt + bCompletion + bThinking;
+
+            BigDecimal actualCost = TokenCostCalculator.calculateCost(
+                    contentType, invokeMode, aPrompt, aCompletion, aThinking);
+            BigDecimal businessCost = TokenCostCalculator.calculateCost(
+                    contentType, invokeMode, bPrompt, bCompletion, bThinking);
+            int businessCredits = TokenCostCalculator.usdToCredits(businessCost);
+
+            record.setActualPromptTokens(aPrompt);
+            record.setActualCompletionTokens(aCompletion);
+            record.setActualThinkingTokens(aThinking);
+            record.setActualTotalTokens(aTotal);
+            record.setBusinessPromptTokens(bPrompt);
+            record.setBusinessCompletionTokens(bCompletion);
+            record.setBusinessThinkingTokens(bThinking);
+            record.setBusinessTotalTokens(bTotal);
+            record.setActualCost(actualCost);
+            record.setBusinessCost(businessCost);
+            record.setBusinessCredits(businessCredits);
+            record.setElapsedMs(elapsed);
+            record.setHasImageOutput(hasImageOutput);
+            aiTokenUsageRecordRepository.save(record);
+        } catch (Exception e) {
+            log.warn("[tokenUsage] 更新实际用量失败: recordId={}", recordId, e);
         }
     }
 
