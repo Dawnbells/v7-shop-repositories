@@ -850,8 +850,6 @@ public class TaskExecutorService implements ITaskExecutorService {
 
             TranslateContext ctx = prepareTranslateContext(task, request);
 
-            writeCacheHitTokenRecords(task, ctx, InvokeMode.STANDARD);
-
             TranslateResult result = executeDirectTranslateCore(task, ctx);
 
             saveTranslatedProduct(task, ctx, result);
@@ -895,7 +893,11 @@ public class TaskExecutorService implements ITaskExecutorService {
         String langName = ctx.getLangName();
         SystemUser owner = ctx.getOwner();
 
-        int totalTasks = ctx.getUncachedTextMap().size()
+        int cachedCount = ctx.getCachedTextMap().size()
+                + ctx.getCachedImageMap().size()
+                + (ctx.getCachedTranslatedHtml() != null ? 1 : 0);
+        int totalTasks = cachedCount
+                + ctx.getUncachedTextMap().size()
                 + ctx.getUncachedImageData().size()
                 + (ctx.getUncachedHtml() != null ? 1 : 0);
         java.util.concurrent.atomic.AtomicInteger completedTasks = new java.util.concurrent.atomic.AtomicInteger(0);
@@ -906,7 +908,9 @@ public class TaskExecutorService implements ITaskExecutorService {
             String sourceText = entry.getValue();
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) return;
+                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) {
+                    return;
+                }
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -946,7 +950,9 @@ public class TaskExecutorService implements ITaskExecutorService {
             String htmlHash = DigestUtil.sha256Hex(ctx.getUncachedHtml());
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) return;
+                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) {
+                    return;
+                }
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -989,7 +995,9 @@ public class TaskExecutorService implements ITaskExecutorService {
             MultimediaFile sourceFile = ctx.getImageHashToSourceFile().get(hash);
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
-                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) return;
+                if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) {
+                    return;
+                }
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 try {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
@@ -1041,6 +1049,9 @@ public class TaskExecutorService implements ITaskExecutorService {
             throw e;
         }
 
+        writeCacheHitTokenRecords(task, ctx, InvokeMode.STANDARD);
+        updateDirectTranslateProgress(task, totalTasks, totalTasks);
+
         log.info("[directTranslate] taskId={} 并发翻译完成: texts={}, images={}, html={}",
                 task.getId(), translatedTextMap.size(), translatedImageMap.size(),
                 translatedHtmlRef.get() != null ? "OK" : "null");
@@ -1064,7 +1075,9 @@ public class TaskExecutorService implements ITaskExecutorService {
      */
     private synchronized boolean updateDirectTranslateProgress(AsyncTask task, int completed, int total) {
         try {
-            if (total <= 0) return true;
+            if (total <= 0) {
+                return true;
+            }
             int progress = 5 + (int) ((completed * 90.0) / total);
             progress = Math.min(progress, 95);
             task.setMessage(String.format("即时翻译中: %d/%d 已完成", completed, total));
