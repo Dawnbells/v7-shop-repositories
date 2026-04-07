@@ -19,4 +19,6 @@ public interface AiTokenUsageRecordRepository extends BaseRepository<AiTokenUsag
 
     @Query("SELECT COUNT(r) > 0 FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
     boolean existsByTaskId(@Param("taskId") Long taskId);
+
+    boolean existsByTaskIdAndContentHashAndTargetLanguage(Long taskId, String contentHash, String targetLanguage);
 }

@@ -1,7 +1,7 @@
 package cn.v7soft.admin.service.impl;
 
 import java.io.InputStream;
-import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.List;
 
 import org.springframework.context.annotation.Lazy;
@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.lang.Pair;
+import cn.hutool.json.JSONUtil;
+import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.ITaskExecutorService;
@@ -18,13 +20,14 @@ import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.InvokeMode;
+import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
-import cn.v7soft.admin.utils.TokenCostCalculator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.types.BatchJob;
@@ -139,21 +142,88 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         log.info("[cancel] taskId={} 请求取消, 当前状态={}, taskType={}, batchJobName={}",
                 taskId, task.getState(), task.getTaskType(), task.getBatchJobName());
         if (task.getState() == TaskState.PENDING || task.getState() == TaskState.PROCESSING) {
-            task.setMessage("任务已取消");
-            updateAsyncTask(task, TaskState.CANCELLED, COMPLETED_OR_FAILED_PROGRESS);
-            if (task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
+
+            if (task.getBatchJobName() != null && !task.getBatchJobName().isBlank()
+                    && !TaskExecutorService.ALL_CACHED_BATCH_JOB_NAME.equals(task.getBatchJobName())) {
                 try {
+                    BatchJob batchJob = geminiTranslateService.getBatchJob(task.getBatchJobName());
+                    JsonNode jobJson = OBJECT_MAPPER.readTree(batchJob.toJson());
+                    JsonNode statsNode = jobJson.path("batchStats");
+                    long successCount = 0;
+                    if (!statsNode.isMissingNode()) {
+                        successCount = Long.parseLong(statsNode.path("successfulRequestCount").asText("0"));
+                    }
+
+                    if (successCount > 0 && task.getEstimatedCredits() != null) {
+                        int totalRequests = parseTotalRequests(task);
+                        int estimatedUsedCredits = (int) Math.ceil(
+                                task.getEstimatedCredits() * (double) successCount / Math.max(totalRequests, 1));
+                        saveCancelEstimateRecord(task, estimatedUsedCredits);
+                        log.info("[cancel] taskId={} 已消耗估算: success={}/{}, credits={}",
+                                taskId, successCount, totalRequests, estimatedUsedCredits);
+                    }
+
                     geminiTranslateService.cancelBatchJob(task.getBatchJobName());
                     geminiTranslateService.deleteBatchJob(task.getBatchJobName());
                     log.info("[cancel] taskId={} Gemini Batch 资源已清理", taskId);
                 } catch (Exception e) {
-                    log.warn("[cancel] taskId={} 清理 Gemini Batch 资源失败: {}", taskId, e.getMessage());
+                    log.warn("[cancel] taskId={} 查询/清理 Batch 资源失败: {}", taskId, e.getMessage());
                 }
+            } else if (task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
+                try {
+                    geminiTranslateService.cancelBatchJob(task.getBatchJobName());
+                    geminiTranslateService.deleteBatchJob(task.getBatchJobName());
+                } catch (Exception ignored) {}
             }
+
+            task.setMessage("任务已取消");
+            updateAsyncTask(task, TaskState.CANCELLED, COMPLETED_OR_FAILED_PROGRESS);
         } else {
             log.info("[cancel] taskId={} 状态为 {}, 不可取消", taskId, task.getState());
         }
         return AsyncTaskResponse.convert(task);
+    }
+
+    private int parseTotalRequests(AsyncTask task) {
+        try {
+            TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+            return request.getTotalRequests() != null ? request.getTotalRequests() : 0;
+        } catch (Exception e) {
+            log.warn("[parseTotalRequests] taskId={} 解析失败", task.getId(), e);
+            return 0;
+        }
+    }
+
+    private void saveCancelEstimateRecord(AsyncTask task, int estimatedUsedCredits) {
+        try {
+            BigDecimal businessCost = new BigDecimal(estimatedUsedCredits).divide(
+                    new BigDecimal("1000"), 6, java.math.RoundingMode.HALF_UP);
+            AiTokenUsageRecord record = AiTokenUsageRecord.builder()
+                    .taskId(task.getId())
+                    .contentType(TranslationContentType.TEXT)
+                    .contentHash("CANCEL_ESTIMATE")
+                    .targetLanguage("CANCEL")
+                    .cacheHit(false)
+                    .model("estimate")
+                    .invokeMode(InvokeMode.BATCH)
+                    .actualPromptTokens(0)
+                    .actualCompletionTokens(0)
+                    .actualThinkingTokens(0)
+                    .actualTotalTokens(0)
+                    .businessPromptTokens(0)
+                    .businessCompletionTokens(0)
+                    .businessThinkingTokens(0)
+                    .businessTotalTokens(0)
+                    .actualCost(BigDecimal.ZERO)
+                    .businessCost(businessCost)
+                    .businessCredits(estimatedUsedCredits)
+                    .hasImageOutput(false)
+                    .build();
+            record.setOwner(task.getOwner());
+            aiTokenUsageRecordRepository.save(record);
+        } catch (Exception e) {
+            log.warn("[saveCancelEstimateRecord] taskId={} 写入取消估算记录失败", task.getId(), e);
+        }
     }
 
     @Override
@@ -221,24 +291,38 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
             }
         }
 
-        if (task.getEstimatedCredits() != null) {
-            int newEstimated = (int) (task.getEstimatedCredits() * 2.0);
-            int diff = newEstimated - task.getEstimatedCredits();
-            if (diff > 0) {
-                aiCreditsService.freeze(task.getOwner().getId(), diff);
-                task.setEstimatedCredits(newEstimated);
-            }
+        Integer origEstimated = task.getEstimatedCredits();
+        task.setMessage("已切换为即时翻译");
+        updateAsyncTask(task, TaskState.CANCELLED, COMPLETED_OR_FAILED_PROGRESS);
+
+        Integer newEstimated = null;
+        if (origEstimated != null) {
+            newEstimated = origEstimated * 2;
+            aiCreditsService.freeze(task.getOwner().getId(), newEstimated);
         }
 
-        task.setBatchJobName(null);
-        task.setTaskType(TaskType.PRODUCT_AI_TRANSLATE_DIRECT);
-        task.setMessage("正在切换为即时翻译...");
-        updateAsyncTask(task, TaskState.PENDING, 0);
-        asyncTaskRepository.resetCreateTime(taskId, LocalDateTime.now());
-        log.info("[switchToDirectTranslate] taskId={} 已重置为 PENDING (DIRECT), 启动即时翻译", taskId);
-        taskExecutorService.submitAsyncTask(task.getId());
-        task.setCreateTime(LocalDateTime.now());
-        return AsyncTaskResponse.convert(task);
+        String newName = task.getName();
+        if (newName != null && !newName.startsWith("（转）")) {
+            newName = "（转）" + newName;
+        }
+
+        AsyncTask newTask = AsyncTask.builder()
+                .taskType(TaskType.PRODUCT_AI_TRANSLATE_DIRECT)
+                .state(TaskState.PENDING)
+                .progress(0)
+                .parameters(task.getParameters())
+                .name(newName)
+                .dedupKey(task.getDedupKey())
+                .estimatedCredits(newEstimated)
+                .build();
+        newTask.setOwner(task.getOwner());
+        newTask.setCompanyId(task.getCompanyId());
+        newTask = asyncTaskRepository.saveAndFlush(newTask);
+
+        log.info("[switchToDirectTranslate] oldTaskId={} -> newTaskId={}, estimatedCredits={}",
+                taskId, newTask.getId(), newEstimated);
+        taskExecutorService.submitAsyncTask(newTask.getId());
+        return AsyncTaskResponse.convert(newTask);
     }
 
     @Override

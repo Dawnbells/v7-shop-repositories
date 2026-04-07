@@ -112,7 +112,7 @@ public class TaskExecutorService implements ITaskExecutorService {
     private static final int COMPLETED_OR_FAILED_PROGRESS = 100;
 
     public static final String QUOTA_EXHAUSTED_MSG = "当前任务已暂停，API今日配额已用尽，恢复配额后将自动重试";
-    private static final String ALL_CACHED_BATCH_JOB_NAME = "ALL_CACHED";
+    public static final String ALL_CACHED_BATCH_JOB_NAME = "ALL_CACHED";
     private static final int MAX_ACTIVE_BATCH_JOBS = 90;
 
     private volatile boolean shutdownRequested = false;
@@ -550,6 +550,9 @@ public class TaskExecutorService implements ITaskExecutorService {
 
         } catch (Throwable e) {
             log.error("[batchTranslate] taskId={} 提交异常", task.getId(), e);
+            if (task.getBatchJobName() != null) {
+                activeBatchJobs.decrementAndGet();
+            }
             if (!shutdownRequested) {
                 task.setMessage(e.getMessage());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
@@ -723,6 +726,7 @@ public class TaskExecutorService implements ITaskExecutorService {
     private void resumeProductAITranslate(AsyncTask task) {
         long taskStart = System.currentTimeMillis();
         String jobName = task.getBatchJobName();
+        boolean batchCountDecremented = false;
         try {
             log.info("[resumeTranslate] taskId={} 单次检查, jobName={}", task.getId(), jobName);
 
@@ -744,6 +748,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 log.info("[resumeTranslate] taskId={} 任务已取消", task.getId());
                 geminiTranslateService.cancelBatchJob(jobName);
                 activeBatchJobs.decrementAndGet();
+                batchCountDecremented = true;
                 return;
             }
 
@@ -752,6 +757,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 currentJob = Retry.decorateSupplier(batchPollRetry,
                         () -> geminiTranslateService.getBatchJob(jobName)).get();
             } catch (Exception e) {
+                // 不 decrement：远程 job 可能仍在运行，下次轮询再试；
+                // 如果连续失败多次，由 recoverUnfinishedTasks 的 set() 校准
                 log.warn("[resumeTranslate] taskId={} 查询 Batch 状态失败, 等待下次巡检", task.getId(), e);
                 return;
             }
@@ -788,11 +795,13 @@ public class TaskExecutorService implements ITaskExecutorService {
             if (isCancelled(task)) {
                 log.info("[resumeTranslate] taskId={} 处理结果前发现已取消", task.getId());
                 activeBatchJobs.decrementAndGet();
+                batchCountDecremented = true;
                 cleanupBatchResources(jobName, null);
                 return;
             }
 
             activeBatchJobs.decrementAndGet();
+            batchCountDecremented = true;
             log.info("[resumeTranslate] taskId={} Batch 已结束: {}, activeBatchJobs={}", task.getId(), batchState, activeBatchJobs.get());
 
             task.setMessage("正在加载产品数据...");
@@ -825,7 +834,9 @@ public class TaskExecutorService implements ITaskExecutorService {
             translateTaskMetrics.recordFailed();
             translateTaskMetrics.recordDuration(elapsed);
             log.error("[resumeTranslate] taskId={} 恢复失败, 总耗时={}ms", task.getId(), elapsed, e);
-            activeBatchJobs.decrementAndGet();
+            if (!batchCountDecremented && !ALL_CACHED_BATCH_JOB_NAME.equals(jobName)) {
+                activeBatchJobs.decrementAndGet();
+            }
             if (!shutdownRequested) {
                 task.setMessage(e.getMessage());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
@@ -1349,6 +1360,11 @@ public class TaskExecutorService implements ITaskExecutorService {
                                       Integer bizPrompt, Integer bizCompletion, Integer bizThinking,
                                       SystemUser owner) {
         try {
+            if (aiTokenUsageRecordRepository.existsByTaskIdAndContentHashAndTargetLanguage(
+                    taskId, contentHash, targetLanguage)) {
+                log.debug("[tokenUsage] 幂等跳过: taskId={}, hash={}", taskId, contentHash);
+                return;
+            }
             int aPrompt = actual != null && actual.getPromptTokens() != null ? actual.getPromptTokens() : 0;
             int aCompletion = actual != null && actual.getCompletionTokens() != null ? actual.getCompletionTokens() : 0;
             int aThinking = actual != null && actual.getThinkingTokens() != null ? actual.getThinkingTokens() : 0;
