@@ -2,7 +2,6 @@ package cn.v7soft.admin.utils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,8 +37,8 @@ public final class TokenCostCalculator {
             {2048, 1680},
             {4096, 2520},
             };
-    private static final int MIN_EXTRA_OVERHEAD_TOKENS = 300;
-    private static final int MAX_EXTRA_OVERHEAD_TOKENS = 600;
+    // private static final int MIN_EXTRA_OVERHEAD_TOKENS = 300;
+    // private static final int MAX_EXTRA_OVERHEAD_TOKENS = 600;
 
     /**
      * 根据图片最大边长度（宽/高的较大值）计算档位 token。
@@ -60,7 +59,8 @@ public final class TokenCostCalculator {
     }
 
     private static int getExtraOverheadTokens() {
-        return ThreadLocalRandom.current().nextInt(MIN_EXTRA_OVERHEAD_TOKENS, MAX_EXTRA_OVERHEAD_TOKENS + 1);
+        // return ThreadLocalRandom.current().nextInt(MIN_EXTRA_OVERHEAD_TOKENS, MAX_EXTRA_OVERHEAD_TOKENS + 1);
+        return 450;
     }
 
     /**
@@ -116,7 +116,7 @@ public final class TokenCostCalculator {
     }
 
     /**
-     * 根据产品内容预估所需 AI Credits，加 1.5x 安全系数。
+     * 根据产品内容预估所需 AI Credits。
      *
      * @param textEstimateTokens  文本token数
      * @param imageEstimateTokens 图片token数量
@@ -124,7 +124,7 @@ public final class TokenCostCalculator {
      */
     public static int estimateCredits(int textEstimateTokens, int imageEstimateTokens, InvokeMode mode) {
         BigDecimal textCost = calculateCost(TranslationContentType.TEXT, mode,
-                                            textEstimateTokens, textEstimateTokens, textEstimateTokens / 2);
+                                            textEstimateTokens, textEstimateTokens, 0);
 
         BigDecimal imgCost = calculateCost(TranslationContentType.IMAGE, mode,
                                            imageEstimateTokens, imageEstimateTokens, 0);

@@ -2,14 +2,11 @@ package cn.v7soft.admin.configurer;
 
 import java.net.SocketTimeoutException;
 import java.time.Duration;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import com.google.genai.errors.ApiException;
 import com.google.genai.errors.GenAiIOException;
@@ -28,12 +25,34 @@ import io.github.resilience4j.retry.RetryRegistry;
 public class TranslationExecutorConfig {
 
     @Bean("translationExecutor")
-    public ExecutorService translationExecutor() {
+    public ThreadPoolTaskExecutor translationExecutor() {
         int threads = Runtime.getRuntime().availableProcessors() * 2;
-        return new ThreadPoolExecutor(threads, threads,
-                60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(512),
-                new ThreadPoolExecutor.CallerRunsPolicy());
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(threads);
+        executor.setMaxPoolSize(threads);
+        executor.setQueueCapacity(512);
+        executor.setKeepAliveSeconds(60);
+        executor.setThreadNamePrefix("translation-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(180);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean("threadPoolTaskExecutor")
+    public ThreadPoolTaskExecutor threadPoolTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(8);
+        executor.setMaxPoolSize(16);
+        executor.setQueueCapacity(256);
+        executor.setKeepAliveSeconds(60);
+        executor.setThreadNamePrefix("async-task-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(180);
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
     }
 
     /**

@@ -2,9 +2,11 @@ package cn.v7soft.admin.service.impl;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -104,10 +106,6 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
             fresh.setEstimatedCredits(task.getEstimatedCredits());
         }
 
-        if (isTerminalState(state) && fresh.getEstimatedCredits() != null) {
-            settleOrUnfreezeCredits(fresh);
-        }
-
         saveAndFlush(fresh);
         return true;
     }
@@ -116,18 +114,38 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         return state == TaskState.COMPLETED || state == TaskState.FAILED || state == TaskState.CANCELLED;
     }
 
-    private void settleOrUnfreezeCredits(AsyncTask task) {
-        try {
-            Long ownerId = task.getOwner().getId();
-            if (aiTokenUsageRecordRepository.existsByTaskId(task.getId())) {
-                int actualCredits = aiTokenUsageRecordRepository.sumBusinessCreditsByTaskId(task.getId());
-                aiCreditsService.settle(ownerId, task.getEstimatedCredits(), actualCredits);
-            } else {
-                aiCreditsService.unfreeze(ownerId, task.getEstimatedCredits());
-            }
-        } catch (Exception e) {
-            log.error("[settleCredits] taskId={} 结算/解冻失败", task.getId(), e);
+    @Override
+    @Transactional
+    public synchronized boolean finalizeBilling(Long taskId) {
+        AsyncTask task = getById(taskId);
+        if (task.getEstimatedCredits() == null) {
+            return false;
         }
+        if (!isTerminalState(task.getState())) {
+            log.debug("[finalizeBilling] taskId={} 尚未终态, 跳过结算", taskId);
+            return false;
+        }
+        if (Boolean.TRUE.equals(task.getBillingSettled())) {
+            log.debug("[finalizeBilling] taskId={} 已结算, 跳过", taskId);
+            return false;
+        }
+
+        int actualCredits = 0;
+        Long ownerId = task.getOwner().getId();
+        if (aiTokenUsageRecordRepository.existsByTaskId(taskId)) {
+            actualCredits = aiTokenUsageRecordRepository.sumBusinessCreditsByTaskId(taskId);
+            aiCreditsService.settle(ownerId, task.getEstimatedCredits(), actualCredits);
+        } else {
+            aiCreditsService.unfreeze(ownerId, task.getEstimatedCredits());
+        }
+
+        task.setBillingActualCredits(actualCredits);
+        task.setBillingSettled(true);
+        task.setBillingSettledAt(LocalDateTime.now());
+        saveAndFlush(task);
+        log.info("[finalizeBilling] taskId={} 结算完成: estimated={}, actual={}",
+                taskId, task.getEstimatedCredits(), actualCredits);
+        return true;
     }
 
     @Override
@@ -139,6 +157,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     @Override
     public AsyncTaskResponse cancel(Long taskId) {
         AsyncTask task = getById(taskId);
+        TaskState originalState = task.getState();
         log.info("[cancel] taskId={} 请求取消, 当前状态={}, taskType={}, batchJobName={}",
                 taskId, task.getState(), task.getTaskType(), task.getBatchJobName());
         if (task.getState() == TaskState.PENDING || task.getState() == TaskState.PROCESSING) {
@@ -178,6 +197,11 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
 
             task.setMessage("任务已取消");
             updateAsyncTask(task, TaskState.CANCELLED, COMPLETED_OR_FAILED_PROGRESS);
+            if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE
+                    || task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE_DIRECT
+                    || originalState == TaskState.PENDING) {
+                finalizeBilling(task.getId());
+            }
         } else {
             log.info("[cancel] taskId={} 状态为 {}, 不可取消", taskId, task.getState());
         }
@@ -196,6 +220,11 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
 
     private void saveCancelEstimateRecord(AsyncTask task, int estimatedUsedCredits) {
         try {
+            if (aiTokenUsageRecordRepository.existsByTaskIdAndContentHashAndTargetLanguage(
+                    task.getId(), "CANCEL_ESTIMATE", "CANCEL")) {
+                log.debug("[saveCancelEstimateRecord] taskId={} 已存在取消估算记录, 跳过", task.getId());
+                return;
+            }
             BigDecimal businessCost = new BigDecimal(estimatedUsedCredits).divide(
                     new BigDecimal("1000"), 6, java.math.RoundingMode.HALF_UP);
             AiTokenUsageRecord record = AiTokenUsageRecord.builder()
@@ -221,6 +250,8 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
                     .build();
             record.setOwner(task.getOwner());
             aiTokenUsageRecordRepository.save(record);
+        } catch (DataIntegrityViolationException e) {
+            log.debug("[saveCancelEstimateRecord] taskId={} 取消估算记录已存在(并发写入)", task.getId());
         } catch (Exception e) {
             log.warn("[saveCancelEstimateRecord] taskId={} 写入取消估算记录失败", task.getId(), e);
         }
@@ -294,6 +325,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         Integer origEstimated = task.getEstimatedCredits();
         task.setMessage("已切换为即时翻译");
         updateAsyncTask(task, TaskState.CANCELLED, COMPLETED_OR_FAILED_PROGRESS);
+        finalizeBilling(task.getId());
 
         Integer newEstimated = null;
         if (origEstimated != null) {

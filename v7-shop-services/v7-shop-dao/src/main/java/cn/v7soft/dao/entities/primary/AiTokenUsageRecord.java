@@ -18,7 +18,12 @@ import java.math.BigDecimal;
 @SuperBuilder
 @AllArgsConstructor
 @NoArgsConstructor
-@Table(name = "t_ai_token_usage_records", indexes = {
+@Table(name = "t_ai_token_usage_records",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_atur_task_hash_lang",
+                        columnNames = {"task_id", "content_hash", "target_language"})
+        },
+        indexes = {
         @Index(name = "idx_atur_task_id", columnList = "task_id"),
         @Index(name = "idx_atur_content_hash", columnList = "content_hash"),
         @Index(name = "idx_atur_create_time", columnList = "create_time"),

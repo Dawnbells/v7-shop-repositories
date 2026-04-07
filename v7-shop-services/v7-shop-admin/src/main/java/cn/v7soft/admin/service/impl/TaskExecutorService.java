@@ -18,11 +18,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -84,6 +86,7 @@ import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
+import cn.v7soft.admin.exception.GracefulShutdownPendingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.types.BatchJob;
@@ -117,11 +120,23 @@ public class TaskExecutorService implements ITaskExecutorService {
 
     private volatile boolean shutdownRequested = false;
     private final java.util.concurrent.atomic.AtomicInteger activeBatchJobs = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicInteger directInFlightOperations = new java.util.concurrent.atomic.AtomicInteger(0);
+    private final long gracefulShutdownWaitSeconds;
 
     @jakarta.annotation.PreDestroy
     public void onShutdown() {
         shutdownRequested = true;
-        log.info("[TaskExecutorService] 收到应用关闭信号，通知所有长时间运行任务尽快退出");
+        log.info("[TaskExecutorService] 收到应用关闭信号，停止发起新的 direct 请求并等待在途请求排空");
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(gracefulShutdownWaitSeconds);
+        while (directInFlightOperations.get() > 0 && System.nanoTime() < deadline) {
+            ThreadUtil.sleep(200);
+        }
+        if (directInFlightOperations.get() > 0) {
+            log.warn("[TaskExecutorService] 优雅停机等待超时，仍有 {} 个 direct 子任务未排空",
+                    directInFlightOperations.get());
+        } else {
+            log.info("[TaskExecutorService] direct 在途请求已排空");
+        }
     }
     public static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -157,6 +172,8 @@ public class TaskExecutorService implements ITaskExecutorService {
         private Map<String, MultimediaFile> imageHashToSourceFile;
         /** A.5: 命中缓存的图片 (hash -> targetFile, null=skipped) */
         private Map<String, MultimediaFile> cachedImageMap;
+        /** 所有文本 (hash -> sourceText)，用于缓存命中兜底计费 */
+        private Map<String, String> allTextMap;
         /** A.6: 未命中缓存的 HTML（翻译前 html，null 表示已缓存或无 html） */
         private String uncachedHtml;
         /** A.7: 已命中缓存的 HTML（翻译后 html，null 表示需要翻译） */
@@ -189,7 +206,7 @@ public class TaskExecutorService implements ITaskExecutorService {
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
     private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final cn.v7soft.admin.service.ICompanyService companyService;
-    private final ExecutorService translationExecutor;
+    private final Executor translationExecutor;
     private final RateLimiter geminiRateLimiter;
     private final Retry geminiDirectRetry;
     private final Retry batchPollRetry;
@@ -206,12 +223,13 @@ public class TaskExecutorService implements ITaskExecutorService {
                        ImageTranslationCacheRepository imageTranslationCacheRepository,
                        TextTranslationCacheRepository textTranslationCacheRepository,
                        cn.v7soft.admin.service.ICompanyService companyService,
-                       @Qualifier("translationExecutor") ExecutorService translationExecutor,
+                       @Qualifier("translationExecutor") Executor translationExecutor,
                        RateLimiter geminiRateLimiter,
                        @Qualifier("geminiDirectRetry") Retry geminiDirectRetry,
                        @Qualifier("batchPollRetry") Retry batchPollRetry,
                        AiTokenUsageRecordRepository aiTokenUsageRecordRepository,
-                       GeminiQuotaTracker geminiQuotaTracker) {
+                       GeminiQuotaTracker geminiQuotaTracker,
+                       @Value("${application.ai.graceful-shutdown-wait-seconds:180}") long gracefulShutdownWaitSeconds) {
         this.asyncTaskService = asyncTaskService;
         this.orderService = orderService;
         this.s3Service = s3Service;
@@ -234,6 +252,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         this.batchPollRetry = batchPollRetry;
         this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
         this.geminiQuotaTracker = geminiQuotaTracker;
+        this.gracefulShutdownWaitSeconds = gracefulShutdownWaitSeconds;
     }
 
     // ======================== ITaskExecutorService 接口实现 ========================
@@ -397,6 +416,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 .uncachedImageData(uncachedImageData).uncachedImageMimeTypes(uncachedImageMimeTypes)
                 .imageHashToSourceFile(imageHashToSourceFile).cachedImageMap(cachedImageMap)
                 .uncachedHtml(uncachedHtml).cachedTranslatedHtml(cachedTranslatedHtml)
+                .allTextMap(allTextMap)
                 .build();
     }
 
@@ -556,6 +576,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             if (!shutdownRequested) {
                 task.setMessage(e.getMessage());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+                finalizeBillingOrThrow(task.getId());
                 translateTaskMetrics.recordFailed();
             }
         }
@@ -739,6 +760,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                         .translatedTextMap(new HashMap<>())
                         .translatedImageMap(new HashMap<>())
                         .translatedHtml(null).build());
+                finalizeBillingOrThrow(task.getId());
                 translateTaskMetrics.recordCompleted();
                 return;
             }
@@ -819,6 +841,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             TranslateResult mergedResult = mergeResults(batchResult, fallbackResult);
 
             saveTranslatedProduct(task, ctx, mergedResult);
+            finalizeBillingOrThrow(task.getId());
 
             long elapsed = System.currentTimeMillis() - taskStart;
             translateTaskMetrics.recordDuration(elapsed);
@@ -840,6 +863,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             if (!shutdownRequested) {
                 task.setMessage(e.getMessage());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+                finalizeBillingOrThrow(task.getId());
             }
         }
     }
@@ -849,6 +873,11 @@ public class TaskExecutorService implements ITaskExecutorService {
     private void executeDirectTranslate(AsyncTask task) {
         long taskStart = System.currentTimeMillis();
         try {
+            if (shutdownRequested) {
+                task.setMessage("应用关闭中，任务将在重启后自动重试");
+                asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
+                return;
+            }
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
             log.info("[directTranslate] taskId={} 开始即时翻译, productId={}, languageId={}",
                     task.getId(), request.getProductId(), request.getLanguageId());
@@ -863,13 +892,24 @@ public class TaskExecutorService implements ITaskExecutorService {
 
             TranslateResult result = executeDirectTranslateCore(task, ctx);
 
+            if (isCancelled(task)) {
+                finalizeBillingOrThrow(task.getId());
+                log.info("[directTranslate] taskId={} 已取消，等待用户查看任务结果", task.getId());
+                return;
+            }
+
             saveTranslatedProduct(task, ctx, result);
+            finalizeBillingOrThrow(task.getId());
 
             long elapsed = System.currentTimeMillis() - taskStart;
             translateTaskMetrics.recordDuration(elapsed);
             translateTaskMetrics.recordCompleted();
             log.info("[directTranslate] taskId={} 完成, 总耗时={}ms", task.getId(), elapsed);
 
+        } catch (GracefulShutdownPendingException e) {
+            log.info("[directTranslate] taskId={} 应用关闭中，暂停到 PENDING 等待自动恢复", task.getId());
+            task.setMessage(e.getMessage());
+            asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
         } catch (DailyQuotaExhaustedException e) {
             log.warn("[directTranslate] taskId={} 每日配额已耗尽, 暂停任务等待配额恢复", task.getId());
             task.setMessage(QUOTA_EXHAUSTED_MSG);
@@ -882,8 +922,10 @@ public class TaskExecutorService implements ITaskExecutorService {
             if (!shutdownRequested) {
                 task.setMessage(e.getMessage());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+                finalizeBillingOrThrow(task.getId());
             } else {
-                log.info("[directTranslate] taskId={} 应用关闭中, 跳过标记失败, 任务将在重启后恢复", task.getId());
+                task.setMessage("应用关闭中，任务将在重启后自动重试");
+                asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
             }
         }
     }
@@ -898,6 +940,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         java.util.concurrent.atomic.AtomicBoolean cancelledFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
         java.util.concurrent.atomic.AtomicBoolean quotaExhaustedFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.atomic.AtomicBoolean shutdownPauseFlag = new java.util.concurrent.atomic.AtomicBoolean(false);
 
         Long tenantId = TenantContext.getCurrentTenant();
         Company tenantCompany = TenantContext.getCurrentTenantEntity();
@@ -920,8 +963,10 @@ public class TaskExecutorService implements ITaskExecutorService {
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
                 if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) {
+                    if (shutdownRequested) shutdownPauseFlag.set(true);
                     return;
                 }
+                directInFlightOperations.incrementAndGet();
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 Long recordId = null;
                 try {
@@ -930,7 +975,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     String translated = callWithRateLimitAndRetry(() -> {
-                        checkCancelledBeforeApiCall(cancelledFlag, task);
+                        checkDirectCallAllowed(cancelledFlag, task);
                         return geminiTranslateService.translateTextRaw(sourceText, langName, usageRef::set);
                     });
                     if (translated != null && !translated.isBlank()) {
@@ -942,11 +987,14 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
+                } catch (GracefulShutdownPendingException e) {
+                    shutdownPauseFlag.set(true);
                 } catch (java.util.concurrent.CancellationException e) {
                     log.debug("[directTranslate] taskId={} text hash={} 任务已取消, 按预估计费 recordId={}", task.getId(), hash, recordId);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} text hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
+                    directInFlightOperations.decrementAndGet();
                     if (!shutdownRequested && !cancelledFlag.get() && !quotaExhaustedFlag.get()) {
                         if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
                             cancelledFlag.set(true);
@@ -963,8 +1011,10 @@ public class TaskExecutorService implements ITaskExecutorService {
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
                 if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) {
+                    if (shutdownRequested) shutdownPauseFlag.set(true);
                     return;
                 }
+                directInFlightOperations.incrementAndGet();
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 Long recordId = null;
                 try {
@@ -973,7 +1023,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     String html = callWithRateLimitAndRetry(() -> {
-                        checkCancelledBeforeApiCall(cancelledFlag, task);
+                        checkDirectCallAllowed(cancelledFlag, task);
                         return geminiTranslateService.translateHtmlRaw(ctx.getUncachedHtml(), langName, usageRef::set);
                     });
                     if (html != null) {
@@ -985,11 +1035,14 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
+                } catch (GracefulShutdownPendingException e) {
+                    shutdownPauseFlag.set(true);
                 } catch (java.util.concurrent.CancellationException e) {
                     log.debug("[directTranslate] taskId={} HTML 任务已取消, 按预估计费 recordId={}", task.getId(), recordId);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} HTML 翻译失败", task.getId(), e);
                 } finally {
+                    directInFlightOperations.decrementAndGet();
                     if (!shutdownRequested && !cancelledFlag.get() && !quotaExhaustedFlag.get()) {
                         if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
                             cancelledFlag.set(true);
@@ -1009,8 +1062,10 @@ public class TaskExecutorService implements ITaskExecutorService {
             final int total = totalTasks;
             futures.add(CompletableFuture.runAsync(() -> {
                 if (shutdownRequested || cancelledFlag.get() || quotaExhaustedFlag.get()) {
+                    if (shutdownRequested) shutdownPauseFlag.set(true);
                     return;
                 }
+                directInFlightOperations.incrementAndGet();
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 Long recordId = null;
                 try {
@@ -1019,7 +1074,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     byte[] result = callWithRateLimitAndRetry(() -> {
-                        checkCancelledBeforeApiCall(cancelledFlag, task);
+                        checkDirectCallAllowed(cancelledFlag, task);
                         return geminiTranslateService.translateImageRaw(imgBytes, mimeType, langName, usageRef::set);
                     });
                     if (result != null && sourceFile != null) {
@@ -1043,11 +1098,14 @@ public class TaskExecutorService implements ITaskExecutorService {
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
+                } catch (GracefulShutdownPendingException e) {
+                    shutdownPauseFlag.set(true);
                 } catch (java.util.concurrent.CancellationException e) {
                     log.debug("[directTranslate] taskId={} img hash={} 任务已取消, 按预估计费 recordId={}", task.getId(), hash, recordId);
                 } catch (Exception e) {
                     log.warn("[directTranslate] taskId={} img hash={} 翻译失败", task.getId(), hash, e);
                 } finally {
+                    directInFlightOperations.decrementAndGet();
                     if (!shutdownRequested && !cancelledFlag.get() && !quotaExhaustedFlag.get()) {
                         if (!updateDirectTranslateProgress(task, completedTasks.incrementAndGet(), total)) {
                             cancelledFlag.set(true);
@@ -1064,7 +1122,14 @@ public class TaskExecutorService implements ITaskExecutorService {
             if (e.getCause() instanceof DailyQuotaExhaustedException dqe) {
                 throw dqe;
             }
+            if (e.getCause() instanceof GracefulShutdownPendingException gspe) {
+                throw gspe;
+            }
             throw e;
+        }
+
+        if (shutdownPauseFlag.get()) {
+            throw new GracefulShutdownPendingException("应用关闭中，任务将在重启后自动重试");
         }
 
         writeCacheHitTokenRecords(task, ctx, InvokeMode.STANDARD);
@@ -1168,10 +1233,22 @@ public class TaskExecutorService implements ITaskExecutorService {
         return asyncTaskService.getById(task.getId()).getState() == TaskState.CANCELLED;
     }
 
-    private void checkCancelledBeforeApiCall(java.util.concurrent.atomic.AtomicBoolean cancelledFlag, AsyncTask task) {
+    private void checkDirectCallAllowed(java.util.concurrent.atomic.AtomicBoolean cancelledFlag, AsyncTask task) {
+        if (shutdownRequested) {
+            throw new GracefulShutdownPendingException("应用关闭中，暂停发起新的 API 请求");
+        }
         if (cancelledFlag.get() || isCancelled(task)) {
             cancelledFlag.set(true);
             throw new java.util.concurrent.CancellationException("任务已取消");
+        }
+    }
+
+    private void finalizeBillingOrThrow(Long taskId) {
+        try {
+            asyncTaskService.finalizeBilling(taskId);
+        } catch (Exception e) {
+            log.error("[finalizeBilling] taskId={} 结算失败", taskId, e);
+            throw e;
         }
     }
 
@@ -1414,6 +1491,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                     .build();
             record.setOwner(owner);
             aiTokenUsageRecordRepository.save(record);
+        } catch (DataIntegrityViolationException e) {
+            log.debug("[tokenUsage] 并发重复写入已跳过: taskId={}, hash={}", taskId, contentHash);
         } catch (Exception e) {
             log.warn("[tokenUsage] 写入 token 记录失败: taskId={}, hash={}", taskId, contentHash, e);
         }
@@ -1445,7 +1524,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             } else {
                 estPrompt = TokenCostCalculator.estimateTextTokens(sourceText);
                 estCompletion = estPrompt;
-                estThinking = estPrompt / 2;
+                estThinking = 0;
                 estHasImageOutput = false;
             }
 
@@ -1478,6 +1557,9 @@ public class TaskExecutorService implements ITaskExecutorService {
             record.setOwner(owner);
             record = aiTokenUsageRecordRepository.save(record);
             return record.getId();
+        } catch (DataIntegrityViolationException e) {
+            log.debug("[tokenUsage] 预估记录并发重复写入已跳过: taskId={}, hash={}", taskId, contentHash);
+            return null;
         } catch (Exception e) {
             log.warn("[tokenUsage] 预估记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
             return null;
@@ -1535,9 +1617,11 @@ public class TaskExecutorService implements ITaskExecutorService {
 
     /**
      * 缓存命中场景：查历史同 contentHash+targetLanguage 首次翻译记录，复制业务 token。
+     * 若无历史记录，按预估算法兜底计费。
      */
     private void saveCacheHitTokenRecord(Long taskId, TranslationContentType contentType,
                                          String contentHash, String targetLanguage, InvokeMode invokeMode,
+                                         String sourceText, MultimediaFile sourceFile,
                                          SystemUser owner) {
         try {
             Optional<AiTokenUsageRecord> historyOpt = aiTokenUsageRecordRepository
@@ -1550,6 +1634,17 @@ public class TaskExecutorService implements ITaskExecutorService {
                 bizCompletion = history.getActualCompletionTokens();
                 bizThinking = history.getActualThinkingTokens();
                 hasImageOutput = Boolean.TRUE.equals(history.getHasImageOutput());
+            } else if (contentType == TranslationContentType.IMAGE) {
+                int estTokens = TokenCostCalculator.estimateImageTokens();
+                bizPrompt = estTokens;
+                bizCompletion = estTokens;
+                bizThinking = 0;
+                hasImageOutput = true;
+            } else {
+                int estTokens = TokenCostCalculator.estimateTextTokens(sourceText);
+                bizPrompt = estTokens;
+                bizCompletion = estTokens;
+                bizThinking = 0;
             }
             saveTokenUsageRecord(taskId, contentType, contentHash, targetLanguage,
                     true, invokeMode, null, hasImageOutput, bizPrompt, bizCompletion, bizThinking, owner);
@@ -1583,20 +1678,18 @@ public class TaskExecutorService implements ITaskExecutorService {
         String langName = ctx.getLangName();
         SystemUser owner = ctx.getOwner();
 
-        // 缓存命中的文本
         for (String hash : ctx.getCachedTextMap().keySet()) {
-            saveCacheHitTokenRecord(task.getId(), TranslationContentType.TEXT, hash, langName, invokeMode, owner);
+            String sourceText = ctx.getAllTextMap() != null ? ctx.getAllTextMap().get(hash) : null;
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.TEXT, hash, langName, invokeMode, sourceText, null, owner);
         }
 
-        // 缓存命中的 HTML
         if (ctx.getCachedTranslatedHtml() != null && ctx.getIntroduction() != null) {
             String htmlHash = DigestUtil.sha256Hex(ctx.getIntroduction());
-            saveCacheHitTokenRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName, invokeMode, owner);
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName, invokeMode, ctx.getIntroduction(), null, owner);
         }
 
-        // 缓存命中的图片（cachedImageMap 中非 null 值 = 有翻译后的文件）
         for (Map.Entry<String, MultimediaFile> entry : ctx.getCachedImageMap().entrySet()) {
-            saveCacheHitTokenRecord(task.getId(), TranslationContentType.IMAGE, entry.getKey(), langName, invokeMode, owner);
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.IMAGE, entry.getKey(), langName, invokeMode, null, null, owner);
         }
     }
 

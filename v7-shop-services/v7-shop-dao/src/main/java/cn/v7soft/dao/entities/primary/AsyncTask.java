@@ -12,6 +12,8 @@ import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 import org.hibernate.annotations.SQLRestriction;
 
+import java.time.LocalDateTime;
+
 /**
  * 异步任务实体类，表示系统中的异步任务。
  */
@@ -101,4 +103,23 @@ public class AsyncTask extends BaseDataRangeEntity {
      */
     @Column(name = "estimated_credits")
     private Integer estimatedCredits;
+
+    /**
+     * 该任务是否已完成 credits 结算，防止重复 settle/unfreeze。
+     */
+    @lombok.Builder.Default
+    @Column(name = "billing_settled", nullable = false)
+    private Boolean billingSettled = false;
+
+    /**
+     * 结算时汇总得到的 business credits。
+     */
+    @Column(name = "billing_actual_credits")
+    private Integer billingActualCredits;
+
+    /**
+     * 结算完成时间。
+     */
+    @Column(name = "billing_settled_at")
+    private LocalDateTime billingSettledAt;
 }
