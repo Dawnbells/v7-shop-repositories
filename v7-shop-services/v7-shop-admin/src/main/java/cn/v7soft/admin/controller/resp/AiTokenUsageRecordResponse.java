@@ -151,8 +151,12 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
     }
 
     private static String buildImageUrl(String imageBaseUrl, String relativePath) {
-        if (relativePath == null || relativePath.isBlank()) return null;
-        if (imageBaseUrl == null || imageBaseUrl.isBlank()) return relativePath;
+        if (relativePath == null || relativePath.isBlank()) {
+            return null;
+        }
+        if (imageBaseUrl == null || imageBaseUrl.isBlank()) {
+            return relativePath;
+        }
         String base = imageBaseUrl.endsWith("/") ? imageBaseUrl : imageBaseUrl + "/";
         String path = relativePath.startsWith("/") ? relativePath.substring(1) : relativePath;
         return base + path;

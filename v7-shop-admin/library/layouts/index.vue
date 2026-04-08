@@ -79,7 +79,12 @@ watch(mobile, (value) => {
   if (value) {
     oldLayout = theme.value.layout
     foldSideBar()
-  } else openSideBar()
+  } else {
+    const saved = localStorage.getItem('collapse')
+    if (!saved || !JSON.parse(saved).collapse) {
+      openSideBar()
+    }
+  }
   theme.value.layout = value ? 'vertical' : oldLayout
   toggleDevice(value ? 'mobile' : 'desktop')
 })

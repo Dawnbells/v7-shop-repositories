@@ -40,7 +40,7 @@ public class Product extends BaseDataRangeEntity {
     /**
      * 商品摘要
      */
-    @Column(name = "summary", length = 256)
+    @Column(name = "summary", length = 512)
     private String summary;
 
     /**

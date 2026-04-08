@@ -108,9 +108,12 @@ const handleTabClick = () => {
       router.push('/redirect')
     } else if (openFirstMenu) router.push(tabMenu.value.redirect || tabMenu.value)
 
+    if (device.value !== 'mobile') openSideBar()
     setDefaultOpeneds()
   })
 }
+
+let isInitialRouteWatch = true
 
 onMounted(() => {
   nextTick(() => {
@@ -125,9 +128,19 @@ onMounted(() => {
               id: 'fold-unfold-useStyleTag',
             })
           } else {
-            if (device.value !== 'mobile') openSideBar()
+            if (device.value !== 'mobile') {
+              if (isInitialRouteWatch) {
+                const saved = localStorage.getItem('collapse')
+                if (!saved || !JSON.parse(saved).collapse) {
+                  openSideBar()
+                }
+              } else {
+                openSideBar()
+              }
+            }
             useStyleTag('', { id: 'fold-unfold-useStyleTag' })
           }
+          isInitialRouteWatch = false
         },
         {
           immediate: true,

@@ -11,6 +11,9 @@ import java.util.Optional;
 @Repository
 public interface AiTokenUsageRecordRepository extends BaseRepository<AiTokenUsageRecord> {
 
+    @Query("SELECT COUNT(r) FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
+    long countByTaskId(@Param("taskId") Long taskId);
+
     Optional<AiTokenUsageRecord> findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
             String contentHash, String targetLanguage);
 
@@ -27,4 +30,7 @@ public interface AiTokenUsageRecordRepository extends BaseRepository<AiTokenUsag
 
     @Query("SELECT COALESCE(SUM(r.businessCompletionTokens), 0) FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
     int sumBusinessCompletionTokensByTaskId(@Param("taskId") Long taskId);
+
+    @Query("SELECT COALESCE(SUM(r.businessThinkingTokens), 0) FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
+    int sumBusinessThinkingTokensByTaskId(@Param("taskId") Long taskId);
 }

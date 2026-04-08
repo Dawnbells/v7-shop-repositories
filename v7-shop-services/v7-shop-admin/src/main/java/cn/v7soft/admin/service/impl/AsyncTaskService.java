@@ -130,10 +130,13 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         int actualCredits = 0;
         int totalPromptTokens = 0;
         int totalCompletionTokens = 0;
-        if (aiTokenUsageRecordRepository.existsByTaskId(taskId)) {
+        int totalThinkingTokens = 0;
+        long recordCount = aiTokenUsageRecordRepository.countByTaskId(taskId);
+        if (recordCount > 0) {
             actualCredits = aiTokenUsageRecordRepository.sumBusinessCreditsByTaskId(taskId);
             totalPromptTokens = aiTokenUsageRecordRepository.sumBusinessPromptTokensByTaskId(taskId);
             totalCompletionTokens = aiTokenUsageRecordRepository.sumBusinessCompletionTokensByTaskId(taskId);
+            totalThinkingTokens = aiTokenUsageRecordRepository.sumBusinessThinkingTokensByTaskId(taskId);
         }
 
         if (task.getEstimatedCredits() != null) {
@@ -145,14 +148,16 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
             }
         }
 
+        task.setBillingRecordCount(recordCount);
         task.setBillingActualCredits(actualCredits);
         task.setBillingTotalPromptTokens(totalPromptTokens);
         task.setBillingTotalCompletionTokens(totalCompletionTokens);
+        task.setBillingTotalThinkingTokens(totalThinkingTokens);
         task.setBillingSettled(true);
         task.setBillingSettledAt(LocalDateTime.now());
         saveAndFlush(task);
-        log.info("[finalizeBilling] taskId={} 结算完成: estimated={}, actual={}, promptTokens={}, completionTokens={}",
-                taskId, task.getEstimatedCredits(), actualCredits, totalPromptTokens, totalCompletionTokens);
+        log.info("[finalizeBilling] taskId={} 结算完成: estimated={}, actual={}, records={}, promptTokens={}, completionTokens={}, thinkingTokens={}",
+                taskId, task.getEstimatedCredits(), actualCredits, recordCount, totalPromptTokens, totalCompletionTokens, totalThinkingTokens);
         return true;
     }
 

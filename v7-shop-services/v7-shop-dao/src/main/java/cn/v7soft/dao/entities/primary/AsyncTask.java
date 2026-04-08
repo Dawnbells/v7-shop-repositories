@@ -78,7 +78,7 @@ public class AsyncTask extends BaseDataRangeEntity {
     /**
      * 任务展示名称
      */
-    @Column(name = "name", length = 255)
+    @Column(name = "name", length = 512)
     private String name;
 
     /**
@@ -123,9 +123,15 @@ public class AsyncTask extends BaseDataRangeEntity {
     @Column(name = "billing_settled_at")
     private LocalDateTime billingSettledAt;
 
+    @Column(name = "billing_record_count")
+    private Long billingRecordCount;
+
     @Column(name = "billing_total_prompt_tokens")
     private Integer billingTotalPromptTokens;
 
     @Column(name = "billing_total_completion_tokens")
     private Integer billingTotalCompletionTokens;
+
+    @Column(name = "billing_total_thinking_tokens")
+    private Integer billingTotalThinkingTokens;
 }

@@ -63,4 +63,8 @@ public abstract class TenantContext {
     public static String getImageBaseUrl() {
         return "https://image." + getCurrentTenantEntity().getDomain();
     }
+
+    public static String getCdnImageBaseUrl() {
+        return getCurrentTenantEntity().getImageBaseUrl();
+    }
 }

@@ -53,7 +53,7 @@ public class AiTokenUsageRecordController extends BaseDataRangeController<AiToke
 
         SystemUserDto loginUser = SaSessionUtil.getLoginUser();
         boolean isSuperAdmin = loginUser.getUserType() == SystemUserType.ADMIN;
-        String imageBaseUrl = TenantContext.getImageBaseUrl();
+        String imageBaseUrl = TenantContext.getCdnImageBaseUrl();
 
         Page<AiTokenUsageRecord> pageResult = service.findPaginated(convertQueryPageRequest(request));
 
@@ -99,7 +99,7 @@ public class AiTokenUsageRecordController extends BaseDataRangeController<AiToke
 
     @Override
     protected AiTokenUsageRecordResponse convertEntity(AiTokenUsageRecord record) {
-        return AiTokenUsageRecordResponse.convertEntity(record, TenantContext.getImageBaseUrl());
+        return AiTokenUsageRecordResponse.convertEntity(record, TenantContext.getCdnImageBaseUrl());
     }
 
     @Override

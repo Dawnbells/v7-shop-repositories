@@ -81,3 +81,14 @@ export function retryTask(taskId: string | number) {
     method: 'post',
   })
 }
+
+export function listAiTranslateTasks(data: any) {
+  return request({
+    url: '/tasks/page',
+    method: 'post',
+    data: {
+      ...data,
+      taskTypes: ['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_TRANSLATE_DIRECT'],
+    },
+  })
+}
