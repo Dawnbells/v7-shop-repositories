@@ -92,6 +92,27 @@ export const asyncRoutes: VabRouteRecord[] = [
       },
     ],
   },
+  // AI 管理
+  {
+    path: '/ai',
+    name: 'Ai',
+    component: Layout,
+    meta: {
+      title: 'AI管理',
+      icon: 'robot-line',
+    },
+    children: [
+      {
+        path: 'tokenUsage',
+        name: 'AiTokenUsageRecord',
+        component: () => import('/@/views/ai/AiTokenUsageRecord.vue'),
+        meta: {
+          title: 'Token使用记录',
+          icon: 'coin-line',
+        },
+      },
+    ],
+  },
   // 404
   {
     path: '/:pathMatch(.*)*',

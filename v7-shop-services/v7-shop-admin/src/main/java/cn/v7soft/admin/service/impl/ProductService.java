@@ -248,6 +248,10 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         Hibernate.initialize(product.getSpecificationList());
         for (ProductSpecification spec : product.getSpecificationList()) {
             Hibernate.initialize(spec.getAttributes());
+            Hibernate.initialize(spec.getSpecificationImage());
+            for (ProductSpecificationAttributes attr : spec.getAttributes()) {
+                Hibernate.initialize(attr.getMultimediaFile());
+            }
         }
         return product;
     }

@@ -122,4 +122,10 @@ public class AsyncTask extends BaseDataRangeEntity {
      */
     @Column(name = "billing_settled_at")
     private LocalDateTime billingSettledAt;
+
+    @Column(name = "billing_total_prompt_tokens")
+    private Integer billingTotalPromptTokens;
+
+    @Column(name = "billing_total_completion_tokens")
+    private Integer billingTotalCompletionTokens;
 }

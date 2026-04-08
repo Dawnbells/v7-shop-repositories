@@ -118,9 +118,6 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     @Transactional
     public synchronized boolean finalizeBilling(Long taskId) {
         AsyncTask task = getById(taskId);
-        if (task.getEstimatedCredits() == null) {
-            return false;
-        }
         if (!isTerminalState(task.getState())) {
             log.debug("[finalizeBilling] taskId={} 尚未终态, 跳过结算", taskId);
             return false;
@@ -131,20 +128,31 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         }
 
         int actualCredits = 0;
-        Long ownerId = task.getOwner().getId();
+        int totalPromptTokens = 0;
+        int totalCompletionTokens = 0;
         if (aiTokenUsageRecordRepository.existsByTaskId(taskId)) {
             actualCredits = aiTokenUsageRecordRepository.sumBusinessCreditsByTaskId(taskId);
-            aiCreditsService.settle(ownerId, task.getEstimatedCredits(), actualCredits);
-        } else {
-            aiCreditsService.unfreeze(ownerId, task.getEstimatedCredits());
+            totalPromptTokens = aiTokenUsageRecordRepository.sumBusinessPromptTokensByTaskId(taskId);
+            totalCompletionTokens = aiTokenUsageRecordRepository.sumBusinessCompletionTokensByTaskId(taskId);
+        }
+
+        if (task.getEstimatedCredits() != null) {
+            Long ownerId = task.getOwner().getId();
+            if (actualCredits > 0) {
+                aiCreditsService.settle(ownerId, task.getEstimatedCredits(), actualCredits);
+            } else {
+                aiCreditsService.unfreeze(ownerId, task.getEstimatedCredits());
+            }
         }
 
         task.setBillingActualCredits(actualCredits);
+        task.setBillingTotalPromptTokens(totalPromptTokens);
+        task.setBillingTotalCompletionTokens(totalCompletionTokens);
         task.setBillingSettled(true);
         task.setBillingSettledAt(LocalDateTime.now());
         saveAndFlush(task);
-        log.info("[finalizeBilling] taskId={} 结算完成: estimated={}, actual={}",
-                taskId, task.getEstimatedCredits(), actualCredits);
+        log.info("[finalizeBilling] taskId={} 结算完成: estimated={}, actual={}, promptTokens={}, completionTokens={}",
+                taskId, task.getEstimatedCredits(), actualCredits, totalPromptTokens, totalCompletionTokens);
         return true;
     }
 

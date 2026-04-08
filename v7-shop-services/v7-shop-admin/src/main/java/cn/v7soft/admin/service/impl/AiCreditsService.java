@@ -27,7 +27,7 @@ public class AiCreditsService {
     public boolean freeze(Long userId, int estimated) {
         SystemUser user = systemUserRepository.findById(userId).orElseThrow();
         Integer monthly = user.getMonthlyAiCredits();
-        if (user.getUserType() == SystemUserType.ADMIN || user.getUserType() != SystemUserType.COMPANY_ADMIN) {
+        if (user.getUserType() == SystemUserType.ADMIN || user.getUserType() == SystemUserType.COMPANY_ADMIN) {
             // 管理员或者公司管理员，不限量
             return false;
         }

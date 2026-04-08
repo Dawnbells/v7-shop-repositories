@@ -45,14 +45,15 @@ public final class TokenCostCalculator {
      */
     public static int resolveImageTierTokens(int maxDimension) {
         for (int[] tier : IMAGE_TOKEN_TIERS) {
-            if (maxDimension <= tier[0])
+            if (maxDimension <= tier[0]) {
                 return tier[1];
+            }
         }
         return IMAGE_TOKEN_TIERS[IMAGE_TOKEN_TIERS.length - 1][1];
     }
 
     /**
-     * 计算图片的业务 prompt token = 档位 token + 50。
+     * 计算图片的业务 prompt token = 档位 token + 80。
      */
     public static int imageBusinessPromptTokens(int maxDimension) {
         return resolveImageTierTokens(maxDimension) + getExtraOverheadTokens();
@@ -60,7 +61,7 @@ public final class TokenCostCalculator {
 
     private static int getExtraOverheadTokens() {
         // return ThreadLocalRandom.current().nextInt(MIN_EXTRA_OVERHEAD_TOKENS, MAX_EXTRA_OVERHEAD_TOKENS + 1);
-        return 450;
+        return 80;
     }
 
     /**

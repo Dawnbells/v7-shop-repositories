@@ -458,8 +458,9 @@ public class TaskExecutorService implements ITaskExecutorService {
                         .findByImageHashAndLanguageId(imageHash, language.getId());
                 if (cached.isPresent()) {
                     ImageTranslationCache it = cached.get();
+                    imageHashToSourceFile.put(imageHash, file);
                     if (!it.isSkipped() && it.getTranslatedFile() != null) {
-                        cachedImageMap.put(imageHash, it.getTranslatedFile());
+                        cachedImageMap.put(imageHash, multimediaFileService.getById(it.getTranslatedFile().getId()));
                     }
                     cachedCount++;
                     continue;
@@ -634,7 +635,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                     }
                     GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(respNode);
                     saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
-                            false, InvokeMode.BATCH, usage, false, null, null, null, owner);
+                            false, InvokeMode.BATCH, usage, false, null, null, null, owner,
+                            entry.getValue(), translated, null, null);
                 }
             }
 
@@ -650,7 +652,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                     String htmlHash = DigestUtil.sha256Hex(ctx.getUncachedHtml());
                     GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(respNode);
                     saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
-                            false, InvokeMode.BATCH, usage, false, null, null, null, owner);
+                            false, InvokeMode.BATCH, usage, false, null, null, null, owner,
+                            ctx.getUncachedHtml(), translatedHtml, null, null);
                 }
             }
 
@@ -669,7 +672,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                         translatedImageMap.put(hash, newFile);
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
                         saveTokenUsageRecord(task.getId(), TranslationContentType.IMAGE, hash, langName,
-                                false, InvokeMode.BATCH, usage, true, null, null, null, owner);
+                                false, InvokeMode.BATCH, usage, true, null, null, null, owner,
+                                null, null, sourceFile.getRelativePath(), newFile.getRelativePath());
                     } catch (Exception e) {
                         log.warn("[processResult] taskId={} 图片 hash={} 保存失败", task.getId(), hash, e);
                     }
@@ -983,7 +987,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                         writeSingleTextCache(sourceText, translated, ctx.getLanguage());
                     }
                     updateTokenRecordWithActual(recordId, TranslationContentType.TEXT,
-                            InvokeMode.STANDARD, usageRef.get(), false, null, null, null);
+                            InvokeMode.STANDARD, usageRef.get(), false, null, null, null,
+                            translated, null);
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
@@ -1031,7 +1036,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                         writeHtmlTranslationCache(ctx.getUncachedHtml(), html, ctx.getLanguage());
                     }
                     updateTokenRecordWithActual(recordId, TranslationContentType.HTML,
-                            InvokeMode.STANDARD, usageRef.get(), false, null, null, null);
+                            InvokeMode.STANDARD, usageRef.get(), false, null, null, null,
+                            html, null);
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
@@ -1083,7 +1089,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                         translatedImageMap.put(hash, newFile);
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
                         updateTokenRecordWithActual(recordId, TranslationContentType.IMAGE,
-                                InvokeMode.STANDARD, usageRef.get(), true, null, null, null);
+                                InvokeMode.STANDARD, usageRef.get(), true, null, null, null,
+                                null, newFile.getRelativePath());
                     } else if (sourceFile != null) {
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), null, true);
                         int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
@@ -1093,7 +1100,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                                 InvokeMode.STANDARD, usageRef.get(), false,
                                 usageRef.get() != null && usageRef.get().getPromptTokens() != null
                                         ? usageRef.get().getPromptTokens() : null,
-                                bizCompletion, 0);
+                                bizCompletion, 0, null, null);
                     }
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
@@ -1442,7 +1449,9 @@ public class TaskExecutorService implements ITaskExecutorService {
                                       String targetLanguage, boolean cacheHit, InvokeMode invokeMode,
                                       GeminiTranslateService.TokenUsage actual, boolean hasImageOutput,
                                       Integer bizPrompt, Integer bizCompletion, Integer bizThinking,
-                                      SystemUser owner) {
+                                      SystemUser owner,
+                                      String sourceText, String translatedText,
+                                      String sourceImagePath, String translatedImagePath) {
         try {
             if (aiTokenUsageRecordRepository.existsByTaskIdAndContentHashAndTargetLanguage(
                     taskId, contentHash, targetLanguage)) {
@@ -1488,6 +1497,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                     .businessCredits(businessCredits)
                     .elapsedMs(elapsed)
                     .hasImageOutput(hasImageOutput)
+                    .sourceText(sourceText)
+                    .translatedText(translatedText)
+                    .sourceImagePath(sourceImagePath)
+                    .translatedImagePath(translatedImagePath)
                     .build();
             record.setOwner(owner);
             aiTokenUsageRecordRepository.save(record);
@@ -1553,6 +1566,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                     .businessCredits(businessCredits)
                     .elapsedMs(null)
                     .hasImageOutput(estHasImageOutput)
+                    .sourceText(sourceText)
+                    .sourceImagePath(sourceFile != null ? sourceFile.getRelativePath() : null)
                     .build();
             record.setOwner(owner);
             record = aiTokenUsageRecordRepository.save(record);
@@ -1572,7 +1587,8 @@ public class TaskExecutorService implements ITaskExecutorService {
     private void updateTokenRecordWithActual(Long recordId, TranslationContentType contentType,
                                              InvokeMode invokeMode, GeminiTranslateService.TokenUsage actual,
                                              boolean hasImageOutput,
-                                             Integer bizPrompt, Integer bizCompletion, Integer bizThinking) {
+                                             Integer bizPrompt, Integer bizCompletion, Integer bizThinking,
+                                             String translatedText, String translatedImagePath) {
         if (recordId == null) return;
         try {
             Optional<AiTokenUsageRecord> opt = aiTokenUsageRecordRepository.findById(recordId);
@@ -1609,6 +1625,8 @@ public class TaskExecutorService implements ITaskExecutorService {
             record.setBusinessCredits(businessCredits);
             record.setElapsedMs(elapsed);
             record.setHasImageOutput(hasImageOutput);
+            if (translatedText != null) record.setTranslatedText(translatedText);
+            if (translatedImagePath != null) record.setTranslatedImagePath(translatedImagePath);
             aiTokenUsageRecordRepository.save(record);
         } catch (Exception e) {
             log.warn("[tokenUsage] 更新实际用量失败: recordId={}", recordId, e);
@@ -1622,7 +1640,8 @@ public class TaskExecutorService implements ITaskExecutorService {
     private void saveCacheHitTokenRecord(Long taskId, TranslationContentType contentType,
                                          String contentHash, String targetLanguage, InvokeMode invokeMode,
                                          String sourceText, MultimediaFile sourceFile,
-                                         SystemUser owner) {
+                                         SystemUser owner,
+                                         String translatedText, String sourceImagePath, String translatedImagePath) {
         try {
             Optional<AiTokenUsageRecord> historyOpt = aiTokenUsageRecordRepository
                     .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(contentHash, targetLanguage);
@@ -1647,7 +1666,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 bizThinking = 0;
             }
             saveTokenUsageRecord(taskId, contentType, contentHash, targetLanguage,
-                    true, invokeMode, null, hasImageOutput, bizPrompt, bizCompletion, bizThinking, owner);
+                    true, invokeMode, null, hasImageOutput, bizPrompt, bizCompletion, bizThinking, owner,
+                    sourceText, translatedText, sourceImagePath, translatedImagePath);
         } catch (Exception e) {
             log.warn("[tokenUsage] 缓存命中记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
         }
@@ -1665,7 +1685,8 @@ public class TaskExecutorService implements ITaskExecutorService {
             int bizPrompt = actual != null && actual.getPromptTokens() != null ? actual.getPromptTokens() : 0;
             int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
             saveTokenUsageRecord(taskId, TranslationContentType.IMAGE, contentHash, targetLanguage,
-                    false, invokeMode, actual, false, bizPrompt, bizCompletion, 0, owner);
+                    false, invokeMode, actual, false, bizPrompt, bizCompletion, 0, owner,
+                    null, null, sourceFile.getRelativePath(), null);
         } catch (Exception e) {
             log.warn("[tokenUsage] 无输出图片记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
         }
@@ -1678,18 +1699,25 @@ public class TaskExecutorService implements ITaskExecutorService {
         String langName = ctx.getLangName();
         SystemUser owner = ctx.getOwner();
 
-        for (String hash : ctx.getCachedTextMap().keySet()) {
+        for (Map.Entry<String, String> entry : ctx.getCachedTextMap().entrySet()) {
+            String hash = entry.getKey();
+            String translatedText = entry.getValue();
             String sourceText = ctx.getAllTextMap() != null ? ctx.getAllTextMap().get(hash) : null;
-            saveCacheHitTokenRecord(task.getId(), TranslationContentType.TEXT, hash, langName, invokeMode, sourceText, null, owner);
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.TEXT, hash, langName, invokeMode, sourceText, null, owner,
+                    translatedText, null, null);
         }
 
         if (ctx.getCachedTranslatedHtml() != null && ctx.getIntroduction() != null) {
             String htmlHash = DigestUtil.sha256Hex(ctx.getIntroduction());
-            saveCacheHitTokenRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName, invokeMode, ctx.getIntroduction(), null, owner);
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName, invokeMode, ctx.getIntroduction(), null, owner,
+                    ctx.getCachedTranslatedHtml(), null, null);
         }
 
         for (Map.Entry<String, MultimediaFile> entry : ctx.getCachedImageMap().entrySet()) {
-            saveCacheHitTokenRecord(task.getId(), TranslationContentType.IMAGE, entry.getKey(), langName, invokeMode, null, null, owner);
+            MultimediaFile sourceFile = ctx.getImageHashToSourceFile() != null ? ctx.getImageHashToSourceFile().get(entry.getKey()) : null;
+            saveCacheHitTokenRecord(task.getId(), TranslationContentType.IMAGE, entry.getKey(), langName, invokeMode, null, null, owner,
+                    null, sourceFile != null ? sourceFile.getRelativePath() : null,
+                    entry.getValue() != null ? entry.getValue().getRelativePath() : null);
         }
     }
 

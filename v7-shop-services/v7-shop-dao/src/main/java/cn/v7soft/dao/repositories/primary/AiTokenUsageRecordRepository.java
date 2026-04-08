@@ -21,4 +21,10 @@ public interface AiTokenUsageRecordRepository extends BaseRepository<AiTokenUsag
     boolean existsByTaskId(@Param("taskId") Long taskId);
 
     boolean existsByTaskIdAndContentHashAndTargetLanguage(Long taskId, String contentHash, String targetLanguage);
+
+    @Query("SELECT COALESCE(SUM(r.businessPromptTokens), 0) FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
+    int sumBusinessPromptTokensByTaskId(@Param("taskId") Long taskId);
+
+    @Query("SELECT COALESCE(SUM(r.businessCompletionTokens), 0) FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
+    int sumBusinessCompletionTokensByTaskId(@Param("taskId") Long taskId);
 }

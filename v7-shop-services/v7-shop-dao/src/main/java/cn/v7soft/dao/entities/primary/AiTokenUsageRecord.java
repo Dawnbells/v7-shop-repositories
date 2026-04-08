@@ -97,4 +97,16 @@ public class AiTokenUsageRecord extends BaseDataRangeEntity {
      */
     @Column(name = "business_credits")
     private Integer businessCredits;
+
+    @Column(name = "source_text", columnDefinition = "TEXT")
+    private String sourceText;
+
+    @Column(name = "translated_text", columnDefinition = "TEXT")
+    private String translatedText;
+
+    @Column(name = "source_image_path")
+    private String sourceImagePath;
+
+    @Column(name = "translated_image_path")
+    private String translatedImagePath;
 }
