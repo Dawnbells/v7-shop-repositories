@@ -2,6 +2,8 @@ package cn.v7soft.admin.controller.resp;
 
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import cn.v7soft.common.controller.resp.DataRangeResponse;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.enums.TaskState;
@@ -67,6 +69,7 @@ public class AsyncTaskResponse extends DataRangeResponse {
     private Boolean billingSettled;
 
     @Schema(title = "结算时间")
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private LocalDateTime billingSettledAt;
 
     public static AsyncTaskResponse convert(AsyncTask task) {
