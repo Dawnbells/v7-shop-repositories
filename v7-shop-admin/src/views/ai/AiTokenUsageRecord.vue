@@ -89,7 +89,7 @@
               </el-table-column>
               <el-table-column align="right" label="Credits" width="80">
                 <template #default="{ row: r }">
-                  {{ formatNumber(r.businessCredits) }}
+                  <strong>{{ formatNumber(r.businessCredits) }}</strong>
                 </template>
               </el-table-column>
               <el-table-column v-if="isAdmin" align="right" label="Actual Prompt" width="110">
@@ -109,7 +109,7 @@
               </el-table-column>
               <el-table-column v-if="isAdmin" align="right" label="Actual Credits" width="110">
                 <template #default="{ row: r }">
-                  {{ r.actualCost != null ? formatNumber(Math.ceil(r.actualCost * 1000)) : '-' }}
+                  <strong>{{ r.actualCost != null ? formatNumber(Math.ceil(r.actualCost * 1000)) : '-' }}</strong>
                 </template>
               </el-table-column>
               <el-table-column label="翻译内容" min-width="280">
@@ -202,7 +202,7 @@
           {{ formatNumber(row.totalCompletionTokens) }}
         </template>
       </el-table-column>
-      <el-table-column align="right" label="消耗Credits" width="110">
+      <el-table-column align="right" label="Credits" width="110">
         <template #default="{ row }">
           <strong>{{ formatNumber(row.totalBusinessCredits) }}</strong>
         </template>
