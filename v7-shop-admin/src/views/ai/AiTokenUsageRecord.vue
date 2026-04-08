@@ -50,7 +50,7 @@
               stripe
               style="width: 100%"
             >
-              <el-table-column align="center" label="ID" prop="id" width="100" />
+              <el-table-column align="center" label="ID" prop="id" width="125" />
               <el-table-column align="center" label="内容类型" width="80">
                 <template #default="{ row: r }">
                   <el-tag size="small" :type="contentTypeTagType(r.contentType)">
@@ -72,13 +72,19 @@
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column align="right" label="Tokens" width="180">
+              <el-table-column align="right" label="Prompt Tokens" width="110">
                 <template #default="{ row: r }">
-                  <div class="token-cell">
-                    <span>P: {{ formatNumber(r.businessPromptTokens) }}</span>
-                    <span v-if="r.businessThinkingTokens">T: {{ formatNumber(r.businessThinkingTokens) }}</span>
-                    <span>C: {{ formatNumber(r.businessCompletionTokens) }}</span>
-                  </div>
+                  {{ formatNumber(r.businessPromptTokens) }}
+                </template>
+              </el-table-column>
+              <el-table-column align="right" label="Thinking Tokens" width="110">
+                <template #default="{ row: r }">
+                  {{ formatNumber(r.businessThinkingTokens) }}
+                </template>
+              </el-table-column>
+              <el-table-column align="right" label="Completion Tokens" width="120">
+                <template #default="{ row: r }">
+                  {{ formatNumber(r.businessCompletionTokens) }}
                 </template>
               </el-table-column>
               <el-table-column align="right" label="Credits" width="80">
@@ -86,13 +92,19 @@
                   {{ formatNumber(r.businessCredits) }}
                 </template>
               </el-table-column>
-              <el-table-column v-if="isAdmin" align="right" label="Actual Tokens" width="180">
+              <el-table-column v-if="isAdmin" align="right" label="Actual Prompt" width="110">
                 <template #default="{ row: r }">
-                  <div class="token-cell">
-                    <span>P: {{ formatNumber(r.actualPromptTokens) }}</span>
-                    <span v-if="r.actualThinkingTokens">T: {{ formatNumber(r.actualThinkingTokens) }}</span>
-                    <span>C: {{ formatNumber(r.actualCompletionTokens) }}</span>
-                  </div>
+                  {{ formatNumber(r.actualPromptTokens) }}
+                </template>
+              </el-table-column>
+              <el-table-column v-if="isAdmin" align="right" label="Actual Thinking" width="110">
+                <template #default="{ row: r }">
+                  {{ formatNumber(r.actualThinkingTokens) }}
+                </template>
+              </el-table-column>
+              <el-table-column v-if="isAdmin" align="right" label="Actual Completion" width="130">
+                <template #default="{ row: r }">
+                  {{ formatNumber(r.actualCompletionTokens) }}
                 </template>
               </el-table-column>
               <el-table-column v-if="isAdmin" align="right" label="Actual Credits" width="110">
@@ -132,13 +144,13 @@
                       <div v-if="r.sourceText" class="text-row">
                         <el-tag effect="plain" size="small" type="info">原文</el-tag>
                         <el-tooltip :content="r.sourceText" placement="top" :show-after="300">
-                          <span class="text-content">{{ truncate(r.sourceText, 80) }}</span>
+                          <span class="text-ellipsis">{{ r.sourceText }}</span>
                         </el-tooltip>
                       </div>
                       <div v-if="r.translatedText" class="text-row">
                         <el-tag effect="plain" size="small" type="success">译文</el-tag>
                         <el-tooltip :content="r.translatedText" placement="top" :show-after="300">
-                          <span class="text-content">{{ truncate(r.translatedText, 80) }}</span>
+                          <span class="text-ellipsis">{{ r.translatedText }}</span>
                         </el-tooltip>
                       </div>
                     </div>
@@ -153,7 +165,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column align="center" label="任务ID" prop="id" width="100" />
+      <el-table-column align="center" label="任务ID" prop="id" width="125" />
       <el-table-column label="任务名称" min-width="180" show-overflow-tooltip>
         <template #default="{ row }">
           {{ row.name || '-' }}
@@ -176,14 +188,14 @@
           {{ formatNumber(row.totalPromptTokens) }}
         </template>
       </el-table-column>
-      <el-table-column align="right" label="Completion Tokens" width="140">
-        <template #default="{ row }">
-          {{ formatNumber(row.totalCompletionTokens) }}
-        </template>
-      </el-table-column>
       <el-table-column align="right" label="Thinking Tokens" width="130">
         <template #default="{ row }">
           {{ formatNumber(row.totalThinkingTokens) }}
+        </template>
+      </el-table-column>
+      <el-table-column align="right" label="Completion Tokens" width="150">
+        <template #default="{ row }">
+          {{ formatNumber(row.totalCompletionTokens) }}
         </template>
       </el-table-column>
       <el-table-column align="right" label="消耗Credits" width="110">
@@ -279,16 +291,6 @@ const contentTypeTagType = (
 const formatNumber = (value: number | undefined | null): string => {
   if (value == null) return '-'
   return value.toLocaleString()
-}
-
-const formatCost = (value: number | string | undefined | null): string => {
-  if (value == null) return '-'
-  return Number(value).toFixed(6)
-}
-
-const truncate = (text: string, maxLen: number) => {
-  if (!text) return ''
-  return text.length > maxLen ? text.substring(0, maxLen) + '...' : text
 }
 
 const buildTaskTypes = () => {
@@ -409,24 +411,21 @@ onBeforeMount(() => {
     display: flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
   }
 
-  .text-content {
+  .text-ellipsis {
     font-size: 13px;
     color: var(--el-text-color-regular);
-    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
   }
 
   .no-content {
     color: var(--el-text-color-placeholder);
-  }
-
-  .token-cell {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    font-size: 12px;
-    line-height: 1.6;
   }
 }
 </style>
