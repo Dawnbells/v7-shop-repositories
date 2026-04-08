@@ -18,8 +18,16 @@
                   <span class="stat-number success">${{ formatNumber(stats.todaySalesAmount) }}</span>
                 </div>
                 <div class="stat-item">
-                  <span class="stat-label">AI消耗积分</span>
+                  <span class="stat-label">今日AI消耗积分</span>
                   <span class="stat-number warning">{{ formatNumber(stats.todayAiCreditsUsed) }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">AI冻结积分</span>
+                  <span class="stat-number">{{ formatNumber(stats.currentAiFrozenCredits) }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">剩余可用积分</span>
+                  <span class="stat-number success">{{ formatNumber(availableCredits) }}</span>
                 </div>
               </div>
             </div>
@@ -33,15 +41,15 @@
         </div>
       </el-col>
 
-      <!-- 数据统计卡片 -->
+      <!-- 当月统计卡片 -->
       <el-col :lg="6" :md="12" :sm="12" :xl="6" :xs="24">
         <div class="stat-card blue">
           <div class="stat-icon">
             <el-icon :size="28"><ShoppingCart /></el-icon>
           </div>
           <div class="stat-info">
-            <span class="stat-title">今日订单数</span>
-            <span class="stat-value">{{ stats.todayOrderCount }}</span>
+            <span class="stat-title">本月订单数</span>
+            <span class="stat-value">{{ stats.monthOrderCount }}</span>
           </div>
         </div>
       </el-col>
@@ -52,8 +60,8 @@
             <el-icon :size="28"><TrendCharts /></el-icon>
           </div>
           <div class="stat-info">
-            <span class="stat-title">今日销售额</span>
-            <span class="stat-value">${{ formatNumber(stats.todaySalesAmount) }}</span>
+            <span class="stat-title">本月销售额</span>
+            <span class="stat-value">${{ formatNumber(stats.monthSalesAmount) }}</span>
           </div>
         </div>
       </el-col>
@@ -64,8 +72,8 @@
             <el-icon :size="28"><Cpu /></el-icon>
           </div>
           <div class="stat-info">
-            <span class="stat-title">今日AI消耗积分</span>
-            <span class="stat-value">{{ formatNumber(stats.todayAiCreditsUsed) }}</span>
+            <span class="stat-title">本月AI消耗积分</span>
+            <span class="stat-value">{{ formatNumber(stats.monthAiCreditsUsed) }}</span>
           </div>
         </div>
       </el-col>
@@ -73,11 +81,11 @@
       <el-col :lg="6" :md="12" :sm="12" :xl="6" :xs="24">
         <div class="stat-card purple">
           <div class="stat-icon">
-            <el-icon :size="28"><Lock /></el-icon>
+            <el-icon :size="28"><Coin /></el-icon>
           </div>
           <div class="stat-info">
-            <span class="stat-title">当前AI冻结积分</span>
-            <span class="stat-value">{{ formatNumber(stats.currentAiFrozenCredits) }}</span>
+            <span class="stat-title">当月AI限额</span>
+            <span class="stat-value">{{ formatNumber(stats.monthAiCreditsQuota) }}</span>
           </div>
         </div>
       </el-col>
@@ -219,7 +227,7 @@ import {
   ShoppingCart,
   Document,
   TrendCharts,
-  Lock,
+  Coin,
   Grid,
   ArrowRight,
   InfoFilled,
@@ -271,6 +279,14 @@ const stats = reactive({
   todaySalesAmount: 0,
   todayAiCreditsUsed: 0,
   currentAiFrozenCredits: 0,
+  monthOrderCount: 0,
+  monthSalesAmount: 0,
+  monthAiCreditsUsed: 0,
+  monthAiCreditsQuota: 0,
+})
+
+const availableCredits = computed(() => {
+  return Math.max(0, stats.monthAiCreditsQuota - stats.monthAiCreditsUsed - stats.currentAiFrozenCredits)
 })
 
 const fetchStats = async () => {
@@ -280,6 +296,10 @@ const fetchStats = async () => {
     stats.todaySalesAmount = data.todaySalesAmount ?? 0
     stats.todayAiCreditsUsed = data.todayAiCreditsUsed ?? 0
     stats.currentAiFrozenCredits = data.currentAiFrozenCredits ?? 0
+    stats.monthOrderCount = data.monthOrderCount ?? 0
+    stats.monthSalesAmount = data.monthSalesAmount ?? 0
+    stats.monthAiCreditsUsed = data.monthAiCreditsUsed ?? 0
+    stats.monthAiCreditsQuota = data.monthAiCreditsQuota ?? 0
   } catch (e) {
     // silently ignore
   }

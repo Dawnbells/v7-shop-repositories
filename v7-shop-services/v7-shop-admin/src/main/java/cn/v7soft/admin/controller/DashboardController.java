@@ -38,43 +38,62 @@ public class DashboardController {
     public DashboardStatsResponse getStats() {
         SystemUserDto currentUser = SaSessionUtil.getLoginUser();
         LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIN);
+        LocalDateTime monthStart = LocalDateTime.of(LocalDate.now().withDayOfMonth(1), LocalTime.MIN);
 
         boolean isCompanyWide = currentUser.getUserType() == SystemUserType.ADMIN
                 || currentUser.getUserType() == SystemUserType.COMPANY_ADMIN;
 
-        long orderCount;
-        BigDecimal salesAmount;
-        int aiCreditsUsed;
+        long todayOrderCount;
+        BigDecimal todaySalesAmount;
+        int todayAiCreditsUsed;
         int frozenCredits;
+        long monthOrderCount;
+        BigDecimal monthSalesAmount;
+        int monthAiCreditsUsed;
+        int monthAiCreditsQuota;
 
         if (isCompanyWide) {
-            orderCount = orderRepository.countOrdersAfter(todayStart);
-            salesAmount = orderRepository.sumSalesAfter(todayStart);
-            aiCreditsUsed = aiTokenUsageRecordRepository.sumBusinessCreditsAfter(todayStart);
+            todayOrderCount = orderRepository.countOrdersAfter(todayStart);
+            todaySalesAmount = orderRepository.sumSalesAfter(todayStart);
+            todayAiCreditsUsed = aiTokenUsageRecordRepository.sumBusinessCreditsAfter(todayStart);
             frozenCredits = systemUserRepository.sumFrozenCreditsByCompanyId(currentUser.getCompanyId());
+
+            monthOrderCount = orderRepository.countOrdersAfter(monthStart);
+            monthSalesAmount = orderRepository.sumSalesAfter(monthStart);
+            monthAiCreditsUsed = aiTokenUsageRecordRepository.sumBusinessCreditsAfter(monthStart);
+            monthAiCreditsQuota = systemUserRepository.sumMonthlyAiCreditsByCompanyId(currentUser.getCompanyId());
         } else {
             List<Long> ownerIds = resolveOwnerIds(currentUser);
 
             if (ownerIds.isEmpty()) {
                 return DashboardStatsResponse.builder()
-                        .todayOrderCount(0)
-                        .todaySalesAmount(BigDecimal.ZERO)
-                        .todayAiCreditsUsed(0)
-                        .currentAiFrozenCredits(0)
+                        .todayOrderCount(0).todaySalesAmount(BigDecimal.ZERO)
+                        .todayAiCreditsUsed(0).currentAiFrozenCredits(0)
+                        .monthOrderCount(0).monthSalesAmount(BigDecimal.ZERO)
+                        .monthAiCreditsUsed(0).monthAiCreditsQuota(0)
                         .build();
             }
 
-            orderCount = orderRepository.countOrdersAfterByOwners(todayStart, ownerIds);
-            salesAmount = orderRepository.sumSalesAfterByOwners(todayStart, ownerIds);
-            aiCreditsUsed = aiTokenUsageRecordRepository.sumBusinessCreditsAfterByOwners(todayStart, ownerIds);
+            todayOrderCount = orderRepository.countOrdersAfterByOwners(todayStart, ownerIds);
+            todaySalesAmount = orderRepository.sumSalesAfterByOwners(todayStart, ownerIds);
+            todayAiCreditsUsed = aiTokenUsageRecordRepository.sumBusinessCreditsAfterByOwners(todayStart, ownerIds);
             frozenCredits = systemUserRepository.sumFrozenCreditsByUserIds(ownerIds);
+
+            monthOrderCount = orderRepository.countOrdersAfterByOwners(monthStart, ownerIds);
+            monthSalesAmount = orderRepository.sumSalesAfterByOwners(monthStart, ownerIds);
+            monthAiCreditsUsed = aiTokenUsageRecordRepository.sumBusinessCreditsAfterByOwners(monthStart, ownerIds);
+            monthAiCreditsQuota = systemUserRepository.sumMonthlyAiCreditsByUserIds(ownerIds);
         }
 
         return DashboardStatsResponse.builder()
-                .todayOrderCount(orderCount)
-                .todaySalesAmount(salesAmount)
-                .todayAiCreditsUsed(aiCreditsUsed)
+                .todayOrderCount(todayOrderCount)
+                .todaySalesAmount(todaySalesAmount)
+                .todayAiCreditsUsed(todayAiCreditsUsed)
                 .currentAiFrozenCredits(frozenCredits)
+                .monthOrderCount(monthOrderCount)
+                .monthSalesAmount(monthSalesAmount)
+                .monthAiCreditsUsed(monthAiCreditsUsed)
+                .monthAiCreditsQuota(monthAiCreditsQuota)
                 .build();
     }
 

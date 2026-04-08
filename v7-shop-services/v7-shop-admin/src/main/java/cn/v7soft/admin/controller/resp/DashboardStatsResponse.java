@@ -26,4 +26,16 @@ public class DashboardStatsResponse {
 
     @Schema(title = "当前AI冻结积分")
     private int currentAiFrozenCredits;
+
+    @Schema(title = "本月订单数")
+    private long monthOrderCount;
+
+    @Schema(title = "本月销售额")
+    private BigDecimal monthSalesAmount;
+
+    @Schema(title = "本月AI消耗积分")
+    private int monthAiCreditsUsed;
+
+    @Schema(title = "当月AI限额")
+    private int monthAiCreditsQuota;
 }

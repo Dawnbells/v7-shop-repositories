@@ -64,4 +64,10 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
 
     @Query("SELECT u.id FROM SystemUser u WHERE u.department.id IN :departmentIds AND u.status = 'VALID'")
     List<Long> findUserIdsByDepartmentIds(@Param("departmentIds") List<Long> departmentIds);
+
+    @Query("SELECT COALESCE(SUM(u.monthlyAiCredits), 0) FROM SystemUser u WHERE u.companyId = :companyId AND u.monthlyAiCredits > 0")
+    int sumMonthlyAiCreditsByCompanyId(@Param("companyId") Long companyId);
+
+    @Query("SELECT COALESCE(SUM(u.monthlyAiCredits), 0) FROM SystemUser u WHERE u.id IN :userIds AND u.monthlyAiCredits > 0")
+    int sumMonthlyAiCreditsByUserIds(@Param("userIds") List<Long> userIds);
 }
