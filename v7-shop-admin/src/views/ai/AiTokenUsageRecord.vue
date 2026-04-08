@@ -216,7 +216,7 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column align="center" label="结算时间" width="170">
+      <el-table-column align="center" label="结算时间" width="120">
         <template #default="{ row }">
           {{ row.billingSettledAt || '-' }}
         </template>

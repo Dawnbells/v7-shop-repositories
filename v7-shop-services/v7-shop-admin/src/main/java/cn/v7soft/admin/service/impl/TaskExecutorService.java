@@ -1530,7 +1530,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 int maxDim = sourceFile != null
                         ? Math.max(sourceFile.getWidth(), sourceFile.getHeight()) : 512;
                 if (maxDim <= 0) maxDim = 512;
-                estPrompt = TokenCostCalculator.imageBusinessPromptTokens(maxDim);
+                estPrompt = 718;
                 estCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
                 estThinking = 0;
                 estHasImageOutput = true;
@@ -1654,9 +1654,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 bizThinking = history.getActualThinkingTokens();
                 hasImageOutput = Boolean.TRUE.equals(history.getHasImageOutput());
             } else if (contentType == TranslationContentType.IMAGE) {
-                int estTokens = TokenCostCalculator.estimateImageTokens();
-                bizPrompt = estTokens;
-                bizCompletion = estTokens;
+                bizPrompt = 718;
+                bizCompletion = TokenCostCalculator.estimateImageTokens();
                 bizThinking = 0;
                 hasImageOutput = true;
             } else {
@@ -1682,7 +1681,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         try {
             int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
             if (maxDim <= 0) maxDim = 512;
-            int bizPrompt = actual != null && actual.getPromptTokens() != null ? actual.getPromptTokens() : 0;
+            int bizPrompt = 718;
             int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
             saveTokenUsageRecord(taskId, TranslationContentType.IMAGE, contentHash, targetLanguage,
                     false, invokeMode, actual, false, bizPrompt, bizCompletion, 0, owner,

@@ -56,7 +56,7 @@ public final class TokenCostCalculator {
      * 计算图片的业务 prompt token = 档位 token + 80。
      */
     public static int imageBusinessPromptTokens(int maxDimension) {
-        return resolveImageTierTokens(maxDimension) + getExtraOverheadTokens();
+        return 718;
     }
 
     private static int getExtraOverheadTokens() {
@@ -207,7 +207,7 @@ public final class TokenCostCalculator {
      * @return 图片token数量
      */
     public static int estimateImageTokens() {
-        return 1120 + 350;
+        return 718;
     }
 
     /**
