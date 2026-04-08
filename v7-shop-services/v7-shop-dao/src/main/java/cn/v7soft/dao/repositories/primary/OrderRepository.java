@@ -1,6 +1,8 @@
 package cn.v7soft.dao.repositories.primary;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.Modifying;
@@ -96,4 +98,16 @@ public interface OrderRepository extends BaseRepository<Order> {
             limit 1
             """, nativeQuery = true)
     Optional<Order> findLastEarlierOrdersByPhone(@Param("phone") String phone, @Param("orderTime") LocalDateTime orderTime);
+
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.orderTime >= :start")
+    long countOrdersAfter(@Param("start") LocalDateTime start);
+
+    @Query("SELECT COUNT(o) FROM Order o WHERE o.orderTime >= :start AND o.owner.id IN :ownerIds")
+    long countOrdersAfterByOwners(@Param("start") LocalDateTime start, @Param("ownerIds") List<Long> ownerIds);
+
+    @Query("SELECT COALESCE(SUM(o.financialInfo.totalAmount), 0) FROM Order o WHERE o.orderTime >= :start")
+    BigDecimal sumSalesAfter(@Param("start") LocalDateTime start);
+
+    @Query("SELECT COALESCE(SUM(o.financialInfo.totalAmount), 0) FROM Order o WHERE o.orderTime >= :start AND o.owner.id IN :ownerIds")
+    BigDecimal sumSalesAfterByOwners(@Param("start") LocalDateTime start, @Param("ownerIds") List<Long> ownerIds);
 }

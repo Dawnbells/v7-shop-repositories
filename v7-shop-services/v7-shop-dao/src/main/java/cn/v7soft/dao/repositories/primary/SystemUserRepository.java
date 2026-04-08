@@ -55,4 +55,13 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
     @Query("UPDATE SystemUser u SET u.usedAiCredits = 0, u.frozenAiCredits = 0 " +
            "WHERE u.monthlyAiCredits > 0")
     int resetAllCredits();
+
+    @Query("SELECT COALESCE(SUM(u.frozenAiCredits), 0) FROM SystemUser u WHERE u.companyId = :companyId")
+    int sumFrozenCreditsByCompanyId(@Param("companyId") Long companyId);
+
+    @Query("SELECT COALESCE(SUM(u.frozenAiCredits), 0) FROM SystemUser u WHERE u.id IN :userIds")
+    int sumFrozenCreditsByUserIds(@Param("userIds") List<Long> userIds);
+
+    @Query("SELECT u.id FROM SystemUser u WHERE u.department.id IN :departmentIds AND u.status = 'VALID'")
+    List<Long> findUserIdsByDepartmentIds(@Param("departmentIds") List<Long> departmentIds);
 }

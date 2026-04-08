@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -33,4 +35,10 @@ public interface AiTokenUsageRecordRepository extends BaseRepository<AiTokenUsag
 
     @Query("SELECT COALESCE(SUM(r.businessThinkingTokens), 0) FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
     int sumBusinessThinkingTokensByTaskId(@Param("taskId") Long taskId);
+
+    @Query("SELECT COALESCE(SUM(r.businessCredits), 0) FROM AiTokenUsageRecord r WHERE r.createTime >= :start")
+    int sumBusinessCreditsAfter(@Param("start") LocalDateTime start);
+
+    @Query("SELECT COALESCE(SUM(r.businessCredits), 0) FROM AiTokenUsageRecord r WHERE r.createTime >= :start AND r.owner.id IN :ownerIds")
+    int sumBusinessCreditsAfterByOwners(@Param("start") LocalDateTime start, @Param("ownerIds") List<Long> ownerIds);
 }
