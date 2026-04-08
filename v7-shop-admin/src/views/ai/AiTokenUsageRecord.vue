@@ -109,7 +109,9 @@
               </el-table-column>
               <el-table-column v-if="isAdmin" align="right" label="Actual Credits" width="110">
                 <template #default="{ row: r }">
-                  <strong>{{ r.actualCost != null ? formatNumber(Math.ceil(r.actualCost * 1000)) : '-' }}</strong>
+                  <strong>
+                    {{ r.actualCost != null ? formatNumber(Math.ceil(r.actualCost * 1000)) : '-' }}
+                  </strong>
                 </template>
               </el-table-column>
               <el-table-column label="翻译内容" min-width="280">
@@ -127,14 +129,14 @@
                           style="width: 80px; height: 80px"
                         />
                       </div>
-                      <div v-if="r.translatedImageUrl" class="image-cell">
+                      <div v-if="r.sourceImageUrl" class="image-cell">
                         <span class="image-label">译图</span>
                         <el-image
                           fit="contain"
                           hide-on-click-modal
                           preview-teleported
-                          :preview-src-list="[r.translatedImageUrl]"
-                          :src="r.translatedImageUrl"
+                          :preview-src-list="[r.translatedImageUrl || r.sourceImageUrl]"
+                          :src="r.translatedImageUrl || r.sourceImageUrl"
                           style="width: 80px; height: 80px"
                         />
                       </div>
