@@ -120,6 +120,8 @@
                         <span class="image-label">原图</span>
                         <el-image
                           fit="contain"
+                          hide-on-click-modal
+                          preview-teleported
                           :preview-src-list="[r.sourceImageUrl]"
                           :src="r.sourceImageUrl"
                           style="width: 80px; height: 80px"
@@ -129,6 +131,8 @@
                         <span class="image-label">译图</span>
                         <el-image
                           fit="contain"
+                          hide-on-click-modal
+                          preview-teleported
                           :preview-src-list="[r.translatedImageUrl]"
                           :src="r.translatedImageUrl"
                           style="width: 80px; height: 80px"
