@@ -11,15 +11,15 @@
               <div class="welcome-stats">
                 <div class="stat-item">
                   <span class="stat-label">今日订单</span>
-                  <span class="stat-number">{{ todayOrders }}</span>
-                </div>
-                <div class="stat-item">
-                  <span class="stat-label">待处理</span>
-                  <span class="stat-number warning">{{ pendingOrders }}</span>
+                  <span class="stat-number">{{ stats.todayOrderCount }}</span>
                 </div>
                 <div class="stat-item">
                   <span class="stat-label">今日销售额</span>
-                  <span class="stat-number success">￥{{ formatNumber(todaySales) }}</span>
+                  <span class="stat-number success">${{ formatNumber(stats.todaySalesAmount) }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">AI消耗积分</span>
+                  <span class="stat-number warning">{{ formatNumber(stats.todayAiCreditsUsed) }}</span>
                 </div>
               </div>
             </div>
@@ -37,14 +37,11 @@
       <el-col :lg="6" :md="12" :sm="12" :xl="6" :xs="24">
         <div class="stat-card blue">
           <div class="stat-icon">
-            <el-icon :size="28"><TrendCharts /></el-icon>
+            <el-icon :size="28"><ShoppingCart /></el-icon>
           </div>
           <div class="stat-info">
-            <span class="stat-title">总销量</span>
-            <span class="stat-value">￥{{ formatNumber(salesTotal) }}</span>
-            <span class="stat-change positive">
-              <el-icon><Top /></el-icon> 10.2%
-            </span>
+            <span class="stat-title">今日订单数</span>
+            <span class="stat-value">{{ stats.todayOrderCount }}</span>
           </div>
         </div>
       </el-col>
@@ -52,14 +49,11 @@
       <el-col :lg="6" :md="12" :sm="12" :xl="6" :xs="24">
         <div class="stat-card green">
           <div class="stat-icon">
-            <el-icon :size="28"><User /></el-icon>
+            <el-icon :size="28"><TrendCharts /></el-icon>
           </div>
           <div class="stat-info">
-            <span class="stat-title">活跃用户</span>
-            <span class="stat-value">{{ formatNumber(activeUsers) }}</span>
-            <span class="stat-change positive">
-              <el-icon><Top /></el-icon> 5.8%
-            </span>
+            <span class="stat-title">今日销售额</span>
+            <span class="stat-value">${{ formatNumber(stats.todaySalesAmount) }}</span>
           </div>
         </div>
       </el-col>
@@ -67,14 +61,11 @@
       <el-col :lg="6" :md="12" :sm="12" :xl="6" :xs="24">
         <div class="stat-card orange">
           <div class="stat-icon">
-            <el-icon :size="28"><Wallet /></el-icon>
+            <el-icon :size="28"><Cpu /></el-icon>
           </div>
           <div class="stat-info">
-            <span class="stat-title">总成交</span>
-            <span class="stat-value">￥{{ formatNumber(totalTransaction) }}</span>
-            <span class="stat-change positive">
-              <el-icon><Top /></el-icon> 44.3%
-            </span>
+            <span class="stat-title">今日AI消耗积分</span>
+            <span class="stat-value">{{ formatNumber(stats.todayAiCreditsUsed) }}</span>
           </div>
         </div>
       </el-col>
@@ -82,14 +73,11 @@
       <el-col :lg="6" :md="12" :sm="12" :xl="6" :xs="24">
         <div class="stat-card purple">
           <div class="stat-icon">
-            <el-icon :size="28"><ShoppingCart /></el-icon>
+            <el-icon :size="28"><Lock /></el-icon>
           </div>
           <div class="stat-info">
-            <span class="stat-title">订单数</span>
-            <span class="stat-value">{{ formatNumber(orderCount) }}</span>
-            <span class="stat-change positive">
-              <el-icon><Top /></el-icon> 12.5%
-            </span>
+            <span class="stat-title">当前AI冻结积分</span>
+            <span class="stat-value">{{ formatNumber(stats.currentAiFrozenCredits) }}</span>
           </div>
         </div>
       </el-col>
@@ -225,15 +213,13 @@
 </template>
 
 <script lang="ts" setup>
-import { random } from 'lodash-es'
 import {
   Goods,
   User,
   ShoppingCart,
   Document,
   TrendCharts,
-  Wallet,
-  Top,
+  Lock,
   Grid,
   ArrowRight,
   InfoFilled,
@@ -241,9 +227,11 @@ import {
   Clock,
   Setting,
   DataAnalysis,
+  Cpu,
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
+import { getDashboardStats } from '/@/api/dashboard'
 
 dayjs.locale('zh-cn')
 
@@ -277,18 +265,60 @@ const updateTime = () => {
   currentMinute.value = dayjs().format('mm')
 }
 
-onMounted(() => {
-  setInterval(updateTime, 1000)
+// 统计数据
+const stats = reactive({
+  todayOrderCount: 0,
+  todaySalesAmount: 0,
+  todayAiCreditsUsed: 0,
+  currentAiFrozenCredits: 0,
 })
 
-// 统计数据
-const salesTotal = ref(random(100000, 500000))
-const activeUsers = ref(random(1000, 5000))
-const totalTransaction = ref(random(500000, 2000000))
-const orderCount = ref(random(5000, 20000))
-const todayOrders = ref(random(50, 200))
-const pendingOrders = ref(random(5, 30))
-const todaySales = ref(random(10000, 50000))
+const fetchStats = async () => {
+  try {
+    const { data } = await getDashboardStats()
+    stats.todayOrderCount = data.todayOrderCount ?? 0
+    stats.todaySalesAmount = data.todaySalesAmount ?? 0
+    stats.todayAiCreditsUsed = data.todayAiCreditsUsed ?? 0
+    stats.currentAiFrozenCredits = data.currentAiFrozenCredits ?? 0
+  } catch (e) {
+    // silently ignore
+  }
+}
+
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const startPolling = () => {
+  if (pollTimer) return
+  pollTimer = setInterval(fetchStats, 10000)
+}
+
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+const handleVisibilityChange = () => {
+  if (document.hidden) {
+    stopPolling()
+  } else {
+    fetchStats()
+    startPolling()
+  }
+}
+
+onMounted(() => {
+  setInterval(updateTime, 1000)
+  fetchStats()
+  startPolling()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onBeforeUnmount(() => {
+  stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 
 // 格式化数字
 const formatNumber = (num: number) => {
