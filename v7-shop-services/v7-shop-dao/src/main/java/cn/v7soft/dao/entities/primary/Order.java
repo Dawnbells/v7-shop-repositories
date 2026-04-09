@@ -13,6 +13,8 @@ import cn.v7soft.dao.entities.meta.OrderPaymentInfo;
 import cn.v7soft.dao.enums.CheckStatus;
 import cn.v7soft.dao.enums.OrderStatus;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
+import org.hibernate.annotations.BatchSize;
+
 import jakarta.annotation.Nonnull;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -155,7 +157,8 @@ public class Order extends BaseDataRangeEntity {
      * 商品信息
      */
     @Nonnull
-    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @BatchSize(size = 50)
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<OrderItemInfo> itemInfos;
 
     /**

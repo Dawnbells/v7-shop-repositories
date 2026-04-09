@@ -20,15 +20,19 @@ import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.ITaskExecutorService;
+import cn.v7soft.admin.service.dto.OrderDownloadDto;
 import cn.v7soft.common.controller.req.attributes.AccessDataRangeAttribute;
 import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
+import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
+import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Order;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
+import cn.v7soft.dao.enums.ViewMode;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.OrderRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
@@ -158,6 +162,12 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     @Override
     public Optional<Order> findByOriginOrderId(String orderId) {
         return repository.findByOriginOrderId(orderId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<OrderDownloadDto> findPaginatedForDownload(QueryPageRequest<Order> request, SystemUserDto owner, ViewMode viewMode) {
+        return findPaginated(request, owner, viewMode).map(OrderDownloadDto::convert);
     }
 
     @Override

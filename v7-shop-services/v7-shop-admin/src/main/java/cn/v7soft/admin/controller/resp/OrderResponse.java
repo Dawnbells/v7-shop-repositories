@@ -88,7 +88,7 @@ public class OrderResponse extends IdResponse {
 
     public static OrderResponse convertEntity(Order order, boolean desensitized) {
         String fromUrl = order.getFromUrl();
-        if (TextUtils.isBlank(order.getFromUrl())) {
+        if (TextUtils.isBlank(order.getFromUrl()) && !order.getItemInfos().isEmpty()) {
             fromUrl = "https://" + order.getContextInfo().getWebsiteUrl() + "/product/" + order.getItemInfos().get(0).getSpuId();
         }
         if (order.getPlatform() == WebsiteTypeEnum.V7_SHOP) {

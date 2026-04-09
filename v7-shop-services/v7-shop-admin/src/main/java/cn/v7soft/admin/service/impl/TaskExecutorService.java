@@ -1824,9 +1824,9 @@ public class TaskExecutorService implements ITaskExecutorService {
             writer.setHeaderAlias(headerAliasMap);
             writer.setOnlyAlias(true);
             while (true) {
-                Page<Order> paginated = orderService.findPaginated(OrderQueryHelper.convertOrderQueryPageRequest(request, orderService), owner, task.getViewMode());
+                Page<OrderDownloadDto> paginated = orderService.findPaginatedForDownload(OrderQueryHelper.convertOrderQueryPageRequest(request, orderService), owner, task.getViewMode());
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, printPaginationProgressMax99(paginated));
-                writer.write(paginated.map(OrderDownloadDto::convert).stream().map(BeanUtil::trimStrFields).toList());
+                writer.write(paginated.stream().map(BeanUtil::trimStrFields).toList());
                 if (!paginated.hasNext()) break;
                 request.setPageNo(request.getPageNo() + 1);
             }

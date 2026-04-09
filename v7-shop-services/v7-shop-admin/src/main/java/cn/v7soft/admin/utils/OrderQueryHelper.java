@@ -117,6 +117,19 @@ public class OrderQueryHelper {
                                    EqualsQueryAttribute.builder().name("riskInfo.realIp").value(value).build());
 
         }
+        boolean isNumericKeyword = !keyword.isEmpty() && keyword.matches("\\d+");
+        boolean isIpLike = keyword.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
+        boolean isDomainLike = keyword.contains(".") && !keyword.contains(" ");
+
+        boolean complexMatchId = isComplex && !isIpLike;
+        boolean complexMatchPhone = isComplex && isNumericKeyword;
+        boolean complexMatchIp = isComplex && (isNumericKeyword || isIpLike);
+        boolean complexMatchName = isComplex && !isNumericKeyword && !isIpLike;
+        boolean complexMatchTitle = isComplex && !isNumericKeyword && !isIpLike;
+        boolean complexMatchMerchandise = isComplex && !isNumericKeyword && !isIpLike;
+        boolean complexMatchAddress = isComplex && !isNumericKeyword && !isIpLike;
+        boolean complexMatchWebsiteUrl = isComplex && (isDomainLike || (!isNumericKeyword && !isIpLike));
+
         String delimiter = " ";
         if (request.getKeywords() == null) {
             delimiter = " ";
@@ -134,26 +147,27 @@ public class OrderQueryHelper {
             phone = phone.trim();
             phone = phone.length() > 8 ? phone.substring(phone.length() - 8) : phone;
         }
-        // 当搜索涉及 itemInfos 时，需要添加 distinct 避免因 JOIN 产生重复记录
-        boolean needsDistinct = isComplex || searchType == SearchType.PRODUCT_TITLE || searchType == SearchType.MERCHANDISE;
+        boolean needsDistinct = (complexMatchTitle || complexMatchMerchandise
+                || searchType == SearchType.PRODUCT_TITLE || searchType == SearchType.MERCHANDISE)
+                && !keyword.isEmpty();
         return orderQueryPageRequest
                 .addConstraint(needsDistinct, new QueryAttribute() {
                     @Override
                     public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) {
                         query.distinct(true);
-                        return criteriaBuilder.conjunction(); // 返回一个始终为 true 的谓词
+                        return criteriaBuilder.conjunction();
                     }
                 })
                 .or()
-                .addConstraint(!keywords.isEmpty() && (isComplex || searchType == SearchType.ORDER_ID), InAttribute.<Long>builder().name("id").value(keywords.stream().filter(ConvertUtils::isLong).map(Long::parseLong).toList()).build())
-                .addConstraint(!keywords.isEmpty() && (isComplex || searchType == SearchType.ORDER_ID), InAttribute.<String>builder().name("originOrderId").value(keywords).build())
-                .addConstraint(StrUtil.isNotBlank(phone) && (isComplex || searchType == SearchType.TELEPHONE), LikeAttribute.builder().name("deliveryInfo.phoneLast8").value(phone).build())
-                .addConstraint(StrUtil.isNotBlank(keyword) && (isComplex || searchType == SearchType.NAME), LikeAttribute.builder().name("deliveryInfo.firstName").value(keyword).build())
-                .addConstraint(StrUtil.isNotBlank(keyword) && (isComplex || searchType == SearchType.PRODUCT_TITLE), LikeAttribute.builder().name("itemInfos.title").value(keyword).build())
-                .addConstraint(StrUtil.isNotBlank(keyword) && (isComplex || searchType == SearchType.MERCHANDISE), LikeAttribute.builder().name("itemInfos.merchandise").value(keyword).build())
-                .addConstraint(!keywords.isEmpty() && (isComplex || searchType == SearchType.REMOTE_IP), InAttribute.<String>builder().name("riskInfo.remoteIp").value(keywords).build())
-                .addConstraint(StrUtil.isNotBlank(keyword) && (isComplex || searchType == SearchType.ADDRESS), LikeAttribute.builder().name("deliveryInfo.address").value(keyword).build())
-                .addConstraint(StrUtil.isNotBlank(keyword) && isComplex, LikeAttribute.builder().name("contextInfo.websiteUrl").value(keyword).build())
+                .addConstraint(!keywords.isEmpty() && (complexMatchId || searchType == SearchType.ORDER_ID), InAttribute.<Long>builder().name("id").value(keywords.stream().filter(ConvertUtils::isLong).map(Long::parseLong).toList()).build())
+                .addConstraint(!keywords.isEmpty() && (complexMatchId || searchType == SearchType.ORDER_ID), InAttribute.<String>builder().name("originOrderId").value(keywords).build())
+                .addConstraint(StrUtil.isNotBlank(phone) && (complexMatchPhone || searchType == SearchType.TELEPHONE), LikeAttribute.builder().name("deliveryInfo.phoneLast8").value(phone).build())
+                .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchName || searchType == SearchType.NAME), LikeAttribute.builder().name("deliveryInfo.firstName").value(keyword).build())
+                .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchTitle || searchType == SearchType.PRODUCT_TITLE), LikeAttribute.builder().name("itemInfos.title").value(keyword).build())
+                .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchMerchandise || searchType == SearchType.MERCHANDISE), LikeAttribute.builder().name("itemInfos.merchandise").value(keyword).build())
+                .addConstraint(!keywords.isEmpty() && (complexMatchIp || searchType == SearchType.REMOTE_IP), InAttribute.<String>builder().name("riskInfo.remoteIp").value(keywords).build())
+                .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchAddress || searchType == SearchType.ADDRESS), LikeAttribute.builder().name("deliveryInfo.address").value(keyword).build())
+                .addConstraint(StrUtil.isNotBlank(keyword) && complexMatchWebsiteUrl, LikeAttribute.builder().name("contextInfo.websiteUrl").value(keyword).build())
                 .addConstraint(StrUtil.isNotBlank(keyword) && searchType == SearchType.DOMAIN, LikeAttribute.builder().name("contextInfo.websiteUrl").value(keyword).build())
                 .next()
                 .addConstraint(RepeatType.IP == request.getRepeatType(), GreaterThanAttribute.<Integer>builder().name("botOrderCheckInfo.remoteIpRepeatCount").value(1).build())

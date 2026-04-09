@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.util.ArrayList;
@@ -17,6 +18,7 @@ import java.util.List;
 @Setter
 @SuperBuilder
 @NoArgsConstructor
+@BatchSize(size = 50)
 @SQLRestriction("status <> 'DELETED'")
 @Table(name = "t_department")
 public class Department extends BaseDataRangeEntity {

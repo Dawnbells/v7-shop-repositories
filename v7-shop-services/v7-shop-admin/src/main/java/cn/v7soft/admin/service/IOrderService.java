@@ -3,8 +3,12 @@ package cn.v7soft.admin.service;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
+import cn.v7soft.admin.service.dto.OrderDownloadDto;
 import cn.v7soft.common.service.IBaseDataRangeService;
+import cn.v7soft.core.controller.request.QueryPageRequest;
+import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Order;
+import cn.v7soft.dao.enums.ViewMode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -54,4 +58,6 @@ public interface IOrderService extends IBaseDataRangeService<Order> {
     Long upload(HttpServletRequest request);
 
     Optional<Order> findByOriginOrderId(String orderId);
+
+    Page<OrderDownloadDto> findPaginatedForDownload(QueryPageRequest<Order> request, SystemUserDto owner, ViewMode viewMode);
 }

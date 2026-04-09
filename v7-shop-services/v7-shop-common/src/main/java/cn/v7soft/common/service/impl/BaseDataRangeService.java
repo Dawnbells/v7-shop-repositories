@@ -31,6 +31,7 @@ public abstract class BaseDataRangeService<T extends IBaseDataRangeEntity, M ext
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<T> findPaginated(QueryPageRequest<T> request) {
         OrQueryAttribute<T> or = request.or();
         or.add(getAccessDataRangeQueryAttribute());
@@ -40,6 +41,7 @@ public abstract class BaseDataRangeService<T extends IBaseDataRangeEntity, M ext
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<T> findPaginated(QueryPageRequest<T> request, AccessDataRangeLevel level) {
         OrQueryAttribute<T> or = request.or();
         or.add(new AccessDataRangeAttribute(level));
@@ -57,6 +59,7 @@ public abstract class BaseDataRangeService<T extends IBaseDataRangeEntity, M ext
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<T> findPaginated(QueryPageRequest<T> request, SystemUser systemUser) {
         OrQueryAttribute<T> or = request.or();
         or.add(new AccessDataRangeAttribute().setOwner(systemUser));
@@ -66,12 +69,14 @@ public abstract class BaseDataRangeService<T extends IBaseDataRangeEntity, M ext
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<T> findPaginated(QueryPageRequest<T> request, SystemUser systemUser, ViewMode viewMode) {
         SystemUserDto systemUserDto = SystemUserDto.convert(systemUser);
         return findPaginated(request, systemUserDto, viewMode);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<T> findPaginated(QueryPageRequest<T> request, SystemUserDto systemUser) {
         OrQueryAttribute<T> or = request.or();
         or.add(new AccessDataRangeAttribute().setOwner(systemUser));
@@ -81,6 +86,7 @@ public abstract class BaseDataRangeService<T extends IBaseDataRangeEntity, M ext
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<T> findPaginated(QueryPageRequest<T> request, SystemUserDto systemUser, ViewMode viewMode) {
         OrQueryAttribute<T> or = request.or();
         if (systemUser.getIsAuditOrders()) {
@@ -94,6 +100,7 @@ public abstract class BaseDataRangeService<T extends IBaseDataRangeEntity, M ext
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<T> findOriginalPaginated(QueryPageRequest<T> request) {
         return super.findPaginated(request);
     }

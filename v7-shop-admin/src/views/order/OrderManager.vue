@@ -560,7 +560,6 @@ const queryForm = reactive<any>({
 const fetchData = async () => {
   listLoading.value = true
   const { data } = await page(queryForm)
-  console.log(data)
   if (data) {
     list.value = data.list
     total.value = data.total
@@ -585,17 +584,41 @@ const queryData = () => {
   fetchData()
 }
 
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let skipAutoQuery = true
+
 watch(
   () => ({ ...queryForm }),
   () => {
-    fetchData()
     updateQueryParams()
   },
   { deep: true }
 )
 
+watch(
+  () => ({
+    searchType: queryForm.searchType,
+    keywords: queryForm.keywords,
+    orderStatus: queryForm.orderStatus,
+    botOrderStatus: queryForm.botOrderStatus,
+    repeatType: queryForm.repeatType,
+    countryId: queryForm.countryId,
+    platform: queryForm.platform,
+    dateRange: queryForm.dateRange,
+    belongEmployeeIds: queryForm.belongEmployeeIds,
+    belongDepartmentIds: queryForm.belongDepartmentIds,
+  }),
+  () => {
+    if (skipAutoQuery) return
+    if (debounceTimer) clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(() => {
+      queryData()
+    }, 300)
+  },
+  { deep: true }
+)
+
 const handleAddDeviceBlacklist = async (row: any, type: string) => {
-  console.log('add device blacklist', row, type)
   ignoreRowSelect.value = false
   if (type === 'ip') {
     await doEditIpBlacklist({
@@ -724,13 +747,11 @@ const handleChangeOrderStatus = (
     ids: [row.id],
     status,
   })
-    .then((res: any) => {
-      console.log(res)
+    .then(() => {
       row.orderStatus = status
       row.changingOrderStatus = false
     })
-    .catch((error: any) => {
-      console.log(error)
+    .catch(() => {
       row.changingOrderStatus = false
     })
 }
@@ -921,7 +942,6 @@ const initQueryParams = () => {
 }
 
 const updateQueryParams = () => {
-  console.log('init path', queryForm)
   const dateRange =
     queryForm.dateRange &&
     queryForm.dateRange.length == 2 &&
@@ -957,6 +977,9 @@ const updateQueryParams = () => {
 onBeforeMount(() => {
   initQueryParams()
   fetchData()
+  nextTick(() => {
+    skipAutoQuery = false
+  })
 })
 
 const highlightRiskWords = (remark: string, botOrderCheckInfo: any) => {
@@ -1000,8 +1023,7 @@ const handleUpdateOrderCheckRemark = (row: {
 }) => {
   row._updatingOrderCheckRemark = true
   updateOrderCheckRemark([row.id], `${row._orderCheckRemark}`)
-    .then((res) => {
-      console.log(res)
+    .then(() => {
       row.orderCheckRemark = `${row._orderCheckRemark}`
       row.editingOrderCheckRemark = false
       row._updatingOrderCheckRemark = false
@@ -1038,7 +1060,6 @@ const handleRowClick = (row: any, column: any, event: any) => {
   if (ignoreRowSelect.value) {
     return
   }
-  console.log(event.target, event, event.target.name, event.target.classList)
   const index = selectRows.value.findIndex((item: any) => item.id === row.id)
   // console.log('handleRowClick', row, index, selectRows.value)
   // if (index === -1) {

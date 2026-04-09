@@ -306,6 +306,7 @@ const fetchStats = async () => {
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let timeTimer: ReturnType<typeof setInterval> | null = null
 
 const startPolling = () => {
   if (pollTimer) return
@@ -319,6 +320,13 @@ const stopPolling = () => {
   }
 }
 
+const stopTimeTimer = () => {
+  if (timeTimer) {
+    clearInterval(timeTimer)
+    timeTimer = null
+  }
+}
+
 const handleVisibilityChange = () => {
   if (document.hidden) {
     stopPolling()
@@ -328,16 +336,30 @@ const handleVisibilityChange = () => {
   }
 }
 
-onMounted(() => {
-  setInterval(updateTime, 1000)
+const startAll = () => {
+  updateTime()
+  timeTimer = setInterval(updateTime, 1000)
   fetchStats()
   startPolling()
   document.addEventListener('visibilitychange', handleVisibilityChange)
+}
+
+const stopAll = () => {
+  stopTimeTimer()
+  stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+}
+
+onActivated(() => {
+  startAll()
+})
+
+onDeactivated(() => {
+  stopAll()
 })
 
 onBeforeUnmount(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  stopAll()
 })
 
 // 格式化数字
