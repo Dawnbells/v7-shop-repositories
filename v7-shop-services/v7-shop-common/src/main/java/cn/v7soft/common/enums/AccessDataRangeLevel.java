@@ -5,5 +5,6 @@ public enum AccessDataRangeLevel {
     DEPARTMENT,
     DEEP_DEPARTMENT,
     DEPARTMENT_TREE,
+    SPECIFIED_DEPARTMENTS,
     COMPANY
 }

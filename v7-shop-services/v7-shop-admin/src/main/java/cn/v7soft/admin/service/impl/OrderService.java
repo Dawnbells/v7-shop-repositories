@@ -211,8 +211,8 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
 
     @Override
     public QueryAttribute getAccessDataRangeQueryAttribute() {
-        if (SaSessionUtil.isAuditOrders()) {
-            return new AccessDataRangeAttribute(AccessDataRangeLevel.COMPANY);
+        if (SaSessionUtil.isCrossDepartment()) {
+            return new AccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, SaSessionUtil.getManageDepartmentIds());
         }
         return super.getAccessDataRangeQueryAttribute();
     }

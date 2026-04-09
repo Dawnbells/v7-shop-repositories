@@ -21,8 +21,26 @@
           <el-option label="员工" value="EMPLOYEE" />
         </el-select>
       </el-form-item>
-      <el-form-item label="特殊权限" prop="isAuditOrders">
-        <el-checkbox v-model="form.isAuditOrders">审单权限</el-checkbox>
+      <el-form-item label="特殊权限">
+        <el-checkbox v-model="form.isCrossDepartment" @change="onCrossDepartmentChange">
+          跨部门管理
+        </el-checkbox>
+      </el-form-item>
+      <el-form-item v-if="form.isCrossDepartment" label="管理部门">
+        <el-tree-select
+          v-model="form.manageDepartmentIds"
+          :data="departmentTree"
+          multiple
+          show-checkbox
+          collapse-tags
+          clearable
+          node-key="id"
+          :props="{ label: 'name', children: 'children' }"
+          :default-checked-keys="form.manageDepartmentIds"
+          :default-expanded-keys="form.manageDepartmentIds"
+          placeholder="请选择管理部门"
+          style="width: 100%"
+        />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -33,6 +51,7 @@
 
 <script lang="ts" setup>
 import { doEdit } from '/@/api/role'
+import { getTree } from '/@/api/department'
 
 defineOptions({
   name: 'RoleEdit',
@@ -43,18 +62,36 @@ const $baseMessage = inject<any>('$baseMessage')
 const formRef = ref<any>(null)
 const title = ref<string>('')
 const dialogFormVisible = ref<boolean>(false)
+const departmentTree = ref<any[]>([])
 const form = reactive<any>({
   name: '',
   description: '',
   systemUserType: 'EMPLOYEE',
-  isAuditOrders: false,
+  isCrossDepartment: false,
+  manageDepartmentIds: [],
 })
 const rules = reactive<any>({
   name: [{ required: true, trigger: 'blur', message: '请输入角色名称' }],
   description: [{ required: true, trigger: 'blur', message: '请输入角色描述' }],
-  systemUserType: [{ required: true, trigger: 'blur', message: '请输入角色描述' }],
-  isAuditOrders: [{ required: true, trigger: 'blur', message: '请输入角色描述' }],
+  systemUserType: [{ required: true, trigger: 'blur', message: '请选择角色类型' }],
 })
+
+const fetchDepartmentTree = async () => {
+  const { data }: any = await getTree({ status: 'VALID' })
+  departmentTree.value = (data?.list || []).map((item: any) => ({
+    ...item,
+    label: item.name,
+    value: item.id,
+  }))
+}
+
+const onCrossDepartmentChange = (val: boolean) => {
+  if (val) {
+    fetchDepartmentTree()
+  } else {
+    form.manageDepartmentIds = []
+  }
+}
 
 const showEdit = (row: any) => {
   dialogFormVisible.value = true
@@ -62,6 +99,9 @@ const showEdit = (row: any) => {
     if (row) {
       title.value = '编辑'
       Object.assign(form, row)
+      if (form.isCrossDepartment) {
+        fetchDepartmentTree()
+      }
     } else {
       title.value = '添加'
     }
@@ -77,7 +117,8 @@ const close = () => {
   formRef.value.resetFields()
   Object.assign(form, {
     id: undefined,
-    isAuditOrders: false,
+    isCrossDepartment: false,
+    manageDepartmentIds: [],
   })
   emit('fetch-data')
 }

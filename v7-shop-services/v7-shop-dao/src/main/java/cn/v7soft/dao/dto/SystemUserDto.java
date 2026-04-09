@@ -61,9 +61,13 @@ public class SystemUserDto extends IdDto {
      */
     private List<Long> assignableRoleIds;
     /**
-     * 是否支持审单
+     * 是否跨部门管理
      */
-    private Boolean isAuditOrders;
+    private Boolean isCrossDepartment;
+    /**
+     * 跨部门管理的部门ID列表
+     */
+    private List<Long> manageDepartmentIds;
 
     public static SystemUserDto convert(SystemUser user) {
         Department department = user.getDepartment();
@@ -80,9 +84,16 @@ public class SystemUserDto extends IdDto {
             deepCollectParentDepartmentIds(department, parentDepartmentIds);
         }
 
-        boolean isAuditOrders = user.getRoles()
+        boolean isCrossDepartment = user.getRoles()
                 .stream()
-                .anyMatch(role -> Boolean.TRUE.equals(role.getIsAuditOrders()));
+                .anyMatch(role -> Boolean.TRUE.equals(role.getIsCrossDepartment()));
+
+        List<Long> manageDepartmentIds = user.getRoles().stream()
+                .filter(role -> Boolean.TRUE.equals(role.getIsCrossDepartment()))
+                .flatMap(role -> role.getManageDepartments().stream())
+                .map(Department::getId)
+                .distinct()
+                .toList();
 
         List<Long> assignableRoles = user.getRoles().stream()
                 .flatMap(role -> role.getAssignableRoles().stream()) // 扁平化角色的 assignableRoles
@@ -101,7 +112,8 @@ public class SystemUserDto extends IdDto {
                 .accessDepartmentIds(accessDepartmentIds)
                 .parentDepartmentIds(parentDepartmentIds)
                 .assignableRoleIds(assignableRoles)
-                .isAuditOrders(isAuditOrders)
+                .isCrossDepartment(isCrossDepartment)
+                .manageDepartmentIds(manageDepartmentIds)
                 .build();
     }
 

@@ -10,6 +10,7 @@ import cn.v7soft.admin.service.IEmployeeService;
 import cn.v7soft.admin.service.IRoleService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.entities.BaseEntity;
+import cn.v7soft.dao.entities.primary.Department;
 import cn.v7soft.dao.entities.primary.Role;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -54,7 +56,8 @@ public class RoleController extends BaseDataRangeController<Role, IRoleService, 
         return RoleResponse.builder()
                 .name(role.getName())
                 .description(role.getDescription())
-                .isAuditOrders(role.getIsAuditOrders())
+                .isCrossDepartment(role.getIsCrossDepartment())
+                .manageDepartmentIds(role.getManageDepartments().stream().map(Department::getId).collect(Collectors.toList()))
                 .systemUserType(role.getUserType())
                 .systemRouterIds(role.getSystemRouterList().stream().map(BaseEntity::getId).collect(Collectors.toList()))
                 .build();
@@ -65,7 +68,14 @@ public class RoleController extends BaseDataRangeController<Role, IRoleService, 
         Role role = Optional.ofNullable(dbEntity).orElse(Role.builder().build());
         BeanUtil.copyProperties(request, role);
         role.setUserType(request.getSystemUserType());
-        role.setIsAuditOrders(request.getIsAuditOrders());
+        role.setIsCrossDepartment(request.getIsCrossDepartment());
+        List<Department> manageDepartments = new ArrayList<>();
+        if (request.getManageDepartmentIds() != null) {
+            for (Long deptId : request.getManageDepartmentIds()) {
+                manageDepartments.add(Department.builder().id(deptId).build());
+            }
+        }
+        role.setManageDepartments(manageDepartments);
         return role;
     }
 

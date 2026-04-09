@@ -6,6 +6,9 @@ import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.ViewMode;
 
+import java.util.Collections;
+import java.util.List;
+
 public class SaSessionUtil {
 
     private static final String KEY_VIEW_MODE = "ViewMode";
@@ -30,7 +33,12 @@ public class SaSessionUtil {
         }
     }
 
-    public static boolean isAuditOrders() {
-        return Boolean.TRUE.equals(getLoginUser().getIsAuditOrders());
+    public static boolean isCrossDepartment() {
+        return Boolean.TRUE.equals(getLoginUser().getIsCrossDepartment());
+    }
+
+    public static List<Long> getManageDepartmentIds() {
+        List<Long> ids = getLoginUser().getManageDepartmentIds();
+        return ids != null ? ids : Collections.emptyList();
     }
 }

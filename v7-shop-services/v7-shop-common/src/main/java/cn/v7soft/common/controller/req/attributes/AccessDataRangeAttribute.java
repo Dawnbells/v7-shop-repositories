@@ -15,19 +15,30 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Collections;
+import java.util.List;
+
 @Slf4j
 public class AccessDataRangeAttribute implements QueryAttribute {
 
     private final AccessDataRangeLevel level;
+    private final List<Long> specifiedDepartmentIds;
     private SystemUserDto owner;
     private ViewMode viewMode;
 
     public AccessDataRangeAttribute() {
         level = AccessDataRangeLevel.PERSON;
+        specifiedDepartmentIds = Collections.emptyList();
     }
 
     public AccessDataRangeAttribute(AccessDataRangeLevel level) {
         this.level = level;
+        this.specifiedDepartmentIds = Collections.emptyList();
+    }
+
+    public AccessDataRangeAttribute(AccessDataRangeLevel level, List<Long> specifiedDepartmentIds) {
+        this.level = level;
+        this.specifiedDepartmentIds = specifiedDepartmentIds != null ? specifiedDepartmentIds : Collections.emptyList();
     }
 
     public AccessDataRangeAttribute setOwner(SystemUser owner) {
@@ -62,6 +73,17 @@ public class AccessDataRangeAttribute implements QueryAttribute {
         if (userType == SystemUserType.ADMIN || userType == SystemUserType.COMPANY_ADMIN || level == AccessDataRangeLevel.COMPANY) {
             // 管理员不过滤
             return criteriaBuilder.conjunction();
+        }
+        if (level == AccessDataRangeLevel.SPECIFIED_DEPARTMENTS) {
+            if (specifiedDepartmentIds.isEmpty()) {
+                return new AccessDataRangeAttribute().setOwner(user).setViewMode(vm)
+                        .toPredicate(root, query, criteriaBuilder);
+            }
+            CriteriaBuilder.In<Object> in = criteriaBuilder.in(root.get("owner").get("department").get("id"));
+            for (Long deptId : specifiedDepartmentIds) {
+                in.value(deptId);
+            }
+            return in;
         }
         if (userType == SystemUserType.DEEP_DEPARTMENT_MANAGER || level == AccessDataRangeLevel.DEEP_DEPARTMENT) {
             // 深度部门 管理员-可以管理所有子部门

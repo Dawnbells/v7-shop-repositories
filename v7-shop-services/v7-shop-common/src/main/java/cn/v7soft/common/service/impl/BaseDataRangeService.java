@@ -89,8 +89,8 @@ public abstract class BaseDataRangeService<T extends IBaseDataRangeEntity, M ext
     @Transactional(readOnly = true)
     public Page<T> findPaginated(QueryPageRequest<T> request, SystemUserDto systemUser, ViewMode viewMode) {
         OrQueryAttribute<T> or = request.or();
-        if (systemUser.getIsAuditOrders()) {
-            or.add(new AccessDataRangeAttribute(AccessDataRangeLevel.COMPANY).setOwner(systemUser).setViewMode(viewMode));
+        if (Boolean.TRUE.equals(systemUser.getIsCrossDepartment())) {
+            or.add(new AccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, systemUser.getManageDepartmentIds()).setOwner(systemUser).setViewMode(viewMode));
         } else {
             or.add(new AccessDataRangeAttribute().setOwner(systemUser).setViewMode(viewMode));
         }

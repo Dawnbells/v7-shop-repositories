@@ -40,10 +40,22 @@ public class Role extends BaseDataRangeEntity {
     private String description;
 
     /**
-     * 是否开放订单权限
+     * 是否跨部门管理
      */
-    @Column(name = "is_audit_orders")
-    private Boolean isAuditOrders;
+    @Column(name = "is_cross_department")
+    private Boolean isCrossDepartment;
+
+    /**
+     * 跨部门管理的部门列表
+     */
+    @Builder.Default
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "t_role_departments",
+            joinColumns = @JoinColumn(name = "role_id"),
+            inverseJoinColumns = @JoinColumn(name = "department_id")
+    )
+    private List<Department> manageDepartments = new ArrayList<>();
 
     /**
      * 与此角色相关联的权限集合。

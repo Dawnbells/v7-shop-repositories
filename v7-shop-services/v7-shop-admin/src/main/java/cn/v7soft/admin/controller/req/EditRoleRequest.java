@@ -7,6 +7,8 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.List;
+
 @Getter
 @Setter
 public class EditRoleRequest extends IdRequest {
@@ -14,13 +16,15 @@ public class EditRoleRequest extends IdRequest {
     @Schema(title = "角色名称", example = "管理员", requiredMode = Schema.RequiredMode.REQUIRED)
     private String name;
 
-    @Schema(title = "是否审单权限", example = "false", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
-    private Boolean isAuditOrders;
+    @Schema(title = "是否跨部门管理", example = "false", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private Boolean isCrossDepartment;
+
+    @Schema(title = "跨部门管理的部门ID列表", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private List<Long> manageDepartmentIds;
 
     @NotBlank(message = "角色描述不能为空")
     @Schema(title = "角色描述", example = "负责系统的日常管理工作", requiredMode = Schema.RequiredMode.REQUIRED)
     private String description;
-
 
     @Schema(title = "用户类型", example = "EMPLOYEE", requiredMode = Schema.RequiredMode.REQUIRED)
     private SystemUserType systemUserType;
