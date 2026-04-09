@@ -21,6 +21,7 @@ import cn.v7soft.admin.service.IBotOrderCheckService;
 import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.IEmailService;
 import cn.v7soft.admin.service.IOrderService;
+import cn.v7soft.admin.service.dto.OrderEmailDto;
 import cn.v7soft.admin.service.dto.TemporaryOrderDto;
 import cn.v7soft.admin.service.dto.TextModerationData;
 import cn.v7soft.admin.service.remote.IIpApiService;
@@ -232,7 +233,8 @@ public class BotOrderCheckService implements IBotOrderCheckService {
         orderInfo.setQuantity(orderInfo.getItemInfos().stream().mapToLong(OrderItemInfo::getQuantity).sum());
         Order savedOrder = orderService.saveAndFlush(orderInfo);
 
-        // 发送订单确认邮件给客户
-        emailService.sendOrderConfirmationEmail(savedOrder);
+        // 在事务内提取邮件所需数据为 DTO，避免 @Async 线程中触发 LAZY 加载
+        OrderEmailDto emailDto = OrderEmailDto.from(savedOrder);
+        emailService.sendOrderConfirmationEmail(emailDto);
     }
 }

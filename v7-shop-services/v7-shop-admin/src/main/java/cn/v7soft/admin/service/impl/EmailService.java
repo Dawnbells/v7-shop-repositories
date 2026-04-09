@@ -16,9 +16,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.v7soft.admin.service.IDynamicConfigService;
 import cn.v7soft.admin.service.IEmailService;
-import cn.v7soft.dao.entities.meta.OrderDeliveryInfo;
-import cn.v7soft.dao.entities.primary.Order;
-import cn.v7soft.dao.entities.primary.OrderContextInfo;
+import cn.v7soft.admin.service.dto.OrderEmailDto;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -35,65 +33,60 @@ public class EmailService implements IEmailService {
 
     @Async
     @Override
-    public void sendOrderConfirmationEmail(Order order) {
+    public void sendOrderConfirmationEmail(OrderEmailDto dto) {
         try {
-            String customerEmail = order.getDeliveryInfo().getEmail();
+            String customerEmail = dto.getEmail();
             if (StrUtil.isBlank(customerEmail)) {
-                log.warn("订单 {} 客户邮箱为空，跳过发送邮件", order.getId());
+                log.warn("订单 {} 客户邮箱为空，跳过发送邮件", dto.getId());
                 return;
             }
 
-            OrderContextInfo contextInfo = order.getContextInfo();
-            Long departmentId = contextInfo.getDepartmentId();
-            Long companyId = order.getCompanyId();
+            Long departmentId = dto.getDepartmentId();
+            Long companyId = dto.getCompanyId();
 
-            // 从部门向上查找邮件配置
             Optional<JSONObject> configOpt = dynamicConfigService.getConfigWithFallback(
                     EMAIL_CONFIG_NAME, departmentId, companyId);
 
             if (configOpt.isEmpty()) {
                 log.warn("订单 {} 未找到邮件配置，跳过发送邮件。部门ID: {}, 公司ID: {}",
-                         order.getId(), departmentId, companyId);
+                         dto.getId(), departmentId, companyId);
                 return;
             }
 
             JSONObject config = configOpt.get();
             JSONObject emailConfig = config.getJSONObject("email");
             if (emailConfig == null) {
-                log.warn("订单 {} 邮件配置中缺少 email 节点", order.getId());
+                log.warn("订单 {} 邮件配置中缺少 email 节点", dto.getId());
                 return;
             }
 
-            // 检查邮件开关
             Boolean open = emailConfig.getBool("open", false);
             if (!Boolean.TRUE.equals(open)) {
-                log.info("订单 {} 邮件功能未开启，跳过发送邮件", order.getId());
+                log.info("订单 {} 邮件功能未开启，跳过发送邮件", dto.getId());
                 return;
             }
 
             JavaMailSenderImpl mailSender = createMailSender(emailConfig);
             if (mailSender == null) {
-                log.error("订单 {} 创建邮件发送器失败", order.getId());
+                log.error("订单 {} 创建邮件发送器失败", dto.getId());
                 return;
             }
 
-            // 获取语言对应的邮件模板
-            String languageCode = contextInfo.getLanguageCode();
+            String languageCode = dto.getLanguageCode();
             JSONObject emailTemplate = config.getJSONObject("email-template");
             JSONObject template = getTemplate(emailTemplate, languageCode);
             if (template == null) {
                 template = getDefaultTemplate(emailTemplate);
             }
 
-            String subject = buildSubject(template, order);
-            String content = buildContent(template, order);
+            String subject = buildSubject(template, dto);
+            String content = buildContent(template, dto);
 
-            // 发送HTML邮件
             sendHtmlEmail(mailSender, emailConfig.getStr("from"), customerEmail, subject, content);
-            log.info("订单 {} 确认邮件发送成功，收件人: {}, 语言: {}", order.getId(), customerEmail, languageCode);
+            log.info("订单 {} 确认邮件发送成功，收件人: {}, 语言: {}", dto.getId(), customerEmail, languageCode);
 
         } catch (Exception e) {
-            log.error("订单 {} 发送邮件失败", order.getId(), e);
+            log.error("订单 {} 发送邮件失败", dto.getId(), e);
         }
     }
 
@@ -152,20 +145,17 @@ public class EmailService implements IEmailService {
         return emailTemplate.getJSONObject(languageCode);
     }
 
-    private String buildSubject(JSONObject template, Order order) {
+    private String buildSubject(JSONObject template, OrderEmailDto dto) {
         if (template != null && StrUtil.isNotBlank(template.getStr("subject"))) {
-            return replaceVariables(template.getStr("subject"), order);
+            return replaceVariables(template.getStr("subject"), dto);
         }
-        // 默认主题
-        return String.format("Order Confirmation - #%s", order.getOriginOrderId());
+        return String.format("Order Confirmation - #%s", dto.getOriginOrderId());
     }
 
-    private String buildContent(JSONObject template, Order order) {
+    private String buildContent(JSONObject template, OrderEmailDto dto) {
         if (template != null && StrUtil.isNotBlank(template.getStr("content"))) {
-            return replaceVariables(template.getStr("content"), order);
+            return replaceVariables(template.getStr("content"), dto);
         }
-        // 默认内容
-        OrderDeliveryInfo deliveryInfo = order.getDeliveryInfo();
         return String.format("""
                                      <p>Dear %s %s,</p>
                                      <p>Thank you for your order!</p>
@@ -173,23 +163,22 @@ public class EmailService implements IEmailService {
                                      <p>We will process your order shortly.</p>
                                      <p>Best regards,<br>Customer Service Team</p>
                                      """,
-                             deliveryInfo.getFirstName(),
-                             deliveryInfo.getLastName(),
-                             order.getOriginOrderId()
+                             dto.getFirstName(),
+                             dto.getLastName(),
+                             dto.getOriginOrderId()
         );
     }
 
-    private String replaceVariables(String template, Order order) {
-        OrderDeliveryInfo deliveryInfo = order.getDeliveryInfo();
-        String name = StrUtil.nullToEmpty(deliveryInfo.getFirstName()) + " " +
-                      StrUtil.nullToEmpty(deliveryInfo.getLastName());
+    private String replaceVariables(String template, OrderEmailDto dto) {
+        String name = StrUtil.nullToEmpty(dto.getFirstName()) + " " +
+                      StrUtil.nullToEmpty(dto.getLastName());
 
-        String region = StrUtil.nullToEmpty(order.getDeliveryInfo().getDistrict()) + " " +
-                        StrUtil.nullToEmpty(order.getDeliveryInfo().getCity()) + " " +
-                        StrUtil.nullToEmpty(order.getDeliveryInfo().getProvince());
+        String region = StrUtil.nullToEmpty(dto.getDistrict()) + " " +
+                        StrUtil.nullToEmpty(dto.getCity()) + " " +
+                        StrUtil.nullToEmpty(dto.getProvince());
 
-        BigDecimal totalAmount = order.getFinancialInfo().getTotalAmount();
-        String currencyCode = order.getContextInfo().getCurrencyCode();
+        BigDecimal totalAmount = dto.getTotalAmount();
+        String currencyCode = dto.getCurrencyCode();
         NumberFormat currencyFormat = NumberFormat.getCurrencyInstance();
         if (currencyCode != null) {
             currencyFormat.setCurrency(Currency.getInstance(currencyCode));
@@ -197,26 +186,28 @@ public class EmailService implements IEmailService {
         String formattedAmount = currencyFormat.format(totalAmount.doubleValue());
 
         StringBuilder itemInfoBuilder = new StringBuilder();
-        order.getItemInfos().forEach(itemInfo -> {
-            BigDecimal itemPrice = itemInfo.getSellPrice();
-            String formatItemPrice = currencyFormat.format(itemPrice.doubleValue());
-            itemInfoBuilder.append(itemInfo.getSpecTitle())
-                    .append("<br/>")
-                    .append(formatItemPrice)
-                    .append(" × ")
-                    .append(itemInfo.getQuantity())
-                    .append("<br/>");
-        });
+        if (dto.getItems() != null) {
+            dto.getItems().forEach(item -> {
+                BigDecimal itemPrice = item.getSellPrice();
+                String formatItemPrice = currencyFormat.format(itemPrice.doubleValue());
+                itemInfoBuilder.append(item.getSpecTitle())
+                        .append("<br/>")
+                        .append(formatItemPrice)
+                        .append(" × ")
+                        .append(item.getQuantity())
+                        .append("<br/>");
+            });
+        }
 
         return template
                 .replace("{{customer_name}}", name.trim())
-                .replace("{{customer_phone}}", StrUtil.nullToEmpty(deliveryInfo.getPhone()))
-                .replace("{{customer_email}}", StrUtil.nullToEmpty(deliveryInfo.getEmail()))
-                .replace("{{customer_address}}", StrUtil.nullToEmpty(order.getDeliveryInfo().getAddress()))
+                .replace("{{customer_phone}}", StrUtil.nullToEmpty(dto.getPhone()))
+                .replace("{{customer_email}}", StrUtil.nullToEmpty(dto.getEmail()))
+                .replace("{{customer_address}}", StrUtil.nullToEmpty(dto.getAddress()))
                 .replace("{{customer_region}}", StrUtil.nullToEmpty(region).replaceFirst(" ", ""))
-                .replace("{{customer_postal_code}}", StrUtil.nullToEmpty(order.getDeliveryInfo().getPostalCode()))
-                .replace("{{customer_remark}}", StrUtil.nullToEmpty(order.getDeliveryInfo().getRemark()))
-                .replace("{{order_id}}", StrUtil.nullToEmpty(order.getOriginOrderId() == null ? order.getId() == null ? "" : order.getId().toString() : order.getOriginOrderId()))
+                .replace("{{customer_postal_code}}", StrUtil.nullToEmpty(dto.getPostalCode()))
+                .replace("{{customer_remark}}", StrUtil.nullToEmpty(dto.getRemark()))
+                .replace("{{order_id}}", StrUtil.nullToEmpty(dto.getOriginOrderId() == null ? dto.getId() == null ? "" : dto.getId().toString() : dto.getOriginOrderId()))
                 .replace("{{order_amount}}", formattedAmount)
                 .replace("{{order_items}}", itemInfoBuilder.toString().trim())
                 ;
