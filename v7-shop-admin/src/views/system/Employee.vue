@@ -10,11 +10,23 @@
             <el-input v-model="queryForm.title" clearable placeholder="请输入标题" />
           </el-form-item>
           <el-form-item>
-            <el-button :icon="Search" :loading="listLoading" native-type="submit" type="primary" @click="queryData">查询</el-button>
+            <el-button
+              :icon="Search"
+              :loading="listLoading"
+              native-type="submit"
+              type="primary"
+              @click="queryData"
+            >
+              查询
+            </el-button>
             <el-button class="hidden-xs-only" text type="primary" @click="handleFold">
               <span v-if="fold">展开</span>
               <span v-else>合并</span>
-              <vab-icon class="vab-dropdown" :class="{ 'vab-dropdown-active': fold }" icon="arrow-up-s-line" />
+              <vab-icon
+                class="vab-dropdown"
+                :class="{ 'vab-dropdown-active': fold }"
+                icon="arrow-up-s-line"
+              />
             </el-button>
           </el-form-item>
         </el-form>
@@ -25,7 +37,13 @@
       </vab-query-form-left-panel>
     </vab-query-form>
 
-    <el-table ref="tableRef" v-loading="listLoading" border :data="list" @selection-change="setSelectRows">
+    <el-table
+      ref="tableRef"
+      v-loading="listLoading"
+      border
+      :data="list"
+      @selection-change="setSelectRows"
+    >
       <el-table-column type="selection" width="38" />
       <el-table-column align="center" label="姓名" prop="name" />
       <el-table-column align="center" label="性别" prop="gender">
@@ -43,7 +61,9 @@
       <el-table-column align="center" label="角色" prop="role">
         <template #default="{ row }">
           <el-space wrap>
-            <el-tag v-for="role in row.roles" :key="role.id" disable-transitions :type="'success'">{{ role.name }}</el-tag>
+            <el-tag v-for="role in row.roles" :key="role.id" disable-transitions :type="'success'">
+              {{ role.name }}
+            </el-tag>
           </el-space>
         </template>
       </el-table-column>
@@ -53,7 +73,10 @@
             <el-tag type="info">不限</el-tag>
           </template>
           <template v-else-if="row.monthlyAiCredits > 0">
-            <el-text>{{ (row.usedAiCredits || 0) + (row.frozenAiCredits || 0) }} / {{ row.monthlyAiCredits }}</el-text>
+            <el-text>
+              {{ (row.usedAiCredits || 0) + (row.frozenAiCredits || 0) }} /
+              {{ row.monthlyAiCredits }}
+            </el-text>
           </template>
           <template v-else>
             <el-tag type="danger">已禁用</el-tag>
@@ -71,7 +94,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column align="center" label="操作" width="340">
+      <el-table-column align="center" label="操作" width="400">
         <template #default="{ row }">
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button text type="primary" @click="handleDispatchDepartments(row)">部门</el-button>
@@ -221,7 +244,10 @@ const handleDelete = (row: any) => {
     }
   }
 }
-const handleSwitchValidity = (newVal: string | number | boolean, row: { id: number; status: string; statusLoading: boolean }) => {
+const handleSwitchValidity = (
+  newVal: string | number | boolean,
+  row: { id: number; status: string; statusLoading: boolean }
+) => {
   row.statusLoading = true
   switchValidity({ id: row.id, status: row.status })
     .then(() => {
