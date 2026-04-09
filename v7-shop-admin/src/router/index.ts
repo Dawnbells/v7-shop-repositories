@@ -78,7 +78,6 @@ export const asyncRoutes: VabRouteRecord[] = [
           title: '首页',
           icon: 'home-2-line',
           noClosable: true,
-          noKeepAlive: true,
         },
       },
       {
