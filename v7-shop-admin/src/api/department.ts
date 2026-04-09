@@ -15,6 +15,9 @@ export interface Department {
 
   /*部门描述: */
   description: string
+
+  /*是否私域部门 */
+  isPrivateDomain?: boolean
   /**
    * 子部门
    */
@@ -55,6 +58,14 @@ export function doDelete(data: any) {
 export function switchValidity(data: any) {
   return request({
     url: '/department/switchValidity',
+    method: 'post',
+    data,
+  })
+}
+
+export function switchPrivateDomain(data: any) {
+  return request({
+    url: '/department/switchPrivateDomain',
     method: 'post',
     data,
   })

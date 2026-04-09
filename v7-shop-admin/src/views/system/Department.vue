@@ -48,6 +48,15 @@
       <el-table-column type="selection" width="38" />
       <el-table-column align="left" label="名称" prop="name" />
       <el-table-column align="center" label="描述" prop="description" />
+      <el-table-column align="center" label="私域部门" prop="isPrivateDomain" width="100">
+        <template #default="{ row }">
+          <el-switch
+            v-model="row.isPrivateDomain"
+            :loading="row.privateDomainLoading"
+            @change="handleSwitchPrivateDomain(row)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column align="center" label="状态" prop="status">
         <template #default="{ row }">
           <el-switch
@@ -86,7 +95,7 @@
 
 <script lang="ts" setup>
 import { Delete, Plus, Search } from '@element-plus/icons-vue'
-import { doDelete, getTree, switchValidity } from '/@/api/department'
+import { doDelete, getTree, switchPrivateDomain, switchValidity } from '/@/api/department'
 import DepartmentConfigDialog from '/@/views/system/vabAutoComponents/DepartmentConfigDialog.vue'
 
 defineOptions({
@@ -190,6 +199,17 @@ const handleSwitchValidity = (
     .catch(() => {
       row.statusLoading = false
       row.status = newVal == 'VALID' ? 'INVALID' : 'VALID'
+    })
+}
+const handleSwitchPrivateDomain = (row: any) => {
+  row.privateDomainLoading = true
+  switchPrivateDomain({ id: row.id })
+    .then(() => {
+      row.privateDomainLoading = false
+    })
+    .catch(() => {
+      row.privateDomainLoading = false
+      row.isPrivateDomain = !row.isPrivateDomain
     })
 }
 onActivated(() => {

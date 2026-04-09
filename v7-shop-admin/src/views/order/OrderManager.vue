@@ -1,6 +1,6 @@
 <template>
   <div class="order-manager-container">
-    <el-progress v-if="taskDownloading" :percentage="downloadPercentage" />
+    <el-progress v-if="!isContact && taskDownloading" :percentage="downloadPercentage" />
     <order-query-param-layout
       v-model="queryForm"
       :is-audit="isAudit"
@@ -247,6 +247,10 @@
       <el-table-column align="center" label="订单状态" width="120">
         <template #default="{ row }">
           <el-space alignment="center" direction="vertical" style="width: 100%">
+            <div v-if="row.isPrivateDomain">
+              <el-tag v-if="row.contacted" type="success" effect="dark" size="small">已建联</el-tag>
+              <el-tag v-else type="danger" effect="dark" size="small">未建联</el-tag>
+            </div>
             <div class="bold" :class="orderStatusClass(row.orderStatus)">
               <span>{{ borderStatus(row.orderStatus) }}</span>
             </div>
@@ -390,12 +394,6 @@
           </el-space>
         </template>
       </el-table-column>
-      <el-table-column align="center" label="建联状态" width="90">
-        <template #default="{ row }">
-          <el-tag v-if="row.contacted" type="success" effect="dark">已建联</el-tag>
-          <el-tag v-else type="danger" effect="dark">未建联</el-tag>
-        </template>
-      </el-table-column>
       <el-table-column v-if="isContact" align="center" label="操作" width="160">
         <template #default="{ row }">
           <el-button
@@ -470,7 +468,7 @@
       </el-table-column>
 
       <el-table-column
-        v-if="hasOrderTemplateRoutePermission && !isAudit"
+        v-if="hasOrderTemplateRoutePermission && !isAudit && !isContact"
         align="center"
         label="操作"
         width="100"

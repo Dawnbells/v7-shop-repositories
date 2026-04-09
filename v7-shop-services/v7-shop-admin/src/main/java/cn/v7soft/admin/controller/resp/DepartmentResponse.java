@@ -26,6 +26,9 @@ public class DepartmentResponse extends IdResponse {
     @Schema(title = "下级ID列表", example = "[]")
     private List<DepartmentResponse> children;
 
+    @Schema(title = "是否私域部门", example = "false")
+    private Boolean isPrivateDomain;
+
     /**
      * 是否可选
      */
@@ -36,6 +39,7 @@ public class DepartmentResponse extends IdResponse {
         return filling(department, DepartmentResponse.builder()
                 .name(department.getName())
                 .description(department.getDescription())
+                .isPrivateDomain(department.getIsPrivateDomain())
                 .disabled(false)
                 .build());
     }

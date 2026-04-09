@@ -14,4 +14,7 @@ public interface DepartmentRepository extends BaseRepository<Department> {
 
     @Query("from Department where name=:name and (:id is null or id<>:id) and status='VALID'")
     Department findBySameName(String name, Long id);
+
+    @Query("select d.id from Department d where d.isPrivateDomain = true and d.status = 'VALID'")
+    List<Long> findAllPrivateDomainDepartmentIds();
 }

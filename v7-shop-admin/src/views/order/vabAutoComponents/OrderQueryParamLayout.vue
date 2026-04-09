@@ -230,6 +230,7 @@
           批量未建联
         </el-button>
         <el-button
+          v-if="!isContact"
           :icon="Download"
           :loading="taskDownloading"
           type="primary"
@@ -238,6 +239,7 @@
           下载全部
         </el-button>
         <el-button
+          v-if="!isContact"
           :icon="Download"
           :loading="taskDownloading"
           type="danger"
@@ -319,7 +321,7 @@ const defaultProps = {
   label: 'name',
   children: 'children',
 }
-defineProps<{
+const props = defineProps<{
   listLoading: boolean
   isAudit: boolean
   isContact: boolean
@@ -337,7 +339,11 @@ const emit = defineEmits<{
 }>()
 
 const fetchAllDepartments = () => {
-  getAllDepartmentTree({ status: 'VALID' }).then((data) => {
+  const params: any = { status: 'VALID' }
+  if (props.isContact) {
+    params.isPrivateDomain = true
+  }
+  getAllDepartmentTree(params).then((data) => {
     allDepartmentTree.value = data.data.list.map((item: any) => ({
       ...item,
       label: item.name,

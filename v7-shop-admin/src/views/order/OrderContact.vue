@@ -4,4 +4,5 @@
 
 <script lang="ts" setup>
 import OrderManager from './OrderManager.vue'
+defineOptions({ name: 'OrderContact' })
 </script>

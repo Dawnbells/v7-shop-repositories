@@ -35,6 +35,13 @@ public class Department extends BaseDataRangeEntity {
     private String description;
 
     /**
+     * 是否私域部门
+     */
+    @Builder.Default
+    @Column(name = "is_private_domain", nullable = false)
+    private Boolean isPrivateDomain = false;
+
+    /**
      * 用于排序的属性，决定菜单项在同级部门中的顺序
      */
     @Column(name = "sort_order")

@@ -1,8 +1,12 @@
 package cn.v7soft.admin.controller;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.jetbrains.annotations.Nullable;
 import org.springframework.data.domain.Page;
@@ -29,7 +33,9 @@ import cn.v7soft.admin.utils.OrderQueryHelper;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.enums.ClientResponseEnum;
+import cn.v7soft.dao.entities.primary.Department;
 import cn.v7soft.dao.entities.primary.Order;
+import cn.v7soft.dao.repositories.primary.DepartmentRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,8 +49,11 @@ import lombok.extern.slf4j.Slf4j;
 @RequestMapping("/orders")
 public class OrderController extends BaseDataRangeController<Order, IOrderService, OrderResponse, QueryOrderRequest, EditOrderRequest> {
 
-    protected OrderController(IOrderService service) {
+    private final DepartmentRepository departmentRepository;
+
+    protected OrderController(IOrderService service, DepartmentRepository departmentRepository) {
         super(service);
+        this.departmentRepository = departmentRepository;
     }
 
     @Override
@@ -58,7 +67,27 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
     public Page<OrderResponse> page(@Valid @RequestBody QueryOrderRequest request) {
         String permission = getPermissionPrefix() + ".page";
         StpUtil.checkPermission(permission);
-        return service.findPaginated(convertQueryPageRequest(request)).map(order -> filling(order, OrderResponse.convertEntity(order, !Objects.equals(Boolean.TRUE, request.getIsAudit()))));
+        boolean desensitized = !Objects.equals(Boolean.TRUE, request.getIsAudit());
+        Page<OrderResponse> responsePage = service.findPaginated(convertQueryPageRequest(request))
+                .map(order -> filling(order, OrderResponse.convertEntity(order, desensitized)));
+        fillPrivateDomainFlag(responsePage);
+        return responsePage;
+    }
+
+    private void fillPrivateDomainFlag(Page<OrderResponse> responsePage) {
+        Set<Long> departmentIds = responsePage.getContent().stream()
+                .map(r -> r.getContextInfo() != null ? r.getContextInfo().getDepartmentId() : null)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (departmentIds.isEmpty()) {
+            return;
+        }
+        Map<Long, Boolean> privateDomainMap = departmentRepository.findAllById(departmentIds).stream()
+                .collect(Collectors.toMap(Department::getId, d -> Boolean.TRUE.equals(d.getIsPrivateDomain())));
+        for (OrderResponse resp : responsePage.getContent()) {
+            Long deptId = resp.getContextInfo() != null ? resp.getContextInfo().getDepartmentId() : null;
+            resp.setIsPrivateDomain(deptId != null ? privateDomainMap.getOrDefault(deptId, false) : false);
+        }
     }
 
     @Override
@@ -66,6 +95,22 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
     protected QueryPageRequest<Order> convertQueryPageRequest(QueryOrderRequest request) {
         if (Objects.equals(Boolean.TRUE, request.getIsAudit()) && !StpUtil.hasPermission("order.audit")) {
             ClientResponseEnum.NO_PERMISSION.throwException();
+        }
+        if (Objects.equals(Boolean.TRUE, request.getIsContact())) {
+            List<Long> privateDeptIds = departmentRepository.findAllPrivateDomainDepartmentIds();
+            if (privateDeptIds.isEmpty()) {
+                request.setBelongDepartmentIds(List.of("-1"));
+            } else {
+                List<String> deptIdStrings = privateDeptIds.stream().map(String::valueOf).toList();
+                if (request.getBelongDepartmentIds() == null || request.getBelongDepartmentIds().isEmpty()) {
+                    request.setBelongDepartmentIds(deptIdStrings);
+                } else {
+                    Set<String> privateSet = new HashSet<>(deptIdStrings);
+                    List<String> intersection = request.getBelongDepartmentIds().stream()
+                            .filter(privateSet::contains).toList();
+                    request.setBelongDepartmentIds(intersection.isEmpty() ? List.of("-1") : intersection);
+                }
+            }
         }
         return OrderQueryHelper.convertOrderQueryPageRequest(request, service);
     }

@@ -10,4 +10,7 @@ import lombok.Setter;
 public class TreeDepartmentRequest {
     @Schema(title = "查询状态", example = "VALID", requiredMode = Schema.RequiredMode.REQUIRED)
     private StatusEnum status;
+
+    @Schema(title = "是否只查私域部门", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private Boolean isPrivateDomain;
 }

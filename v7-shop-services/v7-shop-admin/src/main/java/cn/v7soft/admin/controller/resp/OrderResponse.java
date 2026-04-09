@@ -82,6 +82,9 @@ public class OrderResponse extends IdResponse {
     @Schema(title = "是否已建联")
     private Boolean contacted;
 
+    @Schema(title = "是否私域部门订单")
+    private Boolean isPrivateDomain;
+
     /**
      * 从 `Order` 实体转换为 `OrderResponse` 的静态方法。
      */

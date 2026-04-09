@@ -1,5 +1,6 @@
 package cn.v7soft.admin.controller;
 
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.hutool.core.bean.BeanUtil;
 import cn.v7soft.admin.controller.req.EditDepartmentRequest;
@@ -8,6 +9,7 @@ import cn.v7soft.admin.controller.req.TreeDepartmentRequest;
 import cn.v7soft.admin.controller.resp.DepartmentResponse;
 import cn.v7soft.admin.service.IDepartmentService;
 import cn.v7soft.common.controller.BaseDataRangeController;
+import cn.v7soft.core.controller.request.IdRequest;
 import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Department;
@@ -50,13 +52,19 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
             return departmentResponse;
         }).toList();
         SystemUserDto loginUser = SaSessionUtil.getLoginUser();
-        if (loginUser.isAdmin()) {
-            return list;
+        if (!loginUser.isAdmin()) {
+            list = list.stream()
+                    .map(item -> filterDepartmentTree(item, loginUser.getAccessDepartmentIds()))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
         }
-        return list.stream()
-                .map(item -> filterDepartmentTree(item, loginUser.getAccessDepartmentIds()))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        if (request != null && Boolean.TRUE.equals(request.getIsPrivateDomain())) {
+            list = list.stream()
+                    .map(DepartmentController::filterPrivateDomainTree)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        }
+        return list;
     }
 
     @GetMapping("/info")
@@ -118,6 +126,15 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
     }
 
 
+    @SaCheckLogin
+    @PostMapping("/switchPrivateDomain")
+    @Operation(summary = "切换私域部门状态")
+    public void switchPrivateDomain(@RequestBody @Valid IdRequest request) {
+        Department department = service.getById(request.getIdLongValue());
+        department.setIsPrivateDomain(!Boolean.TRUE.equals(department.getIsPrivateDomain()));
+        service.save(department);
+    }
+
     @Override
     protected DepartmentResponse convertEntity(Department department) {
         return DepartmentResponse.convertEntity(department);
@@ -138,5 +155,24 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
     @Override
     protected String getPermissionPrefix() {
         return "department";
+    }
+
+    private static DepartmentResponse filterPrivateDomainTree(DepartmentResponse node) {
+        if (Boolean.TRUE.equals(node.getIsPrivateDomain())) {
+            return node;
+        }
+        if (node.getChildren() == null || node.getChildren().isEmpty()) {
+            return null;
+        }
+        List<DepartmentResponse> filteredChildren = node.getChildren().stream()
+                .map(DepartmentController::filterPrivateDomainTree)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (filteredChildren.isEmpty()) {
+            return null;
+        }
+        node.setChildren(filteredChildren);
+        node.setDisabled(true);
+        return node;
     }
 }
