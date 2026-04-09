@@ -3,6 +3,7 @@ package cn.v7soft.admin.service;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
+import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
 import cn.v7soft.admin.service.dto.OrderDownloadDto;
 import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.core.controller.request.QueryPageRequest;
@@ -60,4 +61,9 @@ public interface IOrderService extends IBaseDataRangeService<Order> {
     Optional<Order> findByOriginOrderId(String orderId);
 
     Page<OrderDownloadDto> findPaginatedForDownload(QueryPageRequest<Order> request, SystemUserDto owner, ViewMode viewMode);
+
+    /**
+     * 在事务内查找订单、应用审单修改并保存，避免 @Async 线程中 LAZY 加载异常
+     */
+    void applyCheckInfoAndSave(String orderId, OrderCheckInfoDto checkInfo, SystemUserDto owner);
 }

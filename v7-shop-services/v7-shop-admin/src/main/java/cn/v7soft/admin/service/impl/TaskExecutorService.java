@@ -1770,22 +1770,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                             return rowNameMap.containsKey(OrderCheckInfoDto.KEY_MAPPING.get(key));
                         }
                     }, CopyOptions.create());
-                    Optional<Order> orderOption = Optional.empty();
-                    if (ConvertUtils.isLong(orderCheckInfoDto.getOrderId())) {
-                        orderOption = orderService.findById(ConvertUtils.parseLong(orderCheckInfoDto.getOrderId()));
-                    }
-                    if (orderOption.isEmpty()) {
-                        orderOption = orderService.findByOriginOrderId(orderCheckInfoDto.getOrderId());
-                    }
-                    if (orderOption.isEmpty()) {
-                        throw ClientResponseEnum.PARAMETER_ILLEGAL.newException("订单不存在");
-                    }
-                    Order order = orderOption.get();
-                    if (!owner.isSuperAdmin() && !Objects.equals(order.getCompanyId(), owner.getCompanyId())) {
-                        ClientResponseEnum.NO_PERMISSION.throwException("权限不足");
-                    }
-                    orderCheckInfoDto.fillChangeOrder(order);
-                    orderService.saveAndFlush(order);
+                    orderService.applyCheckInfoAndSave(orderCheckInfoDto.getOrderId(), orderCheckInfoDto, owner);
                     successIds.add(orderCheckInfoDto.getOrderId());
                 } catch (Exception e) {
                     errorMsgList.add("第" + rowIndex + "行: " + e.getMessage());

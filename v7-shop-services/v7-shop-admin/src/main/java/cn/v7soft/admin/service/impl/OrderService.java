@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -20,10 +21,12 @@ import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.ITaskExecutorService;
+import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
 import cn.v7soft.admin.service.dto.OrderDownloadDto;
 import cn.v7soft.common.controller.req.attributes.AccessDataRangeAttribute;
 import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
+import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
@@ -168,6 +171,27 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     @Transactional(readOnly = true)
     public Page<OrderDownloadDto> findPaginatedForDownload(QueryPageRequest<Order> request, SystemUserDto owner, ViewMode viewMode) {
         return findPaginated(request, owner, viewMode).map(OrderDownloadDto::convert);
+    }
+
+    @Override
+    @Transactional
+    public void applyCheckInfoAndSave(String orderId, OrderCheckInfoDto checkInfo, SystemUserDto owner) {
+        Optional<Order> orderOption = Optional.empty();
+        if (ConvertUtils.isLong(orderId)) {
+            orderOption = repository.findById(ConvertUtils.parseLong(orderId));
+        }
+        if (orderOption.isEmpty()) {
+            orderOption = repository.findByOriginOrderId(orderId);
+        }
+        if (orderOption.isEmpty()) {
+            throw ClientResponseEnum.PARAMETER_ILLEGAL.newException("订单不存在");
+        }
+        Order order = orderOption.get();
+        if (!owner.isSuperAdmin() && !Objects.equals(order.getCompanyId(), owner.getCompanyId())) {
+            ClientResponseEnum.NO_PERMISSION.throwException("权限不足");
+        }
+        checkInfo.fillChangeOrder(order);
+        this.saveAndFlush(order);
     }
 
     @Override
