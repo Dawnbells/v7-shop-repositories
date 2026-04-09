@@ -29,6 +29,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -51,6 +52,7 @@ import lombok.experimental.SuperBuilder;
         @Index(name = "idx_order_status", columnList = "order_status"),
         @Index(name = "idx_bot_order_status", columnList = "bot_order_status"),
         @Index(name = "idx_address", columnList = "address"),
+        @Index(name = "idx_contacted", columnList = "is_contacted"),
 })
 @SQLRestriction("status <> 'DELETED'")
 public class Order extends BaseDataRangeEntity {
@@ -189,4 +191,11 @@ public class Order extends BaseDataRangeEntity {
     @OneToOne(fetch = FetchType.EAGER, cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "logistics_info_id")
     private OrderLogisticsInfo logisticsInfo;
+
+    /**
+     * 是否已建联（私域与客户建立联系）
+     */
+    @Builder.Default
+    @Column(name = "is_contacted", nullable = false)
+    private Boolean contacted = false;
 }

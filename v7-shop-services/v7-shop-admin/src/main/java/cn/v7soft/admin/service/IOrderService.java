@@ -1,6 +1,7 @@
 package cn.v7soft.admin.service;
 
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
+import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
@@ -66,4 +67,9 @@ public interface IOrderService extends IBaseDataRangeService<Order> {
      * 在事务内查找订单、应用审单修改并保存，避免 @Async 线程中 LAZY 加载异常
      */
     void applyCheckInfoAndSave(String orderId, OrderCheckInfoDto checkInfo, SystemUserDto owner);
+
+    /**
+     * 批量更新订单建联状态
+     */
+    void updateContactStatus(UpdateContactStatusRequest request);
 }

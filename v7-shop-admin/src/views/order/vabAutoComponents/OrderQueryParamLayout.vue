@@ -171,6 +171,12 @@
                 <el-option label="SHOPLINE" value="SHOPLINE" />
               </el-select>
             </el-form-item>
+            <el-form-item label="建联状态">
+              <el-select v-model="queryForm.contacted" clearable placeholder="请选择建联状态">
+                <el-option label="已建联" :value="true" />
+                <el-option label="未建联" :value="false" />
+              </el-select>
+            </el-form-item>
           </el-row>
         </el-form>
       </vab-query-form-top-panel>
@@ -204,6 +210,24 @@
           @click="handleBatchChangeOrderStatus('INVALID')"
         >
           批量无效单
+        </el-button>
+        <el-button
+          v-if="isContact"
+          :icon="CircleCheck"
+          :loading="updatingOrderStatus"
+          type="success"
+          @click="handleBatchContactStatus(true)"
+        >
+          批量已建联
+        </el-button>
+        <el-button
+          v-if="isContact"
+          :icon="Delete"
+          :loading="updatingOrderStatus"
+          type="danger"
+          @click="handleBatchContactStatus(false)"
+        >
+          批量未建联
         </el-button>
         <el-button
           :icon="Download"
@@ -298,6 +322,7 @@ const defaultProps = {
 defineProps<{
   listLoading: boolean
   isAudit: boolean
+  isContact: boolean
   taskDownloading: boolean
   updatingOrderStatus: boolean
 }>()
@@ -308,6 +333,7 @@ const emit = defineEmits<{
   (event: 'onDownload', type: string): void
   (event: 'onBatchChangeOrderStatus', status: string): void
   (event: 'onBatchChangeOrderRemark'): void
+  (event: 'onBatchContactStatus', contacted: boolean): void
 }>()
 
 const fetchAllDepartments = () => {
@@ -322,6 +348,10 @@ const fetchAllDepartments = () => {
 
 const handleBatchChangeOrderStatus = (status: string) => {
   emit('onBatchChangeOrderStatus', status)
+}
+
+const handleBatchContactStatus = (contacted: boolean) => {
+  emit('onBatchContactStatus', contacted)
 }
 
 const calcTokenHeader = () => {

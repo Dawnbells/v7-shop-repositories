@@ -72,7 +72,8 @@ public class OrderQueryHelper {
                         .value(WebsiteContext.getCurrentWebsiteId())
                         .build())
                 .addConstraint(!belongEmployeeIds.isEmpty(), InAttribute.<Long>builder().name("contextInfo.salesUid").value(belongEmployeeIds).build())
-                .addConstraint(!belongDepartmentIds.isEmpty(), InAttribute.<Long>builder().name("contextInfo.departmentId").value(belongDepartmentIds).build());
+                .addConstraint(!belongDepartmentIds.isEmpty(), InAttribute.<Long>builder().name("contextInfo.departmentId").value(belongDepartmentIds).build())
+                .addConstraint(ObjectUtil.isNotNull(request.getContacted()), EqualsQueryAttribute.builder().name("contacted").value(request.getContacted()).build());
 
         if (SearchType.REPEAT == searchType) {
             if (!ConvertUtils.isLong(keyword) || orderService == null) {

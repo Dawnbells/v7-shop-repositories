@@ -79,6 +79,9 @@ public class OrderResponse extends IdResponse {
     @Schema(title = "审单批注")
     private String orderCheckRemark;
 
+    @Schema(title = "是否已建联")
+    private Boolean contacted;
+
     /**
      * 从 `Order` 实体转换为 `OrderResponse` 的静态方法。
      */
@@ -114,6 +117,7 @@ public class OrderResponse extends IdResponse {
                 .skuCodes(order.getSkuCodes())
                 .skuNames(order.getSkuNames())
                 .quantity(order.getQuantity())
+                .contacted(order.getContacted())
                 .build();
     }
 }

@@ -57,3 +57,11 @@ export function updateOrderCheckRemark(ids: string[], remark: string) {
     },
   })
 }
+
+export function updateContactStatus(data: any) {
+  return request({
+    url: '/orders/updateContactStatus',
+    method: 'post',
+    data,
+  })
+}

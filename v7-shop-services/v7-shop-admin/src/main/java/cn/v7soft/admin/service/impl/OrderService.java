@@ -17,6 +17,7 @@ import org.springframework.web.multipart.MultipartHttpServletRequest;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
+import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.service.IOrderService;
@@ -192,6 +193,20 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
         }
         checkInfo.fillChangeOrder(order);
         this.saveAndFlush(order);
+    }
+
+    @Override
+    @Transactional
+    public void updateContactStatus(UpdateContactStatusRequest request) {
+        for (Long orderId : request.getIds()) {
+            Optional<Order> orderOptional = findById(orderId);
+            if (orderOptional.isEmpty()) {
+                continue;
+            }
+            Order order = orderOptional.get();
+            order.setContacted(request.getContacted());
+            repository.save(order);
+        }
     }
 
     @Override

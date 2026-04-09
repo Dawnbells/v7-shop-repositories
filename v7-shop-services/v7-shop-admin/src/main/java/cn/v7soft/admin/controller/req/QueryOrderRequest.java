@@ -64,4 +64,12 @@ public class QueryOrderRequest extends BasePageRequest {
     @Schema(title = "订单归属员工ID", example = "1")
     private List<String> belongEmployeeIds;
 
+    @Nullable
+    @Schema(title = "是否是建联页面", example = "true", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private Boolean isContact;
+
+    @Nullable
+    @Schema(title = "建联状态过滤", example = "true", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private Boolean contacted;
+
 }

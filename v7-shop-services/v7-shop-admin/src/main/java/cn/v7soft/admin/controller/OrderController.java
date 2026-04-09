@@ -20,6 +20,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.EditOrderRequest;
 import cn.v7soft.admin.controller.req.QueryOrderRequest;
+import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.controller.resp.OrderResponse;
@@ -114,6 +115,13 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
     @Operation(summary = "上传订单")
     public Long upload(HttpServletRequest request) {
         return service.upload(request);
+    }
+
+    @SaCheckLogin
+    @PostMapping("/updateContactStatus")
+    @Operation(summary = "更新建联状态")
+    public void updateContactStatus(@RequestBody UpdateContactStatusRequest request) {
+        service.updateContactStatus(request);
     }
 
     @Override

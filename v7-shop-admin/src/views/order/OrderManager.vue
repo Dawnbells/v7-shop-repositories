@@ -4,11 +4,13 @@
     <order-query-param-layout
       v-model="queryForm"
       :is-audit="isAudit"
+      :is-contact="isContact"
       :list-loading="listLoading"
       :task-downloading="taskDownloading"
       :updating-order-status="updatingOrderStatus"
       @on-batch-change-order-remark="handleBatchChangeOrderRemark"
       @on-batch-change-order-status="handleBatchChangeOrderStatus"
+      @on-batch-contact-status="handleBatchContactStatus"
       @on-download="handleDownload"
       @on-reset="onReset"
       @on-search="queryData"
@@ -388,6 +390,32 @@
           </el-space>
         </template>
       </el-table-column>
+      <el-table-column align="center" label="建联状态" width="90">
+        <template #default="{ row }">
+          <el-tag v-if="row.contacted" type="success" effect="dark">已建联</el-tag>
+          <el-tag v-else type="danger" effect="dark">未建联</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="isContact" align="center" label="操作" width="160">
+        <template #default="{ row }">
+          <el-button
+            :loading="row.changingContactStatus"
+            text
+            type="success"
+            @click.stop="handleContactStatus(row, true)"
+          >
+            已建联
+          </el-button>
+          <el-button
+            :loading="row.changingContactStatus"
+            text
+            type="danger"
+            @click.stop="handleContactStatus(row, false)"
+          >
+            未建联
+          </el-button>
+        </template>
+      </el-table-column>
       <el-table-column v-if="isAudit" align="center" label="操作" width="110">
         <template #default="{ row }">
           <el-button
@@ -497,7 +525,7 @@ import { getTicket } from '~/src/api/user'
 import { useRoutesStore } from '~/src/store/modules/routes'
 import { useMainDomain } from '~/src/utils/window'
 import { doEdit as doEditIpBlacklist } from '/@/api/ipBlacklist'
-import { download, page, updateOrderCheckRemark, updateOrderStatus } from '/@/api/orderManager'
+import { download, page, updateContactStatus, updateOrderCheckRemark, updateOrderStatus } from '/@/api/orderManager'
 
 const route = useRoute()
 const router = useRouter()
@@ -512,9 +540,13 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isContact: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-const { isAudit } = toRefs(props)
+const { isAudit, isContact } = toRefs(props)
 
 const $baseMessage = inject<any>('$baseMessage')
 const chooseOrderTemplateDialogRef = ref<any>()
@@ -552,6 +584,7 @@ const queryForm = reactive<any>({
   pageNo: 1,
   pageSize: 20,
   isAudit: isAudit.value || undefined,
+  isContact: isContact.value || undefined,
   dateRange: isAudit.value ? auditDefaultDataRange : undefined,
   searchType: 'COMPLEX',
   keywords: '',
@@ -607,6 +640,7 @@ watch(
     dateRange: queryForm.dateRange,
     belongEmployeeIds: queryForm.belongEmployeeIds,
     belongDepartmentIds: queryForm.belongDepartmentIds,
+    contacted: queryForm.contacted,
   }),
   () => {
     if (skipAutoQuery) return
@@ -756,6 +790,37 @@ const handleChangeOrderStatus = (
     })
 }
 
+const handleContactStatus = (row: any, contacted: boolean) => {
+  row.changingContactStatus = true
+  updateContactStatus({ ids: [row.id], contacted })
+    .then(() => {
+      row.contacted = contacted
+      row.changingContactStatus = false
+    })
+    .catch(() => {
+      row.changingContactStatus = false
+    })
+}
+
+const handleBatchContactStatus = (contacted: boolean) => {
+  if (selectRows.value.length === 0) {
+    $baseMessage('您未选中任何行', 'warning', 'hey')
+    return
+  }
+  const ids = selectRows.value.map((item: { id: any }) => item.id)
+  updatingOrderStatus.value = true
+  updateContactStatus({ ids, contacted })
+    .then(() => {
+      selectRows.value.forEach((item: any) => {
+        item.contacted = contacted
+      })
+      updatingOrderStatus.value = false
+    })
+    .catch(() => {
+      updatingOrderStatus.value = false
+    })
+}
+
 const orderStatusClass = (status: any) => {
   if (status === 'INVALID') {
     return 'text-danger'
@@ -812,7 +877,8 @@ const onFilterOrder = (row: any, field: any) => {
     repeatType: field,
     keywords: row.id, // 可能是 "-"
   })
-  const fullUrl = `${baseUrl}/#/order/${isAudit.value ? 'orderAudit' : 'orderManager'}?${params.toString()}`
+  const page = isContact.value ? 'orderContact' : isAudit.value ? 'orderAudit' : 'orderManager'
+  const fullUrl = `${baseUrl}/#/order/${page}?${params.toString()}`
   window.open(fullUrl, '_blank')
 }
 
@@ -936,6 +1002,7 @@ const initQueryParams = () => {
     typeof query.belongEmployeeIds === 'string' ? query.belongEmployeeIds.split(',') : undefined
   queryForm.belongDepartmentIds =
     typeof query.belongDepartmentIds === 'string' ? query.belongDepartmentIds.split(',') : undefined
+  queryForm.contacted = query.contacted === 'true' ? true : query.contacted === 'false' ? false : undefined
   if (queryForm.searchType === 'REPEAT') {
     queryForm.dateRange = undefined
   }
@@ -949,8 +1016,13 @@ const updateQueryParams = () => {
       ? `${queryForm.dateRange[0].toISOString()},${queryForm.dateRange[1].toISOString()}`
       : undefined
 
+  const routePath = isContact.value
+    ? '/order/orderContact'
+    : isAudit.value
+      ? '/order/orderAudit'
+      : '/order/orderManager'
   router.replace({
-    path: isAudit.value ? '/order/orderAudit' : '/order/orderManager', // 新的路径
+    path: routePath,
     query: {
       pageNo: queryForm.pageNo,
       pageSize: queryForm.pageSize,
@@ -969,6 +1041,9 @@ const updateQueryParams = () => {
       belongDepartmentIds:
         queryForm.belongDepartmentIds && queryForm.belongDepartmentIds.length > 0
           ? queryForm.belongDepartmentIds.join(',')
+          : undefined,
+      contacted: queryForm.contacted !== undefined && queryForm.contacted !== null
+          ? String(queryForm.contacted)
           : undefined,
     },
   })
