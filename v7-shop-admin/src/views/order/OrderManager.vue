@@ -248,8 +248,20 @@
         <template #default="{ row }">
           <el-space alignment="center" direction="vertical" style="width: 100%">
             <div v-if="row.isPrivateDomain">
-              <el-tag v-if="row.contacted" type="success" effect="dark" size="small">已建联</el-tag>
-              <el-tag v-else type="danger" effect="dark" size="small">未建联</el-tag>
+              <transition name="contact-fade" mode="out-in">
+                <el-tag
+                  v-if="row.contacted"
+                  key="contacted"
+                  type="success"
+                  effect="dark"
+                  size="small"
+                >
+                  已建联
+                </el-tag>
+                <el-tag v-else key="uncontacted" type="danger" effect="dark" size="small">
+                  未建联
+                </el-tag>
+              </transition>
             </div>
             <div class="bold" :class="orderStatusClass(row.orderStatus)">
               <span>{{ borderStatus(row.orderStatus) }}</span>
@@ -394,7 +406,7 @@
           </el-space>
         </template>
       </el-table-column>
-      <el-table-column v-if="isContact" align="center" label="操作" width="160">
+      <el-table-column v-if="isContact" align="center" label="操作" width="100">
         <template #default="{ row }">
           <el-button
             :loading="row.changingContactStatus"
@@ -523,7 +535,13 @@ import { getTicket } from '~/src/api/user'
 import { useRoutesStore } from '~/src/store/modules/routes'
 import { useMainDomain } from '~/src/utils/window'
 import { doEdit as doEditIpBlacklist } from '/@/api/ipBlacklist'
-import { download, page, updateContactStatus, updateOrderCheckRemark, updateOrderStatus } from '/@/api/orderManager'
+import {
+  download,
+  page,
+  updateContactStatus,
+  updateOrderCheckRemark,
+  updateOrderStatus,
+} from '/@/api/orderManager'
 
 const route = useRoute()
 const router = useRouter()
@@ -1000,7 +1018,8 @@ const initQueryParams = () => {
     typeof query.belongEmployeeIds === 'string' ? query.belongEmployeeIds.split(',') : undefined
   queryForm.belongDepartmentIds =
     typeof query.belongDepartmentIds === 'string' ? query.belongDepartmentIds.split(',') : undefined
-  queryForm.contacted = query.contacted === 'true' ? true : query.contacted === 'false' ? false : undefined
+  queryForm.contacted =
+    query.contacted === 'true' ? true : query.contacted === 'false' ? false : undefined
   if (queryForm.searchType === 'REPEAT') {
     queryForm.dateRange = undefined
   }
@@ -1040,7 +1059,8 @@ const updateQueryParams = () => {
         queryForm.belongDepartmentIds && queryForm.belongDepartmentIds.length > 0
           ? queryForm.belongDepartmentIds.join(',')
           : undefined,
-      contacted: queryForm.contacted !== undefined && queryForm.contacted !== null
+      contacted:
+        queryForm.contacted !== undefined && queryForm.contacted !== null
           ? String(queryForm.contacted)
           : undefined,
     },
@@ -1196,5 +1216,13 @@ const handleRowClick = (row: any, column: any, event: any) => {
 }
 .bold {
   font-weight: 400;
+}
+.contact-fade-enter-active,
+.contact-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.contact-fade-enter-from,
+.contact-fade-leave-to {
+  opacity: 0;
 }
 </style>
