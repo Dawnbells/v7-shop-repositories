@@ -68,6 +68,10 @@ public class SystemUserDto extends IdDto {
      * 跨部门管理的部门ID列表
      */
     private List<Long> manageDepartmentIds;
+    /**
+     * 是否可管理跨部门员工
+     */
+    private Boolean isManageEmployee;
 
     public static SystemUserDto convert(SystemUser user) {
         Department department = user.getDepartment();
@@ -95,6 +99,10 @@ public class SystemUserDto extends IdDto {
                 .distinct()
                 .toList();
 
+        boolean isManageEmployee = user.getRoles()
+                .stream()
+                .anyMatch(role -> Boolean.TRUE.equals(role.getIsManageEmployee()));
+
         List<Long> assignableRoles = user.getRoles().stream()
                 .flatMap(role -> role.getAssignableRoles().stream()) // 扁平化角色的 assignableRoles
                 .map(Role::getId)
@@ -114,6 +122,7 @@ public class SystemUserDto extends IdDto {
                 .assignableRoleIds(assignableRoles)
                 .isCrossDepartment(isCrossDepartment)
                 .manageDepartmentIds(manageDepartmentIds)
+                .isManageEmployee(isManageEmployee)
                 .build();
     }
 

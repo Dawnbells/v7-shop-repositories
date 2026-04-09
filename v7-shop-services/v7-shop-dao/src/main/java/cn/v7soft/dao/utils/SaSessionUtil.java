@@ -41,4 +41,8 @@ public class SaSessionUtil {
         List<Long> ids = getLoginUser().getManageDepartmentIds();
         return ids != null ? ids : Collections.emptyList();
     }
+
+    public static boolean isManageEmployee() {
+        return Boolean.TRUE.equals(getLoginUser().getIsManageEmployee());
+    }
 }

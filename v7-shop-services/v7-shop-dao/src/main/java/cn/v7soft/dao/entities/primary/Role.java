@@ -46,6 +46,12 @@ public class Role extends BaseDataRangeEntity {
     private Boolean isCrossDepartment;
 
     /**
+     * 是否可管理跨部门员工
+     */
+    @Column(name = "is_manage_employee")
+    private Boolean isManageEmployee;
+
+    /**
      * 跨部门管理的部门列表
      */
     @Builder.Default

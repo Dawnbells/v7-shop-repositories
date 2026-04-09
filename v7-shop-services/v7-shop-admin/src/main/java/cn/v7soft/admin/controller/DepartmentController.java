@@ -53,8 +53,12 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
         }).toList();
         SystemUserDto loginUser = SaSessionUtil.getLoginUser();
         if (!loginUser.isAdmin()) {
+            List<Long> visibleDepartmentIds = new ArrayList<>(loginUser.getAccessDepartmentIds());
+            if (Boolean.TRUE.equals(loginUser.getIsCrossDepartment()) && loginUser.getManageDepartmentIds() != null) {
+                visibleDepartmentIds.addAll(loginUser.getManageDepartmentIds());
+            }
             list = list.stream()
-                    .map(item -> filterDepartmentTree(item, loginUser.getAccessDepartmentIds()))
+                    .map(item -> filterDepartmentTree(item, visibleDepartmentIds))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
         }
@@ -94,8 +98,9 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
             return null;
         }
         // 遍历子树
+        List<DepartmentResponse> originalChildren = root.getChildren();
         List<DepartmentResponse> children = new ArrayList<>();
-        for (DepartmentResponse child : root.getChildren()) {
+        for (DepartmentResponse child : originalChildren) {
             DepartmentResponse departmentResponse = filterDepartmentTree(child, accessDepartmentIds);
             if (departmentResponse != null) {
                 children.add(departmentResponse);
@@ -107,7 +112,9 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
         }
         // 重设子树
         root.setChildren(children);
-        root.setDisabled(true);
+        boolean allChildrenAccessible = children.size() == originalChildren.size()
+                && children.stream().noneMatch(DepartmentResponse::isDisabled);
+        root.setDisabled(!allChildrenAccessible);
         return root;
     }
 

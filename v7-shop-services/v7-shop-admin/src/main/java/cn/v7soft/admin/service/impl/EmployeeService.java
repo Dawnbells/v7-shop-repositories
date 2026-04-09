@@ -4,6 +4,7 @@ import cn.v7soft.admin.controller.req.DispatchDepartmentRequest;
 import cn.v7soft.admin.controller.req.GrantRoleRequest;
 import cn.v7soft.admin.service.IEmployeeService;
 import cn.v7soft.common.controller.req.attributes.SystemUserAccessDataRangeAttribute;
+import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
@@ -12,6 +13,7 @@ import cn.v7soft.dao.entities.primary.Role;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.SystemUserType;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
+import cn.v7soft.dao.utils.SaSessionUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,6 +61,9 @@ public class EmployeeService extends BaseDataRangeService<SystemUser, SystemUser
 
     @Override
     public QueryAttribute getAccessDataRangeQueryAttribute() {
+        if (SaSessionUtil.isCrossDepartment() && SaSessionUtil.isManageEmployee()) {
+            return new SystemUserAccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, SaSessionUtil.getManageDepartmentIds());
+        }
         return new SystemUserAccessDataRangeAttribute();
     }
 

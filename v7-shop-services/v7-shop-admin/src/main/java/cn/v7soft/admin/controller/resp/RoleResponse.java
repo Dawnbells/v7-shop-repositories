@@ -29,6 +29,9 @@ public class RoleResponse extends IdResponse {
     @Schema(title = "跨部门管理的部门ID列表")
     private List<Long> manageDepartmentIds = new ArrayList<>();
 
+    @Schema(title = "是否可管理跨部门员工")
+    private Boolean isManageEmployee;
+
     @Builder.Default
     @Schema(title = "角色路由列表", example = "[]")
     private List<Long> systemRouterIds = new ArrayList<>();

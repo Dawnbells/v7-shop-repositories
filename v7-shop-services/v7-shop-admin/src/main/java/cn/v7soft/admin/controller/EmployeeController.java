@@ -32,6 +32,7 @@ import cn.v7soft.admin.controller.resp.RoleResponse;
 import cn.v7soft.admin.service.IEmployeeService;
 import cn.v7soft.admin.service.ISpuService;
 import cn.v7soft.common.controller.BaseDataRangeController;
+import cn.v7soft.common.controller.req.attributes.SystemUserAccessDataRangeAttribute;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
@@ -153,10 +154,20 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
                     .add(LikeAttribute.builder().name("telephone").value("%" + query.trim() + "%").build())
                     .next();
         }
-        return service.findPaginated(
-                        request.add(EqualsQueryAttribute.builder().name("status").value(StatusEnum.VALID).build())
-                ).stream().map(this::convertEntityCopyId).
-                peek(item -> item.setTelephone(DesensitizedUtil.mobilePhone(item.getTelephone())))
+        request.add(EqualsQueryAttribute.builder().name("status").value(StatusEnum.VALID).build());
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        if (!loginUser.isAdmin()) {
+            if (Boolean.TRUE.equals(loginUser.getIsCrossDepartment())) {
+                List<Long> deptIds = loginUser.getManageDepartmentIds();
+                if (deptIds != null && !deptIds.isEmpty()) {
+                    request.add(InAttribute.<Long>builder().name("department.id").value(deptIds).build());
+                }
+            } else {
+                request.or().add(new SystemUserAccessDataRangeAttribute()).next();
+            }
+        }
+        return service.findOriginalPaginated(request).stream().map(this::convertEntityCopyId)
+                .peek(item -> item.setTelephone(DesensitizedUtil.mobilePhone(item.getTelephone())))
                 .collect(Collectors.toList());
     }
 

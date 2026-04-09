@@ -57,6 +57,7 @@ public class RoleController extends BaseDataRangeController<Role, IRoleService, 
                 .name(role.getName())
                 .description(role.getDescription())
                 .isCrossDepartment(role.getIsCrossDepartment())
+                .isManageEmployee(role.getIsManageEmployee())
                 .manageDepartmentIds(role.getManageDepartments().stream().map(Department::getId).collect(Collectors.toList()))
                 .systemUserType(role.getUserType())
                 .systemRouterIds(role.getSystemRouterList().stream().map(BaseEntity::getId).collect(Collectors.toList()))
@@ -69,6 +70,7 @@ public class RoleController extends BaseDataRangeController<Role, IRoleService, 
         BeanUtil.copyProperties(request, role);
         role.setUserType(request.getSystemUserType());
         role.setIsCrossDepartment(request.getIsCrossDepartment());
+        role.setIsManageEmployee(request.getIsManageEmployee());
         List<Department> manageDepartments = new ArrayList<>();
         if (request.getManageDepartmentIds() != null) {
             for (Long deptId : request.getManageDepartmentIds()) {

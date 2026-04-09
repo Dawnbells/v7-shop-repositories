@@ -25,6 +25,9 @@
         <el-checkbox v-model="form.isCrossDepartment" @change="onCrossDepartmentChange">
           跨部门管理
         </el-checkbox>
+        <el-checkbox v-if="form.isCrossDepartment" v-model="form.isManageEmployee">
+          员工管理
+        </el-checkbox>
       </el-form-item>
       <el-form-item v-if="form.isCrossDepartment" label="管理部门">
         <el-tree-select
@@ -68,6 +71,7 @@ const form = reactive<any>({
   description: '',
   systemUserType: 'EMPLOYEE',
   isCrossDepartment: false,
+  isManageEmployee: false,
   manageDepartmentIds: [],
 })
 const rules = reactive<any>({
@@ -90,6 +94,7 @@ const onCrossDepartmentChange = (val: boolean) => {
     fetchDepartmentTree()
   } else {
     form.manageDepartmentIds = []
+    form.isManageEmployee = false
   }
 }
 
@@ -118,6 +123,7 @@ const close = () => {
   Object.assign(form, {
     id: undefined,
     isCrossDepartment: false,
+    isManageEmployee: false,
     manageDepartmentIds: [],
   })
   emit('fetch-data')
