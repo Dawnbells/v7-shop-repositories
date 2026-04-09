@@ -114,7 +114,7 @@ export const handleActivePath = (route: VabRoute, isTab = false) => {
   const fullPath = query && Object.keys(query).length > 0 ? `${path}?${stringify(query)}` : path
   if (isTab) return meta.dynamicNewTab ? fullPath : rawPath
   if (meta.activeMenu) return meta.activeMenu
-  return fullPath
+  return path
 }
 
 /**

@@ -120,8 +120,9 @@ onMounted(() => {
     setDefaultOpeneds()
     if (theme.value.layout === 'column')
       watch(
-        route,
-        () => {
+        () => [route.path, route.meta.noColumn],
+        (newVal, oldVal) => {
+          if (oldVal && newVal[0] === oldVal[0] && newVal[1] === oldVal[1]) return
           if (route.meta.noColumn && theme.value.layout === 'column') {
             if (device.value !== 'mobile') foldSideBar()
             useStyleTag(`.left-panel .fold-unfold, .float-fold {display: none;}`, {
