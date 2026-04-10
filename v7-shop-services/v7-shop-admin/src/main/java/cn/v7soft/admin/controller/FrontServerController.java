@@ -1,17 +1,23 @@
 package cn.v7soft.admin.controller;
 
 
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.v7soft.admin.controller.req.QueryLanguageRequest;
 import cn.v7soft.core.controller.BaseController;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.core.controller.request.attributes.LikeAttribute;
 import cn.v7soft.core.enums.StatusEnum;
+import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.DnsSwitchLog;
 import cn.v7soft.dao.entities.primary.FrontServer;
+import cn.v7soft.dao.enums.SystemUserType;
+import cn.v7soft.dao.repositories.primary.DnsSwitchLogRepository;
 import cn.v7soft.admin.controller.req.EditFrontServerRequest;
 import cn.v7soft.admin.controller.req.QueryFrontServerRequest;
 import cn.v7soft.common.controller.resp.FrontServerResponse;
 import cn.v7soft.admin.service.IFrontServerService;
+import cn.v7soft.dao.utils.SaSessionUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.jetbrains.annotations.Nullable;
@@ -19,6 +25,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -28,8 +35,11 @@ import java.util.stream.Collectors;
 @RequestMapping("/front-server")
 @Tag(name = "前端服务器管理")
 public class FrontServerController extends BaseController<FrontServer, IFrontServerService, FrontServerResponse, QueryFrontServerRequest, EditFrontServerRequest> {
-    protected FrontServerController(IFrontServerService service) {
+    private final DnsSwitchLogRepository dnsSwitchLogRepository;
+
+    protected FrontServerController(IFrontServerService service, DnsSwitchLogRepository dnsSwitchLogRepository) {
         super(service);
+        this.dnsSwitchLogRepository = dnsSwitchLogRepository;
     }
 
     @Override
@@ -78,5 +88,30 @@ public class FrontServerController extends BaseController<FrontServer, IFrontSer
         }
 
         return service.findPaginated(request).stream().map(this::convertEntityCopyId).collect(Collectors.toList());
+    }
+
+    @SaCheckLogin
+    @Operation(summary = "查询未确认的DNS切换记录")
+    @GetMapping("/unacknowledged-switches")
+    public List<DnsSwitchLog> getUnacknowledgedSwitches() {
+        SystemUserDto currentUser = SaSessionUtil.getLoginUser();
+        if (currentUser.getUserType() != SystemUserType.ADMIN) {
+            return Collections.emptyList();
+        }
+        return dnsSwitchLogRepository.findByAcknowledgedFalseOrderBySwitchedAtDesc();
+    }
+
+    @SaCheckLogin
+    @Operation(summary = "确认DNS切换记录")
+    @PostMapping("/acknowledge-switch/{id}")
+    public void acknowledgeSwitch(@PathVariable Long id) {
+        SystemUserDto currentUser = SaSessionUtil.getLoginUser();
+        if (currentUser.getUserType() != SystemUserType.ADMIN) {
+            return;
+        }
+        dnsSwitchLogRepository.findById(id).ifPresent(log -> {
+            log.setAcknowledged(true);
+            dnsSwitchLogRepository.save(log);
+        });
     }
 }

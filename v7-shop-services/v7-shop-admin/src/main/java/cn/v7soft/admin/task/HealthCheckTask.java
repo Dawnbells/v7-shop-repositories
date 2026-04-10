@@ -20,9 +20,11 @@ import cn.v7soft.admin.service.ISubDomainService;
 import cn.v7soft.admin.service.dns.IDnsService;
 import cn.v7soft.admin.service.dto.SubDomainDto;
 import cn.v7soft.dao.entities.primary.CloudPlatformAccount;
+import cn.v7soft.dao.entities.primary.DnsSwitchLog;
 import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.entities.primary.SubDomain;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
+import cn.v7soft.dao.repositories.primary.DnsSwitchLogRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -34,6 +36,7 @@ public class HealthCheckTask {
     private final IFrontServerService frontServerService;
     private final ISubDomainService subDomainService;
     private final IDnsService dnsService;
+    private final DnsSwitchLogRepository dnsSwitchLogRepository;
 
     private final Map<Long, AtomicInteger> failureCountMap = new ConcurrentHashMap<>();
 
@@ -56,6 +59,7 @@ public class HealthCheckTask {
                 if (currentIp != null && !currentIp.equals(primaryIp)) {
                     log.info("[HealthCheck] {} 主IP恢复，切回: {} -> {}", frontServer.getName(), currentIp, primaryIp);
                     updateDns(frontServer, primaryIp);
+                    saveSwitchLog(frontServer.getName(), currentIp, primaryIp, "RECOVERY");
                 } else {
                     log.info("[HealthCheck] {} ({}) 正常", frontServer.getName(), primaryIp);
                 }
@@ -70,6 +74,7 @@ public class HealthCheckTask {
                     if (currentIp != null && currentIp.equals(primaryIp)) {
                         log.error("[HealthCheck] {} 切换到备用IP: {} -> {}", frontServer.getName(), primaryIp, failoverIp);
                         updateDns(frontServer, failoverIp);
+                        saveSwitchLog(frontServer.getName(), primaryIp, failoverIp, "FAILOVER");
                     }
                 }
             }
@@ -108,6 +113,22 @@ public class HealthCheckTask {
         TopLevelDomain parentDomain = dto.getTopLevelDomain();
         CloudPlatformAccount account = parentDomain.getCloudPlatformAccount();
         dnsService.updateRecord(account, parentDomain.getName(), subDomain.getName(), targetIp);
+    }
+
+    private void saveSwitchLog(String serverName, String fromIp, String toIp, String switchType) {
+        try {
+            DnsSwitchLog switchLog = DnsSwitchLog.builder()
+                    .serverName(serverName)
+                    .fromIp(fromIp)
+                    .toIp(toIp)
+                    .switchType(switchType)
+                    .switchedAt(java.time.LocalDateTime.now())
+                    .acknowledged(false)
+                    .build();
+            dnsSwitchLogRepository.save(switchLog);
+        } catch (Exception e) {
+            log.error("[HealthCheck] 保存DNS切换日志失败", e);
+        }
     }
 
     private boolean checkHttpHealth(String urlStr) {
