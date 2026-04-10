@@ -171,6 +171,7 @@ declare module 'vue' {
     RankList: typeof import('./../../../src/views/index/vabAutoComponents/RankList.vue')['default']
     Recommendation: typeof import('./../../../src/views/index/vabAutoComponents/Recommendation.vue')['default']
     RoleEdit: typeof import('./../../../src/views/system/vabAutoComponents/RoleEdit.vue')['default']
+    RoleGrantAssignableRoles: typeof import('./../../../src/views/system/vabAutoComponents/RoleGrantAssignableRoles.vue')['default']
     RoleGrantPermission: typeof import('./../../../src/views/system/vabAutoComponents/RoleGrantPermission.vue')['default']
     RoleManagementEdit: typeof import('./../../../src/views/setting/roleManagement/vabAutoComponents/RoleManagementEdit.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']

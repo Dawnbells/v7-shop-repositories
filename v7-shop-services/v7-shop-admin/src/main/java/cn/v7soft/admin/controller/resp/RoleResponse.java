@@ -38,4 +38,8 @@ public class RoleResponse extends IdResponse {
 
     @Schema(title = "角色类型", example = "EMPLOYEE")
     private SystemUserType systemUserType;
+
+    @Builder.Default
+    @Schema(title = "可分配角色ID列表")
+    private List<Long> assignableRoleIds = new ArrayList<>();
 }

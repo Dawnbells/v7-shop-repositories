@@ -45,10 +45,11 @@
           />
         </template>
       </el-table-column>
-      <el-table-column align="center" label="操作" width="300">
+      <el-table-column align="center" label="操作" width="400">
         <template #default="{ row }">
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button :disabled="row.status === 'INVALID'" text type="primary" @click="handleGrantPermission(row)">权限分配</el-button>
+          <el-button :disabled="row.status === 'INVALID'" text type="primary" @click="handleGrantAssignableRoles(row)">可分配角色</el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -66,12 +67,13 @@
     />
     <role-edit ref="editRef" @fetch-data="fetchData" />
     <role-grant-permission ref="grantPermissionDef" @fetch-data="fetchData" />
+    <role-grant-assignable-roles ref="grantAssignableRolesRef" @fetch-data="fetchData" />
   </div>
 </template>
 
 <script lang="ts" setup>
 import { Delete, Plus, Search } from '@element-plus/icons-vue'
-import { doDelete, page, switchValidity } from '/@/api/role'
+import { doDelete, getList as getAllRoles, page, switchValidity } from '/@/api/role'
 import { getRouterList } from '/@/api/router'
 
 defineOptions({
@@ -82,6 +84,8 @@ const $baseConfirm = inject<any>('$baseConfirm')
 const $baseMessage = inject<any>('$baseMessage')
 const editRef = ref<any>(null)
 const grantPermissionDef = ref<any>(null)
+const grantAssignableRolesRef = ref<any>(null)
+const allRoles = ref<any[]>([])
 const tableRef = ref<any>(null)
 const fold = ref<boolean>(true)
 const list = ref<any>([])
@@ -118,6 +122,12 @@ const fetchRouterList = async () => {
   routerList.value = data.list
 }
 
+const fetchAllRoles = () => {
+  getAllRoles().then((data) => {
+    allRoles.value = data.data.list
+  })
+}
+
 const handleSizeChange = (value: number) => {
   queryForm.pageNo = 1
   queryForm.pageSize = value
@@ -152,6 +162,10 @@ const handleEdit = (row = {}) => {
 
 const handleGrantPermission = (row = {}) => {
   grantPermissionDef.value.showGrant(row, routerList.value)
+}
+
+const handleGrantAssignableRoles = (row: any) => {
+  grantAssignableRolesRef.value.showGrant(allRoles.value, row)
 }
 
 const handleDelete = (row: any) => {
@@ -193,6 +207,7 @@ onActivated(() => {
 
 onBeforeMount(() => {
   fetchRouterList()
+  fetchAllRoles()
   fetchData()
 })
 </script>

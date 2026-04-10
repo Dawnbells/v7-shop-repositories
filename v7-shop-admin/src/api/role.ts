@@ -63,3 +63,11 @@ export function grantRouters(data: any) {
     data,
   })
 }
+
+export function grantAssignableRoles(data: any) {
+  return request({
+    url: '/role/grantAssignableRoles',
+    method: 'post',
+    data,
+  })
+}

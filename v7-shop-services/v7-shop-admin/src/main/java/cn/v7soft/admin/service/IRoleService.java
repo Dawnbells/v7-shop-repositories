@@ -1,5 +1,6 @@
 package cn.v7soft.admin.service;
 
+import cn.v7soft.admin.controller.req.GrantAssignableRolesRequest;
 import cn.v7soft.admin.controller.req.GrantRoutersRequest;
 import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.dao.entities.primary.Role;
@@ -16,8 +17,11 @@ public interface IRoleService extends IBaseDataRangeService<Role> {
 
     /**
      * 分配路由
-     *
-     * @param request
      */
     void grantRouters(GrantRoutersRequest request);
+
+    /**
+     * 配置可分配角色
+     */
+    void grantAssignableRoles(GrantAssignableRolesRequest request);
 }

@@ -3,6 +3,7 @@ package cn.v7soft.admin.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.hutool.core.bean.BeanUtil;
 import cn.v7soft.admin.controller.req.EditRoleRequest;
+import cn.v7soft.admin.controller.req.GrantAssignableRolesRequest;
 import cn.v7soft.admin.controller.req.GrantRoutersRequest;
 import cn.v7soft.admin.controller.req.QueryRoleRequest;
 import cn.v7soft.admin.controller.resp.RoleResponse;
@@ -51,6 +52,13 @@ public class RoleController extends BaseDataRangeController<Role, IRoleService, 
         service.grantRouters(request);
     }
 
+    @PostMapping("/grantAssignableRoles")
+    @SaCheckPermission("role.grant")
+    @Operation(summary = "配置可分配角色")
+    public void grantAssignableRoles(@Valid @RequestBody GrantAssignableRolesRequest request) {
+        service.grantAssignableRoles(request);
+    }
+
     @Override
     protected RoleResponse convertEntity(Role role) {
         return RoleResponse.builder()
@@ -61,6 +69,7 @@ public class RoleController extends BaseDataRangeController<Role, IRoleService, 
                 .manageDepartmentIds(role.getManageDepartments().stream().map(Department::getId).collect(Collectors.toList()))
                 .systemUserType(role.getUserType())
                 .systemRouterIds(role.getSystemRouterList().stream().map(BaseEntity::getId).collect(Collectors.toList()))
+                .assignableRoleIds(role.getAssignableRoles().stream().map(BaseEntity::getId).collect(Collectors.toList()))
                 .build();
     }
 
