@@ -313,7 +313,7 @@ const fetchAllRoles = () => {
 }
 
 const fetchAllDepartments = () => {
-  getTree({ status: 'VALID' }).then((data) => {
+  getTree({ status: 'VALID', forEmployeeManagement: true }).then((data) => {
     allDepartmentTree.value = data.data.list
   })
 }

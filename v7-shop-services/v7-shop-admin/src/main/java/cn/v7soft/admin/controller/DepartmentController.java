@@ -54,7 +54,11 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
         SystemUserDto loginUser = SaSessionUtil.getLoginUser();
         if (!loginUser.isAdmin()) {
             List<Long> visibleDepartmentIds = new ArrayList<>(loginUser.getAccessDepartmentIds());
-            if (Boolean.TRUE.equals(loginUser.getIsCrossDepartment()) && loginUser.getManageDepartmentIds() != null) {
+            boolean forEmployee = request != null && Boolean.TRUE.equals(request.getForEmployeeManagement());
+            boolean showCrossDepartment = Boolean.TRUE.equals(loginUser.getIsCrossDepartment())
+                    && loginUser.getManageDepartmentIds() != null
+                    && (!forEmployee || Boolean.TRUE.equals(loginUser.getIsManageEmployee()));
+            if (showCrossDepartment) {
                 visibleDepartmentIds.addAll(loginUser.getManageDepartmentIds());
             }
             list = list.stream()
