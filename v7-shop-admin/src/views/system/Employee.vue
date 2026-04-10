@@ -6,6 +6,17 @@
           <el-form-item label="标题">
             <el-input v-model="queryForm.title" clearable placeholder="请输入标题" />
           </el-form-item>
+          <el-form-item label="部门">
+            <el-tree-select
+              v-model="queryForm.departmentId"
+              :data="allDepartmentTree"
+              node-key="id"
+              :props="defaultProps"
+              check-strictly
+              clearable
+              placeholder="请选择部门"
+            />
+          </el-form-item>
           <el-form-item v-show="!fold" label="标题">
             <el-input v-model="queryForm.title" clearable placeholder="请输入标题" />
           </el-form-item>
@@ -169,6 +180,10 @@ const allDepartmentTree = ref<Department[]>([])
 const listLoading = ref<boolean>(true)
 const total = ref<any>(0)
 const selectRows = ref<any>([])
+const defaultProps = {
+  label: 'name',
+  children: 'children',
+}
 const queryForm = reactive<any>({
   pageNo: 1,
   pageSize: 20,

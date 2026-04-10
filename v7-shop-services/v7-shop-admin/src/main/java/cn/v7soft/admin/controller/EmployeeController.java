@@ -68,11 +68,15 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
 
     @Override
     protected QueryPageRequest<SystemUser> convertQueryPageRequest(QueryEmployeeRequest request) {
-        return QueryPageRequest.<SystemUser>fromRequest(request).not("userType", SystemUserType.ADMIN)
+        QueryPageRequest<SystemUser> query = QueryPageRequest.<SystemUser>fromRequest(request).not("userType", SystemUserType.ADMIN)
                 .or()
                 .addConstraint(StrUtil.isNotBlank(request.getTitle()), LikeAttribute.builder().name("name").value(request.getTitle()).build())
-                .addConstraint(ConvertUtils.isLong(request.getTitle()),(query)-> EqualsQueryAttribute.builder().name("telephone").value(ConvertUtils.parseLong(request.getTitle())).build())
+                .addConstraint(ConvertUtils.isLong(request.getTitle()), (q) -> EqualsQueryAttribute.builder().name("telephone").value(ConvertUtils.parseLong(request.getTitle())).build())
                 .next();
+        if (request.getDepartmentId() != null) {
+            query.add(EqualsQueryAttribute.builder().name("department.id").value(request.getDepartmentId()).build());
+        }
+        return query;
     }
 
     @PostMapping("/grantRole")

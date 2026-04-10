@@ -8,4 +8,5 @@ import lombok.Setter;
 @Setter
 public class QueryEmployeeRequest extends BasePageRequest {
     private String title;
+    private Long departmentId;
 }
