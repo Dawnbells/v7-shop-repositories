@@ -35,6 +35,7 @@ import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.common.controller.req.attributes.SystemUserAccessDataRangeAttribute;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.controller.request.QueryPageRequest;
+import cn.v7soft.core.controller.request.SwitchValidityRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.core.controller.request.attributes.InAttribute;
 import cn.v7soft.core.controller.request.attributes.LikeAttribute;
@@ -135,6 +136,30 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
             user.setDepartment(Department.builder().id(systemUserDto.getDepartmentId()).build());
         }
         return user;
+    }
+
+    @Override
+    protected SystemUser doEditOperate(EditEmployeeRequest request) {
+        String oldPassword = null;
+        if (request.hasId()) {
+            SystemUser existing = service.getById(Long.parseLong(request.getId()));
+            if (existing != null) {
+                oldPassword = existing.getPlainPassword();
+            }
+        }
+        SystemUser saved = super.doEditOperate(request);
+        if (oldPassword != null && !Objects.equals(oldPassword, request.getPassword())) {
+            SaSessionUtil.kickout(saved.getId());
+        }
+        return saved;
+    }
+
+    @Override
+    public void switchValidity(@Valid @RequestBody SwitchValidityRequest request) {
+        super.switchValidity(request);
+        if (request.getStatus() == StatusEnum.INVALID) {
+            SaSessionUtil.kickout(Long.parseLong(request.getId()));
+        }
     }
 
     @Override

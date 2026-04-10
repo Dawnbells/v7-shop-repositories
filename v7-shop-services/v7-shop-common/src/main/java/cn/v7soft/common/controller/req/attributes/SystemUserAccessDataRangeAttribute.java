@@ -72,7 +72,7 @@ public class SystemUserAccessDataRangeAttribute implements QueryAttribute {
             }
             if (user.getUserType() == SystemUserType.DEPARTMENT_MANAGER) {
                 // 只能管理自己所在的部门
-                in.value(criteriaBuilder.equal(root.get("department").get("id"), user.getDepartmentId()));
+                in.value(user.getDepartmentId());
             }
             return in;
         }

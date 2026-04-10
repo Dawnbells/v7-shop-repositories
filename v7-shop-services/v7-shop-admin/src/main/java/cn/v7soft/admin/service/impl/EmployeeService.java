@@ -48,6 +48,7 @@ public class EmployeeService extends BaseDataRangeService<SystemUser, SystemUser
             }
         }
         systemUser.setUserType(systemUserType);
+        SaSessionUtil.refreshUserSession(getById(savedUser.getId()));
     }
 
     @Override
@@ -56,7 +57,8 @@ public class EmployeeService extends BaseDataRangeService<SystemUser, SystemUser
         assert request.getId() != null;
         SystemUser systemUser = getById(Long.parseLong(request.getId()));
         systemUser.setDepartment(request.getDepartmentId() == null ? null : Department.builder().id(request.getDepartmentId()).build());
-        save(systemUser);
+        SystemUser savedUser = save(systemUser);
+        SaSessionUtil.refreshUserSession(getById(savedUser.getId()));
     }
 
     @Override
@@ -71,22 +73,20 @@ public class EmployeeService extends BaseDataRangeService<SystemUser, SystemUser
     @Override
     @Transactional
     public int changeUserTypeWithRole(Role updatedRole) {
-        // 查询出所有分配了该 Role 的 SystemUser
         List<SystemUser> usersWithRole = repository.findByRolesContaining(updatedRole);
         int count = 0;
         for (SystemUser user : usersWithRole) {
-            // 获取用户所有角色的 userType
             SystemUserType highestUserType = user.getRoles().stream()
-                    .map(Role::getUserType) // 提取每个角色的 userType
-                    .min(Comparator.comparingInt(SystemUserType::getLevel)) // 找到 level 最低的（权限最高）
-                    .orElse(user.getUserType()); // 如果没有角色，保持原来的 userType
+                    .map(Role::getUserType)
+                    .min(Comparator.comparingInt(SystemUserType::getLevel))
+                    .orElse(user.getUserType());
 
-            // 更新用户的 userType
             if (user.getUserType() != highestUserType) {
                 user.setUserType(highestUserType);
-                repository.save(user); // 保存到数据库
+                repository.save(user);
                 count++;
             }
+            SaSessionUtil.refreshUserSession(user);
         }
         return count;
     }

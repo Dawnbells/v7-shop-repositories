@@ -45,4 +45,15 @@ public class SaSessionUtil {
     public static boolean isManageEmployee() {
         return Boolean.TRUE.equals(getLoginUser().getIsManageEmployee());
     }
+
+    public static void refreshUserSession(SystemUser user) {
+        SaSession session = StpUtil.getSessionByLoginId(user.getId(), false);
+        if (session != null) {
+            session.set(SaSession.USER, SystemUserDto.convert(user));
+        }
+    }
+
+    public static void kickout(Long userId) {
+        StpUtil.kickout(userId);
+    }
 }
