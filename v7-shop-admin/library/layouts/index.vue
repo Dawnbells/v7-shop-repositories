@@ -17,10 +17,11 @@
 </template>
 
 <script lang="ts" setup>
-import { ElScrollbar } from 'element-plus'
+import { ElScrollbar, ElNotification, ElButton } from 'element-plus'
 import { useSettingsStore } from '/@/store/modules/settings'
 import { useUserStore } from '/@/store/modules/user'
 import { convertToCamelCase } from '/@/utils/convertToCamelCase'
+import { getUnacknowledgedSwitches, acknowledgeSwitch } from '/@/api/frontServer'
 
 defineOptions({
   name: 'Layout',
@@ -63,6 +64,43 @@ onBeforeMount(() => {
   resizeBody()
   window.addEventListener('resize', resizeBody)
   updateTheme()
+})
+
+onMounted(async () => {
+  try {
+    const { data } = await getUnacknowledgedSwitches()
+    if (data && data.length > 0) {
+      data.forEach((record: any) => {
+        const typeLabel = record.switchType === 'FAILOVER' ? '故障切换' : '恢复切换'
+        const notification = ElNotification({
+          title: `DNS切换通知 - ${typeLabel}`,
+          message: h('div', [
+            h('p', `服务器: ${record.serverName}`),
+            h('p', `${record.fromIp} → ${record.toIp}`),
+            h('p', `时间: ${record.switchedAt}`),
+            h(
+              ElButton,
+              {
+                type: 'primary',
+                size: 'small',
+                style: 'margin-top: 8px',
+                onClick: async () => {
+                  await acknowledgeSwitch(record.id)
+                  notification.close()
+                },
+              },
+              () => '确认'
+            ),
+          ]),
+          type: record.switchType === 'FAILOVER' ? 'error' : 'success',
+          duration: 0,
+          position: 'bottom-right',
+        })
+      })
+    }
+  } catch (e) {
+    // 静默处理，不影响页面加载
+  }
 })
 
 onBeforeUnmount(() => {
