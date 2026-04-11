@@ -50,6 +50,9 @@ public class SpuResponse extends IdResponse {
     @Schema(title = "已配置国家ID列表", example = "[]")
     private List<String> countryIds;
 
+    @Schema(title = "是否支持当前国家")
+    private Boolean supportCurrentCountry;
+
     public static SpuResponse convertEntity(IMultimediaFileService multimediaFileService, Spu spu) {
         List<Product> products = spu.getProductList();
         SystemUser owner = spu.getOwner();

@@ -31,11 +31,13 @@ export function switchOpen(data: any) {
   })
 }
 
-export function getRemoteQuery(query: string) {
+export function getRemoteQuery(query: string, countryId?: string | number) {
+  const params: Record<string, any> = { query }
+  if (countryId) params.countryId = countryId
   return request({
-    url: '/spu/remoteQuery?',
+    url: '/spu/remoteQuery',
     method: 'get',
-    params: { query },
+    params,
   })
 }
 

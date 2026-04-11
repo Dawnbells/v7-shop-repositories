@@ -153,7 +153,9 @@ public class SpuController extends
 
     @Operation(summary = "远程搜索")
     @GetMapping("/remoteQuery")
-    public List<SpuResponse> remoteQuery(@RequestParam("query") String query) {
+    public List<SpuResponse> remoteQuery(
+            @RequestParam("query") String query,
+            @RequestParam(value = "countryId", required = false) Long countryId) {
         QueryPageRequest<Spu> request = QueryPageRequest.fromRequest(
                 QuerySpuRequest.builder().pageNo(1).build());
         //noinspection DuplicatedCode
@@ -165,8 +167,18 @@ public class SpuController extends
                     .next()
                     .add(EqualsQueryAttribute.builder().name("status").value(StatusEnum.VALID).build());
         }
-        return service.findPaginated(request).stream().map(this::convertEntityCopyId)
+        List<SpuResponse> results = service.findPaginated(request).stream().map(this::convertEntityCopyId)
                 .collect(Collectors.toList());
+        if (countryId != null) {
+            for (SpuResponse resp : results) {
+                Spu spu = service.getById(Long.parseLong(resp.getId()));
+                boolean supportCountry = spu.getProductList() != null
+                        && spu.getProductList().stream()
+                        .anyMatch(p -> p.getCountry() != null && countryId.equals(p.getCountry().getId()));
+                resp.setSupportCurrentCountry(supportCountry);
+            }
+        }
+        return results;
     }
 
     @Operation(summary = "远程简易信息搜索")

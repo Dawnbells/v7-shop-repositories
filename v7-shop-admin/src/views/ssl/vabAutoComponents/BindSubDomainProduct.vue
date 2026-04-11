@@ -22,9 +22,18 @@
           @focus="handleSelectFocus"
         >
           <el-option v-for="item in spuOptions" :key="item.id" :label="item.name" :value="item.id">
-            <span style="float: left">{{ item.name }}</span>
-            <span style="float: right; font-size: 12px; color: var(--el-text-color-secondary)">
+            <span
+              style="float: left"
+              :style="item.supportCurrentCountry === false ? { color: '#c0c4cc' } : {}"
+            >
+              {{ item.name }}
+            </span>
+            <span
+              style="float: right; font-size: 12px"
+              :style="{ color: item.supportCurrentCountry === false ? '#c0c4cc' : 'var(--el-text-color-secondary)' }"
+            >
               {{ item.code }}
+              <span v-if="item.supportCurrentCountry === false" style="margin-left: 4px">(不支持当前国家)</span>
             </span>
           </el-option>
         </el-select>
@@ -689,6 +698,7 @@ const spuSelectRef = ref<any>(null)
 const subDomainId = ref<number | string>('')
 const subDomainFullName = ref<string>('')
 const subDomainCountryName = ref<string>('')
+const subDomainCountryId = ref<number | string>('')
 const selectedSpuId = ref<number | string | null>(null)
 const activeSpuTab = ref<string>('')
 const activeDetailTab = ref<string>('landing')
@@ -813,6 +823,7 @@ const showEdit = (row: any) => {
   subDomainId.value = row.id
   subDomainFullName.value = row.fullName || row.name
   subDomainCountryName.value = row.country?.name || ''
+  subDomainCountryId.value = row.country?.id || ''
   selectedSpuId.value = null
   activeSpuTab.value = ''
   spuOptions.value = []
@@ -846,7 +857,7 @@ const handleSelectFocus = () => {
 const remoteSearchSpu = async (query: string) => {
   searchLoading.value = true
   try {
-    const { data } = await getRemoteQuery(query || '')
+    const { data } = await getRemoteQuery(query || '', subDomainCountryId.value || undefined)
     spuOptions.value = data.list || data || []
   } catch (error) {
     console.error('搜索SPU失败:', error)
