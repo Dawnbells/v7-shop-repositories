@@ -230,6 +230,14 @@
           批量未建联
         </el-button>
         <el-button
+          v-if="isContact"
+          :icon="EditPen"
+          type="warning"
+          @click="handleBatchContactRemark"
+        >
+          批量备注
+        </el-button>
+        <el-button
           v-if="!isContact"
           :icon="Download"
           :loading="taskDownloading"
@@ -280,7 +288,7 @@
 </template>
 
 <script setup lang="ts">
-import { CircleCheck, Delete, Download, Refresh, Upload } from '@element-plus/icons-vue'
+import { CircleCheck, Delete, Download, EditPen, Refresh, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { type Department, getTree as getAllDepartmentTree } from '~/src/api/department'
 import { status } from '~/src/api/taskManagement'
@@ -336,6 +344,7 @@ const emit = defineEmits<{
   (event: 'onBatchChangeOrderStatus', status: string): void
   (event: 'onBatchChangeOrderRemark'): void
   (event: 'onBatchContactStatus', contacted: boolean): void
+  (event: 'onBatchContactRemark'): void
 }>()
 
 const fetchAllDepartments = () => {
@@ -358,6 +367,10 @@ const handleBatchChangeOrderStatus = (status: string) => {
 
 const handleBatchContactStatus = (contacted: boolean) => {
   emit('onBatchContactStatus', contacted)
+}
+
+const handleBatchContactRemark = () => {
+  emit('onBatchContactRemark')
 }
 
 const calcTokenHeader = () => {

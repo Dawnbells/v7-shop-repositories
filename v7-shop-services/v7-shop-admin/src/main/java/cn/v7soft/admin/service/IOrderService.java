@@ -72,4 +72,6 @@ public interface IOrderService extends IBaseDataRangeService<Order> {
      * 批量更新订单建联状态
      */
     void updateContactStatus(UpdateContactStatusRequest request);
+
+    void updateContactRemark(UpdateRemarkRequest request);
 }

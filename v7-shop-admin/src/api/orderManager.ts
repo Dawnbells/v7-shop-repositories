@@ -65,3 +65,11 @@ export function updateContactStatus(data: any) {
     data,
   })
 }
+
+export function updateContactRemark(ids: string[], remark: string) {
+  return request({
+    url: '/orders/updateContactRemark',
+    method: 'post',
+    data: { ids, remark },
+  })
+}

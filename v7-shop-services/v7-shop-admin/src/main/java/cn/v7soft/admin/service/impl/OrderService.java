@@ -210,6 +210,16 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     }
 
     @Override
+    public void updateContactRemark(UpdateRemarkRequest request) {
+        for (Long orderId : request.getIds()) {
+            Order order = getById(orderId);
+            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(order, "订单不存在");
+            order.setContactRemark(request.getRemark());
+            repository.save(order);
+        }
+    }
+
+    @Override
     public QueryAttribute getAccessDataRangeQueryAttribute() {
         if (SaSessionUtil.isCrossDepartment()) {
             return new AccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, SaSessionUtil.getManageDepartmentIds());

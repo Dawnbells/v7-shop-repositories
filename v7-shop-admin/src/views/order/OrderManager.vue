@@ -10,6 +10,7 @@
       :updating-order-status="updatingOrderStatus"
       @on-batch-change-order-remark="handleBatchChangeOrderRemark"
       @on-batch-change-order-status="handleBatchChangeOrderStatus"
+      @on-batch-contact-remark="handleBatchContactRemark"
       @on-batch-contact-status="handleBatchContactStatus"
       @on-download="handleDownload"
       @on-reset="onReset"
@@ -274,6 +275,14 @@
                 {{ row.orderCheckRemark || '' }}
               </span>
             </div>
+            <div v-if="isContact && row.contactRemark" class="text-info">
+              <span
+                style="white-space: pre-wrap; cursor: pointer"
+                @click.stop="copyText2Clipboard(row.contactRemark)"
+              >
+                {{ row.contactRemark }}
+              </span>
+            </div>
           </el-space>
         </template>
       </el-table-column>
@@ -406,7 +415,7 @@
           </el-space>
         </template>
       </el-table-column>
-      <el-table-column v-if="isContact" align="center" label="操作" width="100">
+      <el-table-column v-if="isContact" align="center" label="操作" width="110">
         <template #default="{ row }">
           <el-button
             :loading="row.changingContactStatus"
@@ -424,6 +433,25 @@
           >
             未建联
           </el-button>
+          <el-button
+            v-if="!row.editingContactRemark"
+            text
+            type="primary"
+            @click.stop="startContactRemark(row)"
+          >
+            备注
+          </el-button>
+          <el-input
+            v-else
+            ref="contactRemarkRef"
+            v-model="row._contactRemark"
+            :autosize="{ minRows: 1, maxRows: 3 }"
+            :disabled="row._updatingContactRemark"
+            size="small"
+            style="width: 100%"
+            type="textarea"
+            @blur="handleUpdateContactRemark(row)"
+          />
         </template>
       </el-table-column>
       <el-table-column v-if="isAudit" align="center" label="操作" width="110">
@@ -538,6 +566,7 @@ import { doEdit as doEditIpBlacklist } from '/@/api/ipBlacklist'
 import {
   download,
   page,
+  updateContactRemark,
   updateContactStatus,
   updateOrderCheckRemark,
   updateOrderStatus,
@@ -569,6 +598,7 @@ const chooseOrderTemplateDialogRef = ref<any>()
 const batchOrderManagerEdit = ref<any>()
 const tableRef = ref<any>(null)
 const remarkRef = ref<any>(null)
+const contactRemarkRef = ref<any>(null)
 const list = ref<any>([])
 const listLoading = ref<boolean>(true)
 const total = ref<any>(0)
@@ -835,6 +865,53 @@ const handleBatchContactStatus = (contacted: boolean) => {
     .catch(() => {
       updatingOrderStatus.value = false
     })
+}
+
+const startContactRemark = (row: any) => {
+  row.editingContactRemark = true
+  ignoreRowSelect.value = true
+  row._contactRemark = `${row.contactRemark || ''}`
+  nextTick(() => {
+    contactRemarkRef.value?.focus()
+  })
+}
+
+const handleUpdateContactRemark = (row: any) => {
+  row._updatingContactRemark = true
+  updateContactRemark([row.id], `${row._contactRemark}`)
+    .then(() => {
+      row.contactRemark = `${row._contactRemark}`
+      row.editingContactRemark = false
+      row._updatingContactRemark = false
+      setTimeout(() => {
+        ignoreRowSelect.value = false
+      }, 300)
+    })
+    .catch(() => {
+      row.editingContactRemark = false
+      row._updatingContactRemark = false
+      setTimeout(() => {
+        ignoreRowSelect.value = false
+      }, 300)
+    })
+}
+
+const handleBatchContactRemark = () => {
+  if (selectRows.value.length === 0) {
+    $baseMessage('您未选中任何行', 'warning', 'hey')
+    return
+  }
+  const ids = selectRows.value.map((item: { id: any }) => item.id)
+  ElMessageBox.prompt('请输入备注', '批量建联备注', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+  }).then(({ value }) => {
+    updateContactRemark(ids, value).then(() => {
+      selectRows.value.forEach((element: any) => {
+        element.contactRemark = value
+      })
+    })
+  })
 }
 
 const orderStatusClass = (status: any) => {

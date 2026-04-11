@@ -198,4 +198,10 @@ public class Order extends BaseDataRangeEntity {
     @Builder.Default
     @Column(name = "is_contacted", nullable = false)
     private Boolean contacted = false;
+
+    /**
+     * 建联备注
+     */
+    @Column(name = "contact_remark", length = 256)
+    private String contactRemark;
 }

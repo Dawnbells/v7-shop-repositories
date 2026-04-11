@@ -82,6 +82,9 @@ public class OrderResponse extends IdResponse {
     @Schema(title = "是否已建联")
     private Boolean contacted;
 
+    @Schema(title = "建联备注")
+    private String contactRemark;
+
     @Schema(title = "是否私域部门订单")
     private Boolean isPrivateDomain;
 
@@ -121,6 +124,7 @@ public class OrderResponse extends IdResponse {
                 .skuNames(order.getSkuNames())
                 .quantity(order.getQuantity())
                 .contacted(order.getContacted())
+                .contactRemark(order.getContactRemark())
                 .build();
     }
 }

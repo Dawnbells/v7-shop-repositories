@@ -169,6 +169,13 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
         service.updateContactStatus(request);
     }
 
+    @SaCheckLogin
+    @PostMapping("/updateContactRemark")
+    @Operation(summary = "更新建联备注")
+    public void updateContactRemark(@RequestBody UpdateRemarkRequest request) {
+        service.updateContactRemark(request);
+    }
+
     @Override
     protected String getPermissionPrefix() {
         return "order";
