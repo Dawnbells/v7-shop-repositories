@@ -45,7 +45,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
-import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -73,34 +72,40 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
 
     @Override
     protected QueryPageRequest<TopLevelDomain> convertQueryPageRequest(QueryTopLevelDomainRequest request) {
-        request.noneSortBy();
-        return super.convertQueryPageRequest(request)
-                .addConstraint(StrUtil.isNotBlank(request.getTitle()),
-                               LikeAttribute.builder().name("name").value("%" + request.getTitle() + "%").build())
-                .add(new QueryAttribute() {
-                    @Override
-                    public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder cb) {
-                        // 当前时间
-                        LocalDateTime now = LocalDateTime.now();
-                        LocalDateTime soon = now.plusDays(3);
+        String clientSortBy = request.getSortBy();
+        boolean sortByCertExpiry = clientSortBy != null && clientSortBy.startsWith("certificateExpiryDate");
+        boolean sortByExpiry = clientSortBy != null && clientSortBy.startsWith("expiryDate");
 
-                        // 嵌入字段访问：root.get("sslCertificate").get("certificateExpiryDate")
-                        Path<LocalDateTime> expiryPath = root.get("sslCertificate").get("certificateExpiryDate");
-
-                        Expression<Integer> groupOrder = cb.<Integer>selectCase()
-                                .when(cb.lessThan(expiryPath, now), 0)
-                                .when(cb.lessThan(expiryPath, soon), 1)
-                                .otherwise(2);
-
-                        // 设置排序
-                        query.orderBy(
-                                cb.asc(groupOrder),         // 已过期 → 即将过期 → 其他
-                                cb.desc(root.get("id"))     // 远期：越晚越前
-                        );
-
-                        return cb.conjunction();
-                    }
-                });
+        if (sortByCertExpiry) {
+            request.noneSortBy();
+            boolean ascending = clientSortBy.endsWith("asc");
+            return super.convertQueryPageRequest(request)
+                    .addConstraint(StrUtil.isNotBlank(request.getTitle()),
+                                   LikeAttribute.builder().name("name").value("%" + request.getTitle() + "%").build())
+                    .add(new QueryAttribute() {
+                        @Override
+                        public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder cb) {
+                            Path<LocalDateTime> expiryPath = root.get("sslCertificate").get("certificateExpiryDate");
+                            if (ascending) {
+                                query.orderBy(cb.asc(expiryPath), cb.desc(root.get("id")));
+                            } else {
+                                query.orderBy(cb.desc(expiryPath), cb.desc(root.get("id")));
+                            }
+                            return cb.conjunction();
+                        }
+                    });
+        } else if (sortByExpiry) {
+            boolean ascending = clientSortBy.endsWith("asc");
+            request.setSortBy("expiryDate " + (ascending ? "asc" : "desc") + ", id desc");
+            return super.convertQueryPageRequest(request)
+                    .addConstraint(StrUtil.isNotBlank(request.getTitle()),
+                                   LikeAttribute.builder().name("name").value("%" + request.getTitle() + "%").build());
+        } else {
+            request.setSortBy("id desc");
+            return super.convertQueryPageRequest(request)
+                    .addConstraint(StrUtil.isNotBlank(request.getTitle()),
+                                   LikeAttribute.builder().name("name").value("%" + request.getTitle() + "%").build());
+        }
     }
 
     @Override

@@ -4,10 +4,7 @@
       <vab-query-form-top-panel>
         <el-form inline label-width="49px" :model="queryForm" @submit.prevent>
           <el-form-item label="域名">
-            <el-input v-model="queryForm.title" clearable placeholder="请输入标题" />
-          </el-form-item>
-          <el-form-item v-show="!fold" label="标题">
-            <el-input v-model="queryForm.title" clearable placeholder="请输入标题" />
+            <el-input v-model="queryForm.title" clearable placeholder="请输入域名" />
           </el-form-item>
           <el-form-item>
             <el-button
@@ -18,15 +15,6 @@
               @click="queryData"
             >
               查询
-            </el-button>
-            <el-button class="hidden-xs-only" text type="primary" @click="handleFold">
-              <span v-if="fold">展开</span>
-              <span v-else>合并</span>
-              <vab-icon
-                class="vab-dropdown"
-                :class="{ 'vab-dropdown-active': fold }"
-                icon="arrow-up-s-line"
-              />
             </el-button>
           </el-form-item>
         </el-form>
@@ -46,6 +34,7 @@
       :row-key="getRowKey"
       @expand-change="handleExpandChange"
       @selection-change="setSelectRows"
+      @sort-change="handleSortChange"
     >
       <el-table-column type="expand">
         <template #default="{ row }">
@@ -84,7 +73,7 @@
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column align="center" label="SSL证书" prop="expiryDate">
+      <el-table-column align="center" label="SSL证书" prop="sslExpiryDate" sortable="custom">
         <template #default="{ row }">
           <el-tooltip v-if="showCertbotInfo(row)" placement="top">
             <template #content>
@@ -108,7 +97,7 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column align="center" label="到期时间" prop="expiryDate">
+      <el-table-column align="center" label="到期时间" prop="expiryDate" sortable="custom">
         <template #default="{ row }">
           <el-tag :type="expiryDateType(row.expiryDate)">
             {{ expiryDateFormat(row.expiryDate) }}
@@ -236,7 +225,6 @@ const transferRef = ref<any>(null)
 const subEditRef = ref<any>(null)
 const certificateEditRef = ref<any>(null)
 const tableRef = ref<any>(null)
-const fold = ref<boolean>(true)
 const list = ref<any>([])
 const listLoading = ref<boolean>(true)
 const total = ref<any>(0)
@@ -246,6 +234,7 @@ const sslPollingTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const queryForm = reactive<any>({
   pageNo: 1,
   pageSize: 20,
+  sortBy: 'id desc',
 })
 const getRowKey = (row: { id: number | string }) => row.id
 const dialogOpen = ref(false)
@@ -326,9 +315,18 @@ const queryData = () => {
   fetchData()
 }
 
-const handleFold = () => {
-  fold.value = !fold.value
+const handleSortChange = ({ prop, order }: { prop: string; order: string | null }) => {
+  if (!order) {
+    queryForm.sortBy = 'id desc'
+  } else {
+    const field = prop === 'sslExpiryDate' ? 'certificateExpiryDate' : 'expiryDate'
+    const dir = order === 'descending' ? 'desc' : 'asc'
+    queryForm.sortBy = `${field} ${dir}`
+  }
+  queryForm.pageNo = 1
+  fetchData()
 }
+
 
 const setSelectRows = (value: string) => {
   selectRows.value = value
