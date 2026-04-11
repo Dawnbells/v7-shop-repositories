@@ -72,19 +72,6 @@ public class NginxConfigWriter {
                 add_header Referrer-Policy no-referrer-when-downgrade always;
                 add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
             
-                location /builder {
-                    proxy_pass http://xyzdwd-mall-service;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                    proxy_set_header X-Forwarded-Ssl on;
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                    proxy_hide_header X-Frame-Options;
-                    add_header Content-Security-Policy "frame-ancestors 'self' *.%1$s %1$s" always;
-                    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-                    add_header X-Content-Type-Options nosniff always;
-                }
-            
                 location /static/ {
                     proxy_pass http://xyzdwd-mall-service;
                     proxy_set_header Host $host;
@@ -156,19 +143,6 @@ public class NginxConfigWriter {
                 add_header X-Frame-Options SAMEORIGIN always;
                 add_header Referrer-Policy no-referrer-when-downgrade always;
                 add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
-            
-                location /builder {
-                    proxy_pass http://xyzdwd-frontend-service;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                    proxy_set_header X-Forwarded-Ssl on;
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                    proxy_hide_header X-Frame-Options;
-                    add_header Content-Security-Policy "frame-ancestors 'self' *.%1$s %1$s" always;
-                    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-                    add_header X-Content-Type-Options nosniff always;
-                }
             
                 location /static/ {
                     proxy_pass http://xyzdwd-frontend-service;
