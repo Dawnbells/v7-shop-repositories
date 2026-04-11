@@ -67,7 +67,7 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
     public Page<OrderResponse> page(@Valid @RequestBody QueryOrderRequest request) {
         String permission = getPermissionPrefix() + ".page";
         StpUtil.checkPermission(permission);
-        boolean desensitized = !Objects.equals(Boolean.TRUE, request.getIsAudit()) || !Objects.equals(Boolean.TRUE, request.getIsContact());
+        boolean desensitized = !Objects.equals(Boolean.TRUE, request.getIsAudit()) && !Objects.equals(Boolean.TRUE, request.getIsContact());
         Page<OrderResponse> responsePage = service.findPaginated(convertQueryPageRequest(request))
                 .map(order -> filling(order, OrderResponse.convertEntity(order, desensitized)));
         fillPrivateDomainFlag(responsePage);

@@ -42,6 +42,9 @@
       v-loading="listLoading"
       border
       :data="list"
+      :expand-row-keys="expandedRowKeys"
+      :row-key="getRowKey"
+      @expand-change="handleExpandChange"
       @selection-change="setSelectRows"
     >
       <el-table-column type="expand">
@@ -192,12 +195,20 @@
       @current-change="handleCurrentChange"
       @size-change="handleSizeChange"
     />
-    <top-level-domain-edit ref="editRef" @fetch-data="fetchData" />
-    <sub-domain-edit ref="subEditRef" @fetch-data="fetchData" />
-    <top-level-domain-transfer ref="transferRef" @fetch-data="fetchData" />
-    <certificate-edit ref="certificateEditRef" @fetch-data="fetchData" />
-    <bind-domain-protocol-edit ref="bindDomainProtocolRef" @fetch-data="fetchData" />
-    <bind-domain-pixel-edit ref="bindDomainPixelRef" @fetch-data="fetchData" />
+    <top-level-domain-edit ref="editRef" @close="resumePolling" @fetch-data="fetchData" />
+    <sub-domain-edit ref="subEditRef" @close="resumePolling" @fetch-data="fetchData" />
+    <top-level-domain-transfer ref="transferRef" @close="resumePolling" @fetch-data="fetchData" />
+    <certificate-edit ref="certificateEditRef" @close="resumePolling" @fetch-data="fetchData" />
+    <bind-domain-protocol-edit
+      ref="bindDomainProtocolRef"
+      @close="resumePolling"
+      @fetch-data="fetchData"
+    />
+    <bind-domain-pixel-edit
+      ref="bindDomainPixelRef"
+      @close="resumePolling"
+      @fetch-data="fetchData"
+    />
   </div>
 </template>
 
@@ -230,10 +241,31 @@ const list = ref<any>([])
 const listLoading = ref<boolean>(true)
 const total = ref<any>(0)
 const selectRows = ref<any>([])
+const expandedRowKeys = ref<Array<number | string>>([])
+const sslPollingTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const queryForm = reactive<any>({
   pageNo: 1,
   pageSize: 20,
 })
+const getRowKey = (row: { id: number | string }) => row.id
+const dialogOpen = ref(false)
+
+const clearSslPollingTimer = () => {
+  if (sslPollingTimer.value) {
+    clearTimeout(sslPollingTimer.value)
+    sslPollingTimer.value = null
+  }
+}
+
+const pausePolling = () => {
+  dialogOpen.value = true
+  clearSslPollingTimer()
+}
+
+const resumePolling = () => {
+  dialogOpen.value = false
+  checkAnyInSslRequesting()
+}
 const formatCertInfo = (row: any) => {
   return `${row.sslCertificate?.result?.replace(/\n/g, '<br />') || ''}<br /> ErrorMsg: <br />${
     row.sslCertificate?.errorMsg?.replace(/\n/g, '<br />') || ''
@@ -248,11 +280,16 @@ const fetchData = async () => {
   const { data } = await page(queryForm)
   list.value = data.list
   total.value = data.total
+  expandedRowKeys.value = expandedRowKeys.value.filter((key) =>
+    list.value.some((item: { id: number | string }) => item.id === key)
+  )
   checkAnyInSslRequesting()
   listLoading.value = false
 }
 
 const checkAnyInSslRequesting = async () => {
+  clearSslPollingTimer()
+  if (dialogOpen.value) return
   const anyInQueue = list.value.some((item: any) => item.certificateRequestStatus === 'QUEUE')
   const anyInRequesting = list.value.some(
     (item: any) => item.certificateRequestStatus === 'REQUESTING'
@@ -261,7 +298,12 @@ const checkAnyInSslRequesting = async () => {
     const { data } = await page(queryForm)
     list.value = data.list
     total.value = data.total
-    setTimeout(checkAnyInSslRequesting, 5000)
+    expandedRowKeys.value = expandedRowKeys.value.filter((key) =>
+      list.value.some((item: { id: number | string }) => item.id === key)
+    )
+    if (!dialogOpen.value) {
+      sslPollingTimer.value = setTimeout(checkAnyInSslRequesting, 5000)
+    }
   }
 }
 
@@ -289,15 +331,25 @@ const setSelectRows = (value: string) => {
   selectRows.value = value
 }
 
+const handleExpandChange = (
+  row: { id: number | string },
+  expandedRows: Array<{ id: number | string }>
+) => {
+  expandedRowKeys.value = expandedRows.map((item) => item.id)
+}
+
 const handleAdd = () => {
+  pausePolling()
   editRef.value.showEdit()
 }
 
 const handleEdit = (row = {}) => {
+  pausePolling()
   editRef.value.showEdit(row)
 }
 
 const handleTransfer = (row = {}) => {
+  pausePolling()
   transferRef.value.showEdit(row)
 }
 
@@ -323,6 +375,7 @@ const handleDelete = (row: any) => {
 }
 
 const handleCertificate = (row = {}) => {
+  pausePolling()
   certificateEditRef.value.showEdit(row)
 }
 
@@ -342,10 +395,12 @@ const handleSwitchValidity = (
 }
 
 const handleAddSubDomain = (row = {}) => {
+  pausePolling()
   subEditRef.value.showEdit(row)
 }
 
 const handleBindProtocol = (row: any) => {
+  pausePolling()
   bindDomainProtocolRef.value.showEdit(row)
 }
 
@@ -360,6 +415,7 @@ const getPixelNames = (row: any): string[] => {
 }
 
 const handleBindPixel = (row: any) => {
+  pausePolling()
   bindDomainPixelRef.value.showEdit(row, 'topLevel')
 }
 
@@ -378,6 +434,10 @@ onActivated(() => {
 
 onBeforeMount(() => {
   fetchData()
+})
+
+onBeforeUnmount(() => {
+  clearSslPollingTimer()
 })
 </script>
 
