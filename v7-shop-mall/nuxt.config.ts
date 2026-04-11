@@ -93,6 +93,8 @@ export default defineNuxtConfig({
       imageBaseUrl: "",
       // 图片降级 URL（主链接失败时使用此前缀重试）
       imageFallbackUrl: "",
+      // iframe 允许的来源（逗号分隔），设为 * 允许所有
+      allowedOrigins: "",
     },
   },
 });

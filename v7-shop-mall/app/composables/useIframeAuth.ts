@@ -92,13 +92,35 @@ const getAllowedOrigins = (): string[] => {
   ].filter(Boolean);
 };
 
+// 提取主域名（最后两段），如 admin.xyzdwd.com -> xyzdwd.com
+const extractMainDomain = (hostname: string): string => {
+  const parts = hostname.split(".");
+  return parts.length >= 2 ? parts.slice(-2).join(".") : hostname;
+};
+
 // 验证消息来源
 const isAllowedOrigin = (origin: string): boolean => {
   const allowed = getAllowedOrigins();
   if (allowed.includes("*")) {
     return true;
   }
-  return allowed.includes(origin);
+  if (allowed.includes(origin)) {
+    return true;
+  }
+  // 允许同主域名下的子域名
+  if (typeof window !== "undefined") {
+    try {
+      const currentDomain = extractMainDomain(window.location.hostname);
+      const originUrl = new URL(origin);
+      const originDomain = extractMainDomain(originUrl.hostname);
+      if (currentDomain === originDomain) {
+        return true;
+      }
+    } catch {
+      // URL 解析失败，跳过
+    }
+  }
+  return false;
 };
 
 // 消息处理函数
