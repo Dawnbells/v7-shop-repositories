@@ -6,3 +6,17 @@ export const getList = () => {
     method: 'get',
   })
 }
+
+export const markAsRead = (id: string | number) => {
+  return request({
+    url: `/notice/markAsRead/${id}`,
+    method: 'post',
+  })
+}
+
+export const markAllAsRead = () => {
+  return request({
+    url: '/notice/markAllAsRead',
+    method: 'post',
+  })
+}

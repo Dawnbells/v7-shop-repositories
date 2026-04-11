@@ -4,30 +4,20 @@
       <template #reference>
         <vab-icon icon="notification-2-line" />
       </template>
-      <el-tabs v-model="activeName" @tab-click="handleClick">
+      <el-tabs v-model="activeName">
         <el-tab-pane :label="translate('通知')" name="notice">
           <div class="notice-list">
             <el-scrollbar>
               <ul v-if="badge">
-                <li v-for="(item, index) in notices" :key="index">
-                  <el-avatar :size="45" :src="item.image" />
-                  <span v-html="item.notice"></span>
+                <li v-for="item in notices" :key="item.id" @click="handleReadNotice(item)">
+                  <div class="notice-item">
+                    <div class="notice-title">{{ item.title }}</div>
+                    <div v-if="item.content" class="notice-content">{{ item.content }}</div>
+                    <div class="notice-time">{{ formatTime(item.createTime) }}</div>
+                  </div>
                 </li>
               </ul>
-              <el-empty v-else description="暂无数据" />
-            </el-scrollbar>
-          </div>
-        </el-tab-pane>
-        <el-tab-pane :label="translate('邮件')" name="email">
-          <div class="notice-list">
-            <el-scrollbar>
-              <ul v-if="badge">
-                <li v-for="(item, index) in notices" :key="index">
-                  <el-avatar :size="45" :src="item.image" />
-                  <span>{{ item.email }}</span>
-                </li>
-              </ul>
-              <el-empty v-else description="暂无数据" />
+              <el-empty v-else description="暂无通知" />
             </el-scrollbar>
           </div>
         </el-tab-pane>
@@ -43,7 +33,7 @@
 </template>
 
 <script lang="ts" setup>
-import { getList } from '/@/api/notice'
+import { getList, markAsRead, markAllAsRead } from '/@/api/notice'
 import { translate } from '/@/i18n'
 import { useSettingsStore } from '/@/store/modules/settings'
 
@@ -59,16 +49,26 @@ const badge = ref<any>(undefined)
 
 const fetchData = async () => {
   const { data } = await getList()
-  notices.value = data.list
+  notices.value = data.list || []
   badge.value = data.total === 0 ? undefined : data.total
 }
 
-const handleClick = () => {
-  fetchData()
+const formatTime = (time: string) => {
+  if (!time) return ''
+  return time.replace('T', ' ').substring(0, 16)
 }
 
-const handleClearNotice = () => {
-  badge.value = ''
+const handleReadNotice = async (item: any) => {
+  if (item.id) {
+    await markAsRead(item.id)
+    notices.value = notices.value.filter((n: any) => n.id !== item.id)
+    badge.value = notices.value.length === 0 ? undefined : notices.value.length
+  }
+}
+
+const handleClearNotice = async () => {
+  await markAllAsRead()
+  badge.value = undefined
   notices.value = []
   $baseMessage('清空消息成功', 'success', 'hey')
 }
@@ -89,30 +89,45 @@ onBeforeMount(() => {
   height: 315px;
 
   ul {
-    padding: 0 15px 0 0;
+    padding: 0;
     margin: 0;
+    list-style: none;
 
     li {
-      display: flex;
-      align-items: center;
-      padding: 10px 0 15px 0;
+      padding: 10px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--el-border-color-lighter);
+
+      &:last-child {
+        border-bottom: none;
+      }
 
       &:hover {
         background-color: var(--el-color-primary-light-9);
         border-radius: var(--el-border-radius-base);
       }
 
-      :deep() {
-        .el-avatar {
-          flex-shrink: 0;
-          width: 50px;
-          height: 50px;
-          border-radius: 50%;
+      .notice-item {
+        .notice-title {
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--el-text-color-primary);
         }
-      }
 
-      span {
-        margin-left: 10px;
+        .notice-content {
+          margin-top: 4px;
+          font-size: 12px;
+          color: var(--el-text-color-regular);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .notice-time {
+          margin-top: 4px;
+          font-size: 12px;
+          color: var(--el-text-color-placeholder);
+        }
       }
     }
   }
