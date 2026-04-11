@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="show" title="编辑证书" width="1200px" :loading="loading">
+  <el-dialog v-model="show" title="编辑证书" width="1200px" :loading="loading" @close="handleClose">
     <el-row :gutter="10">
       <el-col :span="12">
         <el-form :model="form" label-width="120px">
@@ -150,7 +150,11 @@ watch(
   }
 )
 
-const emit = defineEmits(['fetch-data'])
+const emit = defineEmits(['fetch-data', 'close'])
+
+const handleClose = () => {
+  emit('close')
+}
 
 const showEdit = async (row = { id: '', name: '' }) => {
   show.value = true

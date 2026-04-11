@@ -37,7 +37,7 @@ defineOptions({
   name: 'TopLevelDomainTransfer',
 })
 
-const emit = defineEmits(['fetch-data'])
+const emit = defineEmits(['fetch-data', 'close'])
 const $baseMessage = inject<any>('$baseMessage')
 const formRef = ref<any>(null)
 const options = ref<any[]>([])
@@ -74,6 +74,7 @@ const close = () => {
   Object.assign(form, {
     id: undefined,
   })
+  emit('close')
   emit('fetch-data')
 }
 
