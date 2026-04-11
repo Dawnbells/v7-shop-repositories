@@ -37,7 +37,6 @@ public class AliyunDnsService implements IDnsService {
 
             Client client = this.createClient(cloudPlatformAccount);
             DescribeDomainRecordsResponse describeDomainRecordsResponse = describeDomainRecords(client, domainName);
-            log.debug("describeDomainRecordsResponse = " + describeDomainRecordsResponse);
             DescribeDomainRecordsResponseBody body = describeDomainRecordsResponse.getBody();
             DescribeDomainRecordsResponseBody.DescribeDomainRecordsResponseBodyDomainRecordsRecord wildcardRecord = null; // 通配匹配
             DescribeDomainRecordsResponseBody.DescribeDomainRecordsResponseBodyDomainRecordsRecord exactRecord = null; // 精确匹配
@@ -161,7 +160,7 @@ public class AliyunDnsService implements IDnsService {
     }
 
     private DescribeDomainRecordsResponse describeDomainRecords(Client client, String domainName) throws Exception {
-        log.debug("查询域名解析记录列表: " + domainName);
+        log.debug("查询域名解析记录列表: {}", domainName);
         com.aliyun.alidns20150109.models.DescribeDomainRecordsRequest describeDomainRecordsRequest = new com.aliyun.alidns20150109.models.DescribeDomainRecordsRequest()
                 .setDomainName(domainName);
         com.aliyun.teautil.models.RuntimeOptions runtime = new com.aliyun.teautil.models.RuntimeOptions();

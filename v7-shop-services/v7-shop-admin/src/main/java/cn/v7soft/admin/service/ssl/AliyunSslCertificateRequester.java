@@ -109,7 +109,6 @@ public class AliyunSslCertificateRequester extends BaseSslCertificateRequester {
     }
 
     private DescribeDomainRecordsResponse describeDomainRecords(Client client, String domainName) throws Exception {
-        log.debug("查询域名解析记录列表: " + domainName);
         com.aliyun.alidns20150109.models.DescribeDomainRecordsRequest describeDomainRecordsRequest = new com.aliyun.alidns20150109.models.DescribeDomainRecordsRequest()
                 .setDomainName(domainName);
         com.aliyun.teautil.models.RuntimeOptions runtime = new com.aliyun.teautil.models.RuntimeOptions();
