@@ -674,7 +674,7 @@ defineOptions({
   name: 'BindSubDomainProduct',
 })
 
-const emit = defineEmits(['fetch-data'])
+const emit = defineEmits(['fetch-data', 'close'])
 const $baseMessage = inject<any>('$baseMessage')
 const $baseConfirm = inject<any>('$baseConfirm')
 
@@ -831,6 +831,7 @@ const close = () => {
   spuOptions.value = []
   boundSpuList.value = []
   boundFilterKeyword.value = ''
+  emit('close')
   emit('fetch-data')
 }
 

@@ -49,7 +49,7 @@ defineOptions({
   name: 'SubDomainThemeSelect',
 })
 
-const emit = defineEmits(['fetch-data'])
+const emit = defineEmits(['fetch-data', 'close'])
 const $baseMessage = inject<any>('$baseMessage')
 const formRef = ref<any>(null)
 const options = ref<any[]>([])
@@ -97,6 +97,7 @@ const close = () => {
     themeId: '',
   })
   options.value = []
+  emit('close')
   emit('fetch-data')
 }
 

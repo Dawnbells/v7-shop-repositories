@@ -266,6 +266,9 @@ const resumePolling = () => {
   dialogOpen.value = false
   checkAnyInSslRequesting()
 }
+
+provide('pausePolling', pausePolling)
+provide('resumePolling', resumePolling)
 const formatCertInfo = (row: any) => {
   return `${row.sslCertificate?.result?.replace(/\n/g, '<br />') || ''}<br /> ErrorMsg: <br />${
     row.sslCertificate?.errorMsg?.replace(/\n/g, '<br />') || ''

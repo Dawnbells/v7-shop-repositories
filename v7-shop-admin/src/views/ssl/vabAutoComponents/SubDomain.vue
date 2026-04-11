@@ -94,9 +94,9 @@
       @current-change="handleCurrentChange"
       @size-change="handleSizeChange"
     />
-    <sub-domain-theme-select ref="themeSelectRef" @fetch-data="fetchData" />
-    <bind-domain-pixel-edit ref="bindDomainPixelRef" @fetch-data="fetchData" />
-    <bind-sub-domain-product ref="bindSubDomainProductRef" @fetch-data="fetchData" />
+    <sub-domain-theme-select ref="themeSelectRef" @close="resumePolling?.()" @fetch-data="fetchData" />
+    <bind-domain-pixel-edit ref="bindDomainPixelRef" @close="resumePolling?.()" @fetch-data="fetchData" />
+    <bind-sub-domain-product ref="bindSubDomainProductRef" @close="resumePolling?.()" @fetch-data="fetchData" />
   </div>
 </template>
 
@@ -112,6 +112,8 @@ defineOptions({
 
 const $baseConfirm = inject<any>('$baseConfirm')
 const $baseMessage = inject<any>('$baseMessage')
+const pausePolling = inject<(() => void) | undefined>('pausePolling', undefined)
+const resumePolling = inject<(() => void) | undefined>('resumePolling', undefined)
 const tableRef = ref<any>(null)
 const themeSelectRef = ref<any>(null)
 const bindDomainPixelRef = ref<any>(null)
@@ -167,14 +169,17 @@ const getPixelNames = (row: any): string[] => {
 }
 
 const handleTheme = (row: any) => {
+  pausePolling?.()
   themeSelectRef.value.showEdit(row)
 }
 
 const handleBindPixel = (row: any) => {
+  pausePolling?.()
   bindDomainPixelRef.value.showEdit(row, 'sub')
 }
 
 const handleProduct = (row: any) => {
+  pausePolling?.()
   bindSubDomainProductRef.value.showEdit(row)
 }
 
