@@ -275,7 +275,7 @@
                 {{ row.orderCheckRemark || '' }}
               </span>
             </div>
-            <div v-if="isContact && row.contactRemark" class="text-info">
+            <div v-if="row.contactRemark" style="color: #e6a23c">
               <span
                 style="white-space: pre-wrap; cursor: pointer"
                 @click.stop="copyText2Clipboard(row.contactRemark)"
