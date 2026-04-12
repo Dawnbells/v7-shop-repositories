@@ -23,9 +23,10 @@ public interface TopLevelDomainRepository extends BaseRepository<TopLevelDomain>
     List<TopLevelDomain> findAllQueueOrRequesting();
 
     /**
-     * 查询所有有效状态的域名（跨租户），用于定时任务巡检。
+     * 查询所有未删除的域名（跨租户），用于定时任务巡检。
+     * 包含 VALID 和 INVALID 状态，走统一的巡检流程。
      * JOIN FETCH owner 避免 N+1 查询和潜在的 LazyInitializationException。
      */
-    @Query("SELECT d FROM TopLevelDomain d LEFT JOIN FETCH d.owner WHERE d.status = 'VALID'")
+    @Query("SELECT d FROM TopLevelDomain d LEFT JOIN FETCH d.owner WHERE d.status <> 'DELETED'")
     List<TopLevelDomain> findAllValidDomains();
 }

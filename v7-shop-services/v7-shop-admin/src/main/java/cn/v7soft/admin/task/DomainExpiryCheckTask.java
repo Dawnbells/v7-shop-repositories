@@ -75,7 +75,7 @@ public class DomainExpiryCheckTask {
         try {
             TenantContext.silent();
             domains = topLevelDomainRepository.findAllValidDomains();
-            log.info("[DomainExpiryCheck] 共发现 {} 个有效域名需要检查", domains.size());
+            log.info("[DomainExpiryCheck] 共发现 {} 个域名需要检查", domains.size());
         } catch (Exception e) {
             log.error("[DomainExpiryCheck] 查询域名列表异常", e);
             return;

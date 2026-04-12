@@ -34,6 +34,7 @@ import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.core.controller.request.DeleteRequest;
 import cn.v7soft.core.controller.request.IdRequest;
 import cn.v7soft.core.controller.request.QueryPageRequest;
+import cn.v7soft.core.controller.request.SwitchValidityRequest;
 import cn.v7soft.core.controller.request.attributes.LikeAttribute;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
@@ -227,6 +228,11 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
             }
         }
         return domainSslCertificateInfo;
+    }
+
+    @Override
+    public void switchValidity(@Valid @RequestBody SwitchValidityRequest request) {
+        throw new UnsupportedOperationException("域名不支持状态切换");
     }
 
     @Override

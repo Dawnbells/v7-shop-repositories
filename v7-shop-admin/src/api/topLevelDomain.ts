@@ -31,13 +31,6 @@ export function doDelete(data: any) {
     data,
   })
 }
-export function switchValidity(data: any) {
-  return request({
-    url: '/top-level-domain/switchValidity',
-    method: 'post',
-    data,
-  })
-}
 
 export function getCertificate(data: any) {
   return request({

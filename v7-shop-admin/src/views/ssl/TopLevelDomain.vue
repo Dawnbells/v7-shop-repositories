@@ -105,17 +105,6 @@
         </template>
       </el-table-column>
       <el-table-column align="center" label="备注" prop="remark" />
-      <el-table-column align="center" label="状态" prop="status">
-        <template #default="{ row }">
-          <el-switch
-            v-model="row.status"
-            active-value="VALID"
-            inactive-value="INVALID"
-            :loading="row.statusLoading"
-            @change="($event) => handleSwitchValidity($event, row)"
-          />
-        </template>
-      </el-table-column>
       <el-table-column align="center" label="操作" width="450">
         <template #default="{ row }">
           <el-button class="option-button" text type="primary" @click="handleAddSubDomain(row)">
@@ -203,7 +192,7 @@
 
 <script lang="ts" setup>
 import { ArrowDown, Delete, Plus, Search } from '@element-plus/icons-vue'
-import { doDelete, nginxConfig, page, switchValidity } from '/@/api/topLevelDomain'
+import { doDelete, nginxConfig, page } from '/@/api/topLevelDomain'
 import {
   certbotInfoStatus,
   certbotInfoType,
@@ -378,21 +367,6 @@ const handleDelete = (row: any) => {
 const handleCertificate = (row = {}) => {
   pausePolling()
   certificateEditRef.value.showEdit(row)
-}
-
-const handleSwitchValidity = (
-  newVal: boolean | string | number,
-  row: { id: number; status: string; statusLoading: boolean }
-) => {
-  row.statusLoading = true
-  switchValidity({ id: row.id, status: row.status })
-    .then(() => {
-      row.statusLoading = false
-    })
-    .catch(() => {
-      row.statusLoading = false
-      row.status = newVal == 'VALID' ? 'INVALID' : 'VALID'
-    })
 }
 
 const handleAddSubDomain = (row = {}) => {
