@@ -104,8 +104,42 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
         TopLevelDomain topLevelDomain = getById(id);
         List<SubDomain> subDomains = topLevelDomain.getSubDomains();
         subDomainService.doDeleteAll(subDomains.stream().map(SubDomain::getId).toList());
+        cleanupDomainResources(topLevelDomain);
         topLevelDomain.setStatus(StatusEnum.DELETED);
         repository.save(topLevelDomain);
+    }
+
+    /**
+     * 清理域名关联的本地证书文件和所有前端服务器上的nginx配置
+     */
+    private void cleanupDomainResources(TopLevelDomain domain) {
+        String domainName = domain.getName();
+        String companyId = String.valueOf(domain.getCompanyId());
+
+        // 删除本地SSL证书文件
+        String certDir = CERT_CONFIG_DIR + companyId + "/" + domainName;
+        try {
+            if (FileUtil.exist(certDir)) {
+                FileUtil.del(certDir);
+                log.info("已删除域名 {} 的本地证书目录: {}", domainName, certDir);
+            }
+        } catch (Exception e) {
+            log.error("删除域名 {} 的证书目录失败: {}", domainName, certDir, e);
+        }
+
+        // 删除所有前端服务器上的nginx配置并刷新
+        try {
+            for (FrontServer frontServer : frontServerService.listFrontServers()) {
+                String serverName = frontServer.getName();
+                if (NginxConfigWriter.existsNginxConfig(serverName, domainName)) {
+                    NginxConfigWriter.deleteNginx(serverName, domainName);
+                    frontServerService.pushAndRefresh(frontServer.getId());
+                    log.info("已删除域名 {} 在服务器 {} 上的nginx配置", domainName, serverName);
+                }
+            }
+        } catch (Exception e) {
+            log.error("清理域名 {} 的nginx配置失败", domainName, e);
+        }
     }
 
     @Override

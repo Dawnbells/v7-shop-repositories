@@ -119,4 +119,11 @@ public class TopLevelDomain extends BaseDataRangeEntity {
             inverseJoinColumns = @JoinColumn(name = "pixel_account_id")
     )
     private List<PixelAccount> pixelAccounts;
+
+    /**
+     * 删除通知已发送次数（证书过期/未设置超过5天后开始计数，达到3次后执行删除）
+     */
+    @Builder.Default
+    @Column(name = "deletion_notice_count")
+    private Integer deletionNoticeCount = 0;
 }
