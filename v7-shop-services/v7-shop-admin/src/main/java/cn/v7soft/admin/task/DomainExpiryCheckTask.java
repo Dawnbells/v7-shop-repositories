@@ -1,20 +1,27 @@
 package cn.v7soft.admin.task;
 
+import java.io.File;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import cn.hutool.core.io.FileUtil;
 import cn.v7soft.admin.service.ICompanyService;
+import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.INoticeService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
+import cn.v7soft.admin.utils.NginxConfigWriter;
 import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.dao.entities.primary.Company;
+import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.entities.primary.SSLCertificate;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import cn.v7soft.dao.repositories.primary.TopLevelDomainRepository;
@@ -41,6 +48,8 @@ import lombok.extern.slf4j.Slf4j;
 public class DomainExpiryCheckTask {
 
     private static final String NOTICE_TYPE_DOMAIN = "DOMAIN";
+    private static final String CERT_DIR = "/www/certs/";
+    private static final String NGINX_DIR = "/www/nginx/";
     private static final int EXPIRY_WARNING_DAYS = 3;
     private static final int DELETION_TRIGGER_EXPIRED_DAYS = 5;
     private static final int MAX_DELETION_NOTICES = 3;
@@ -49,6 +58,7 @@ public class DomainExpiryCheckTask {
     private final TransactionTemplate transactionTemplate;
     private final TopLevelDomainRepository topLevelDomainRepository;
     private final ITopLevelDomainService topLevelDomainService;
+    private final IFrontServerService frontServerService;
     private final INoticeService noticeService;
     private final ICompanyService companyService;
 
@@ -98,6 +108,8 @@ public class DomainExpiryCheckTask {
 
         log.info("[DomainExpiryCheck] 巡检完成: 同步={}, 即将过期警告={}, 已过期通知={}, 删除预告={}, 已删除={}",
                 synced, warned, expired, deletionNotified, deleted);
+
+        cleanupOrphanedResources(domains);
     }
 
     private DomainCheckResult checkSingleDomain(TopLevelDomain domain) {
@@ -294,6 +306,84 @@ public class DomainExpiryCheckTask {
             if (company != null) {
                 TenantContext.setCurrentTenant(companyId, company);
             }
+        }
+    }
+
+    /**
+     * 清理本地残留的证书目录和nginx配置文件。
+     * 扫描本地文件系统，与有效域名列表比对，删除没有对应有效域名的脏数据。
+     */
+    private void cleanupOrphanedResources(List<TopLevelDomain> validDomains) {
+        Set<String> validCertPaths = validDomains.stream()
+                .map(d -> d.getCompanyId() + "/" + d.getName())
+                .collect(Collectors.toSet());
+
+        Set<String> validDomainNames = validDomains.stream()
+                .map(TopLevelDomain::getName)
+                .collect(Collectors.toSet());
+
+        int certCleaned = 0, nginxCleaned = 0;
+
+        // 清理孤立证书目录：/www/certs/{companyId}/{domainName}/
+        try {
+            File certRoot = new File(CERT_DIR);
+            if (certRoot.isDirectory()) {
+                File[] companyDirs = certRoot.listFiles(File::isDirectory);
+                if (companyDirs != null) {
+                    for (File companyDir : companyDirs) {
+                        File[] domainDirs = companyDir.listFiles(File::isDirectory);
+                        if (domainDirs != null) {
+                            for (File domainDir : domainDirs) {
+                                String certPath = companyDir.getName() + "/" + domainDir.getName();
+                                if (!validCertPaths.contains(certPath)) {
+                                    FileUtil.del(domainDir);
+                                    certCleaned++;
+                                    log.info("[DomainExpiryCheck] 清理孤立证书目录: {}", CERT_DIR + certPath);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("[DomainExpiryCheck] 扫描清理孤立证书目录异常", e);
+        }
+
+        // 清理孤立nginx配置：/www/nginx/{serverName}/{domainName}.conf
+        try {
+            for (FrontServer frontServer : frontServerService.listFrontServers()) {
+                String serverName = frontServer.getName();
+                File serverDir = new File(NGINX_DIR + serverName);
+                if (!serverDir.isDirectory()) {
+                    continue;
+                }
+
+                File[] confFiles = serverDir.listFiles((dir, name) -> name.endsWith(".conf"));
+                if (confFiles == null) {
+                    continue;
+                }
+
+                boolean serverHasCleanup = false;
+                for (File confFile : confFiles) {
+                    String domainName = confFile.getName().replace(".conf", "");
+                    if (!validDomainNames.contains(domainName)) {
+                        NginxConfigWriter.deleteNginx(serverName, domainName);
+                        nginxCleaned++;
+                        serverHasCleanup = true;
+                        log.info("[DomainExpiryCheck] 清理孤立nginx配置: {}/{}", serverName, confFile.getName());
+                    }
+                }
+
+                if (serverHasCleanup) {
+                    frontServerService.pushAndRefresh(frontServer.getId());
+                }
+            }
+        } catch (Exception e) {
+            log.error("[DomainExpiryCheck] 扫描清理孤立nginx配置异常", e);
+        }
+
+        if (certCleaned > 0 || nginxCleaned > 0) {
+            log.info("[DomainExpiryCheck] 脏数据清理完成: 证书目录={}, nginx配置={}", certCleaned, nginxCleaned);
         }
     }
 
