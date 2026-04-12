@@ -41,6 +41,18 @@ public class NoticeController {
     }
 
     @SaCheckLogin
+    @GetMapping("/unreadCount")
+    @Operation(summary = "获取未读通知数量")
+    public Map<String, Object> getUnreadCount() {
+        SystemUserDto user = SaSessionUtil.getLoginUser();
+        Long userId = Long.parseLong(user.getId());
+        long count = noticeService.getUnreadCount(userId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("count", count);
+        return result;
+    }
+
+    @SaCheckLogin
     @PostMapping("/markAsRead/{id}")
     @Operation(summary = "标记通知为已读")
     public void markAsRead(@PathVariable Long id) {

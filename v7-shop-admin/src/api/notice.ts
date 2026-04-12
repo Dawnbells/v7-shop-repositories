@@ -7,6 +7,13 @@ export const getList = () => {
   })
 }
 
+export const getUnreadCount = () => {
+  return request({
+    url: '/notice/unreadCount',
+    method: 'get',
+  })
+}
+
 export const markAsRead = (id: string | number) => {
   return request({
     url: `/notice/markAsRead/${id}`,
