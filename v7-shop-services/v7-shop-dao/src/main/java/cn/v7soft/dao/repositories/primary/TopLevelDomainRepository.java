@@ -21,4 +21,11 @@ public interface TopLevelDomainRepository extends BaseRepository<TopLevelDomain>
      */
     @Query("FROM TopLevelDomain where certificateRequestStatus='REQUESTING' or certificateRequestStatus='QUEUE'")
     List<TopLevelDomain> findAllQueueOrRequesting();
+
+    /**
+     * 查询所有有效状态的域名（跨租户），用于定时任务巡检。
+     * JOIN FETCH owner 避免 N+1 查询和潜在的 LazyInitializationException。
+     */
+    @Query("SELECT d FROM TopLevelDomain d LEFT JOIN FETCH d.owner WHERE d.status = 'VALID'")
+    List<TopLevelDomain> findAllValidDomains();
 }
