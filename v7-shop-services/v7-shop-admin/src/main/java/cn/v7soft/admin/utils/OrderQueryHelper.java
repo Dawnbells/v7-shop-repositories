@@ -89,7 +89,7 @@ public class OrderQueryHelper {
             switch (request.getRepeatType()) {
                 case REAL_IP -> value = order.getRiskInfo().getRealIp();
                 case IP -> value = order.getRiskInfo().getRemoteIp();
-                case PHONE -> value = order.getDeliveryInfo().getPhone();
+                case PHONE -> value = order.getDeliveryInfo().getPhoneLast8();
                 case DEVICE -> value = order.getRiskInfo().getDeviceId();
                 case NAME -> {
                     value = order.getDeliveryInfo().getFirstName();
