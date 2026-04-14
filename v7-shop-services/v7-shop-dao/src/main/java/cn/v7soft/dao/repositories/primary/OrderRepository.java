@@ -85,8 +85,10 @@ public interface OrderRepository extends BaseRepository<Order> {
             inner join t_order_risk_record_infos r on r.id = o.risk_info_id
             inner join t_order_context_infos c on c.id = o.context_info_id
             where o.order_time < :orderTime
+            and o.status <> 'DELETED'
             and r.remote_ip = :customIp
             and c.country_code = :countryCode
+            order by o.order_time desc
             limit 1
             """, nativeQuery = true)
     Optional<Order> findLastEarlierOrdersByRemoteIp(@Param("customIp") String customIp,
@@ -98,8 +100,10 @@ public interface OrderRepository extends BaseRepository<Order> {
             from t_orders o
             inner join t_order_context_infos c on c.id = o.context_info_id
             where o.order_time < :orderTime
+            and o.status <> 'DELETED'
             and o.phone_last_8 = :phone
             and c.country_code = :countryCode
+            order by o.order_time desc
             limit 1
             """, nativeQuery = true)
     Optional<Order> findLastEarlierOrdersByPhone(@Param("phone") String phone,
