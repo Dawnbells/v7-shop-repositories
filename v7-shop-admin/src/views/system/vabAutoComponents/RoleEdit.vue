@@ -31,10 +31,12 @@
       </el-form-item>
       <el-form-item v-if="form.isCrossDepartment" label="管理部门">
         <el-tree-select
+          ref="deptTreeRef"
           v-model="form.manageDepartmentIds"
           :data="departmentTree"
           multiple
           show-checkbox
+          check-strictly
           collapse-tags
           clearable
           node-key="id"
@@ -43,6 +45,7 @@
           :default-expanded-keys="form.manageDepartmentIds"
           placeholder="请选择管理部门"
           style="width: 100%"
+          @check="onDeptTreeCheck"
         />
       </el-form-item>
     </el-form>
@@ -66,6 +69,7 @@ const formRef = ref<any>(null)
 const title = ref<string>('')
 const dialogFormVisible = ref<boolean>(false)
 const departmentTree = ref<any[]>([])
+const deptTreeRef = ref<any>(null)
 const form = reactive<any>({
   name: '',
   description: '',
@@ -87,6 +91,35 @@ const fetchDepartmentTree = async () => {
     label: item.name,
     value: item.id,
   }))
+}
+
+const collectDescendantIds = (node: any): number[] => {
+  const ids: number[] = []
+  if (node.children) {
+    for (const child of node.children) {
+      ids.push(child.id)
+      ids.push(...collectDescendantIds(child))
+    }
+  }
+  return ids
+}
+
+const onDeptTreeCheck = (nodeData: any, { checkedKeys }: any) => {
+  const tree = deptTreeRef.value
+  if (!tree) return
+
+  const isChecked = checkedKeys.includes(nodeData.id)
+  let newKeys = [...checkedKeys]
+
+  const descendantIds = collectDescendantIds(nodeData)
+  if (isChecked) {
+    newKeys = [...new Set([...newKeys, ...descendantIds])]
+  } else {
+    newKeys = newKeys.filter((k: number) => !descendantIds.includes(k))
+  }
+
+  tree.setCheckedKeys(newKeys)
+  form.manageDepartmentIds = [...newKeys]
 }
 
 const onCrossDepartmentChange = (val: boolean) => {
