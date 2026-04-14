@@ -48,6 +48,7 @@ import cn.hutool.poi.excel.ExcelUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
+import cn.v7soft.admin.service.IAddressService;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.IOrderTemplateService;
@@ -190,6 +191,7 @@ public class TaskExecutorService implements ITaskExecutorService {
 
     // ======================== 依赖注入 ========================
 
+    private final IAddressService addressService;
     private final IOrderService orderService;
     private final IS3Service s3Service;
     private final IThirdPartyWebsiteService thirdPartyWebsiteService;
@@ -213,7 +215,8 @@ public class TaskExecutorService implements ITaskExecutorService {
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
     private final GeminiQuotaTracker geminiQuotaTracker;
 
-    public TaskExecutorService(IAsyncTaskService asyncTaskService, @Lazy IOrderService orderService, IS3Service s3Service,
+    public TaskExecutorService(IAsyncTaskService asyncTaskService, @Lazy IAddressService addressService,
+                       @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
                        @Lazy IProductService productService, GeminiTranslateService geminiTranslateService,
                        IMultimediaFileService multimediaFileService, cn.v7soft.admin.service.ILanguageService languageService,
@@ -231,6 +234,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                        GeminiQuotaTracker geminiQuotaTracker,
                        @Value("${application.ai.graceful-shutdown-wait-seconds:180}") long gracefulShutdownWaitSeconds) {
         this.asyncTaskService = asyncTaskService;
+        this.addressService = addressService;
         this.orderService = orderService;
         this.s3Service = s3Service;
         this.thirdPartyWebsiteService = thirdPartyWebsiteService;
@@ -340,6 +344,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                     return;
                 }
                 executeDirectTranslate(task);
+            } else if (task.getTaskType() == TaskType.ADDRESS_IMPORT) {
+                executeAddressImport(task);
             } else {
                 task.setMessage("未知任务类型: " + task.getTaskType());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, 100);
@@ -1734,7 +1740,44 @@ public class TaskExecutorService implements ITaskExecutorService {
         }
     }
 
-    // ======================== 非翻译任务（订单下载/上传/第三方同步） ========================
+    // ======================== 非翻译任务（订单下载/上传/第三方同步/地址库导入） ========================
+
+    private void executeAddressImport(AsyncTask task) {
+        try {
+            task.setMessage("正在准备导入...");
+            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, RUNNING_PROGRESS);
+
+            String parameters = task.getParameters();
+            String countryCode = JSONUtil.parseObj(parameters).getStr("countryCode");
+            String filePath = task.getUploadFilePath();
+
+            if (filePath == null || filePath.isBlank()) {
+                task.setMessage("上传文件路径为空");
+                asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+                return;
+            }
+            if (!cn.hutool.core.io.FileUtil.exist(filePath)) {
+                task.setMessage("上传文件不存在");
+                asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+                return;
+            }
+
+            Map<String, Object> result = addressService.importAddressesFromFile(countryCode, filePath,
+                    (progress, message) -> {
+                        task.setMessage(message);
+                        asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING,
+                                Math.max(RUNNING_PROGRESS, Math.min(RESOLVE_PROGRESS, progress)));
+                    });
+
+            task.setMessage((String) result.get("msg"));
+            task.setParameters(JSONUtil.toJsonStr(result));
+            asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+        } catch (Throwable e) {
+            log.error("[addressImport] taskId={} 导入失败", task.getId(), e);
+            task.setMessage(e.getMessage());
+            asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+        }
+    }
 
     private void executeOrderUpload(AsyncTask task, SystemUserDto owner) {
         final List<String> successIds = new ArrayList<>();

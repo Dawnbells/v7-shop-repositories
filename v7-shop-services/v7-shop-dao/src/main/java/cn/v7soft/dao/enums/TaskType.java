@@ -21,4 +21,8 @@ public enum TaskType {
      * 商品 AI 即时翻译任务
      */
     PRODUCT_AI_TRANSLATE_DIRECT,
+    /**
+     * 地址库导入任务
+     */
+    ADDRESS_IMPORT,
 }
