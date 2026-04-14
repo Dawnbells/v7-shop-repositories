@@ -43,39 +43,39 @@ public interface OrderRepository extends BaseRepository<Order> {
     void syncChangeSkuInfo(@Param("id") Long id, @Param("name") String name, @Param("skuCode") String skuCode);
 
     /**
-     * 根据终端ID查询创建时间早于指定订单的历史订单
+     * 根据终端ID查询同一国家的历史订单数
      *
-     * @param deviceId 终端ID
-     * @return 匹配条件的订单列表
+     * @param deviceId    终端ID
+     * @param countryCode 国家代码
+     * @return 匹配条件的订单数量
      */
-    @Query("SELECT COUNT(*)  FROM Order AS o  WHERE o.riskInfo.deviceId = :deviceId")
-    int findEarlierOrdersByDeviceId(@Param("deviceId") String deviceId);
+    @Query("SELECT COUNT(*) FROM Order AS o WHERE o.riskInfo.deviceId = :deviceId AND o.contextInfo.countryCode = :countryCode")
+    int findEarlierOrdersByDeviceId(@Param("deviceId") String deviceId, @Param("countryCode") String countryCode);
 
     /**
-     * 根据手机号码查询创建时间早于指定订单的历史订单
+     * 根据手机号码后8位查询同一国家的历史订单数
      *
-     * @param phone 手机号码
-     * @return 匹配条件的订单列表
+     * @param phone       手机号码后8位
+     * @param countryCode 国家代码
+     * @return 匹配条件的订单数量
      */
-    @Query("SELECT COUNT(*) FROM Order AS o WHERE o.deliveryInfo.phoneLast8 = :phone")
-    int findEarlierOrdersByPhoneLast8(@Param("phone") String phone);
+    @Query("SELECT COUNT(*) FROM Order AS o WHERE o.deliveryInfo.phoneLast8 = :phone AND o.contextInfo.countryCode = :countryCode")
+    int findEarlierOrdersByPhoneLast8(@Param("phone") String phone, @Param("countryCode") String countryCode);
 
-    @Query("SELECT COUNT(*) FROM Order AS o WHERE o.riskInfo.remoteIp = :ip")
-    int findEarlierOrdersByRemoteIp(@Param("ip") String customIp);
+    @Query("SELECT COUNT(*) FROM Order AS o WHERE o.riskInfo.remoteIp = :ip AND o.contextInfo.countryCode = :countryCode")
+    int findEarlierOrdersByRemoteIp(@Param("ip") String customIp, @Param("countryCode") String countryCode);
 
-    @Query("SELECT COUNT(*) FROM Order AS o WHERE o.riskInfo.realIp = :ip")
-    int findEarlierOrdersByRealIp(@Param("ip") String customIp);
+    @Query("SELECT COUNT(*) FROM Order AS o WHERE o.riskInfo.realIp = :ip AND o.contextInfo.countryCode = :countryCode")
+    int findEarlierOrdersByRealIp(@Param("ip") String customIp, @Param("countryCode") String countryCode);
 
     @Query("""
-             SELECT 
-             count(*)
+             SELECT count(*)
              FROM Order AS o
-             WHERE
-             o.deliveryInfo.firstName = :firstName
-             AND
-             o.deliveryInfo.lastName = :lastName
+             WHERE o.deliveryInfo.firstName = :firstName
+             AND o.deliveryInfo.lastName = :lastName
+             AND o.contextInfo.countryCode = :countryCode
             """)
-    int findEarlierOrdersByName(@Param("firstName") String firstName, @Param("lastName") String lastName);
+    int findEarlierOrdersByName(@Param("firstName") String firstName, @Param("lastName") String lastName, @Param("countryCode") String countryCode);
 
     @Query("SELECT o FROM Order o WHERE o.originOrderId = :orderId")
     Optional<Order> findByOriginOrderId(@Param("orderId") String orderId);
@@ -83,21 +83,28 @@ public interface OrderRepository extends BaseRepository<Order> {
     @Query(value = """
             select o.* from t_orders o
             inner join t_order_risk_record_infos r on r.id = o.risk_info_id
+            inner join t_order_context_infos c on c.id = o.context_info_id
             where o.order_time < :orderTime
             and r.remote_ip = :customIp
+            and c.country_code = :countryCode
             limit 1
             """, nativeQuery = true)
     Optional<Order> findLastEarlierOrdersByRemoteIp(@Param("customIp") String customIp,
-                                                    @Param("orderTime") LocalDateTime orderTime);
+                                                    @Param("orderTime") LocalDateTime orderTime,
+                                                    @Param("countryCode") String countryCode);
 
     @Query(value = """
             select o.*
             from t_orders o
+            inner join t_order_context_infos c on c.id = o.context_info_id
             where o.order_time < :orderTime
             and o.phone_last_8 = :phone
+            and c.country_code = :countryCode
             limit 1
             """, nativeQuery = true)
-    Optional<Order> findLastEarlierOrdersByPhone(@Param("phone") String phone, @Param("orderTime") LocalDateTime orderTime);
+    Optional<Order> findLastEarlierOrdersByPhone(@Param("phone") String phone,
+                                                 @Param("orderTime") LocalDateTime orderTime,
+                                                 @Param("countryCode") String countryCode);
 
     @Query("SELECT COUNT(o) FROM Order o WHERE o.orderTime >= :start")
     long countOrdersAfter(@Param("start") LocalDateTime start);

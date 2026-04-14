@@ -142,21 +142,23 @@ public class BotOrderCheckService implements IBotOrderCheckService {
             remarkRiskDetail.set("riskWords", "");
         }
 
+        // 重单计算只在同一国家范围内进行
+        String countryCode = contextInfo.getCountryCode();
         // 终端查重
-        int deviceRepeatCount = StrUtil.isBlank(riskInfo.getDeviceId()) ? 1 : orderRepository.findEarlierOrdersByDeviceId(riskInfo.getDeviceId()) + 1;
+        int deviceRepeatCount = StrUtil.isBlank(riskInfo.getDeviceId()) ? 1 : orderRepository.findEarlierOrdersByDeviceId(riskInfo.getDeviceId(), countryCode) + 1;
         // 名字查重
-        int nameRepeatCount = orderRepository.findEarlierOrdersByName(deliveryInfo.getFirstName(), deliveryInfo.getLastName()) + 1;
+        int nameRepeatCount = orderRepository.findEarlierOrdersByName(deliveryInfo.getFirstName(), deliveryInfo.getLastName(), countryCode) + 1;
         // 电话号码查重
-        int phoneRepeatCount = orderRepository.findEarlierOrdersByPhoneLast8(orderInfo.getDeliveryInfo().getPhoneLast8()) + 1;
+        int phoneRepeatCount = orderRepository.findEarlierOrdersByPhoneLast8(orderInfo.getDeliveryInfo().getPhoneLast8(), countryCode) + 1;
         // 远程IP查重
-        int remoteIpRepeatCount = orderRepository.findEarlierOrdersByRemoteIp(riskInfo.getRemoteIp()) + 1;
+        int remoteIpRepeatCount = orderRepository.findEarlierOrdersByRemoteIp(riskInfo.getRemoteIp(), countryCode) + 1;
         // 真实IP查重
-        int realIpRepeatCount = StrUtil.isBlank(riskInfo.getRealIp()) ? 1 : orderRepository.findEarlierOrdersByRealIp(riskInfo.getRealIp()) + 1;
+        int realIpRepeatCount = StrUtil.isBlank(riskInfo.getRealIp()) ? 1 : orderRepository.findEarlierOrdersByRealIp(riskInfo.getRealIp(), countryCode) + 1;
 
         // 计算距离上次同手机和IP下单时间间距
         LocalDateTime orderTime = orderInfo.getOrderTime();
-        Optional<Order> lastEarlierOrdersByRemoteIp = orderRepository.findLastEarlierOrdersByRemoteIp(orderInfo.getRiskInfo().getRemoteIp(), orderTime);
-        Optional<Order> lastEarlierOrdersByPhone = orderRepository.findLastEarlierOrdersByPhone(orderInfo.getDeliveryInfo().getPhoneLast8(), orderTime);
+        Optional<Order> lastEarlierOrdersByRemoteIp = orderRepository.findLastEarlierOrdersByRemoteIp(orderInfo.getRiskInfo().getRemoteIp(), orderTime, countryCode);
+        Optional<Order> lastEarlierOrdersByPhone = orderRepository.findLastEarlierOrdersByPhone(orderInfo.getDeliveryInfo().getPhoneLast8(), orderTime, countryCode);
         long phoneSecondsBetween = -1;
         long ipSecondsBetween = -1;
         if (lastEarlierOrdersByRemoteIp.isPresent()) {
