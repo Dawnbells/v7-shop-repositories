@@ -96,18 +96,11 @@ public class OrderQueryHelper {
                     lastName = order.getDeliveryInfo().getLastName();
                 }
             }
-            String phone = value;
-            if (StrUtil.isBlank(phone)) {
-                phone = "";
-            } else {
-                phone = phone.trim();
-                phone = phone.length() > 8 ? phone.substring(phone.length() - 8) : phone;
-            }
             return orderQueryPageRequest
                     .addConstraint(RepeatType.IP == request.getRepeatType(),
                                    EqualsQueryAttribute.builder().name("riskInfo.remoteIp").value(value).build())
                     .addConstraint(RepeatType.PHONE == request.getRepeatType(),
-                                   EqualsQueryAttribute.builder().name("deliveryInfo.phoneLast8").value(phone).build())
+                                   EqualsQueryAttribute.builder().name("deliveryInfo.phoneLast8").value(value).build())
                     .addConstraint(RepeatType.NAME == request.getRepeatType(),
                                    EqualsQueryAttribute.builder().name("deliveryInfo.firstName").value(value).build())
                     .addConstraint(RepeatType.NAME == request.getRepeatType(),
