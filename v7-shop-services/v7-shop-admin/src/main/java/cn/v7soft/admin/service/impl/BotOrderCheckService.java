@@ -225,12 +225,12 @@ public class BotOrderCheckService implements IBotOrderCheckService {
         orderInfo.setSkuCodes(orderInfo.getItemInfos().stream()
                 .collect(Collectors.groupingBy(OrderItemInfo::getSkuCode, Collectors.summingLong(OrderItemInfo::getQuantity)))
                 .entrySet().stream()
-                .map(e -> e.getKey() + "x" + e.getValue())
+                .map(e -> e.getValue() > 1 ? e.getKey() + "x" + e.getValue() : e.getKey())
                 .collect(Collectors.joining("+")));
         orderInfo.setSkuNames(orderInfo.getItemInfos().stream()
                 .collect(Collectors.groupingBy(OrderItemInfo::getSkuName, Collectors.summingLong(OrderItemInfo::getQuantity)))
                 .entrySet().stream()
-                .map(e -> e.getKey() + "x" + e.getValue())
+                .map(e -> e.getValue() > 1 ? e.getKey() + "x" + e.getValue() : e.getKey())
                 .collect(Collectors.joining("+")));
         orderInfo.setQuantity(orderInfo.getItemInfos().stream().mapToLong(OrderItemInfo::getQuantity).sum());
         Order savedOrder = orderService.saveAndFlush(orderInfo);
