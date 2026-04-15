@@ -13,7 +13,7 @@ public interface IAddressService extends IBaseService<Address> {
 
     List<String> getAddressCountries();
 
-    Map<String, Object> pageByCountry(String countryCode, int pageNo, int pageSize);
+    Map<String, Object> pageByCountry(String countryCode, int pageNo, int pageSize, String keyword);
 
     Map<String, Object> importAddresses(String countryCode, MultipartFile file);
 
@@ -23,7 +23,7 @@ public interface IAddressService extends IBaseService<Address> {
     Map<String, Object> importAddressesFromFile(String countryCode, String filePath,
                                                  BiConsumer<Integer, String> progressCallback);
 
-    Map<String, Object> remoteAreaPage(String countryCode, int pageNo, int pageSize);
+    Map<String, Object> remoteAreaPage(String countryCode, int pageNo, int pageSize, String keyword);
 
     byte[] generateTemplate();
 }

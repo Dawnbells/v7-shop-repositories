@@ -82,7 +82,8 @@ public class AddressController extends BaseController<Address, IAddressService, 
             @RequestBody Map<String, Object> params) {
         int pageNo = (int) params.getOrDefault("pageNo", 1);
         int pageSize = Math.min((int) params.getOrDefault("pageSize", 20), 100);
-        return service.pageByCountry(countryCode, pageNo, pageSize);
+        String keyword = (String) params.getOrDefault("keyword", "");
+        return service.pageByCountry(countryCode, pageNo, pageSize, keyword);
     }
 
     @PostMapping("/remoteAreaPage/{countryCode}")
@@ -92,7 +93,8 @@ public class AddressController extends BaseController<Address, IAddressService, 
             @RequestBody Map<String, Object> params) {
         int pageNo = (int) params.getOrDefault("pageNo", 1);
         int pageSize = Math.min((int) params.getOrDefault("pageSize", 20), 100);
-        return service.remoteAreaPage(countryCode, pageNo, pageSize);
+        String keyword = (String) params.getOrDefault("keyword", "");
+        return service.remoteAreaPage(countryCode, pageNo, pageSize, keyword);
     }
 
     @PostMapping("/import")

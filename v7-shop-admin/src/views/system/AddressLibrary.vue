@@ -20,6 +20,16 @@
               />
             </el-select>
           </el-form-item>
+          <el-form-item label="搜索">
+            <el-input
+              v-model="queryForm.keyword"
+              clearable
+              :placeholder="activeTab === 'address' ? '省/市/区/邮编' : '邮编/提示'"
+              style="width: 220px"
+              @clear="queryData"
+              @keyup.enter="queryData"
+            />
+          </el-form-item>
           <el-form-item>
             <el-button
               :disabled="!queryForm.countryCode"
@@ -205,6 +215,7 @@ const list = ref<any[]>([])
 const total = ref(0)
 const queryForm = reactive({
   countryCode: '',
+  keyword: '',
   pageNo: 1,
   pageSize: 20,
 })
@@ -279,6 +290,7 @@ const fetchData = async () => {
     const { data } = await pageFn(queryForm.countryCode, {
       pageNo: queryForm.pageNo,
       pageSize: queryForm.pageSize,
+      keyword: queryForm.keyword,
     })
     list.value = data?.list || []
     total.value = data?.total || 0

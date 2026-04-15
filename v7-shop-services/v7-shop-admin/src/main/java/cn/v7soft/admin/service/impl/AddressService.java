@@ -131,17 +131,28 @@ public class AddressService extends BaseService<Address, AddressRepository> impl
     }
 
     @Override
-    public Map<String, Object> pageByCountry(String countryCode, int pageNo, int pageSize) {
+    public Map<String, Object> pageByCountry(String countryCode, int pageNo, int pageSize, String keyword) {
         String tableName = getAddressTableName(countryCode);
         ensureTableExists(tableName);
 
         int offset = (pageNo - 1) * pageSize;
-        String countSql = "SELECT COUNT(*) FROM `" + tableName + "` WHERE status <> 'DELETED'";
-        String dataSql = "SELECT id, province, city, district, postal_code, status, create_time, update_time " +
-                         "FROM `" + tableName + "` WHERE status <> 'DELETED' ORDER BY province, city, district LIMIT ? OFFSET ?";
+        StringBuilder where = new StringBuilder("WHERE status <> 'DELETED'");
+        List<Object> params = new ArrayList<>();
 
-        Long total = addressJdbcTemplate.queryForObject(countSql, Long.class);
-        List<Map<String, Object>> rows = addressJdbcTemplate.queryForList(dataSql, pageSize, offset);
+        if (keyword != null && !keyword.isBlank()) {
+            String like = "%" + keyword.trim() + "%";
+            where.append(" AND (province LIKE ? OR city LIKE ? OR district LIKE ? OR postal_code LIKE ?)");
+            params.addAll(List.of(like, like, like, like));
+        }
+
+        String countSql = "SELECT COUNT(*) FROM `" + tableName + "` " + where;
+        String dataSql = "SELECT id, province, city, district, postal_code, status, create_time, update_time " +
+                         "FROM `" + tableName + "` " + where + " ORDER BY province, city, district LIMIT ? OFFSET ?";
+
+        Long total = addressJdbcTemplate.queryForObject(countSql, Long.class, params.toArray());
+        params.add(pageSize);
+        params.add(offset);
+        List<Map<String, Object>> rows = addressJdbcTemplate.queryForList(dataSql, params.toArray());
 
         Map<String, Object> result = new HashMap<>();
         result.put("list", rows);
@@ -150,17 +161,28 @@ public class AddressService extends BaseService<Address, AddressRepository> impl
     }
 
     @Override
-    public Map<String, Object> remoteAreaPage(String countryCode, int pageNo, int pageSize) {
+    public Map<String, Object> remoteAreaPage(String countryCode, int pageNo, int pageSize, String keyword) {
         String cc = countryCode.toUpperCase().trim();
         int offset = (pageNo - 1) * pageSize;
 
-        String countSql = "SELECT COUNT(*) FROM `t_remote_area` WHERE country_code = ? AND status <> 'DELETED'";
-        String dataSql = "SELECT id, postal_code, tip, status, create_time, update_time " +
-                         "FROM `t_remote_area` WHERE country_code = ? AND status <> 'DELETED' " +
-                         "ORDER BY postal_code LIMIT ? OFFSET ?";
+        StringBuilder where = new StringBuilder("WHERE country_code = ? AND status <> 'DELETED'");
+        List<Object> params = new ArrayList<>();
+        params.add(cc);
 
-        Long total = addressJdbcTemplate.queryForObject(countSql, Long.class, cc);
-        List<Map<String, Object>> rows = addressJdbcTemplate.queryForList(dataSql, cc, pageSize, offset);
+        if (keyword != null && !keyword.isBlank()) {
+            String like = "%" + keyword.trim() + "%";
+            where.append(" AND (postal_code LIKE ? OR tip LIKE ?)");
+            params.addAll(List.of(like, like));
+        }
+
+        String countSql = "SELECT COUNT(*) FROM `t_remote_area` " + where;
+        String dataSql = "SELECT id, postal_code, tip, status, create_time, update_time " +
+                         "FROM `t_remote_area` " + where + " ORDER BY postal_code LIMIT ? OFFSET ?";
+
+        Long total = addressJdbcTemplate.queryForObject(countSql, Long.class, params.toArray());
+        params.add(pageSize);
+        params.add(offset);
+        List<Map<String, Object>> rows = addressJdbcTemplate.queryForList(dataSql, params.toArray());
 
         Map<String, Object> result = new HashMap<>();
         result.put("list", rows);
