@@ -50,8 +50,7 @@
       <el-table-column align="center" label="操作" width="250">
         <template #default="{ row }">
           <el-tooltip
-            :disabled="row.authStatus === 'AUTHED'"
-            content="商城连接异常，请检查配置后重新编辑保存"
+            :content="row.authStatus !== 'AUTHED' ? '商城连接异常，请检查配置后重新编辑保存' : (row.lastManualSyncTime ? '上次手动同步: ' + row.lastManualSyncTime : '尚未手动同步过')"
             placement="top"
           >
             <span>

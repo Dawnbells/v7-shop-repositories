@@ -79,4 +79,7 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
 
     @Column(name = "auth_message", length = 500)
     private String authMessage;
+
+    @Column(name = "last_manual_sync_time")
+    private LocalDateTime lastManualSyncTime;
 }

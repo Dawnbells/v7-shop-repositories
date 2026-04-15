@@ -138,7 +138,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
      * 拉取订单并写入临时表，返回下一页的 page_info（null 表示没有更多页）
      */
     @Override
-    public String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo) {
+    public String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, boolean updateSyncTime) {
         ThirdPartyWebsiteDto websiteDto = self.getThirdPartyWebsiteDtoById(request.getIdLongValue());
         ServiceResponseEnum.ERR_TOKEN_EMPTY.notBlank(websiteDto.getToken(), request.getId());
 
@@ -186,7 +186,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         JSONArray orders = body.getJSONArray("orders");
         if (orders != null && !orders.isEmpty()) {
             convertAndSaveOrders(websiteDto, orders);
-            updateLastSyncTime(request.getIdLongValue(), orders);
+            if (updateSyncTime) {
+                updateLastSyncTime(request.getIdLongValue(), orders);
+            }
         }
 
         return extractNextPageInfo(response.getHeaders());
@@ -248,6 +250,13 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     @Override
     public List<ThirdPartyWebsite> findSyncEnabledWebsites() {
         return repository.findBySyncEnabledTrueAndAuthStatus(ThirdPartyAuthStatusEnum.AUTHED);
+    }
+
+    @Override
+    public void updateLastManualSyncTime(Long websiteId) {
+        ThirdPartyWebsite website = getById(websiteId);
+        website.setLastManualSyncTime(LocalDateTime.now());
+        saveAndFlush(website);
     }
 
     @Override

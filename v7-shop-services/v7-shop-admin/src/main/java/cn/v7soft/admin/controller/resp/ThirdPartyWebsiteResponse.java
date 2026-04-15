@@ -55,8 +55,11 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
     @Schema(title = "是否启用自动同步")
     private Boolean syncEnabled;
 
-    @Schema(title = "上次同步时间")
+    @Schema(title = "上次自动同步时间")
     private LocalDateTime lastSyncTime;
+
+    @Schema(title = "上次手动同步时间")
+    private LocalDateTime lastManualSyncTime;
 
     public static ThirdPartyWebsiteResponse convertEntity(ThirdPartyWebsite entity) {
         SystemUser owner = entity.getOwner();
@@ -83,6 +86,7 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
                 .authMessage(entity.getAuthMessage())
                 .syncEnabled(entity.getSyncEnabled())
                 .lastSyncTime(entity.getLastSyncTime())
+                .lastManualSyncTime(entity.getLastManualSyncTime())
                 .build();
     }
 }

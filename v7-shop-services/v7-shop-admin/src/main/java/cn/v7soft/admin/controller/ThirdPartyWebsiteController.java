@@ -16,6 +16,7 @@ import org.jetbrains.annotations.Nullable;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 @Validated
@@ -47,7 +48,7 @@ public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPa
         if (dbEntity == null) {
             website.setAuthStatus(ThirdPartyAuthStatusEnum.INIT);
             website.setSyncEnabled(true);
-            website.setLastSyncTime(null);
+            website.setLastSyncTime(LocalDateTime.now());
         }
 
         service.verifyAndUpdateAuthStatus(website);

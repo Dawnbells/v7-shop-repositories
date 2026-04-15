@@ -1887,12 +1887,13 @@ public class TaskExecutorService implements ITaskExecutorService {
             int page = 0;
             String pageInfo = "";
             while (pageInfo != null) {
-                pageInfo = thirdPartyWebsiteService.loadOrders(request, pageInfo);
+                pageInfo = thirdPartyWebsiteService.loadOrders(request, pageInfo, false);
                 page++;
                 int progress = Math.min(page * 10, 99);
                 task.setMessage("正在同步第 " + page + " 页订单...");
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progress);
             }
+            thirdPartyWebsiteService.updateLastManualSyncTime(request.getIdLongValue());
             task.setMessage("同步完成，共处理 " + page + " 页订单");
             asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
         } catch (Throwable e) {

@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
@@ -38,11 +39,7 @@ public class ShoplineOrderSyncExecutor {
     public long syncNext() {
         try {
             TenantContext.silent();
-            List<ThirdPartyWebsite> websites = thirdPartyWebsiteService.findSyncEnabledWebsites();
-
-            List<ThirdPartyWebsite> syncable = websites.stream()
-                    .filter(w -> w.getLastSyncTime() != null)
-                    .toList();
+            List<ThirdPartyWebsite> syncable = thirdPartyWebsiteService.findSyncEnabledWebsites();
 
             if (syncable.isEmpty()) {
                 logIdleIfNeeded();
@@ -89,13 +86,14 @@ public class ShoplineOrderSyncExecutor {
     private boolean syncWebsite(ThirdPartyWebsite website) {
         SyncThirdPartyOrdersRequest request = new SyncThirdPartyOrdersRequest();
         request.setId(String.valueOf(website.getId()));
-        request.setCreateAtMin(website.getLastSyncTime());
+        LocalDateTime syncFrom = website.getLastSyncTime() != null ? website.getLastSyncTime() : website.getCreateTime();
+        request.setCreateAtMin(syncFrom);
 
         String pageInfo = "";
         boolean hasPages = false;
         int pageCount = 0;
         do {
-            String nextPage = thirdPartyWebsiteService.loadOrders(request, pageInfo);
+            String nextPage = thirdPartyWebsiteService.loadOrders(request, pageInfo, true);
             if (nextPage != null) {
                 hasPages = true;
             }

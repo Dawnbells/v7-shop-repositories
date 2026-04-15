@@ -41,6 +41,7 @@ class ShoplineOrderSyncExecutorTest {
                 .lastSyncTime(lastSyncTime)
                 .build();
         setId(website, id);
+        setField(website, "createTime", LocalDateTime.now().minusDays(1));
         return website;
     }
 
@@ -55,14 +56,15 @@ class ShoplineOrderSyncExecutorTest {
     }
 
     @Test
-    @DisplayName("lastSyncTime为null的商城应跳过")
-    void shouldSkipWebsiteWithNullLastSyncTime() {
+    @DisplayName("lastSyncTime为null时应使用createTime作为起点正常同步")
+    void shouldUseCreateTimeWhenLastSyncTimeIsNull() {
         ThirdPartyWebsite website = buildWebsite(1L, null);
         when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(List.of(website));
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn(null);
 
         long delay = executor.syncNext();
 
-        verify(thirdPartyWebsiteService, never()).loadOrders(any(), any());
+        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(true));
         assertEquals(60_000, delay);
     }
 
@@ -71,13 +73,13 @@ class ShoplineOrderSyncExecutorTest {
     void shouldReturn10sWhenHasNewOrders() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
         when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""))).thenReturn("page2");
-        when(thirdPartyWebsiteService.loadOrders(any(), eq("page2"))).thenReturn(null);
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn("page2");
+        when(thirdPartyWebsiteService.loadOrders(any(), eq("page2"), eq(true))).thenReturn(null);
 
         long delay = executor.syncNext();
 
         assertEquals(10_000, delay);
-        verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any());
+        verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any(), eq(true));
     }
 
     @Test
@@ -86,12 +88,12 @@ class ShoplineOrderSyncExecutorTest {
         ThirdPartyWebsite website1 = buildWebsite(1L, LocalDateTime.now().minusHours(1));
         ThirdPartyWebsite website2 = buildWebsite(2L, LocalDateTime.now().minusHours(1));
         when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(List.of(website1, website2));
-        when(thirdPartyWebsiteService.loadOrders(any(), any()))
+        when(thirdPartyWebsiteService.loadOrders(any(), any(), eq(true)))
                 .thenThrow(new RuntimeException("模拟失败"))
                 .thenReturn(null);
 
         assertDoesNotThrow(() -> executor.syncNext());
-        verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any());
+        verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any(), eq(true));
     }
 
     @Test
@@ -99,23 +101,27 @@ class ShoplineOrderSyncExecutorTest {
     void shouldPaginateThroughAllPages() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
         when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""))).thenReturn("page2");
-        when(thirdPartyWebsiteService.loadOrders(any(), eq("page2"))).thenReturn("page3");
-        when(thirdPartyWebsiteService.loadOrders(any(), eq("page3"))).thenReturn(null);
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn("page2");
+        when(thirdPartyWebsiteService.loadOrders(any(), eq("page2"), eq(true))).thenReturn("page3");
+        when(thirdPartyWebsiteService.loadOrders(any(), eq("page3"), eq(true))).thenReturn(null);
 
         executor.syncNext();
 
-        verify(thirdPartyWebsiteService, times(3)).loadOrders(any(), any());
+        verify(thirdPartyWebsiteService, times(3)).loadOrders(any(), any(), eq(true));
     }
 
     private void setId(Object entity, Long id) {
+        setField(entity, "id", id);
+    }
+
+    private void setField(Object entity, String fieldName, Object value) {
         try {
             Class<?> clazz = entity.getClass();
             while (clazz != null) {
                 try {
-                    var field = clazz.getDeclaredField("id");
+                    var field = clazz.getDeclaredField(fieldName);
                     field.setAccessible(true);
-                    field.set(entity, id);
+                    field.set(entity, value);
                     return;
                 } catch (NoSuchFieldException e) {
                     clazz = clazz.getSuperclass();

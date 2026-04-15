@@ -23,8 +23,9 @@ public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPa
 
     /**
      * 拉取订单并写入临时表，返回下一页 page_info（null 表示没有更多页）
+     * @param updateSyncTime 是否更新商城的 lastSyncTime（自动同步传 true，手动同步传 false）
      */
-    String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo);
+    String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, boolean updateSyncTime);
 
     ThirdPartyWebsiteDto getThirdPartyWebsiteDtoById(Long id);
 
@@ -37,4 +38,9 @@ public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPa
      * 查询所有启用自动同步且已认证的商城
      */
     List<ThirdPartyWebsite> findSyncEnabledWebsites();
+
+    /**
+     * 更新商城的上次手动同步时间
+     */
+    void updateLastManualSyncTime(Long websiteId);
 }
