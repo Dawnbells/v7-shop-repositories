@@ -11,45 +11,53 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
+import java.time.LocalDateTime;
+
 @Getter
 @Setter
 @SuperBuilder
 @Schema(description = "第三方网站信息响应")
 public class ThirdPartyWebsiteResponse extends IdResponse {
 
-    @Schema(title = "店铺名称", example = "example-token")
+    @Schema(title = "店铺名称")
     private String nickName;
 
-    @Schema(title = "店铺唯一标识", example = "example-token")
+    @Schema(title = "店铺唯一标识")
     private String handle;
 
-    @Schema(title = "令牌", example = "example-token")
+    @Schema(title = "令牌")
     private String token;
 
-    @Schema(title = "应用 Key", example = "example-app-key")
+    @Schema(title = "应用 Key")
     private String appKey;
 
-    @Schema(title = "应用 Secret", example = "example-app-secret")
+    @Schema(title = "应用 Secret")
     private String appSecret;
 
-    @Schema(title = "店铺认证状态", example = "AUTHED")
+    @Schema(title = "店铺认证状态")
     private ThirdPartyAuthStatusEnum authStatus;
 
-    @Schema(title = "认证类型", example = "OAUTH2")
+    @Schema(title = "认证类型")
     private ThirdPartyAuthTypeEnum authType;
 
-    @Schema(title = "店铺类型", example = "SHOPLINE")
+    @Schema(title = "店铺类型")
     private WebsiteTypeEnum websiteType;
 
-    @Schema(title = "归属人名字", example = "张三")
+    @Schema(title = "归属人名字")
     private String ownerName;
 
-    @Schema(title = "归属人部门", example = "COD一部")
+    @Schema(title = "归属人部门")
     private String ownerDepartment;
 
-    /**
-     * 从实体转换为响应对象
-     */
+    @Schema(title = "授权错误信息")
+    private String authMessage;
+
+    @Schema(title = "是否启用自动同步")
+    private Boolean syncEnabled;
+
+    @Schema(title = "上次同步时间")
+    private LocalDateTime lastSyncTime;
+
     public static ThirdPartyWebsiteResponse convertEntity(ThirdPartyWebsite entity) {
         SystemUser owner = entity.getOwner();
         String ownerName = "";
@@ -72,6 +80,9 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
                 .websiteType(entity.getWebsiteType())
                 .ownerName(ownerName)
                 .ownerDepartment(ownerDepartment)
+                .authMessage(entity.getAuthMessage())
+                .syncEnabled(entity.getSyncEnabled())
+                .lastSyncTime(entity.getLastSyncTime())
                 .build();
     }
 }

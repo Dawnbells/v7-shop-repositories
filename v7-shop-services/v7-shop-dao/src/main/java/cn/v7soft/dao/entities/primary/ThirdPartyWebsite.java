@@ -5,11 +5,10 @@ import cn.v7soft.dao.enums.ThirdPartyAuthTypeEnum;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 import lombok.experimental.SuperBuilder;
+
+import java.time.LocalDateTime;
 
 /**
  * 第三方网站实体类，代表第三方认证信息。
@@ -70,4 +69,14 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
     @Column(name = "website_type", nullable = false, length = 50)
     @Enumerated(EnumType.STRING)
     private WebsiteTypeEnum websiteType;
+
+    @Column(name = "last_sync_time")
+    private LocalDateTime lastSyncTime;
+
+    @Column(name = "sync_enabled", nullable = false)
+    @Builder.Default
+    private Boolean syncEnabled = true;
+
+    @Column(name = "auth_message", length = 500)
+    private String authMessage;
 }

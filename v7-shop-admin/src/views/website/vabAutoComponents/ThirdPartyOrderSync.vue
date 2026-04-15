@@ -23,6 +23,7 @@
 <script lang="ts" setup>
 import { ElMessageBox } from 'element-plus'
 import { countOrders, submitSyncOrders } from '../../../api/ThirdPartyWebsite'
+import { useTasksStore } from '/@/store/modules/tasks'
 
 defineOptions({
   name: 'ThirdPartyOrderSync',
@@ -33,6 +34,7 @@ const formRef = ref<any>(null)
 const title = ref<string>('')
 const dialogFormVisible = ref<boolean>(false)
 const syncLoading = ref<boolean>(false)
+const tasksStore = useTasksStore()
 const form = reactive<any>({
   createAtMin: '2020-01-01 00:00:00',
   createAtMax: new Date(),
@@ -64,19 +66,30 @@ const syncOrder = async () => {
   syncLoading.value = true
   try {
     let result = await countOrders(form)
-    console.log(result)
     if (result && result.data) {
       await ElMessageBox.confirm(
-        `该时间段总计订单数为 ${result.data.count}，是否立即同步？`,
-        'Warning',
+        `该时间段总计订单数为 ${result.data.count}，是否立即同步到审单队列？`,
+        '确认同步',
         {
           confirmButtonText: '立即同步',
           cancelButtonText: '取消',
         }
       )
-      console.log('开始同步')
-      let taskId = await submitSyncOrders(form)
-      console.log(taskId)
+      let taskResult = await submitSyncOrders(form)
+      const taskId = taskResult?.data ?? taskResult
+      if (taskId) {
+        tasksStore.addTask({
+          taskId: String(taskId),
+          taskType: 'THIRD_PARTY_ORDER_SYNC',
+          name: `${form.nickName || '商城'}订单同步`,
+          label: '第三方订单同步',
+          state: 'PENDING',
+          progress: 0,
+          message: '等待执行...',
+        })
+        tasksStore.setDrawerOpen(true)
+        dialogFormVisible.value = false
+      }
     }
   } catch (error) {
     console.error(error)

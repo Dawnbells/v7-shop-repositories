@@ -23,7 +23,12 @@ export function cancelTask(taskId: string) {
   })
 }
 
-export function listTasks(data: { state?: string; pageNo?: number; pageSize?: number; unacknowledgedOnly?: boolean }) {
+export function listTasks(data: {
+  state?: string
+  pageNo?: number
+  pageSize?: number
+  unacknowledgedOnly?: boolean
+}) {
   return request({
     url: '/tasks/page',
     method: 'post',
@@ -49,7 +54,7 @@ export function fetchUnacknowledged(params?: { pageNo?: number; pageSize?: numbe
       pageNo: params?.pageNo ?? 1,
       pageSize: params?.pageSize ?? 50,
       unacknowledgedOnly: true,
-      taskTypes: ['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_TRANSLATE_DIRECT'],
+      taskTypes: ['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_TRANSLATE_DIRECT', 'THIRD_PARTY_ORDER_SYNC'],
     },
   })
 }

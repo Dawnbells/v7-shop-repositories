@@ -8,48 +8,33 @@ import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.ThirdPartyAuthTypeEnum;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPartyWebsite> {
 
-    /**
-     * 根据 Token 获取第三方网站
-     *
-     * @param token 第三方网站的 Token
-     * @return 第三方网站
-     */
     Optional<ThirdPartyWebsite> getByToken(String token);
 
-    /**
-     * 根据应用 Key 和认证类型获取第三方网站
-     *
-     * @param appKey   应用 Key
-     * @param authType 认证类型
-     * @return 第三方网站
-     */
     Optional<ThirdPartyWebsite> getByAppKeyAndAuthType(String appKey, ThirdPartyAuthTypeEnum authType);
 
-    /**
-     * 统计第三方商城订单数量
-     *
-     * @param request 请求查询参数
-     */
     CountThirdPartyOrderResponse countOrders(CountThirdPartyOrdersRequest request);
 
-    /**
-     * 提交订单同步任务
-     *
-     * @param request 请求
-     * @return 结果
-     */
     Long submitSyncOrders(SyncThirdPartyOrdersRequest request);
 
     /**
-     * 加载订单
-     * @param request 请求
-     * @param pageInfo 分页信息
+     * 拉取订单并写入临时表，返回下一页 page_info（null 表示没有更多页）
      */
-    void loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo);
+    String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo);
 
     ThirdPartyWebsiteDto getThirdPartyWebsiteDtoById(Long id);
+
+    /**
+     * 验证商城 Token 有效性，更新 authStatus 和 authMessage
+     */
+    void verifyAndUpdateAuthStatus(ThirdPartyWebsite website);
+
+    /**
+     * 查询所有启用自动同步且已认证的商城
+     */
+    List<ThirdPartyWebsite> findSyncEnabledWebsites();
 }

@@ -43,7 +43,14 @@ public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPa
         website.setAppSecret(request.getAppSecret());
         website.setAuthType(request.getAuthType());
         website.setWebsiteType(request.getWebsiteType());
-        website.setAuthStatus(ThirdPartyAuthStatusEnum.INIT);
+
+        if (dbEntity == null) {
+            website.setAuthStatus(ThirdPartyAuthStatusEnum.INIT);
+            website.setSyncEnabled(true);
+            website.setLastSyncTime(null);
+        }
+
+        service.verifyAndUpdateAuthStatus(website);
         return website;
     }
 
@@ -56,7 +63,6 @@ public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPa
     public Long submitSyncOrders(@Valid @RequestBody SyncThirdPartyOrdersRequest request) {
         return service.submitSyncOrders(request);
     }
-
 
     @Override
     protected String getPermissionPrefix() {

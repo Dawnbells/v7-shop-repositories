@@ -1,0 +1,119 @@
+package cn.v7soft.admin.task.executor;
+
+import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
+import cn.v7soft.admin.service.IThirdPartyWebsiteService;
+import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.tenant.TenantContext;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ShoplineOrderSyncExecutor {
+
+    private static final int MAX_CONCURRENCY = 5;
+    private static final long TIMEOUT_PER_WEBSITE_SECONDS = 300;
+
+    private final IThirdPartyWebsiteService thirdPartyWebsiteService;
+    private final ExecutorService syncPool = Executors.newFixedThreadPool(MAX_CONCURRENCY,
+            r -> {
+                Thread t = new Thread(r, "shopline-sync");
+                t.setDaemon(true);
+                return t;
+            });
+
+    private volatile long lastIdleLogTime = 0;
+
+    /**
+     * 扫描所有已认证且启用同步的商城，并行拉取新订单（最多 5 个并发）。
+     * 返回下次调度延迟（毫秒）。
+     */
+    public long syncNext() {
+        try {
+            TenantContext.silent();
+            List<ThirdPartyWebsite> websites = thirdPartyWebsiteService.findSyncEnabledWebsites();
+
+            List<ThirdPartyWebsite> syncable = websites.stream()
+                    .filter(w -> w.getLastSyncTime() != null)
+                    .toList();
+
+            if (syncable.isEmpty()) {
+                logIdleIfNeeded();
+                return 60_000;
+            }
+
+            AtomicBoolean hasNewOrders = new AtomicBoolean(false);
+            List<Future<?>> futures = new ArrayList<>(syncable.size());
+
+            for (ThirdPartyWebsite website : syncable) {
+                futures.add(syncPool.submit(() -> {
+                    try {
+                        TenantContext.silent();
+                        boolean synced = syncWebsite(website);
+                        if (synced) {
+                            hasNewOrders.set(true);
+                        }
+                    } catch (Exception e) {
+                        log.error("同步商城订单失败: websiteId={}, handle={}", website.getId(), website.getHandle(), e);
+                    } finally {
+                        TenantContext.restore();
+                    }
+                }));
+            }
+
+            for (Future<?> future : futures) {
+                try {
+                    future.get(TIMEOUT_PER_WEBSITE_SECONDS, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    future.cancel(true);
+                    log.warn("商城同步超时({}s)，已取消", TIMEOUT_PER_WEBSITE_SECONDS);
+                } catch (Exception e) {
+                    log.error("等待商城同步结果异常", e);
+                }
+            }
+
+            log.info("本轮同步完成: 商城数={}, 有新订单={}", syncable.size(), hasNewOrders.get());
+            return hasNewOrders.get() ? 10_000 : 60_000;
+        } finally {
+            TenantContext.restore();
+        }
+    }
+
+    private boolean syncWebsite(ThirdPartyWebsite website) {
+        SyncThirdPartyOrdersRequest request = new SyncThirdPartyOrdersRequest();
+        request.setId(String.valueOf(website.getId()));
+        request.setCreateAtMin(website.getLastSyncTime());
+
+        String pageInfo = "";
+        boolean hasPages = false;
+        int pageCount = 0;
+        do {
+            String nextPage = thirdPartyWebsiteService.loadOrders(request, pageInfo);
+            if (nextPage != null) {
+                hasPages = true;
+            }
+            pageInfo = nextPage;
+            pageCount++;
+        } while (pageInfo != null);
+
+        if (hasPages) {
+            log.info("商城同步有新订单: websiteId={}, handle={}, pages={}", website.getId(), website.getHandle(), pageCount);
+        }
+        return hasPages;
+    }
+
+    private void logIdleIfNeeded() {
+        long now = System.currentTimeMillis();
+        if (now - lastIdleLogTime > 300_000) {
+            log.debug("没有需要同步的商城");
+            lastIdleLogTime = now;
+        }
+    }
+}

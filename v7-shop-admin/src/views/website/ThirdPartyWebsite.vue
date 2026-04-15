@@ -31,12 +31,40 @@
       <el-table-column align="center" label="店铺唯一标识" prop="handle" />
       <el-table-column align="center" label="店铺类型" prop="websiteType" />
       <el-table-column align="center" label="授权方式" prop="authType" />
-      <el-table-column align="center" label="授权状态" prop="authStatus" />
+      <el-table-column align="center" label="授权状态" width="140">
+        <template #default="{ row }">
+          <el-tooltip
+            v-if="row.authStatus === 'ERROR'"
+            :content="row.authMessage || '连接异常'"
+            placement="top"
+          >
+            <el-tag type="danger">连接异常</el-tag>
+          </el-tooltip>
+          <el-tag v-else-if="row.authStatus === 'AUTHED'" type="success">已连接</el-tag>
+          <el-tag v-else type="info">待验证</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column align="center" label="归属人" prop="ownerName" />
       <el-table-column align="center" label="归属部门" prop="ownerDepartment" />
+      <el-table-column align="center" label="上次同步" prop="lastSyncTime" width="170" />
       <el-table-column align="center" label="操作" width="250">
         <template #default="{ row }">
-          <el-button text type="primary" @click="handleOrderSync(row)">订单同步</el-button>
+          <el-tooltip
+            :disabled="row.authStatus === 'AUTHED'"
+            content="商城连接异常，请检查配置后重新编辑保存"
+            placement="top"
+          >
+            <span>
+              <el-button
+                :disabled="row.authStatus !== 'AUTHED'"
+                text
+                type="primary"
+                @click="handleOrderSync(row)"
+              >
+                订单同步
+              </el-button>
+            </span>
+          </el-tooltip>
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
         </template>

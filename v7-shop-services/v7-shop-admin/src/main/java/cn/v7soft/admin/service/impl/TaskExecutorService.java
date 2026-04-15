@@ -1880,21 +1880,24 @@ public class TaskExecutorService implements ITaskExecutorService {
 
     private void executeThirdPartyOrderSyncUpload(AsyncTask task, SystemUserDto owner) {
         try {
-            task.setMessage("正在处理");
+            task.setMessage("正在连接Shopline...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, RUNNING_PROGRESS);
             String parameters = task.getParameters();
             SyncThirdPartyOrdersRequest request = JSONUtil.toBean(parameters, SyncThirdPartyOrdersRequest.class);
+            int page = 0;
             String pageInfo = "";
             while (pageInfo != null) {
-                thirdPartyWebsiteService.loadOrders(request, pageInfo);
-                asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 0);
-                pageInfo = null;
+                pageInfo = thirdPartyWebsiteService.loadOrders(request, pageInfo);
+                page++;
+                int progress = Math.min(page * 10, 99);
+                task.setMessage("正在同步第 " + page + " 页订单...");
+                asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progress);
             }
-            task.setMessage("执行成功");
-            asyncTaskService.updateAsyncTask(task, TaskState.RESOLVED, RESOLVE_PROGRESS);
+            task.setMessage("同步完成，共处理 " + page + " 页订单");
+            asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
         } catch (Throwable e) {
-            log.error("执行失败: ", e);
-            task.setMessage(e.getMessage());
+            log.error("订单同步失败: ", e);
+            task.setMessage("同步失败: " + e.getMessage());
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
         }
     }
