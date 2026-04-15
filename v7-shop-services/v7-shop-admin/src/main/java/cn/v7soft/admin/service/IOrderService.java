@@ -74,4 +74,9 @@ public interface IOrderService extends IBaseDataRangeService<Order> {
     void updateContactStatus(UpdateContactStatusRequest request);
 
     void updateContactRemark(UpdateRemarkRequest request);
+
+    /**
+     * 保存正式订单并标记对应临时单为已审（同一事务）
+     */
+    Order saveAndMarkReviewed(Order order, Long temporaryOrderId);
 }

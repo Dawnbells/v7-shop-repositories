@@ -39,6 +39,7 @@ import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.ViewMode;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.OrderRepository;
+import cn.v7soft.dao.repositories.primary.TemporaryOrderRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -49,11 +50,13 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
 
     private final AsyncTaskRepository asyncTaskRepository;
     private final ITaskExecutorService taskExecutorService;
+    private final TemporaryOrderRepository temporaryOrderRepository;
 
-    public OrderService(OrderRepository repository, AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService) {
+    public OrderService(OrderRepository repository, AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService, TemporaryOrderRepository temporaryOrderRepository) {
         super(repository);
         this.asyncTaskRepository = asyncTaskRepository;
         this.taskExecutorService = taskExecutorService;
+        this.temporaryOrderRepository = temporaryOrderRepository;
     }
 
     @Override
@@ -217,6 +220,14 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
             order.setContactRemark(request.getRemark());
             repository.save(order);
         }
+    }
+
+    @Override
+    @Transactional
+    public Order saveAndMarkReviewed(Order order, Long temporaryOrderId) {
+        Order savedOrder = this.saveAndFlush(order);
+        temporaryOrderRepository.markAsReviewed(temporaryOrderId);
+        return savedOrder;
     }
 
     @Override

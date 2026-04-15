@@ -233,7 +233,7 @@ public class BotOrderCheckService implements IBotOrderCheckService {
                 .map(e -> e.getValue() > 1 ? e.getKey() + "x" + e.getValue() : e.getKey())
                 .collect(Collectors.joining("+")));
         orderInfo.setQuantity(orderInfo.getItemInfos().stream().mapToLong(OrderItemInfo::getQuantity).sum());
-        Order savedOrder = orderService.saveAndFlush(orderInfo);
+        Order savedOrder = orderService.saveAndMarkReviewed(orderInfo, temporaryOrderDto.getLongId());
 
         // 在事务内提取邮件所需数据为 DTO，避免 @Async 线程中触发 LAZY 加载
         OrderEmailDto emailDto = OrderEmailDto.from(savedOrder);

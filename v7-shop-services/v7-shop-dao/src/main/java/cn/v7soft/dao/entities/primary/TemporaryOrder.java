@@ -45,6 +45,7 @@ import lombok.experimental.SuperBuilder;
         @Index(name = "idx_order_from", columnList = "order_from"),
         @Index(name = "idx_create_time", columnList = "create_time"),
         @Index(name = "idx_status", columnList = "status"),
+        @Index(name = "idx_is_reviewed", columnList = "is_reviewed"),
 })
 @SQLRestriction("status <> 'DELETED'")
 public class TemporaryOrder extends BaseAutoIdDataRangeEntity {
@@ -117,5 +118,18 @@ public class TemporaryOrder extends BaseAutoIdDataRangeEntity {
     @OneToOne(fetch = FetchType.EAGER, cascade = CascadeType.ALL, orphanRemoval = true)
     @JoinColumn(name = "risk_info_id")
     private TemporaryOrderRiskRecordInfo riskInfo;
+
+    /**
+     * 是否已机审
+     */
+    @Column(name = "is_reviewed", nullable = false)
+    @Builder.Default
+    private Boolean reviewed = false;
+
+    /**
+     * 机审完成时间
+     */
+    @Column(name = "review_time")
+    private LocalDateTime reviewTime;
 }
 
