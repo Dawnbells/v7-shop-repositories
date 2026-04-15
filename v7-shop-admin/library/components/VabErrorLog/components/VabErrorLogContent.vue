@@ -21,7 +21,7 @@
     </el-table-column>
     <el-table-column label="操作">
       <template #default="{ row }">
-        <el-tooltip :content="row.err.stack" effect="light">
+        <el-tooltip :content="typeof row.err.stack === 'string' ? row.err.stack : JSON.stringify(row.err.stack, null, 2)" effect="light">
           <el-button text type="primary">错误详情</el-button>
         </el-tooltip>
         <a>
