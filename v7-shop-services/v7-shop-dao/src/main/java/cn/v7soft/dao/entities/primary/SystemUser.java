@@ -94,4 +94,11 @@ public class SystemUser extends BaseDataRangeEntity {
     @Builder.Default
     @Column(name = "frozen_ai_credits", nullable = false)
     private Integer frozenAiCredits = 0;
+
+    /**
+     * 是否隐藏（伪删除），隐藏后分页查询不显示
+     */
+    @Builder.Default
+    @Column(name = "hidden", nullable = false)
+    private Boolean hidden = false;
 }

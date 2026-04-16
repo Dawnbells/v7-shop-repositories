@@ -68,7 +68,9 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
 
     @Override
     protected QueryPageRequest<SystemUser> convertQueryPageRequest(QueryEmployeeRequest request) {
-        QueryPageRequest<SystemUser> query = QueryPageRequest.<SystemUser>fromRequest(request).not("userType", SystemUserType.ADMIN)
+        QueryPageRequest<SystemUser> query = QueryPageRequest.<SystemUser>fromRequest(request)
+                .not("userType", SystemUserType.ADMIN)
+                .add(EqualsQueryAttribute.builder().name("hidden").value(false).build())
                 .or()
                 .addConstraint(StrUtil.isNotBlank(request.getTitle()), LikeAttribute.builder().name("name").value(request.getTitle()).build())
                 .addConstraint(ConvertUtils.isLong(request.getTitle()), (q) -> EqualsQueryAttribute.builder().name("telephone").value(ConvertUtils.parseLong(request.getTitle())).build())

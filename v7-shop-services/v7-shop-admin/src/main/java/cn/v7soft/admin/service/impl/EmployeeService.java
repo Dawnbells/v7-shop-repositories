@@ -8,6 +8,7 @@ import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.Department;
 import cn.v7soft.dao.entities.primary.Role;
 import cn.v7soft.dao.entities.primary.SystemUser;
@@ -25,6 +26,24 @@ import java.util.stream.Collectors;
 public class EmployeeService extends BaseDataRangeService<SystemUser, SystemUserRepository> implements IEmployeeService {
     public EmployeeService(SystemUserRepository systemUserRepository) {
         super(systemUserRepository);
+    }
+
+    @Override
+    @Transactional
+    public void delete(Long id) {
+        SystemUser user = getById(id);
+        user.setStatus(StatusEnum.INVALID);
+        user.setHidden(true);
+        save(user);
+        SaSessionUtil.kickout(id);
+    }
+
+    @Override
+    @Transactional
+    public void deleteAll(List<Long> ids) {
+        for (Long id : ids) {
+            delete(id);
+        }
     }
 
     @Override
