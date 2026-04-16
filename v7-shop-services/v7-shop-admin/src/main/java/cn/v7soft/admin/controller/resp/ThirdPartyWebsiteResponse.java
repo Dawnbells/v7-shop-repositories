@@ -4,7 +4,6 @@ import cn.v7soft.core.controller.response.IdResponse;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
-import cn.v7soft.dao.enums.ThirdPartyAuthTypeEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
@@ -28,17 +27,8 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
     @Schema(title = "令牌")
     private String token;
 
-    @Schema(title = "应用 Key")
-    private String appKey;
-
-    @Schema(title = "应用 Secret")
-    private String appSecret;
-
     @Schema(title = "店铺认证状态")
     private ThirdPartyAuthStatusEnum authStatus;
-
-    @Schema(title = "认证类型")
-    private ThirdPartyAuthTypeEnum authType;
 
     @Schema(title = "店铺类型")
     private WebsiteTypeEnum websiteType;
@@ -73,9 +63,6 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
                 .nickName(entity.getNickName())
                 .handle(entity.getHandle())
                 .token(entity.getToken())
-                .appKey(entity.getAppKey())
-                .appSecret(entity.getAppSecret())
-                .authType(entity.getAuthType())
                 .authStatus(entity.getAuthStatus())
                 .websiteType(entity.getWebsiteType())
                 .ownerName(ownerName)

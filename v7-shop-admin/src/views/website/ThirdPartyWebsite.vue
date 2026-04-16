@@ -10,11 +10,23 @@
             <el-input v-model="queryForm.title" clearable placeholder="请输入标题" />
           </el-form-item>
           <el-form-item>
-            <el-button :icon="Search" :loading="listLoading" native-type="submit" type="primary" @click="queryData">查询</el-button>
+            <el-button
+              :icon="Search"
+              :loading="listLoading"
+              native-type="submit"
+              type="primary"
+              @click="queryData"
+            >
+              查询
+            </el-button>
             <el-button class="hidden-xs-only" text type="primary" @click="handleFold">
               <span v-if="fold">展开</span>
               <span v-else>合并</span>
-              <vab-icon class="vab-dropdown" :class="{ 'vab-dropdown-active': fold }" icon="arrow-up-s-line" />
+              <vab-icon
+                class="vab-dropdown"
+                :class="{ 'vab-dropdown-active': fold }"
+                icon="arrow-up-s-line"
+              />
             </el-button>
           </el-form-item>
         </el-form>
@@ -25,12 +37,17 @@
       </vab-query-form-left-panel>
     </vab-query-form>
 
-    <el-table ref="tableRef" v-loading="listLoading" border :data="list" @selection-change="setSelectRows">
+    <el-table
+      ref="tableRef"
+      v-loading="listLoading"
+      border
+      :data="list"
+      @selection-change="setSelectRows"
+    >
       <el-table-column type="selection" width="38" />
       <el-table-column align="center" label="店铺名称" prop="nickName" />
       <el-table-column align="center" label="店铺唯一标识" prop="handle" />
       <el-table-column align="center" label="店铺类型" prop="websiteType" />
-      <el-table-column align="center" label="授权方式" prop="authType" />
       <el-table-column align="center" label="授权状态" width="140">
         <template #default="{ row }">
           <el-tooltip
@@ -47,10 +64,27 @@
       <el-table-column align="center" label="归属人" prop="ownerName" />
       <el-table-column align="center" label="归属部门" prop="ownerDepartment" />
       <el-table-column align="center" label="上次同步" prop="lastSyncTime" width="170" />
+      <el-table-column align="center" label="状态" width="80">
+        <template #default="{ row }">
+          <el-switch
+            v-model="row.status"
+            active-value="VALID"
+            inactive-value="INVALID"
+            :loading="row.statusLoading"
+            @change="(val: boolean | string | number) => handleSwitchValidity(val, row)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column align="center" label="操作" width="250">
         <template #default="{ row }">
           <el-tooltip
-            :content="row.authStatus !== 'AUTHED' ? '商城连接异常，请检查配置后重新编辑保存' : (row.lastManualSyncTime ? '上次手动同步: ' + row.lastManualSyncTime : '尚未手动同步过')"
+            :content="
+              row.authStatus !== 'AUTHED'
+                ? '商城连接异常，请检查配置后重新编辑保存'
+                : row.lastManualSyncTime
+                  ? '上次手动同步: ' + row.lastManualSyncTime
+                  : '尚未手动同步过'
+            "
             placement="top"
           >
             <span>
@@ -173,7 +207,10 @@ const handleDelete = (row: any) => {
     }
   }
 }
-const handleSwitchValidity = (newVal: boolean | string | number, row: { id: number; status: string; statusLoading: boolean }) => {
+const handleSwitchValidity = (
+  newVal: boolean | string | number,
+  row: { id: number; status: string; statusLoading: boolean }
+) => {
   row.statusLoading = true
   switchValidity({ id: row.id, status: row.status })
     .then(() => {

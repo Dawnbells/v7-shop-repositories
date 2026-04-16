@@ -40,9 +40,6 @@ public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPa
         website.setNickName(request.getNickName());
         website.setHandle(request.getHandle());
         website.setToken(request.getToken());
-        website.setAppKey(request.getAppKey());
-        website.setAppSecret(request.getAppSecret());
-        website.setAuthType(request.getAuthType());
         website.setWebsiteType(request.getWebsiteType());
 
         if (dbEntity == null) {

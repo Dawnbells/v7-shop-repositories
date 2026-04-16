@@ -1,7 +1,6 @@
 package cn.v7soft.dao.entities.primary;
 
 import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
-import cn.v7soft.dao.enums.ThirdPartyAuthTypeEnum;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import jakarta.persistence.*;
@@ -34,20 +33,8 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
     /**
      * 第三方网站令牌
      */
-    @Column(name = "token", length = 1024)
+    @Column(name = "token", nullable = false, length = 1024)
     private String token;
-
-    /**
-     * 第三方网站的应用 Key
-     */
-    @Column(name = "app_key", nullable = false)
-    private String appKey;
-
-    /**
-     * 第三方网站的应用 Secret
-     */
-    @Column(name = "app_secret", nullable = false)
-    private String appSecret;
 
     /**
      * 第三方商城授权状态
@@ -57,19 +44,15 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
     private ThirdPartyAuthStatusEnum authStatus;
 
     /**
-     * 认证类型
-     */
-    @Enumerated(EnumType.STRING)
-    @Column(name = "auth_type", nullable = false, length = 50)
-    private ThirdPartyAuthTypeEnum authType;
-
-    /**
      * 第三方商城类型
      */
     @Column(name = "website_type", nullable = false, length = 50)
     @Enumerated(EnumType.STRING)
     private WebsiteTypeEnum websiteType;
 
+    /**
+     * 上次发起自动同步的服务器时间
+     */
     @Column(name = "last_sync_time")
     private LocalDateTime lastSyncTime;
 
@@ -78,6 +61,19 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
      */
     @Column(name = "last_sync_order_id")
     private String lastSyncOrderId;
+
+    /**
+     * 上次自动同步拉取到的最后一条订单的创建时间，用于 created_at_min
+     */
+    @Column(name = "last_sync_order_time")
+    private LocalDateTime lastSyncOrderTime;
+
+    /**
+     * 上次自动同步是否有新增订单
+     */
+    @Column(name = "last_sync_has_new_orders")
+    @Builder.Default
+    private Boolean lastSyncHasNewOrders = false;
 
     @Column(name = "auth_message", length = 500)
     private String authMessage;

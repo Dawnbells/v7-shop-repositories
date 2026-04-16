@@ -10,21 +10,9 @@
       <el-form-item label="访问令牌" prop="token">
         <el-input v-model.trim="form.token" clearable />
       </el-form-item>
-      <el-form-item label="App Key" prop="appKey">
-        <el-input v-model.trim="form.appKey" clearable />
-      </el-form-item>
-      <el-form-item label="APP Secret" prop="appSecret">
-        <el-input v-model.trim="form.appSecret" clearable />
-      </el-form-item>
       <el-form-item label="商城类型" prop="websiteType">
         <el-select v-model="form.websiteType" placeholder="请选择店铺类型">
           <el-option label="SHOPLINE" value="SHOPLINE" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="认证方式" prop="authType">
-        <el-select v-model="form.authType" placeholder="请选择认证方式">
-          <el-option label="BASIC_AUTH" value="BASIC_AUTH" />
-          <el-option label="OAUTH2" value="OAUTH2" />
         </el-select>
       </el-form-item>
     </el-form>
@@ -51,16 +39,12 @@ const form = reactive<any>({
   nickName: '',
   handle: '',
   token: '',
-  appKey: '',
-  appSecret: '',
   websiteType: 'SHOPLINE',
-  authType: 'BASIC_AUTH',
 })
 const rules = reactive<any>({
   nickName: [{ required: true, trigger: 'blur', message: '请输入店铺名称' }],
   handle: [{ required: true, trigger: 'blur', message: '请输入店铺唯一标识' }],
-  appKey: [{ required: true, trigger: 'blur', message: '请输入店铺App Key' }],
-  appSecret: [{ required: true, trigger: 'blur', message: '请输入店铺App Secret' }],
+  token: [{ required: true, trigger: 'blur', message: '请输入访问令牌' }],
 })
 
 const showEdit = (row: any) => {

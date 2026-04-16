@@ -6,7 +6,6 @@ import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
-import cn.v7soft.dao.enums.ThirdPartyAuthTypeEnum;
 
 import java.util.List;
 import java.util.Optional;
@@ -14,8 +13,6 @@ import java.util.Optional;
 public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPartyWebsite> {
 
     Optional<ThirdPartyWebsite> getByToken(String token);
-
-    Optional<ThirdPartyWebsite> getByAppKeyAndAuthType(String appKey, ThirdPartyAuthTypeEnum authType);
 
     CountThirdPartyOrderResponse countOrders(CountThirdPartyOrdersRequest request);
 

@@ -29,16 +29,15 @@ class ShoplineOrderSyncExecutorTest {
     @InjectMocks
     private ShoplineOrderSyncExecutor executor;
 
-    private ThirdPartyWebsite buildWebsite(Long id, LocalDateTime lastSyncTime) {
+    private ThirdPartyWebsite buildWebsite(Long id, LocalDateTime lastSyncTime, Boolean lastSyncHasNewOrders) {
         ThirdPartyWebsite website = ThirdPartyWebsite.builder()
                 .nickName("TestShop")
                 .handle("test-shop")
                 .token("token")
-                .appKey("key")
-                .appSecret("secret")
                 .authStatus(ThirdPartyAuthStatusEnum.AUTHED)
                 .websiteType(WebsiteTypeEnum.SHOPLINE)
                 .lastSyncTime(lastSyncTime)
+                .lastSyncHasNewOrders(lastSyncHasNewOrders)
                 .build();
         setId(website, id);
         setField(website, "createTime", LocalDateTime.now().minusDays(1));
@@ -56,49 +55,82 @@ class ShoplineOrderSyncExecutorTest {
     }
 
     @Test
-    @DisplayName("lastSyncTime为null时应使用createTime作为起点正常同步")
-    void shouldUseCreateTimeWhenLastSyncTimeIsNull() {
-        ThirdPartyWebsite website = buildWebsite(1L, null);
+    @DisplayName("上次有新订单的商城应立即同步")
+    void shouldSyncImmediatelyWhenLastSyncHadNewOrders() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now(), true);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
         when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
 
-        long delay = executor.syncNext();
+        executor.syncNext();
 
         verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(SyncMode.AUTO));
-        assertEquals(60_000, delay);
     }
 
     @Test
-    @DisplayName("有更多页时应返回10秒延迟（每轮只拉一页）")
+    @DisplayName("上次无新订单且距上次同步不足60秒应跳过")
+    void shouldSkipWhenNoNewOrdersAndTooSoon() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusSeconds(30), false);
+        when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
+
+        long delay = executor.syncNext();
+
+        verify(thirdPartyWebsiteService, never()).loadOrders(any(), any(), any());
+        assertEquals(10_000, delay);
+    }
+
+    @Test
+    @DisplayName("上次无新订单但距上次同步超过60秒应同步")
+    void shouldSyncWhenNoNewOrdersButIntervalExceeded() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusSeconds(120), false);
+        when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
+
+        executor.syncNext();
+
+        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(SyncMode.AUTO));
+    }
+
+    @Test
+    @DisplayName("lastSyncTime为null时应立即同步")
+    void shouldSyncWhenLastSyncTimeIsNull() {
+        ThirdPartyWebsite website = buildWebsite(1L, null, false);
+        when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
+
+        executor.syncNext();
+
+        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(SyncMode.AUTO));
+    }
+
+    @Test
+    @DisplayName("有更多页时应返回10秒延迟")
     void shouldReturn10sWhenHasMorePages() {
-        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
         when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn("page2");
 
         long delay = executor.syncNext();
 
         assertEquals(10_000, delay);
-        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(SyncMode.AUTO));
     }
 
     @Test
     @DisplayName("无更多页时应返回60秒延迟")
     void shouldReturn60sWhenNoMorePages() {
-        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
         when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
 
         long delay = executor.syncNext();
 
         assertEquals(60_000, delay);
-        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(SyncMode.AUTO));
     }
 
     @Test
     @DisplayName("单个商城失败不影响其他商城")
     void shouldContinueAfterSingleWebsiteFailure() {
-        ThirdPartyWebsite website1 = buildWebsite(1L, LocalDateTime.now().minusHours(1));
-        ThirdPartyWebsite website2 = buildWebsite(2L, LocalDateTime.now().minusHours(1));
+        ThirdPartyWebsite website1 = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
+        ThirdPartyWebsite website2 = buildWebsite(2L, LocalDateTime.now().minusMinutes(5), false);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website1, website2));
         when(thirdPartyWebsiteService.loadOrders(any(), any(), eq(SyncMode.AUTO)))
                 .thenThrow(new RuntimeException("模拟失败"))

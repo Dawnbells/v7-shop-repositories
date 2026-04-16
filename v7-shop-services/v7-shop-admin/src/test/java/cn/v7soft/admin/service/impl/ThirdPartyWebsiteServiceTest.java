@@ -72,10 +72,7 @@ class ThirdPartyWebsiteServiceTest {
                 .nickName("TestShop")
                 .handle("test-shop")
                 .token("valid-token")
-                .appKey("app-key")
-                .appSecret("app-secret")
                 .authStatus(ThirdPartyAuthStatusEnum.AUTHED)
-                .authType(ThirdPartyAuthTypeEnum.OAUTH2)
                 .websiteType(WebsiteTypeEnum.SHOPLINE)
                 .owner(buildOwner())
                 .build();

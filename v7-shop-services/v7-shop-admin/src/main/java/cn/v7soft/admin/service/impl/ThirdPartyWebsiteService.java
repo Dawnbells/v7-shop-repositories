@@ -100,11 +100,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     }
 
     @Override
-    public Optional<ThirdPartyWebsite> getByAppKeyAndAuthType(String appKey, ThirdPartyAuthTypeEnum authType) {
-        return repository.findByAppKeyAndAuthType(appKey, authType);
-    }
-
-    @Override
     public CountThirdPartyOrderResponse countOrders(CountThirdPartyOrdersRequest request) {
         ThirdPartyWebsite website = getById(request.getIdLongValue());
         ServiceResponseEnum.ERR_TOKEN_EMPTY.notBlank(website.getToken(), request.getId());
@@ -164,7 +159,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
         builder.queryParam("limit", "100");
         URI uri = builder.build().toUri();
-
+        log.debug("uri = {}", uri);
         ResponseEntity<String> response;
         try {
             response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(websiteDto.getToken()), String.class);
@@ -191,11 +186,12 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
 
         JSONArray orders = body.getJSONArray("orders");
-        if (orders != null && !orders.isEmpty()) {
+        boolean hasNewOrders = orders != null && !orders.isEmpty();
+        if (hasNewOrders) {
             convertAndSaveOrders(websiteDto, orders);
-            if (isAutoSync) {
-                updateLastSyncInfo(request.getIdLongValue(), orders);
-            }
+        }
+        if (isAutoSync) {
+            updateLastSyncInfo(request.getIdLongValue(), orders, hasNewOrders);
         }
 
         return extractNextPageInfo(response.getHeaders());
@@ -263,13 +259,11 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     public void updateLastManualSyncTime(Long websiteId) {
         ThirdPartyWebsite website = getById(websiteId);
         website.setLastManualSyncTime(LocalDateTime.now());
-        saveAndFlush(website);
+        self.saveAndFlush(website);
     }
+
 
     @Override
-    protected void checkKeyConstraint(ThirdPartyWebsite data) {
-    }
-
     @Transactional
     public ThirdPartyWebsiteDto getThirdPartyWebsiteDtoById(Long id) {
         ThirdPartyWebsite website = getById(id);
@@ -501,7 +495,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     }
 
     private void resolveCountry(TemporaryOrderContextInfoRequest info, String countryCode) {
-        if (StrUtil.isBlank(countryCode)) return;
+        if (StrUtil.isBlank(countryCode)) {
+            return;
+        }
         String code = countryCode.trim().toUpperCase();
         Optional<Country> countryOpt = countryService.getByCode(code);
         if (countryOpt.isPresent()) {
@@ -538,7 +534,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         List<TemporaryOrderItemInfoRequest> items = new ArrayList<>(lineItems.size());
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem == null) continue;
+            if (lineItem == null) {
+                continue;
+            }
 
             TemporaryOrderItemInfoRequest item = new TemporaryOrderItemInfoRequest();
             item.setSpuId("0");
@@ -572,23 +570,28 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         log.warn("商城凭证失效，已停止自动同步: websiteId={}, message={}", websiteId, message);
     }
 
-    private void updateLastSyncInfo(Long websiteId, JSONArray orders) {
-        LocalDateTime maxTime = null;
-        String lastOrderId = null;
-        for (int i = 0; i < orders.size(); i++) {
-            JSONObject o = orders.getJSONObject(i);
-            LocalDateTime createdAt = parseShoplineDateTime(o.getStr("created_at"));
-            if (createdAt != null && (maxTime == null || createdAt.isAfter(maxTime))) {
-                maxTime = createdAt;
-                lastOrderId = o.getStr("id");
+    private void updateLastSyncInfo(Long websiteId, JSONArray orders, boolean hasNewOrders) {
+        ThirdPartyWebsite website = getById(websiteId);
+        website.setLastSyncTime(LocalDateTime.now());
+        website.setLastSyncHasNewOrders(hasNewOrders);
+
+        if (hasNewOrders) {
+            LocalDateTime maxTime = null;
+            String lastOrderId = null;
+            for (int i = 0; i < orders.size(); i++) {
+                JSONObject o = orders.getJSONObject(i);
+                LocalDateTime createdAt = parseShoplineDateTime(o.getStr("created_at"));
+                if (createdAt != null && (maxTime == null || createdAt.isAfter(maxTime))) {
+                    maxTime = createdAt;
+                    lastOrderId = o.getStr("id");
+                }
+            }
+            if (maxTime != null) {
+                website.setLastSyncOrderTime(maxTime);
+                website.setLastSyncOrderId(lastOrderId);
             }
         }
-        if (maxTime != null) {
-            ThirdPartyWebsite website = getById(websiteId);
-            website.setLastSyncTime(maxTime);
-            website.setLastSyncOrderId(lastOrderId);
-            saveAndFlush(website);
-        }
+        saveAndFlush(website);
     }
 
     private LocalDateTime parseShoplineDateTime(String dateStr) {
