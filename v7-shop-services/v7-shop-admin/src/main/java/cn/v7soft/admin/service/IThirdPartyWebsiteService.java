@@ -23,7 +23,7 @@ public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPa
 
     /**
      * 拉取订单并写入临时表，返回下一页 page_info（null 表示没有更多页）
-     * @param updateSyncTime 是否更新商城的 lastSyncTime（自动同步传 true，手动同步传 false）
+     * @param updateSyncTime 是否为自动同步模式：true 时使用 since_id 去重并更新 lastSyncTime/lastSyncOrderId；false 时按时间范围全量拉取
      */
     String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, boolean updateSyncTime);
 
@@ -35,9 +35,9 @@ public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPa
     void verifyAndUpdateAuthStatus(ThirdPartyWebsite website);
 
     /**
-     * 查询所有启用自动同步且已认证的商城
+     * 查询所有状态为 VALID 且已认证的商城
      */
-    List<ThirdPartyWebsite> findSyncEnabledWebsites();
+    List<ThirdPartyWebsite> findActiveWebsites();
 
     /**
      * 更新商城的上次手动同步时间

@@ -47,7 +47,6 @@ public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPa
 
         if (dbEntity == null) {
             website.setAuthStatus(ThirdPartyAuthStatusEnum.INIT);
-            website.setSyncEnabled(true);
             website.setLastSyncTime(LocalDateTime.now());
         }
 

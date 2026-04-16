@@ -11,6 +11,7 @@ import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.enums.*;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
@@ -442,18 +443,17 @@ class ThirdPartyWebsiteServiceTest {
     // ==================== 查询同步商城测试 ====================
 
     @Test
-    @DisplayName("findSyncEnabledWebsites应查询AUTHED且启用的商城")
-    void shouldFindOnlyAuthedAndEnabledWebsites() {
+    @DisplayName("findActiveWebsites应查询AUTHED且VALID状态的商城")
+    void shouldFindOnlyAuthedAndValidWebsites() {
         ThirdPartyWebsite website = ThirdPartyWebsite.builder()
                 .nickName("TestShop")
                 .handle("test")
-                .syncEnabled(true)
                 .authStatus(ThirdPartyAuthStatusEnum.AUTHED)
                 .build();
-        when(repository.findBySyncEnabledTrueAndAuthStatus(ThirdPartyAuthStatusEnum.AUTHED))
+        when(repository.findByStatusAndAuthStatus(StatusEnum.VALID, ThirdPartyAuthStatusEnum.AUTHED))
                 .thenReturn(List.of(website));
 
-        List<ThirdPartyWebsite> result = service.findSyncEnabledWebsites();
+        List<ThirdPartyWebsite> result = service.findActiveWebsites();
 
         assertEquals(1, result.size());
         assertEquals("TestShop", result.get(0).getNickName());

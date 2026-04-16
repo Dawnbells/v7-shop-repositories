@@ -73,9 +73,11 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
     @Column(name = "last_sync_time")
     private LocalDateTime lastSyncTime;
 
-    @Column(name = "sync_enabled", nullable = false)
-    @Builder.Default
-    private Boolean syncEnabled = true;
+    /**
+     * 上次自动同步拉取到的最后一条 Shopline 订单 ID，用于 since_id 去重
+     */
+    @Column(name = "last_sync_order_id")
+    private String lastSyncOrderId;
 
     @Column(name = "auth_message", length = 500)
     private String authMessage;

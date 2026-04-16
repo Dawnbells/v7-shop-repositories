@@ -52,9 +52,6 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
     @Schema(title = "授权错误信息")
     private String authMessage;
 
-    @Schema(title = "是否启用自动同步")
-    private Boolean syncEnabled;
-
     @Schema(title = "上次自动同步时间")
     private LocalDateTime lastSyncTime;
 
@@ -84,7 +81,6 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
                 .ownerName(ownerName)
                 .ownerDepartment(ownerDepartment)
                 .authMessage(entity.getAuthMessage())
-                .syncEnabled(entity.getSyncEnabled())
                 .lastSyncTime(entity.getLastSyncTime())
                 .lastManualSyncTime(entity.getLastManualSyncTime())
                 .build();

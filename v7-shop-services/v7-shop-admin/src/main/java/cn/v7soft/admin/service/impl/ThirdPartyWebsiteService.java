@@ -19,6 +19,7 @@ import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.LocalDateTimeUtils;
 import cn.v7soft.core.enums.ServiceResponseEnum;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
@@ -55,7 +56,7 @@ import java.util.regex.Pattern;
 @Slf4j
 @Service
 public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWebsite, ThirdPartyWebsiteRepository> implements IThirdPartyWebsiteService {
-    private static final String API_VERSION = "v20250601";
+    private static final String API_VERSION = "v20260901";
     private static final Pattern LINK_PAGE_INFO_PATTERN = Pattern.compile("<[^>]*[?&]page_info=([^&>]+)[^>]*>;\\s*rel=\"next\"");
     private static final Pattern LOCALE_PATTERN = Pattern.compile("([a-z]{2})[_-]([A-Z]{2})");
     private static final DateTimeFormatter ISO_OFFSET = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -148,11 +149,18 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         if (StrUtil.isNotBlank(pageInfo)) {
             builder.queryParam("page_info", pageInfo);
         } else {
+            builder.queryParam("sort_condition", "order_at:asc,id:asc");
             if (request.getCreateAtMin() != null) {
                 builder.queryParam("created_at_min", LocalDateTimeUtils.formatZone8(request.getCreateAtMin()));
             }
             if (request.getCreateAtMax() != null) {
                 builder.queryParam("created_at_max", LocalDateTimeUtils.formatZone8(request.getCreateAtMax()));
+            }
+            if (updateSyncTime) {
+                ThirdPartyWebsite website = getById(request.getIdLongValue());
+                if (StrUtil.isNotBlank(website.getLastSyncOrderId())) {
+                    builder.queryParam("since_id", website.getLastSyncOrderId());
+                }
             }
         }
         builder.queryParam("limit", "100");
@@ -164,7 +172,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         } catch (HttpClientErrorException e) {
             int statusCode = e.getStatusCode().value();
             if (statusCode == 401 || statusCode == 403) {
-                markWebsiteAuthError(request.getIdLongValue(), "Token无效或已过期 (HTTP " + statusCode + ")");
+                self.markWebsiteAuthError(request.getIdLongValue(), "Token无效或已过期 (HTTP " + statusCode + ")");
             }
             throw e;
         } catch (ResourceAccessException e) {
@@ -187,7 +195,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         if (orders != null && !orders.isEmpty()) {
             convertAndSaveOrders(websiteDto, orders);
             if (updateSyncTime) {
-                updateLastSyncTime(request.getIdLongValue(), orders);
+                updateLastSyncInfo(request.getIdLongValue(), orders);
             }
         }
 
@@ -248,8 +256,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     }
 
     @Override
-    public List<ThirdPartyWebsite> findSyncEnabledWebsites() {
-        return repository.findBySyncEnabledTrueAndAuthStatus(ThirdPartyAuthStatusEnum.AUTHED);
+    public List<ThirdPartyWebsite> findActiveWebsites() {
+        return repository.findByStatusAndAuthStatus(StatusEnum.VALID, ThirdPartyAuthStatusEnum.AUTHED);
     }
 
     @Override
@@ -323,7 +331,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
 
         EditTemporaryOrderRequest request = new EditTemporaryOrderRequest();
         request.setCompanyId(owner.getCompanyId());
-        request.setFrom(website.getNickName());
+        request.setFrom(website.getNickName() + "-SHOPLINE");
         request.setFromUrl(StrUtil.blankToDefault(order.getStr("landing_site"), ""));
         request.setPlatform(WebsiteTypeEnum.SHOPLINE);
         request.setOriginOrderId(order.getStr("id"));
@@ -450,7 +458,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             Matcher matcher = LOCALE_PATTERN.matcher(customerLocale);
             if (matcher.find()) {
                 String langCode = matcher.group(1);
-                String countryCode = matcher.group(2);
+                String localeCountryCode = matcher.group(2);
 
                 Optional<Language> langOpt = languageService.getByCode(langCode);
                 if (langOpt.isPresent()) {
@@ -462,35 +470,50 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                     info.setLanguageCode(langCode.toUpperCase());
                 }
 
-                Optional<Country> countryOpt = countryService.getByCode(countryCode);
-                if (countryOpt.isPresent()) {
-                    Country country = countryOpt.get();
-                    info.setCountryId(country.getId());
-                    info.setCountry(country.getName());
-                    info.setCountryCode(country.getCode());
-                } else {
-                    info.setCountryCode(countryCode.toUpperCase());
+                resolveCountry(info, localeCountryCode);
+            } else {
+                Optional<Language> langOpt = languageService.getByCode(customerLocale.trim().toLowerCase());
+                if (langOpt.isPresent()) {
+                    Language language = langOpt.get();
+                    info.setLanguageId(String.valueOf(language.getId()));
+                    info.setLanguage(language.getName());
+                    info.setLanguageCode(language.getCode());
                 }
             }
         }
 
         JSONObject shippingAddress = order.getJSONObject("shipping_address");
-        if (shippingAddress != null && info.getCountryCode() == null) {
-            String countryCode = shippingAddress.getStr("country_code");
-            if (StrUtil.isNotBlank(countryCode)) {
-                Optional<Country> countryOpt = countryService.getByCode(countryCode.trim().toUpperCase());
-                if (countryOpt.isPresent()) {
-                    Country country = countryOpt.get();
-                    info.setCountryId(country.getId());
-                    info.setCountry(country.getName());
-                    info.setCountryCode(country.getCode());
-                } else {
-                    info.setCountryCode(countryCode.trim().toUpperCase());
-                }
+        if (shippingAddress != null) {
+            String shippingCountryCode = shippingAddress.getStr("country_code");
+            if (StrUtil.isNotBlank(shippingCountryCode) && info.getCountryId() == null) {
+                resolveCountry(info, shippingCountryCode);
+            }
+        }
+
+        JSONObject billingAddress = order.getJSONObject("billing_address");
+        if (billingAddress != null && info.getCountryId() == null) {
+            String billingCountryCode = billingAddress.getStr("country_code");
+            if (StrUtil.isNotBlank(billingCountryCode)) {
+                resolveCountry(info, billingCountryCode);
             }
         }
 
         return info;
+    }
+
+    private void resolveCountry(TemporaryOrderContextInfoRequest info, String countryCode) {
+        if (StrUtil.isBlank(countryCode)) return;
+        String code = countryCode.trim().toUpperCase();
+        Optional<Country> countryOpt = countryService.getByCode(code);
+        if (countryOpt.isPresent()) {
+            Country country = countryOpt.get();
+            info.setCountryId(country.getId());
+            info.setCountry(country.getName());
+            info.setCountryCode(country.getCode());
+        } else {
+            info.setCountryCode(code);
+            info.setCountry(code);
+        }
     }
 
     private TemporaryOrderRiskRecordInfoRequest buildRiskInfo(JSONObject order) {
@@ -545,23 +568,26 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         ThirdPartyWebsite website = getById(websiteId);
         website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);
         website.setAuthMessage(message);
-        website.setSyncEnabled(false);
+        website.setStatus(StatusEnum.INVALID);
         saveAndFlush(website);
         log.warn("商城凭证失效，已停止自动同步: websiteId={}, message={}", websiteId, message);
     }
 
-    private void updateLastSyncTime(Long websiteId, JSONArray orders) {
+    private void updateLastSyncInfo(Long websiteId, JSONArray orders) {
         LocalDateTime maxTime = null;
+        String lastOrderId = null;
         for (int i = 0; i < orders.size(); i++) {
             JSONObject o = orders.getJSONObject(i);
             LocalDateTime createdAt = parseShoplineDateTime(o.getStr("created_at"));
             if (createdAt != null && (maxTime == null || createdAt.isAfter(maxTime))) {
                 maxTime = createdAt;
+                lastOrderId = o.getStr("id");
             }
         }
         if (maxTime != null) {
             ThirdPartyWebsite website = getById(websiteId);
             website.setLastSyncTime(maxTime);
+            website.setLastSyncOrderId(lastOrderId);
             saveAndFlush(website);
         }
     }

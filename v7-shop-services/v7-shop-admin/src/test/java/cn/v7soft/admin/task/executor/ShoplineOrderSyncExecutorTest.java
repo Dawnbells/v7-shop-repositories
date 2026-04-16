@@ -37,7 +37,6 @@ class ShoplineOrderSyncExecutorTest {
                 .appSecret("secret")
                 .authStatus(ThirdPartyAuthStatusEnum.AUTHED)
                 .websiteType(WebsiteTypeEnum.SHOPLINE)
-                .syncEnabled(true)
                 .lastSyncTime(lastSyncTime)
                 .build();
         setId(website, id);
@@ -48,7 +47,7 @@ class ShoplineOrderSyncExecutorTest {
     @Test
     @DisplayName("没有可同步的商城时应返回60秒延迟")
     void shouldReturn60sWhenNoWebsites() {
-        when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(Collections.emptyList());
+        when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(Collections.emptyList());
 
         long delay = executor.syncNext();
 
@@ -59,7 +58,7 @@ class ShoplineOrderSyncExecutorTest {
     @DisplayName("lastSyncTime为null时应使用createTime作为起点正常同步")
     void shouldUseCreateTimeWhenLastSyncTimeIsNull() {
         ThirdPartyWebsite website = buildWebsite(1L, null);
-        when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(List.of(website));
+        when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
         when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn(null);
 
         long delay = executor.syncNext();
@@ -69,17 +68,29 @@ class ShoplineOrderSyncExecutorTest {
     }
 
     @Test
-    @DisplayName("有新订单时应返回10秒延迟")
-    void shouldReturn10sWhenHasNewOrders() {
+    @DisplayName("有更多页时应返回10秒延迟（每轮只拉一页）")
+    void shouldReturn10sWhenHasMorePages() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
-        when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(List.of(website));
+        when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
         when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn("page2");
-        when(thirdPartyWebsiteService.loadOrders(any(), eq("page2"), eq(true))).thenReturn(null);
 
         long delay = executor.syncNext();
 
         assertEquals(10_000, delay);
-        verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any(), eq(true));
+        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(true));
+    }
+
+    @Test
+    @DisplayName("无更多页时应返回60秒延迟")
+    void shouldReturn60sWhenNoMorePages() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
+        when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn(null);
+
+        long delay = executor.syncNext();
+
+        assertEquals(60_000, delay);
+        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(true));
     }
 
     @Test
@@ -87,27 +98,13 @@ class ShoplineOrderSyncExecutorTest {
     void shouldContinueAfterSingleWebsiteFailure() {
         ThirdPartyWebsite website1 = buildWebsite(1L, LocalDateTime.now().minusHours(1));
         ThirdPartyWebsite website2 = buildWebsite(2L, LocalDateTime.now().minusHours(1));
-        when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(List.of(website1, website2));
+        when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website1, website2));
         when(thirdPartyWebsiteService.loadOrders(any(), any(), eq(true)))
                 .thenThrow(new RuntimeException("模拟失败"))
                 .thenReturn(null);
 
         assertDoesNotThrow(() -> executor.syncNext());
         verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any(), eq(true));
-    }
-
-    @Test
-    @DisplayName("多页分页应循环直到返回null")
-    void shouldPaginateThroughAllPages() {
-        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
-        when(thirdPartyWebsiteService.findSyncEnabledWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn("page2");
-        when(thirdPartyWebsiteService.loadOrders(any(), eq("page2"), eq(true))).thenReturn("page3");
-        when(thirdPartyWebsiteService.loadOrders(any(), eq("page3"), eq(true))).thenReturn(null);
-
-        executor.syncNext();
-
-        verify(thirdPartyWebsiteService, times(3)).loadOrders(any(), any(), eq(true));
     }
 
     private void setId(Object entity, Long id) {

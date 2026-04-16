@@ -33,13 +33,14 @@ public class ShoplineOrderSyncExecutor {
     private volatile long lastIdleLogTime = 0;
 
     /**
-     * 扫描所有已认证且启用同步的商城，并行拉取新订单（最多 5 个并发）。
-     * 返回下次调度延迟（毫秒）。
+     * 扫描所有 VALID 且已认证的商城，每个商城拉取一页（最多 100 条）新订单。
+     * 多个商城并行执行（最多 5 个并发）。
+     * 返回下次调度延迟（毫秒）：有更多页返回 10s，否则 60s。
      */
     public long syncNext() {
         try {
             TenantContext.silent();
-            List<ThirdPartyWebsite> syncable = thirdPartyWebsiteService.findSyncEnabledWebsites();
+            List<ThirdPartyWebsite> syncable = thirdPartyWebsiteService.findActiveWebsites();
 
             if (syncable.isEmpty()) {
                 logIdleIfNeeded();
@@ -89,22 +90,12 @@ public class ShoplineOrderSyncExecutor {
         LocalDateTime syncFrom = website.getLastSyncTime() != null ? website.getLastSyncTime() : website.getCreateTime();
         request.setCreateAtMin(syncFrom);
 
-        String pageInfo = "";
-        boolean hasPages = false;
-        int pageCount = 0;
-        do {
-            String nextPage = thirdPartyWebsiteService.loadOrders(request, pageInfo, true);
-            if (nextPage != null) {
-                hasPages = true;
-            }
-            pageInfo = nextPage;
-            pageCount++;
-        } while (pageInfo != null);
+        String nextPage = thirdPartyWebsiteService.loadOrders(request, "", true);
 
-        if (hasPages) {
-            log.info("商城同步有新订单: websiteId={}, handle={}, pages={}", website.getId(), website.getHandle(), pageCount);
+        if (nextPage != null) {
+            log.info("商城同步有新订单且有下一页: websiteId={}, handle={}", website.getId(), website.getHandle());
         }
-        return hasPages;
+        return nextPage != null;
     }
 
     private void logIdleIfNeeded() {
