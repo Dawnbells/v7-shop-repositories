@@ -186,12 +186,12 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
 
         JSONArray orders = body.getJSONArray("orders");
-        boolean hasNewOrders = orders != null && !orders.isEmpty();
-        if (hasNewOrders) {
-            convertAndSaveOrders(websiteDto, orders);
+        int newOrderCount = 0;
+        if (orders != null && !orders.isEmpty()) {
+            newOrderCount = convertAndSaveOrders(websiteDto, orders);
         }
         if (isAutoSync) {
-            updateLastSyncInfo(request.getIdLongValue(), orders, hasNewOrders);
+            updateLastSyncInfo(request.getIdLongValue(), orders, newOrderCount > 0);
         }
 
         return extractNextPageInfo(response.getHeaders());
@@ -298,12 +298,17 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         return null;
     }
 
-    private void convertAndSaveOrders(ThirdPartyWebsiteDto website, JSONArray orders) {
+    /**
+     * @return 实际新增的订单数（已存在的重复订单不计入）
+     */
+    private int convertAndSaveOrders(ThirdPartyWebsiteDto website, JSONArray orders) {
         SystemUserDto owner = website.getOwner();
+        int newCount = 0;
         for (int i = 0; i < orders.size(); i++) {
             JSONObject order = orders.getJSONObject(i);
             try {
                 convertShoplineOrderToTemporary(website, owner, order);
+                newCount++;
             } catch (Exception e) {
                 String orderId = order.getStr("id");
                 if (e.getMessage() != null && e.getMessage().contains("已存在相同的原始订单ID")) {
@@ -313,6 +318,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 }
             }
         }
+        return newCount;
     }
 
     private void convertShoplineOrderToTemporary(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order) {
@@ -543,14 +549,15 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             item.setProductId("0");
             item.setTitle(StrUtil.blankToDefault(lineItem.getStr("title"), ""));
             item.setSpecTitle(StrUtil.blankToDefault(lineItem.getStr("attribute"), ""));
+            item.setImage(StrUtil.blankToDefault(lineItem.getStr("image_url"), ""));
             item.setSellPrice(parseBigDecimal(lineItem.getStr("price")));
             item.setOriginPrice(BigDecimal.ZERO);
             item.setCostPrice(BigDecimal.ZERO);
             item.setTax(BigDecimal.ZERO);
             item.setBarcode("");
             item.setQuantity(Integer.parseInt(StrUtil.blankToDefault(lineItem.getStr("quantity"), "0")));
-            item.setSkuName(StrUtil.blankToDefault(lineItem.getStr("sku"), ""));
-            item.setSkuCode(StrUtil.blankToDefault(lineItem.getStr("variant_id"), ""));
+            item.setSkuName(StrUtil.blankToDefault(lineItem.getStr("attribute"), ""));
+            item.setSkuCode(StrUtil.blankToDefault(lineItem.getStr("sku"), ""));
             item.setSkuIsVirtual(false);
             item.setMerchandise("");
             items.add(item);
@@ -591,7 +598,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 website.setLastSyncOrderId(lastOrderId);
             }
         }
-        saveAndFlush(website);
+        self.saveAndFlush(website);
     }
 
     private LocalDateTime parseShoplineDateTime(String dateStr) {
