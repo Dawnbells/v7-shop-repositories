@@ -23,9 +23,9 @@ public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPa
 
     /**
      * 拉取订单并写入临时表，返回下一页 page_info（null 表示没有更多页）
-     * @param updateSyncTime 是否为自动同步模式：true 时使用 since_id 去重并更新 lastSyncTime/lastSyncOrderId；false 时按时间范围全量拉取
+     * @param syncMode AUTO 时使用 since_id 去重并更新 lastSyncTime/lastSyncOrderId；MANUAL 时按时间范围全量拉取
      */
-    String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, boolean updateSyncTime);
+    String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, SyncMode syncMode);
 
     ThirdPartyWebsiteDto getThirdPartyWebsiteDtoById(Long id);
 

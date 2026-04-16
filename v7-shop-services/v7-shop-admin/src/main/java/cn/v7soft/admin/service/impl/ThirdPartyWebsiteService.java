@@ -15,6 +15,7 @@ import cn.v7soft.admin.controller.req.TemporaryOrderPaymentInfoRequest;
 import cn.v7soft.admin.controller.req.TemporaryOrderRiskRecordInfoRequest;
 import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
 import cn.v7soft.admin.service.*;
+import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.LocalDateTimeUtils;
@@ -139,7 +140,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
      * 拉取订单并写入临时表，返回下一页的 page_info（null 表示没有更多页）
      */
     @Override
-    public String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, boolean updateSyncTime) {
+    public String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, SyncMode syncMode) {
+        boolean isAutoSync = syncMode == SyncMode.AUTO;
         ThirdPartyWebsiteDto websiteDto = self.getThirdPartyWebsiteDtoById(request.getIdLongValue());
         ServiceResponseEnum.ERR_TOKEN_EMPTY.notBlank(websiteDto.getToken(), request.getId());
 
@@ -156,11 +158,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             if (request.getCreateAtMax() != null) {
                 builder.queryParam("created_at_max", LocalDateTimeUtils.formatZone8(request.getCreateAtMax()));
             }
-            if (updateSyncTime) {
-                ThirdPartyWebsite website = getById(request.getIdLongValue());
-                if (StrUtil.isNotBlank(website.getLastSyncOrderId())) {
-                    builder.queryParam("since_id", website.getLastSyncOrderId());
-                }
+            if (isAutoSync && StrUtil.isNotBlank(websiteDto.getLastSyncOrderId())) {
+                builder.queryParam("since_id", websiteDto.getLastSyncOrderId());
             }
         }
         builder.queryParam("limit", "100");
@@ -194,7 +193,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         JSONArray orders = body.getJSONArray("orders");
         if (orders != null && !orders.isEmpty()) {
             convertAndSaveOrders(websiteDto, orders);
-            if (updateSyncTime) {
+            if (isAutoSync) {
                 updateLastSyncInfo(request.getIdLongValue(), orders);
             }
         }

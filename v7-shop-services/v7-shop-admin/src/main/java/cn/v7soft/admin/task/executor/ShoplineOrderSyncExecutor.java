@@ -2,6 +2,7 @@ package cn.v7soft.admin.task.executor;
 
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
+import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
@@ -90,7 +91,7 @@ public class ShoplineOrderSyncExecutor {
         LocalDateTime syncFrom = website.getLastSyncTime() != null ? website.getLastSyncTime() : website.getCreateTime();
         request.setCreateAtMin(syncFrom);
 
-        String nextPage = thirdPartyWebsiteService.loadOrders(request, "", true);
+        String nextPage = thirdPartyWebsiteService.loadOrders(request, "", SyncMode.AUTO);
 
         if (nextPage != null) {
             log.info("商城同步有新订单且有下一页: websiteId={}, handle={}", website.getId(), website.getHandle());

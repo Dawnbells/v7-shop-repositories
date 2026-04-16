@@ -1,6 +1,7 @@
 package cn.v7soft.admin.task.executor;
 
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
+import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
@@ -59,11 +60,11 @@ class ShoplineOrderSyncExecutorTest {
     void shouldUseCreateTimeWhenLastSyncTimeIsNull() {
         ThirdPartyWebsite website = buildWebsite(1L, null);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn(null);
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
 
         long delay = executor.syncNext();
 
-        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(true));
+        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(SyncMode.AUTO));
         assertEquals(60_000, delay);
     }
 
@@ -72,12 +73,12 @@ class ShoplineOrderSyncExecutorTest {
     void shouldReturn10sWhenHasMorePages() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn("page2");
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn("page2");
 
         long delay = executor.syncNext();
 
         assertEquals(10_000, delay);
-        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(true));
+        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(SyncMode.AUTO));
     }
 
     @Test
@@ -85,12 +86,12 @@ class ShoplineOrderSyncExecutorTest {
     void shouldReturn60sWhenNoMorePages() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusHours(1));
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(true))).thenReturn(null);
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
 
         long delay = executor.syncNext();
 
         assertEquals(60_000, delay);
-        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(true));
+        verify(thirdPartyWebsiteService, times(1)).loadOrders(any(), any(), eq(SyncMode.AUTO));
     }
 
     @Test
@@ -99,12 +100,12 @@ class ShoplineOrderSyncExecutorTest {
         ThirdPartyWebsite website1 = buildWebsite(1L, LocalDateTime.now().minusHours(1));
         ThirdPartyWebsite website2 = buildWebsite(2L, LocalDateTime.now().minusHours(1));
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website1, website2));
-        when(thirdPartyWebsiteService.loadOrders(any(), any(), eq(true)))
+        when(thirdPartyWebsiteService.loadOrders(any(), any(), eq(SyncMode.AUTO)))
                 .thenThrow(new RuntimeException("模拟失败"))
                 .thenReturn(null);
 
         assertDoesNotThrow(() -> executor.syncNext());
-        verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any(), eq(true));
+        verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any(), eq(SyncMode.AUTO));
     }
 
     private void setId(Object entity, Long id) {

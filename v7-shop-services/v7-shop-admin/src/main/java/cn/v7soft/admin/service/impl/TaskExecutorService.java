@@ -47,6 +47,7 @@ import cn.hutool.poi.excel.BigExcelWriter;
 import cn.hutool.poi.excel.ExcelUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
+import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.service.IAddressService;
 import cn.v7soft.admin.service.IAsyncTaskService;
@@ -1887,7 +1888,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             int page = 0;
             String pageInfo = "";
             while (pageInfo != null) {
-                pageInfo = thirdPartyWebsiteService.loadOrders(request, pageInfo, false);
+                pageInfo = thirdPartyWebsiteService.loadOrders(request, pageInfo, SyncMode.MANUAL);
                 page++;
                 int progress = Math.min(page * 10, 99);
                 task.setMessage("正在同步第 " + page + " 页订单...");

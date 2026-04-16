@@ -51,6 +51,7 @@ public class ThirdPartyWebsiteDto extends IdDto {
      * 第三方商城类型
      */
     private WebsiteTypeEnum websiteType;
+    private String lastSyncOrderId;
     private SystemUserDto owner;
     public static ThirdPartyWebsiteDto convert(ThirdPartyWebsite thirdPartyWebsite) {
         return ThirdPartyWebsiteDto.builder()
@@ -63,6 +64,7 @@ public class ThirdPartyWebsiteDto extends IdDto {
                 .authStatus(thirdPartyWebsite.getAuthStatus())
                 .authType(thirdPartyWebsite.getAuthType())
                 .websiteType(thirdPartyWebsite.getWebsiteType())
+                .lastSyncOrderId(thirdPartyWebsite.getLastSyncOrderId())
                 .owner(SystemUserDto.convert(thirdPartyWebsite.getOwner()))
                 .build();
     }
