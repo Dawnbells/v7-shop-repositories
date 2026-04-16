@@ -1,6 +1,8 @@
 package cn.v7soft.admin.controller.req;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.bean.copier.CopyOptions;
+import cn.hutool.core.util.NumberUtil;
 import cn.v7soft.core.controller.request.IdRequest;
 import cn.v7soft.dao.entities.meta.OrderDeliveryInfo;
 import cn.v7soft.dao.entities.meta.OrderFinancialInfo;
@@ -102,19 +104,25 @@ public class EditTemporaryOrderRequest extends IdRequest {
     }
 
     public List<TemporaryOrderItemInfo> toItemInfos() {
-        if(this.itemInfos == null || this.itemInfos.isEmpty()) {
+        if (this.itemInfos == null || this.itemInfos.isEmpty()) {
             return List.of();
         }
+        CopyOptions options = CopyOptions.create().setIgnoreProperties("spuId", "productId", "image");
         List<TemporaryOrderItemInfo> result = new java.util.ArrayList<>(this.itemInfos.size());
-        for (TemporaryOrderItemInfoRequest itemInfoRequest : this.itemInfos) {
-            TemporaryOrderItemInfo orderItemInfo = new TemporaryOrderItemInfo();
-            BeanUtil.copyProperties(itemInfoRequest, orderItemInfo);
-            orderItemInfo.setSpuId(0L);
-            if(orderItemInfo.getMerchandise() == null) {
-                orderItemInfo.setMerchandise("");
+        for (TemporaryOrderItemInfoRequest req : this.itemInfos) {
+            TemporaryOrderItemInfo item = new TemporaryOrderItemInfo();
+            BeanUtil.copyProperties(req, item, options);
+            item.setSpuId(parseLong(req.getSpuId()));
+            item.setProductId(parseLong(req.getProductId()));
+            if (item.getMerchandise() == null) {
+                item.setMerchandise("");
             }
-            result.add(orderItemInfo);
+            result.add(item);
         }
         return result;
+    }
+
+    private static long parseLong(String value) {
+        return NumberUtil.isNumber(value) ? Long.parseLong(value) : 0L;
     }
 }

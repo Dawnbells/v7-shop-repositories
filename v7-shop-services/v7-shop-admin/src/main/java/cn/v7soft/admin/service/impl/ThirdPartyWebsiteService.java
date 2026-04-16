@@ -556,10 +556,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             item.setTax(BigDecimal.ZERO);
             item.setBarcode("");
             item.setQuantity(Integer.parseInt(StrUtil.blankToDefault(lineItem.getStr("quantity"), "0")));
-            item.setSkuName(StrUtil.blankToDefault(lineItem.getStr("attribute"), ""));
+            item.setSkuName(StrUtil.blankToDefault(lineItem.getStr("variant_title"), ""));
             item.setSkuCode(StrUtil.blankToDefault(lineItem.getStr("sku"), ""));
             item.setSkuIsVirtual(false);
-            item.setMerchandise("");
+            item.setMerchandise(StrUtil.blankToDefault(lineItem.getStr("title"), ""));
             items.add(item);
         }
         return items;
