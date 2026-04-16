@@ -28,7 +28,9 @@ public class ShoplineOrderSyncBot {
         executorService.schedule(() -> {
             try {
                 long nextDelay = applicationContext.getBean(ShoplineOrderSyncExecutor.class).syncNext();
-                scheduleNext(nextDelay);
+//                scheduleNext(nextDelay);
+
+                scheduleNext(1000);
             } catch (Exception e) {
                 log.error("Shopline订单同步异常，30秒后重试", e);
                 scheduleNext(30_000);

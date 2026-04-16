@@ -22,15 +22,6 @@ import com.dtflys.forest.springboot.annotation.ForestScan;
 public class V7ShopEntranceApplication {
 
     public static void main(String[] args) {
-
-        BufferedReader br = null;
-        try {
-            URL url = new URL("https://api.ipify.org");
-            br = new BufferedReader(new InputStreamReader(url.openStream()));
-            System.out.println("Java 当前识别的外网 IP: " + br.readLine());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
         SpringApplication.run(V7ShopEntranceApplication.class, args);
     }
 }

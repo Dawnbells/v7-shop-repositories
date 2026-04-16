@@ -17,7 +17,3 @@ include("v7-shop-common")
 include("v7-shop-account-service")
 include("v7-shop-admin")
 include("v7-shop-entrance")
-
-
-project(":v7-soft-core").projectDir =
-    File("E:\\V7Soft\\Workspace\\v7-soft-core\\sources\\v7-soft-repositories\\v7-soft-core\\")
