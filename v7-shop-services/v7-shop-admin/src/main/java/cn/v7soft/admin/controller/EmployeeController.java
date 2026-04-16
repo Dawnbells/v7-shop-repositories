@@ -34,6 +34,7 @@ import cn.v7soft.admin.service.ISpuService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.common.controller.req.attributes.SystemUserAccessDataRangeAttribute;
 import cn.v7soft.common.utils.ConvertUtils;
+import cn.v7soft.core.controller.request.DeleteRequest;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.SwitchValidityRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
@@ -241,5 +242,10 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
 //                .add(NotQueryAttribute.builder().name("id").value(loginUser.getLongId()).build()) // 不限制自己，允许自己复制
                 .add(EqualsQueryAttribute.builder().name("status").value(StatusEnum.VALID).build());
         return service.findOriginalPaginated(request).stream().map(this::convertEntityCopyId).collect(Collectors.toList());
+    }
+
+    @Override
+    protected boolean cleanupBeforeDelete(DeleteRequest request) {
+        return true;
     }
 }
