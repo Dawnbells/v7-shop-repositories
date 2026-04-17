@@ -4,6 +4,7 @@ import cn.v7soft.admin.controller.req.CountThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.EditThirdPartyWebsiteRequest;
 import cn.v7soft.admin.controller.req.QueryThirdPartyWebsiteRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
+import cn.v7soft.core.controller.request.DeleteRequest;
 import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
 import cn.v7soft.admin.controller.resp.ThirdPartyWebsiteResponse;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
@@ -70,6 +71,11 @@ public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPa
     @PostMapping("/submit-sync-orders")
     public Long submitSyncOrders(@Valid @RequestBody SyncThirdPartyOrdersRequest request) {
         return service.submitSyncOrders(request);
+    }
+
+    @Override
+    protected boolean cleanupBeforeDelete(DeleteRequest request) {
+        return true;
     }
 
     @Override
