@@ -327,8 +327,11 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     }
 
     private void convertShoplineOrderToTemporary(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order) {
-        log.info("=== Shopline订单转换开始 === originOrderId={}, createdAt={}, currency={}, locale={}",
-                order.getStr("id"), order.getStr("created_at"), order.getStr("currency"), order.getStr("customer_locale"));
+        CurrencyMode currencyMode = website.getCurrencyMode() != null ? website.getCurrencyMode() : CurrencyMode.SHOP_MONEY;
+        String moneyKey = currencyMode == CurrencyMode.PRESENTMENT_MONEY ? "presentment_money" : "shop_money";
+
+        log.info("=== Shopline订单转换开始 === originOrderId={}, createdAt={}, currency={}, locale={}, currencyMode={}",
+                order.getStr("id"), order.getStr("created_at"), order.getStr("currency"), order.getStr("customer_locale"), currencyMode);
         if (log.isDebugEnabled()) {
             log.debug("Shopline原始订单JSON: {}", order.toStringPretty());
         }
@@ -342,11 +345,11 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         request.setOrderTime(parseShoplineDateTime(order.getStr("created_at")));
 
         request.setDeliveryInfo(buildDeliveryInfo(order));
-        request.setFinancialInfo(buildFinancialInfo(order));
+        request.setFinancialInfo(buildFinancialInfo(order, moneyKey));
         request.setPaymentInfo(buildPaymentInfo(order));
-        request.setContextInfo(buildContextInfo(website, owner, order));
+        request.setContextInfo(buildContextInfo(website, owner, order, moneyKey));
         request.setRiskInfo(buildRiskInfo(order));
-        request.setItemInfos(buildItemInfos(order));
+        request.setItemInfos(buildItemInfos(order, moneyKey));
 
         log.info("=== 转换后临时订单 === originOrderId={}, from={}, salesPerson={}, country={}, currency={}, "
                         + "totalAmount={}, shippingFee={}, itemCount={}, recipient={} {}, phone={}, city={}",
@@ -398,11 +401,11 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         return info;
     }
 
-    private TemporaryOrderFinancialInfoRequest buildFinancialInfo(JSONObject order) {
+    private TemporaryOrderFinancialInfoRequest buildFinancialInfo(JSONObject order, String moneyKey) {
         TemporaryOrderFinancialInfoRequest info = new TemporaryOrderFinancialInfoRequest();
-        info.setTotalAmount(parseBigDecimal(order.getStr("current_total_price")));
-        info.setDiscountAmount(parseBigDecimal(order.getStr("current_total_discounts")));
-        info.setTaxAmount(parseBigDecimal(order.getStr("current_total_tax")));
+        info.setTotalAmount(extractMoneyAmount(order, "current_total_price_set", moneyKey, "current_total_price"));
+        info.setDiscountAmount(extractMoneyAmount(order, "current_total_discounts_set", moneyKey, "current_total_discounts"));
+        info.setTaxAmount(extractMoneyAmount(order, "current_total_tax_set", moneyKey, "current_total_tax"));
 
         BigDecimal shippingFee = BigDecimal.ZERO;
         JSONArray shippingLines = order.getJSONArray("shipping_lines");
@@ -410,9 +413,14 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             for (int i = 0; i < shippingLines.size(); i++) {
                 JSONObject line = shippingLines.getJSONObject(i);
                 if (line != null) {
-                    String price = line.getStr("price");
-                    if (price != null && !"0.00".equals(price)) {
-                        shippingFee = shippingFee.add(new BigDecimal(price));
+                    JSONObject priceSet = line.getJSONObject("price_set");
+                    if (priceSet != null) {
+                        shippingFee = shippingFee.add(extractAmountFromMoneySet(priceSet, moneyKey));
+                    } else {
+                        String price = line.getStr("price");
+                        if (price != null && !"0.00".equals(price)) {
+                            shippingFee = shippingFee.add(new BigDecimal(price));
+                        }
                     }
                 }
             }
@@ -429,7 +437,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         return info;
     }
 
-    private TemporaryOrderContextInfoRequest buildContextInfo(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order) {
+    private TemporaryOrderContextInfoRequest buildContextInfo(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order, String moneyKey) {
         TemporaryOrderContextInfoRequest info = new TemporaryOrderContextInfoRequest();
         info.setSalesUid(owner.getLongId());
         info.setSalesPerson(owner.getName());
@@ -441,7 +449,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         info.setAddressRule("");
         info.setPhoneRule("");
 
-        String currencyCode = order.getStr("currency");
+        String currencyCode = extractCurrencyCode(order, moneyKey);
         if (StrUtil.isNotBlank(currencyCode)) {
             Optional<Currency> currencyOpt = currencyService.getByCode(currencyCode.trim().toUpperCase());
             if (currencyOpt.isPresent()) {
@@ -537,7 +545,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         return info;
     }
 
-    private List<TemporaryOrderItemInfoRequest> buildItemInfos(JSONObject order) {
+    private List<TemporaryOrderItemInfoRequest> buildItemInfos(JSONObject order, String moneyKey) {
         JSONArray lineItems = order.getJSONArray("line_items");
         if (lineItems == null || lineItems.isEmpty()) {
             return List.of();
@@ -555,7 +563,14 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             item.setTitle(StrUtil.blankToDefault(lineItem.getStr("title"), ""));
             item.setSpecTitle(StrUtil.blankToDefault(lineItem.getStr("attribute"), ""));
             item.setImage(StrUtil.blankToDefault(lineItem.getStr("image_url"), ""));
-            item.setSellPrice(parseBigDecimal(lineItem.getStr("price")));
+
+            JSONObject priceSet = lineItem.getJSONObject("price_set");
+            if (priceSet != null) {
+                item.setSellPrice(extractAmountFromMoneySet(priceSet, moneyKey));
+            } else {
+                item.setSellPrice(parseBigDecimal(lineItem.getStr("price")));
+            }
+
             item.setOriginPrice(BigDecimal.ZERO);
             item.setCostPrice(BigDecimal.ZERO);
             item.setTax(BigDecimal.ZERO);
@@ -604,6 +619,45 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             }
         }
         self.saveAndFlush(website);
+    }
+
+    /**
+     * 从订单的 _set 字段中提取指定币种的金额，fallback 到顶层字段
+     */
+    private BigDecimal extractMoneyAmount(JSONObject order, String setField, String moneyKey, String fallbackField) {
+        JSONObject priceSet = order.getJSONObject(setField);
+        if (priceSet != null) {
+            return extractAmountFromMoneySet(priceSet, moneyKey);
+        }
+        return parseBigDecimal(order.getStr(fallbackField));
+    }
+
+    /**
+     * 从 money_set JSON（含 shop_money / presentment_money）中提取 amount
+     */
+    private BigDecimal extractAmountFromMoneySet(JSONObject moneySet, String moneyKey) {
+        JSONObject money = moneySet.getJSONObject(moneyKey);
+        if (money != null) {
+            return parseBigDecimal(money.getStr("amount"));
+        }
+        return BigDecimal.ZERO;
+    }
+
+    /**
+     * 根据 moneyKey 从订单的 total_price_set 中提取 currency_code，fallback 到顶层 currency
+     */
+    private String extractCurrencyCode(JSONObject order, String moneyKey) {
+        JSONObject totalPriceSet = order.getJSONObject("current_total_price_set");
+        if (totalPriceSet != null) {
+            JSONObject money = totalPriceSet.getJSONObject(moneyKey);
+            if (money != null) {
+                String code = money.getStr("currency_code");
+                if (StrUtil.isNotBlank(code)) {
+                    return code;
+                }
+            }
+        }
+        return order.getStr("currency");
     }
 
     private LocalDateTime parseShoplineDateTime(String dateStr) {

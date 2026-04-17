@@ -3,6 +3,7 @@ package cn.v7soft.admin.service.dto;
 import cn.v7soft.dao.dto.IdDto;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.CurrencyMode;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import lombok.Getter;
@@ -19,6 +20,7 @@ public class ThirdPartyWebsiteDto extends IdDto {
     private ThirdPartyAuthStatusEnum authStatus;
     private WebsiteTypeEnum websiteType;
     private String lastSyncOrderId;
+    private CurrencyMode currencyMode;
     private SystemUserDto owner;
 
     public static ThirdPartyWebsiteDto convert(ThirdPartyWebsite thirdPartyWebsite) {
@@ -30,6 +32,7 @@ public class ThirdPartyWebsiteDto extends IdDto {
                 .authStatus(thirdPartyWebsite.getAuthStatus())
                 .websiteType(thirdPartyWebsite.getWebsiteType())
                 .lastSyncOrderId(thirdPartyWebsite.getLastSyncOrderId())
+                .currencyMode(thirdPartyWebsite.getCurrencyMode())
                 .owner(SystemUserDto.convert(thirdPartyWebsite.getOwner()))
                 .build();
     }

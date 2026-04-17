@@ -3,6 +3,7 @@ package cn.v7soft.admin.controller.resp;
 import cn.v7soft.core.controller.response.IdResponse;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.CurrencyMode;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -48,6 +49,9 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
     @Schema(title = "上次手动同步时间")
     private LocalDateTime lastManualSyncTime;
 
+    @Schema(title = "币种模式")
+    private CurrencyMode currencyMode;
+
     public static ThirdPartyWebsiteResponse convertEntity(ThirdPartyWebsite entity) {
         SystemUser owner = entity.getOwner();
         String ownerName = "";
@@ -70,6 +74,7 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
                 .authMessage(entity.getAuthMessage())
                 .lastSyncTime(entity.getLastSyncTime())
                 .lastManualSyncTime(entity.getLastManualSyncTime())
+                .currencyMode(entity.getCurrencyMode())
                 .build();
     }
 }

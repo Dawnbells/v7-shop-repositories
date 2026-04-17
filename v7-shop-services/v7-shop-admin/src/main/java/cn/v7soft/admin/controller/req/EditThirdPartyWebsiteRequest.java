@@ -1,6 +1,7 @@
 package cn.v7soft.admin.controller.req;
 
 import cn.v7soft.core.controller.request.IdRequest;
+import cn.v7soft.dao.enums.CurrencyMode;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -27,4 +28,7 @@ public class EditThirdPartyWebsiteRequest extends IdRequest {
     @NotNull(message = "店铺类型不能为空")
     @Schema(title = "店铺类型", example = "SHOPLINE", requiredMode = Schema.RequiredMode.REQUIRED)
     private WebsiteTypeEnum websiteType;
+
+    @Schema(title = "币种模式", description = "SHOP_MONEY=店铺结算币种, PRESENTMENT_MONEY=订单展示币种", example = "SHOP_MONEY")
+    private CurrencyMode currencyMode;
 }

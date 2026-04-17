@@ -11,6 +11,7 @@ import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.CurrencyMode;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -53,6 +54,7 @@ public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPa
         website.setHandle(request.getHandle());
         website.setToken(request.getToken());
         website.setWebsiteType(request.getWebsiteType());
+        website.setCurrencyMode(request.getCurrencyMode() != null ? request.getCurrencyMode() : CurrencyMode.SHOP_MONEY);
 
         if (dbEntity == null) {
             website.setAuthStatus(ThirdPartyAuthStatusEnum.INIT);

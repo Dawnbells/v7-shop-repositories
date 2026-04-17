@@ -1,6 +1,7 @@
 package cn.v7soft.dao.entities.primary;
 
 import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
+import cn.v7soft.dao.enums.CurrencyMode;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import jakarta.persistence.*;
@@ -77,6 +78,14 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
     @Column(name = "last_sync_has_new_orders")
     @Builder.Default
     private Boolean lastSyncHasNewOrders = false;
+
+    /**
+     * 订单同步使用的币种模式
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "currency_mode", nullable = false, length = 30)
+    @Builder.Default
+    private CurrencyMode currencyMode = CurrencyMode.SHOP_MONEY;
 
     @Column(name = "auth_message", length = 500)
     private String authMessage;
