@@ -98,4 +98,9 @@ public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductS
     public List<ProductSKU> listBySkuCodes(List<String> skuCodes) {
         return repository.listBySkuCodes(skuCodes, SaSessionUtil.getLoginOwner().getId());
     }
+
+    @Override
+    public List<ProductSKU> listBySkuCodes(List<String> skuCodes, Long ownerId) {
+        return repository.listBySkuCodes(skuCodes, ownerId);
+    }
 }

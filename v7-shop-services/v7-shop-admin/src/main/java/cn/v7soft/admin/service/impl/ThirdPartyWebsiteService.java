@@ -16,6 +16,7 @@ import cn.v7soft.admin.controller.req.TemporaryOrderRiskRecordInfoRequest;
 import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
 import cn.v7soft.admin.service.*;
 import cn.v7soft.admin.service.SyncMode;
+import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.LocalDateTimeUtils;
@@ -69,6 +70,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     private final ILanguageService languageService;
     private final ICountryService countryService;
     private final ITemporaryOrderService temporaryOrderService;
+    private final IProductSKUService productSKUService;
 
     @Autowired
     @Lazy
@@ -81,7 +83,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                                     ICurrencyService currencyService,
                                     ILanguageService languageService,
                                     ICountryService countryService,
-                                    ITemporaryOrderService temporaryOrderService) {
+                                    ITemporaryOrderService temporaryOrderService,
+                                    IProductSKUService productSKUService) {
         super(repository);
         this.restTemplate = restTemplate;
         this.asyncTaskRepository = asyncTaskRepository;
@@ -90,6 +93,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         this.languageService = languageService;
         this.countryService = countryService;
         this.temporaryOrderService = temporaryOrderService;
+        this.productSKUService = productSKUService;
     }
 
     // ==================== 公开接口 ====================
@@ -349,7 +353,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         request.setPaymentInfo(buildPaymentInfo(order));
         request.setContextInfo(buildContextInfo(website, owner, order, moneyKey));
         request.setRiskInfo(buildRiskInfo(order));
-        request.setItemInfos(buildItemInfos(order, moneyKey));
+        request.setItemInfos(buildItemInfos(order, moneyKey, owner));
 
         log.info("=== 转换后临时订单 === originOrderId={}, from={}, salesPerson={}, country={}, currency={}, "
                         + "totalAmount={}, shippingFee={}, itemCount={}, recipient={} {}, phone={}, city={}",
@@ -545,11 +549,31 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         return info;
     }
 
-    private List<TemporaryOrderItemInfoRequest> buildItemInfos(JSONObject order, String moneyKey) {
+    private List<TemporaryOrderItemInfoRequest> buildItemInfos(JSONObject order, String moneyKey, SystemUserDto owner) {
         JSONArray lineItems = order.getJSONArray("line_items");
         if (lineItems == null || lineItems.isEmpty()) {
             return List.of();
         }
+
+        List<String> skuCodes = new ArrayList<>();
+        for (int i = 0; i < lineItems.size(); i++) {
+            JSONObject lineItem = lineItems.getJSONObject(i);
+            if (lineItem != null) {
+                String code = lineItem.getStr("sku");
+                if (StrUtil.isNotBlank(code)) {
+                    skuCodes.add(code.trim());
+                }
+            }
+        }
+
+        Map<String, String> skuNameMap = new HashMap<>();
+        if (!skuCodes.isEmpty()) {
+            List<ProductSKU> skuList = productSKUService.listBySkuCodes(skuCodes, owner.getLongId());
+            for (ProductSKU sku : skuList) {
+                skuNameMap.put(sku.getSkuCode(), sku.getName());
+            }
+        }
+
         List<TemporaryOrderItemInfoRequest> items = new ArrayList<>(lineItems.size());
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
@@ -576,8 +600,11 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             item.setTax(BigDecimal.ZERO);
             item.setBarcode("");
             item.setQuantity(Integer.parseInt(StrUtil.blankToDefault(lineItem.getStr("quantity"), "0")));
-            item.setSkuName(StrUtil.blankToDefault(lineItem.getStr("variant_title"), ""));
-            item.setSkuCode(StrUtil.blankToDefault(lineItem.getStr("sku"), ""));
+
+            String skuCode = StrUtil.blankToDefault(lineItem.getStr("sku"), "").trim();
+            item.setSkuCode(skuCode);
+            item.setSkuName(skuNameMap.getOrDefault(skuCode, ""));
+
             item.setSkuIsVirtual(false);
             item.setMerchandise(StrUtil.blankToDefault(lineItem.getStr("title"), ""));
             items.add(item);

@@ -37,5 +37,6 @@ public interface IProductSKUService extends IBaseDataRangeService<ProductSKU> {
     ProductSKU doCreateOrUpdateOperate(EditProductSKURequest request);
 
     List<ProductSKU> listBySkuCodes(List<String> alternativeSkusIds);
-    // 自定义服务方法
+
+    List<ProductSKU> listBySkuCodes(List<String> skuCodes, Long ownerId);
 }
