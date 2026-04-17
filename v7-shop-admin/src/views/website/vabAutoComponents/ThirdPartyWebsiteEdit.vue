@@ -15,6 +15,12 @@
           <el-option label="SHOPLINE" value="SHOPLINE" />
         </el-select>
       </el-form-item>
+      <el-form-item label="币种模式" prop="currencyMode">
+        <el-select v-model="form.currencyMode" placeholder="请选择币种模式">
+          <el-option label="店铺结算币种" value="SHOP_MONEY" />
+          <el-option label="订单展示币种" value="PRESENTMENT_MONEY" />
+        </el-select>
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button type="primary" @click="save">保存</el-button>
@@ -40,6 +46,7 @@ const form = reactive<any>({
   handle: '',
   token: '',
   websiteType: 'SHOPLINE',
+  currencyMode: 'SHOP_MONEY',
 })
 const rules = reactive<any>({
   nickName: [{ required: true, trigger: 'blur', message: '请输入店铺名称' }],
