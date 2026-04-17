@@ -14,6 +14,8 @@ public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPa
 
     Optional<ThirdPartyWebsite> getByToken(String token);
 
+    Optional<ThirdPartyWebsite> getByHandle(String handle);
+
     CountThirdPartyOrderResponse countOrders(CountThirdPartyOrdersRequest request);
 
     Long submitSyncOrders(SyncThirdPartyOrdersRequest request);

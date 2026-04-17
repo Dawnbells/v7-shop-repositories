@@ -8,6 +8,7 @@ import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
 import cn.v7soft.admin.controller.resp.ThirdPartyWebsiteResponse;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.common.controller.BaseDataRangeController;
+import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -36,6 +37,16 @@ public class ThirdPartyWebsiteController extends BaseDataRangeController<ThirdPa
 
     @Override
     protected ThirdPartyWebsite convertRequest(@Nullable ThirdPartyWebsite dbEntity, EditThirdPartyWebsiteRequest request) {
+        service.getByHandle(request.getHandle()).ifPresent(existing -> {
+            boolean isDuplicate = dbEntity == null || !existing.getId().equals(dbEntity.getId());
+            ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(!isDuplicate, "Handle已被占用: " + request.getHandle());
+        });
+
+        service.getByToken(request.getToken()).ifPresent(existing -> {
+            boolean isDuplicate = dbEntity == null || !existing.getId().equals(dbEntity.getId());
+            ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(!isDuplicate, "Token已被占用，请检查是否重复绑定");
+        });
+
         ThirdPartyWebsite website = Optional.ofNullable(dbEntity).orElse(ThirdPartyWebsite.builder().build());
         website.setNickName(request.getNickName());
         website.setHandle(request.getHandle());

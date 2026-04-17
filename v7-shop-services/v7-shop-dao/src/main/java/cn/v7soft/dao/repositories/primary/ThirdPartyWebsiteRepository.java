@@ -12,5 +12,7 @@ public interface ThirdPartyWebsiteRepository extends BaseRepository<ThirdPartyWe
 
     Optional<ThirdPartyWebsite> findByToken(String token);
 
+    Optional<ThirdPartyWebsite> findByHandle(String handle);
+
     List<ThirdPartyWebsite> findByStatusAndAuthStatus(StatusEnum status, ThirdPartyAuthStatusEnum authStatus);
 }

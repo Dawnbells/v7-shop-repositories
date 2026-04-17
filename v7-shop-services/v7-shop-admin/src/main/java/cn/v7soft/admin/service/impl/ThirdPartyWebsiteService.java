@@ -100,6 +100,11 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     }
 
     @Override
+    public Optional<ThirdPartyWebsite> getByHandle(String handle) {
+        return repository.findByHandle(handle);
+    }
+
+    @Override
     public CountThirdPartyOrderResponse countOrders(CountThirdPartyOrdersRequest request) {
         ThirdPartyWebsite website = getById(request.getIdLongValue());
         ServiceResponseEnum.ERR_TOKEN_EMPTY.notBlank(website.getToken(), request.getId());

@@ -18,7 +18,10 @@ import java.time.LocalDateTime;
 @SuperBuilder
 @AllArgsConstructor
 @NoArgsConstructor
-@Table(name = "t_third_party_websites")
+@Table(name = "t_third_party_websites", indexes = {
+        @Index(name = "uk_handle", columnList = "handle", unique = true),
+        @Index(name = "uk_token", columnList = "token", unique = true)
+})
 public class ThirdPartyWebsite extends BaseDataRangeEntity {
     /**
      * 店铺名称
@@ -28,12 +31,12 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
     /**
      * 店铺的唯一标识
      */
-    @Column(name = "handle", nullable = false)
+    @Column(name = "handle", nullable = false, unique = true)
     private String handle;
     /**
      * 第三方网站令牌
      */
-    @Column(name = "token", nullable = false, length = 1024)
+    @Column(name = "token", nullable = false, length = 1024, unique = true)
     private String token;
 
     /**
