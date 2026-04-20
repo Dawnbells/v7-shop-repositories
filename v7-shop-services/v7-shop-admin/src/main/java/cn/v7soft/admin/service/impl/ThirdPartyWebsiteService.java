@@ -29,7 +29,9 @@ import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.*;
+import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
+import cn.v7soft.dao.repositories.primary.SystemUserRepository;
 import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +61,11 @@ import java.util.regex.Pattern;
 @Service
 public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWebsite, ThirdPartyWebsiteRepository> implements IThirdPartyWebsiteService {
     private static final String API_VERSION = "v20260901";
+    private static final String METAFIELD_NAMESPACE = "v7_order";
+    private static final String METAFIELD_KEY_CN_PRODUCT_NAME = "cn_product_name";
+    private static final String METAFIELD_KEY_WAYBILL_PRODUCT_NAME = "waybill_product_name";
+    private static final String METAFIELD_KEY_OWNER_NAME = "owner_name";
+    private static final String METAFIELD_KEY_OWNER_TELEPHONE = "owner_telephone";
     private static final Pattern LINK_PAGE_INFO_PATTERN = Pattern.compile("<[^>]*[?&]page_info=([^&>]+)[^>]*>;\\s*rel=\"next\"");
     private static final Pattern LOCALE_PATTERN = Pattern.compile("([a-z]{2})[_-]([A-Z]{2})");
     private static final DateTimeFormatter ISO_OFFSET = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -71,6 +78,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     private final ICountryService countryService;
     private final ITemporaryOrderService temporaryOrderService;
     private final IProductSKUService productSKUService;
+    private final SystemUserRepository systemUserRepository;
 
     @Autowired
     @Lazy
@@ -84,7 +92,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                                     ILanguageService languageService,
                                     ICountryService countryService,
                                     ITemporaryOrderService temporaryOrderService,
-                                    IProductSKUService productSKUService) {
+                                    IProductSKUService productSKUService,
+                                    SystemUserRepository systemUserRepository) {
         super(repository);
         this.restTemplate = restTemplate;
         this.asyncTaskRepository = asyncTaskRepository;
@@ -94,6 +103,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         this.countryService = countryService;
         this.temporaryOrderService = temporaryOrderService;
         this.productSKUService = productSKUService;
+        this.systemUserRepository = systemUserRepository;
     }
 
     // ==================== 公开接口 ====================
@@ -340,6 +350,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             log.debug("Shopline原始订单JSON: {}", order.toStringPretty());
         }
 
+        // 收集 line_items 中所有不重复的 Shopline product_id，批量获取 metafields
+        Map<String, Map<String, String>> productMetafieldsMap = fetchMetafieldsForLineItems(
+                website.getHandle(), website.getToken(), order);
+
         EditTemporaryOrderRequest request = new EditTemporaryOrderRequest();
         request.setCompanyId(owner.getCompanyId());
         request.setFrom(website.getNickName() + "-SHOPLINE");
@@ -353,7 +367,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         request.setPaymentInfo(buildPaymentInfo(order));
         request.setContextInfo(buildContextInfo(website, owner, order, moneyKey));
         request.setRiskInfo(buildRiskInfo(order));
-        request.setItemInfos(buildItemInfos(order, moneyKey, owner));
+        request.setItemInfos(buildItemInfos(order, moneyKey, owner, productMetafieldsMap));
+
+        // 归属人优先级：归属人账号(telephone) > 归属人(name) > 第三方商城归属(website owner)
+        applyOwnerFromMetafields(request.getContextInfo(), order, productMetafieldsMap);
 
         log.info("=== 转换后临时订单 === originOrderId={}, from={}, salesPerson={}, country={}, currency={}, "
                         + "totalAmount={}, shippingFee={}, itemCount={}, recipient={} {}, phone={}, city={}",
@@ -549,7 +566,95 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         return info;
     }
 
-    private List<TemporaryOrderItemInfoRequest> buildItemInfos(JSONObject order, String moneyKey, SystemUserDto owner) {
+    /**
+     * 收集订单 line_items 中所有不重复的 Shopline product_id，批量获取 metafields。
+     */
+    private Map<String, Map<String, String>> fetchMetafieldsForLineItems(String handle, String token, JSONObject order) {
+        JSONArray lineItems = order.getJSONArray("line_items");
+        if (lineItems == null || lineItems.isEmpty()) {
+            return Map.of();
+        }
+        Set<String> productIds = new LinkedHashSet<>();
+        for (int i = 0; i < lineItems.size(); i++) {
+            JSONObject lineItem = lineItems.getJSONObject(i);
+            if (lineItem != null) {
+                String pid = lineItem.getStr("product_id");
+                if (StrUtil.isNotBlank(pid)) {
+                    productIds.add(pid);
+                }
+            }
+        }
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        return fetchProductMetafieldsForIds(handle, token, productIds);
+    }
+
+    /**
+     * 根据第一个商品行的 metafield 归属人信息覆盖 contextInfo 的销售归属。
+     * 优先级：归属人账号(telephone) > 归属人(name) > 第三方商城归属(website owner，即当前默认值)。
+     */
+    private void applyOwnerFromMetafields(TemporaryOrderContextInfoRequest contextInfo,
+                                          JSONObject order,
+                                          Map<String, Map<String, String>> productMetafieldsMap) {
+        if (contextInfo == null || productMetafieldsMap.isEmpty()) {
+            return;
+        }
+        // 取第一个有效 line_item 的 product_id 对应的 metafields
+        JSONArray lineItems = order.getJSONArray("line_items");
+        if (lineItems == null || lineItems.isEmpty()) {
+            return;
+        }
+        Map<String, String> firstMetafields = null;
+        for (int i = 0; i < lineItems.size(); i++) {
+            JSONObject lineItem = lineItems.getJSONObject(i);
+            if (lineItem == null) continue;
+            String pid = lineItem.getStr("product_id");
+            if (StrUtil.isNotBlank(pid) && productMetafieldsMap.containsKey(pid)) {
+                firstMetafields = productMetafieldsMap.get(pid);
+                break;
+            }
+        }
+        if (firstMetafields == null || firstMetafields.isEmpty()) {
+            return;
+        }
+
+        String ownerTelephone = firstMetafields.get(METAFIELD_KEY_OWNER_TELEPHONE);
+        String ownerName = firstMetafields.get(METAFIELD_KEY_OWNER_NAME);
+
+        SystemUser resolvedOwner = null;
+
+        if (StrUtil.isNotBlank(ownerTelephone)) {
+            resolvedOwner = systemUserRepository.findByTelephone(ownerTelephone.trim());
+            if (resolvedOwner != null) {
+                log.info("Metafield归属人匹配(telephone): telephone={}, userId={}, name={}",
+                        ownerTelephone, resolvedOwner.getId(), resolvedOwner.getName());
+            } else {
+                log.warn("Metafield归属人账号未找到对应用户: telephone={}", ownerTelephone);
+            }
+        }
+
+        if (resolvedOwner == null && StrUtil.isNotBlank(ownerName)) {
+            resolvedOwner = systemUserRepository.findByUserName(ownerName.trim()).orElse(null);
+            if (resolvedOwner != null) {
+                log.info("Metafield归属人匹配(name): name={}, userId={}", ownerName, resolvedOwner.getId());
+            } else {
+                log.warn("Metafield归属人未找到对应用户: name={}", ownerName);
+            }
+        }
+
+        if (resolvedOwner != null) {
+            contextInfo.setSalesUid(resolvedOwner.getId());
+            contextInfo.setSalesPerson(resolvedOwner.getName());
+            if (resolvedOwner.getDepartment() != null) {
+                contextInfo.setDepartmentId(resolvedOwner.getDepartment().getId());
+                contextInfo.setDepartment(resolvedOwner.getDepartment().getName());
+            }
+        }
+    }
+
+    private List<TemporaryOrderItemInfoRequest> buildItemInfos(JSONObject order, String moneyKey, SystemUserDto owner,
+                                                                Map<String, Map<String, String>> productMetafieldsMap) {
         JSONArray lineItems = order.getJSONArray("line_items");
         if (lineItems == null || lineItems.isEmpty()) {
             return List.of();
@@ -606,10 +711,82 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             item.setSkuName(skuNameMap.getOrDefault(skuCode, ""));
 
             item.setSkuIsVirtual(false);
-            item.setMerchandise(StrUtil.blankToDefault(lineItem.getStr("title"), ""));
+
+            String defaultMerchandise = StrUtil.blankToDefault(lineItem.getStr("title"), "");
+            item.setMerchandise(defaultMerchandise);
+
+            String shoplineProductId = lineItem.getStr("product_id");
+            if (StrUtil.isNotBlank(shoplineProductId)) {
+                Map<String, String> metafields = productMetafieldsMap.getOrDefault(shoplineProductId, Map.of());
+                String cnProductName = metafields.get(METAFIELD_KEY_CN_PRODUCT_NAME);
+                if (StrUtil.isNotBlank(cnProductName)) {
+                    item.setMerchandise(cnProductName);
+                }
+                String waybillName = metafields.get(METAFIELD_KEY_WAYBILL_PRODUCT_NAME);
+                if (StrUtil.isNotBlank(waybillName)) {
+                    item.setWaybillProductName(waybillName);
+                }
+            }
+
             items.add(item);
         }
         return items;
+    }
+
+    // ==================== Metafield 相关 ====================
+
+    /**
+     * 批量获取多个商品的 metafields（v7_order namespace），对 productId 去重。
+     *
+     * @return productId -> (metafield key -> value)
+     */
+    private Map<String, Map<String, String>> fetchProductMetafieldsForIds(String handle, String token, Set<String> productIds) {
+        Map<String, Map<String, String>> result = new HashMap<>();
+        for (String productId : productIds) {
+            result.put(productId, fetchProductMetafields(handle, token, productId));
+        }
+        return result;
+    }
+
+    /**
+     * 调用 Shopline GET /products/{productId}/metafields.json?namespace=v7_order 获取商品元字段。
+     *
+     * @return metafield key -> value 的映射；API 调用失败时返回空 Map 不中断同步
+     */
+    private Map<String, String> fetchProductMetafields(String handle, String token, String productId) {
+        Map<String, String> result = new HashMap<>();
+        try {
+            String url = buildApiUrl(handle, "products/" + productId + "/metafields.json");
+            URI uri = UriComponentsBuilder.fromHttpUrl(url)
+                    .queryParam("namespace", METAFIELD_NAMESPACE)
+                    .build().toUri();
+            log.debug("获取商品Metafield: productId={}, uri={}", productId, uri);
+
+            ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(token), String.class);
+            if (StrUtil.isBlank(response.getBody())) {
+                return result;
+            }
+
+            JSONObject body = JSONUtil.parseObj(response.getBody());
+            JSONArray metafields = body.getJSONArray("metafields");
+            if (metafields == null || metafields.isEmpty()) {
+                return result;
+            }
+
+            for (int i = 0; i < metafields.size(); i++) {
+                JSONObject mf = metafields.getJSONObject(i);
+                if (mf == null) continue;
+                String key = mf.getStr("key");
+                Object value = mf.get("value");
+                if (StrUtil.isNotBlank(key) && value != null) {
+                    result.put(key, value.toString());
+                }
+            }
+            log.debug("商品Metafield结果: productId={}, fields={}", productId, result.keySet());
+        } catch (Exception e) {
+            log.warn("获取商品Metafield失败（不影响订单同步）: productId={}, error={}", productId, e.getMessage());
+        }
+        return result;
     }
 
     // ==================== 工具方法 ====================
