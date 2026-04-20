@@ -673,10 +673,25 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
 
         Map<String, String> skuNameMap = new HashMap<>();
         if (!skuCodes.isEmpty()) {
+            log.info("SKU查询(按部门): skuCodes={}, ownerId={}", skuCodes, owner.getLongId());
             List<ProductSKU> skuList = productSKUService.listBySkuCodes(skuCodes, owner.getLongId());
+            log.info("SKU查询结果(按部门): 查询{}个, 命中{}个", skuCodes.size(), skuList.size());
+            if (skuList.isEmpty()) {
+                log.info("SKU按部门查询无结果，fallback按ownerId查询: ownerId={}", owner.getLongId());
+                skuList = productSKUService.listBySkuCodesAndOwnerId(skuCodes, owner.getLongId());
+                log.info("SKU查询结果(按ownerId): 查询{}个, 命中{}个", skuCodes.size(), skuList.size());
+            }
             for (ProductSKU sku : skuList) {
                 skuNameMap.put(sku.getSkuCode(), sku.getName());
+                log.debug("SKU映射: skuCode={} -> skuName={}", sku.getSkuCode(), sku.getName());
             }
+            if (skuList.size() < skuCodes.size()) {
+                List<String> missingCodes = new ArrayList<>(skuCodes);
+                missingCodes.removeAll(skuNameMap.keySet());
+                log.warn("SKU未命中: missingSkuCodes={}", missingCodes);
+            }
+        } else {
+            log.info("SKU查询: 订单中无有效SKU编码");
         }
 
         List<TemporaryOrderItemInfoRequest> items = new ArrayList<>(lineItems.size());
@@ -708,7 +723,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
 
             String skuCode = StrUtil.blankToDefault(lineItem.getStr("sku"), "").trim();
             item.setSkuCode(skuCode);
-            item.setSkuName(skuNameMap.getOrDefault(skuCode, ""));
+            String resolvedSkuName = skuNameMap.getOrDefault(skuCode, "");
+            item.setSkuName(resolvedSkuName);
+            log.info("SKU赋值: skuCode={}, resolvedSkuName={}, matched={}", skuCode, resolvedSkuName, skuNameMap.containsKey(skuCode));
 
             item.setSkuIsVirtual(false);
 

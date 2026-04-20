@@ -55,5 +55,12 @@ public interface ProductSKURepository extends BaseRepository<ProductSKU> {
             AND s.skuCode in :skuCodes
             """)
     List<ProductSKU> listBySkuCodes(@Param("skuCodes") List<String> skuCodes, @Param("ownerId") Long ownerId);
+
+    @Query("""
+            from ProductSKU s
+            WHERE s.owner.id = :ownerId
+            AND s.skuCode in :skuCodes
+            """)
+    List<ProductSKU> listBySkuCodesAndOwnerId(@Param("skuCodes") List<String> skuCodes, @Param("ownerId") Long ownerId);
 }
 

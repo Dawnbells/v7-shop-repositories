@@ -39,4 +39,6 @@ public interface IProductSKUService extends IBaseDataRangeService<ProductSKU> {
     List<ProductSKU> listBySkuCodes(List<String> alternativeSkusIds);
 
     List<ProductSKU> listBySkuCodes(List<String> skuCodes, Long ownerId);
+
+    List<ProductSKU> listBySkuCodesAndOwnerId(List<String> skuCodes, Long ownerId);
 }
