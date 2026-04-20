@@ -168,7 +168,14 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
     @PostMapping("/nginx-config/{id}/{type}")
     @SaCheckPermission("top-level-domain.nginx-config")
     public void nginxConfig(@PathVariable("id") Long id, @PathVariable("type") String type) {
-        NginxConfigType nginxConfigType = "vike".equalsIgnoreCase(type) ? NginxConfigType.VIKE : THYMELEAF;
+        NginxConfigType nginxConfigType;
+        if ("vike".equalsIgnoreCase(type)) {
+            nginxConfigType = NginxConfigType.VIKE;
+        } else if ("nuxt_mall".equalsIgnoreCase(type)) {
+            nginxConfigType = NginxConfigType.NUXT_MALL;
+        } else {
+            nginxConfigType = THYMELEAF;
+        }
         service.nginxConfig(id, nginxConfigType);
         service.refreshNginxConfig(id, nginxConfigType);
     }

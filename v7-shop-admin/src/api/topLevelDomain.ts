@@ -72,7 +72,7 @@ export function bindProtocol(data: any) {
   })
 }
 
-export function nginxConfig(id: string | number, type: 'vike' | 'thymeleaf') {
+export function nginxConfig(id: string | number, type: 'vike' | 'thymeleaf' | 'nuxt_mall') {
   return request({
     url: `/top-level-domain/nginx-config/${id}/${type}`,
     method: 'post',

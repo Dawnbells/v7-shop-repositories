@@ -119,6 +119,7 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item command="nuxt_mall">可编辑主题方案</el-dropdown-item>
                 <el-dropdown-item command="vike">新模板方案</el-dropdown-item>
                 <el-dropdown-item command="thymeleaf">旧模板方案</el-dropdown-item>
               </el-dropdown-menu>
@@ -316,7 +317,6 @@ const handleSortChange = ({ prop, order }: { prop: string; order: string | null 
   fetchData()
 }
 
-
 const setSelectRows = (value: string) => {
   selectRows.value = value
 }
@@ -396,7 +396,7 @@ const handleBindPixel = (row: any) => {
 
 const handleAnalyzer = async (command: string, row: any) => {
   try {
-    const { msg }: any = await nginxConfig(row.id, command as 'vike' | 'thymeleaf')
+    const { msg }: any = await nginxConfig(row.id, command as 'vike' | 'thymeleaf' | 'nuxt_mall')
     await $baseMessage(msg, 'success', 'hey')
   } catch (error) {
     console.error('解析失败:', error)

@@ -7,7 +7,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum NginxConfigType {
     THYMELEAF("xyzdwd-frontend-service"),
-    VIKE("xyzdwd-mall-service");
+    VIKE("xyzdwd-mall-service"),
+    NUXT_MALL("nuxt-mall-service");
 
     private final String upstream;
 }
