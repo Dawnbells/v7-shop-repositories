@@ -625,7 +625,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         SystemUser resolvedOwner = null;
 
         if (StrUtil.isNotBlank(ownerTelephone)) {
-            resolvedOwner = systemUserRepository.findByTelephone(ownerTelephone.trim());
+            resolvedOwner = systemUserRepository.findByTelephoneWithDepartment(ownerTelephone.trim());
             if (resolvedOwner != null) {
                 log.info("Metafield归属人匹配(telephone): telephone={}, userId={}, name={}",
                         ownerTelephone, resolvedOwner.getId(), resolvedOwner.getName());
@@ -635,7 +635,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
 
         if (resolvedOwner == null && StrUtil.isNotBlank(ownerName)) {
-            resolvedOwner = systemUserRepository.findByUserName(ownerName.trim()).orElse(null);
+            resolvedOwner = systemUserRepository.findByUserNameWithDepartment(ownerName.trim()).orElse(null);
             if (resolvedOwner != null) {
                 log.info("Metafield归属人匹配(name): name={}, userId={}", ownerName, resolvedOwner.getId());
             } else {

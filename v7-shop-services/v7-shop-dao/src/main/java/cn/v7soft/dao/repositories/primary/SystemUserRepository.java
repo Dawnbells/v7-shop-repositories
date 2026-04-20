@@ -21,6 +21,12 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
     // 根据手机号查找用户
     SystemUser findByTelephone(String telephone);
 
+    @Query("from SystemUser u LEFT JOIN FETCH u.department where u.telephone=:telephone and u.status <> 'DELETED'")
+    SystemUser findByTelephoneWithDepartment(@Param("telephone") String telephone);
+
+    @Query(value = "from SystemUser u LEFT JOIN FETCH u.department where u.name=:userName and u.status <> 'DELETED'")
+    Optional<SystemUser> findByUserNameWithDepartment(@Param("userName") String userName);
+
     @Query("from SystemUser where telephone=:telephone and (:id is null or id<>:id) and status='VALID'")
     SystemUser findBySameUser(@Param("telephone") String telephone, @Param("id") Long id);
 
