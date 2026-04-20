@@ -177,6 +177,7 @@
           {{ row.name || '-' }}
         </template>
       </el-table-column>
+      <el-table-column align="center" label="提交用户" prop="ownerName" width="100" show-overflow-tooltip />
       <el-table-column align="center" label="调用模式" width="100">
         <template #default="{ row }">
           <el-tag size="small" :type="row.invokeMode === 'BATCH' ? 'success' : 'primary'">
@@ -249,6 +250,7 @@ defineOptions({
 interface TaskRow {
   id: number
   name: string
+  ownerName: string | null
   invokeMode: string
   recordCount: number | null
   totalPromptTokens: number | null
