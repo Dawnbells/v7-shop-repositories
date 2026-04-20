@@ -116,8 +116,11 @@ public class ShoplineOrderSyncExecutor {
 
         if (nextPage != null) {
             log.info("商城同步有新订单且有下一页: websiteId={}, handle={}", website.getId(), website.getHandle());
+            return true;
         }
-        return nextPage != null;
+
+        ThirdPartyWebsite refreshed = thirdPartyWebsiteService.getById(website.getId());
+        return Boolean.TRUE.equals(refreshed.getLastSyncHasNewOrders());
     }
 
     private void logIdleIfNeeded() {
