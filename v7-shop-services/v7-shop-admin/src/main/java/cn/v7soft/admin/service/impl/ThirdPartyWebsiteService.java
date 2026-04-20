@@ -61,7 +61,7 @@ import java.util.regex.Pattern;
 @Service
 public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWebsite, ThirdPartyWebsiteRepository> implements IThirdPartyWebsiteService {
     private static final String API_VERSION = "v20260901";
-    private static final String METAFIELD_NAMESPACE = "v7_order";
+    private static final String METAFIELD_NAMESPACE = "xyz";
     private static final String METAFIELD_KEY_CN_PRODUCT_NAME = "cn_product_name";
     private static final String METAFIELD_KEY_WAYBILL_PRODUCT_NAME = "waybill_product_name";
     private static final String METAFIELD_KEY_OWNER_NAME = "owner_name";
