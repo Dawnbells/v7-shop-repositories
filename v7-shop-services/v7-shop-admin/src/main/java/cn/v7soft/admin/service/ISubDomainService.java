@@ -32,6 +32,13 @@ public interface ISubDomainService extends IBaseService<SubDomain> {
     void doCreate(Long id);
 
     /**
+     * NUXT_MALL 类型子域名创建后的 nginx 配置写入
+     * 根据子域名绑定的国家查找 FrontServer，添加 DNS 解析并写入 nginx 配置
+     * @param subDomain 已保存的子域名实体
+     */
+    void setupNginxForNuxtMall(SubDomain subDomain);
+
+    /**
      * 删除当前删除绑定的域名
      * @param ids 删除的ID列表
      */

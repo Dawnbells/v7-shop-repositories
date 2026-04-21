@@ -40,9 +40,11 @@ import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.core.controller.request.attributes.LikeAttribute;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.StatusEnum;
+import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.SubDomain;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
+import cn.v7soft.dao.enums.NginxConfigType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -115,6 +117,21 @@ public class SubDomainController extends BaseController<SubDomain, ISubDomainSer
     @Override
     protected String getPermissionPrefix() {
         return "subDomain";
+    }
+
+    @Override
+    protected SubDomain doEditOperate(EditSubDomainRequest request) {
+        if (request.getId() == null) {
+            TopLevelDomain parent = topLevelDomainService.getById(request.getParentDomainId());
+            if (parent.getNginxConfigType() == NginxConfigType.NUXT_MALL) {
+                SslCertificateUtil.valid(parent);
+            }
+        }
+        SubDomain subDomain = super.doEditOperate(request);
+        if (request.getId() == null && subDomain.getParentDomain().getNginxConfigType() == NginxConfigType.NUXT_MALL) {
+            service.setupNginxForNuxtMall(subDomain);
+        }
+        return subDomain;
     }
 
     @Override

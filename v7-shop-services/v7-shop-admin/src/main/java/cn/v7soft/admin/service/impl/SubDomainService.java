@@ -46,6 +46,7 @@ import cn.v7soft.dao.entities.primary.SubDomainSpuPixelId;
 import cn.v7soft.dao.entities.primary.ThemeCustom;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import cn.v7soft.dao.entities.primary.Website;
+import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.enums.DomainType;
 import cn.v7soft.dao.enums.LandingPageType;
 import cn.v7soft.dao.repositories.primary.ProductRepository;
@@ -171,6 +172,47 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
             frontServerService.pushAndRefresh(frontServer.getId());
         }
         subDomainService.save(subDomain);
+    }
+
+    @Override
+    @Transactional
+    public void setupNginxForNuxtMall(SubDomain subDomain) {
+        TopLevelDomain topLevelDomain = subDomain.getParentDomain();
+        Country country = subDomain.getCountry();
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(country, "子域名未绑定国家");
+        FrontServer frontServer = country.getFrontServer();
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(frontServer, "该国家未配置前端服务器");
+
+        subDomain.setFrontServer(frontServer);
+
+        CloudPlatformAccount cloudPlatformAccount = topLevelDomain.getCloudPlatformAccount();
+        if (cloudPlatformAccount != null) {
+            ISslCertificateRequester certificateRequester = cloudPlatformAccountService.getCertificateRequester(cloudPlatformAccount);
+            boolean analyzeDomain = certificateRequester.analyzeDomain(topLevelDomain, subDomain.getName(), frontServer.getCnameRecord());
+            subDomain.setAnalyzeSuccess(analyzeDomain);
+
+            frontServer.setResolutionCount(frontServer.getResolutionCount() + 1);
+            frontServer.setActiveResolutionCount(frontServer.getActiveResolutionCount() + 1);
+            frontServerService.save(frontServer);
+        } else {
+            subDomain.setAnalyzeSuccess(false);
+        }
+
+        boolean writeNginx = NginxConfigWriter.writeNginx(
+                frontServer.getName(), topLevelDomain.getName(),
+                topLevelDomain.getNginxConfigType(), String.valueOf(topLevelDomain.getCompanyId()));
+        if (writeNginx) {
+            frontServerService.pushAndRefresh(frontServer.getId());
+        }
+        subDomainService.save(subDomain);
+    }
+
+    @Override
+    @Transactional
+    public void deleteAll(List<Long> ids) {
+        for (Long id : ids) {
+            doDelete(getById(id));
+        }
     }
 
     @Override
