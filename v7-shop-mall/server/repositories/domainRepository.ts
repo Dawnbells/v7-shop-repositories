@@ -73,7 +73,7 @@ interface DomainQueryRow {
   company_name: string | null;
   company_domain: string | null;
   access_key: string | null;
-  cloak_fallback: string | null;
+  cloak_fallback: string;
   // TopLevelDomain
   tld_id: number | null;
   tld_name: string | null;
@@ -157,7 +157,7 @@ function mapRowToResult(
         name: row.company_name!,
         domain: row.company_domain,
         accessKey: row.access_key,
-        cloakFallback: row.cloak_fallback,
+        cloakFallback: row.cloak_fallback || "LAND",
       }
     : null;
 

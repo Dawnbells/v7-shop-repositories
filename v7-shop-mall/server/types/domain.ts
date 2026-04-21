@@ -72,7 +72,7 @@ export interface Company {
   name: string
   domain: string | null
   accessKey: string | null
-  cloakFallback: string | null
+  cloakFallback: string
 }
 
 /**

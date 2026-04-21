@@ -280,8 +280,7 @@ export default defineEventHandler(async (event) => {
 
   // 获取降级策略
   const pageContext = getPageContext(event);
-  const cloakFallback = pageContext.company?.cloakFallback;
-  const fallbackPage = (cloakFallback as CloakPage) ?? CloakPage.LAND;
+  const fallbackPage = (pageContext.company?.cloakFallback as CloakPage) || CloakPage.LAND;
 
   let cloakResult: CloakCheckResponse | null = null;
 

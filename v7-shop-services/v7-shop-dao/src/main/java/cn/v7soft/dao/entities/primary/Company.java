@@ -1,6 +1,7 @@
 package cn.v7soft.dao.entities.primary;
 
 import cn.v7soft.core.entities.BaseEntity;
+import cn.v7soft.dao.enums.CloakType;
 import cn.v7soft.dao.enums.IndustryType;
 import jakarta.persistence.*;
 import lombok.Builder;
@@ -130,4 +131,9 @@ public class Company extends BaseEntity {
 
     @Column(name = "access_key")
     private String accessKey;
+
+    @Builder.Default
+    @Column(name = "cloak_fallback", nullable = false)
+    @Enumerated(EnumType.STRING)
+    private CloakType.PAGE cloakFallback = CloakType.PAGE.LAND;
 }
