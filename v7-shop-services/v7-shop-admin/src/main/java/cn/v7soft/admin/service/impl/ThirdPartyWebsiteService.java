@@ -401,9 +401,11 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             info.setPhone(StrUtil.blankToDefault(addr.getStr("phone"), ""));
             info.setProvince(StrUtil.blankToDefault(addr.getStr("province"), ""));
             info.setCity(StrUtil.blankToDefault(addr.getStr("city"), ""));
-            info.setDistrict(StrUtil.blankToDefault(addr.getStr("address2"), ""));
+            info.setDistrict("");
             info.setPostalCode(StrUtil.blankToDefault(addr.getStr("zip"), ""));
-            info.setAddress(StrUtil.blankToDefault(addr.getStr("address1"), ""));
+            String address2 = StrUtil.blankToDefault(addr.getStr("address2"), "");
+            String address1 = StrUtil.blankToDefault(addr.getStr("address1"), "");
+            info.setAddress(address1 + (StrUtil.isNotBlank(address2) ? " /" + address2 : ""));
         } else {
             JSONObject customer = order.getJSONObject("customer");
             if (customer != null) {
