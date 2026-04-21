@@ -159,6 +159,7 @@ public class NginxConfigWriter {
                     proxy_buffering on;
                     proxy_buffer_size 16k;
                     proxy_buffers 8 16k;
+                    proxy_busy_buffers_size 96k;
             
                     proxy_no_cache 1;
                     proxy_cache_bypass 1;
