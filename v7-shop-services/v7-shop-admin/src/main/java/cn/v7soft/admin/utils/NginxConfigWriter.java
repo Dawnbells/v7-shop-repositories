@@ -21,6 +21,7 @@ public class NginxConfigWriter {
         String path = buildPath(serverName, domain);
         try {
             FileUtil.del(path);
+            nginxConfigType = nginxConfigType == null ? NginxConfigType.THYMELEAF : nginxConfigType;
             String template = nginxConfigType == NginxConfigType.NUXT_MALL ? NGINX_CONFIG_NUXT_TEMPLATE : NGINX_CONFIG_TEMPLATE;
             String nginxConfig = String.format(template, domain, companyId, nginxConfigType.getUpstream());
             FileUtil.writeUtf8String(nginxConfig, path);
