@@ -1,0 +1,14 @@
+release:
+  label: 版本发布
+  permalink: /release
+  description: 版本发布记录
+
+feature:
+  label: 新功能
+  permalink: /feature
+  description: 新功能介绍
+
+fix:
+  label: 修复
+  permalink: /fix
+  description: 问题修复记录

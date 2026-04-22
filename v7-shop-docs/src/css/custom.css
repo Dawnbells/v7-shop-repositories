@@ -1,0 +1,25 @@
+:root {
+  --ifm-color-primary: #3366ff;
+  --ifm-color-primary-dark: #1a4eff;
+  --ifm-color-primary-darker: #0d42ff;
+  --ifm-color-primary-darkest: #0033d4;
+  --ifm-color-primary-light: #4d7aff;
+  --ifm-color-primary-lighter: #5c85ff;
+  --ifm-color-primary-lightest: #809fff;
+  --ifm-code-font-size: 95%;
+  --ifm-font-family-base: -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
+    sans-serif;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #5c85ff;
+  --ifm-color-primary-dark: #3d6dff;
+  --ifm-color-primary-darker: #2e61ff;
+  --ifm-color-primary-darkest: #0040ff;
+  --ifm-color-primary-light: #7b9dff;
+  --ifm-color-primary-lighter: #8aa9ff;
+  --ifm-color-primary-lightest: #b8ccff;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
