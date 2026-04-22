@@ -1,7 +1,9 @@
 package cn.v7soft.dao.entities.primary;
 
 import cn.v7soft.dao.converter.MapStringConverter;
+import cn.v7soft.dao.enums.CloakStrategy;
 import cn.v7soft.dao.enums.LandingPageType;
+import cn.v7soft.dao.enums.PixelAccountPlatform;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -84,6 +86,38 @@ public class SubDomainSpuLandingPage {
     @Column(name = "protocol_placeholder_values", columnDefinition = "JSON")
     @Convert(converter = MapStringConverter.class)
     private Map<String, String> protocolPlaceholderValues;
+
+    /**
+     * 广告平台（仅 LAND 类型使用）
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ad_platform", length = 32)
+    private PixelAccountPlatform adPlatform;
+
+    /**
+     * 流量媒介（仅 LAND 类型使用）
+     */
+    @Column(name = "medium", length = 32)
+    private String medium;
+
+    /**
+     * 斗篷策略（仅 LAND 类型使用）
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cloak_strategy", length = 32)
+    private CloakStrategy cloakStrategy;
+
+    /**
+     * 推广活动标识，仅英文/数字/下划线（仅 LAND 类型使用）
+     */
+    @Column(name = "campaign", length = 128)
+    private String campaign;
+
+    /**
+     * Campaign 保存日期（YYYYMM，仅 LAND 类型使用）
+     */
+    @Column(name = "campaign_date", length = 6)
+    private String campaignDate;
 
     /**
      * 创建时间

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
+import cn.v7soft.admin.controller.req.SaveAdConfigRequest;
 import cn.v7soft.admin.controller.resp.PixelSimpleResponse;
 import cn.v7soft.admin.controller.resp.SpuSimpleWithCountryResponse;
 import cn.v7soft.admin.controller.resp.SubDomainSpuDetailResponse;
@@ -47,8 +48,10 @@ import cn.v7soft.dao.entities.primary.ThemeCustom;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import cn.v7soft.dao.entities.primary.Website;
 import cn.v7soft.dao.entities.primary.Country;
+import cn.v7soft.dao.enums.CloakStrategy;
 import cn.v7soft.dao.enums.DomainType;
 import cn.v7soft.dao.enums.LandingPageType;
+import cn.v7soft.dao.enums.PixelAccountPlatform;
 import cn.v7soft.dao.repositories.primary.ProductRepository;
 import cn.v7soft.dao.repositories.primary.SubDomainRepository;
 import cn.v7soft.dao.repositories.primary.SubDomainSpuLandingPageRepository;
@@ -434,6 +437,8 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
             }
         }
 
+        SubDomainSpuLandingPage landLandingPage = landingPageMap.get(LandingPageType.LAND);
+
         return SubDomainSpuDetailResponse.builder()
                 .realLandingPageSpu(realLandingPageSpu)
                 .riskUserLandingPageSpu(riskUserLandingPageSpu)
@@ -444,6 +449,11 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
                 .realLandingPageProtocol(protocolInfoMap.get(LandingPageType.LAND))
                 .riskUserLandingPageProtocol(protocolInfoMap.get(LandingPageType.CLOAK))
                 .blacklistLandingPageProtocol(protocolInfoMap.get(LandingPageType.BLACKLISTED))
+                .adPlatform(landLandingPage != null && landLandingPage.getAdPlatform() != null ? landLandingPage.getAdPlatform().name() : null)
+                .medium(landLandingPage != null ? landLandingPage.getMedium() : null)
+                .cloakStrategy(landLandingPage != null && landLandingPage.getCloakStrategy() != null ? landLandingPage.getCloakStrategy().name() : null)
+                .campaign(landLandingPage != null ? landLandingPage.getCampaign() : null)
+                .campaignDate(landLandingPage != null ? landLandingPage.getCampaignDate() : null)
                 .build();
     }
 
@@ -517,6 +527,27 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         } else {
             landingPage.setProtocol(Protocol.builder().id(Long.valueOf(request.getProtocolId())).build());
             landingPage.setProtocolPlaceholderValues(request.getPlaceholderValues());
+        }
+        landingPage.setUpdatedAt(LocalDateTime.now());
+        subDomainSpuLandingPageRepository.save(landingPage);
+    }
+
+    @Override
+    @Transactional
+    public void saveAdConfig(SaveAdConfigRequest request) {
+        SubDomainSpuLandingPageId id = new SubDomainSpuLandingPageId(
+                request.getSubDomainId(), request.getSpuId(), LandingPageType.LAND);
+        SubDomainSpuLandingPage landingPage = subDomainSpuLandingPageRepository.findById(id)
+                .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("SPU绑定记录不存在"));
+
+        landingPage.setAdPlatform(request.getAdPlatform() != null ? PixelAccountPlatform.valueOf(request.getAdPlatform()) : null);
+        landingPage.setMedium(request.getMedium());
+        landingPage.setCloakStrategy(request.getCloakStrategy() != null ? CloakStrategy.valueOf(request.getCloakStrategy()) : null);
+        landingPage.setCampaign(request.getCampaign());
+        if (request.getCampaign() != null && !request.getCampaign().isBlank()) {
+            landingPage.setCampaignDate(LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMM")));
+        } else {
+            landingPage.setCampaignDate(null);
         }
         landingPage.setUpdatedAt(LocalDateTime.now());
         subDomainSpuLandingPageRepository.save(landingPage);

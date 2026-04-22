@@ -28,6 +28,7 @@ import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.PixelAccount;
 import cn.v7soft.dao.entities.primary.Spu;
+import cn.v7soft.dao.enums.PixelAccountPlatform;
 import cn.v7soft.dao.enums.PixelAccountState;
 import cn.v7soft.dao.enums.PixelTrackingType;
 import cn.v7soft.dao.tenant.WebsiteContext;
@@ -103,7 +104,9 @@ public class PixelAccountController extends BaseDataRangeController<PixelAccount
 
     @Operation(summary = "远程搜索")
     @GetMapping("/remoteQuery")
-    public List<PixelAccountResponse> remoteQuery(@RequestParam("query") String query) {
+    public List<PixelAccountResponse> remoteQuery(
+            @RequestParam("query") String query,
+            @RequestParam(value = "platform", required = false) String platform) {
         QueryPageRequest<PixelAccount> request = QueryPageRequest.fromRequest(QueryPixelAccountRequest.builder().pageNo(1).build());
         if (StringUtils.hasText(query)) {
             request.add(LikeAttribute.builder().name("pixelName").value(query.trim()).build())
@@ -115,6 +118,9 @@ public class PixelAccountController extends BaseDataRangeController<PixelAccount
                 return criteriaBuilder.isNull(root.get("website"));
             }
         });
+        if (StringUtils.hasText(platform)) {
+            request.add(EqualsQueryAttribute.builder().name("platform").value(PixelAccountPlatform.valueOf(platform)).build());
+        }
         return service.findPaginated(request)
                 .stream()
                 .map(this::convertEntityCopyId)

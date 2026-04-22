@@ -19,9 +19,10 @@ import jakarta.validation.Valid;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.v7soft.admin.controller.req.BindLandingPageProtocolRequest;
-import cn.v7soft.admin.controller.req   .BindLandingPageSpuRequest;
+import cn.v7soft.admin.controller.req.BindLandingPageSpuRequest;
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
 import cn.v7soft.admin.controller.req.BindSpuPixelRequest;
+import cn.v7soft.admin.controller.req.SaveAdConfigRequest;
 import cn.v7soft.admin.controller.req.EditSubDomainRequest;
 import cn.v7soft.admin.controller.req.QuerySubDomainRequest;
 import cn.v7soft.admin.controller.req.UnbindLandingPageSpuRequest;
@@ -232,6 +233,12 @@ public class SubDomainController extends BaseController<SubDomain, ISubDomainSer
     @Operation(summary = "绑定协议到落地页")
     public void bindLandingPageProtocol(@Valid @RequestBody BindLandingPageProtocolRequest request) {
         service.bindLandingPageProtocol(request);
+    }
+
+    @PostMapping("/saveAdConfig")
+    @Operation(summary = "保存广告配置")
+    public void saveAdConfig(@Valid @RequestBody SaveAdConfigRequest request) {
+        service.saveAdConfig(request);
     }
 
     @Operation(summary = "远程搜索")

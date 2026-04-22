@@ -186,3 +186,18 @@ export function unbindLandingPageSpu(data: {
     data,
   })
 }
+
+export function saveAdConfig(data: {
+  subDomainId: number | string
+  spuId: number | string
+  adPlatform?: string | null
+  medium?: string | null
+  cloakStrategy?: string | null
+  campaign?: string | null
+}) {
+  return request({
+    url: '/sub-domain/saveAdConfig',
+    method: 'post',
+    data,
+  })
+}

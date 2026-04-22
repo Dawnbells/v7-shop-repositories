@@ -31,10 +31,10 @@ export function switchValidity(data: any) {
   })
 }
 
-export function getRemoteQuery(query: string) {
+export function getRemoteQuery(query: string, platform?: string) {
   return request({
-    url: '/pixel-account/remoteQuery?',
+    url: '/pixel-account/remoteQuery',
     method: 'get',
-    params: { query },
+    params: { query, ...(platform ? { platform } : {}) },
   })
 }

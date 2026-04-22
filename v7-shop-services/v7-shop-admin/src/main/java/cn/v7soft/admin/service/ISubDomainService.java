@@ -141,4 +141,10 @@ public interface ISubDomainService extends IBaseService<SubDomain> {
      * @param request 绑定协议请求
      */
     void bindLandingPageProtocol(cn.v7soft.admin.controller.req.BindLandingPageProtocolRequest request);
+
+    /**
+     * 保存广告配置（广告平台、流量媒介、斗篷策略、Campaign）
+     * @param request 广告配置请求
+     */
+    void saveAdConfig(cn.v7soft.admin.controller.req.SaveAdConfigRequest request);
 }

@@ -131,8 +131,198 @@
           <el-empty v-if="!activeSpuTab" description="请选择左侧SPU查看详情" />
           <div v-else v-loading="detailLoading" class="spu-detail">
             <el-tabs v-model="activeDetailTab" class="detail-tabs">
-              <!-- 落地页SPU配置 -->
-              <el-tab-pane name="landing">
+              <!-- TAB 1: 投放设置 -->
+              <el-tab-pane name="adSetting">
+                <template #label>
+                  <span class="tab-label">
+                    <el-icon><Setting /></el-icon>
+                    投放设置
+                  </span>
+                </template>
+                <el-scrollbar class="tab-content-scrollbar">
+                  <div class="tab-content ad-setting-content">
+                    <el-form label-position="top" size="default">
+                      <el-row :gutter="20">
+                        <el-col :span="12">
+                          <el-form-item label="广告平台" required>
+                            <el-select
+                              v-model="adConfig.adPlatform"
+                              clearable
+                              placeholder="请选择广告平台"
+                              style="width: 100%"
+                            >
+                              <el-option label="Meta (Facebook)" value="META">
+                                <div class="platform-option">
+                                  <span class="platform-dot" style="background: #1877f2" />
+                                  <span>Meta (Facebook)</span>
+                                </div>
+                              </el-option>
+                              <el-option label="Google" value="GOOGLE">
+                                <div class="platform-option">
+                                  <span class="platform-dot" style="background: #ea4335" />
+                                  <span>Google</span>
+                                </div>
+                              </el-option>
+                              <el-option label="TikTok" value="TIKTOK">
+                                <div class="platform-option">
+                                  <span class="platform-dot" style="background: #010101" />
+                                  <span>TikTok</span>
+                                </div>
+                              </el-option>
+                            </el-select>
+                          </el-form-item>
+                        </el-col>
+                        <el-col :span="12">
+                          <el-form-item label="流量媒介" required>
+                            <el-select
+                              v-model="adConfig.medium"
+                              clearable
+                              placeholder="请选择流量媒介"
+                              style="width: 100%"
+                            >
+                              <el-option
+                                v-for="m in mediumOptions"
+                                :key="m.value"
+                                :label="m.label"
+                                :value="m.value"
+                              />
+                            </el-select>
+                          </el-form-item>
+                        </el-col>
+                      </el-row>
+                      <el-row :gutter="20">
+                        <el-col :span="12">
+                          <el-form-item label="斗篷策略" required>
+                            <el-select
+                              v-model="adConfig.cloakStrategy"
+                              clearable
+                              placeholder="请选择斗篷策略"
+                              style="width: 100%"
+                            >
+                              <el-option label="无策略" value="NONE" />
+                              <el-option label="默认策略" value="DEFAULT" />
+                              <el-option label="谷歌(常规)" value="GOOGLE_NORMAL" />
+                              <el-option label="谷歌(宽松)" value="GOOGLE_LENIENT" />
+                              <el-option label="谷歌(严格)" value="GOOGLE_STRICT" />
+                              <el-option label="安全隔离" value="PHANTOM_ISOLATION" />
+                            </el-select>
+                          </el-form-item>
+                        </el-col>
+                        <el-col :span="12">
+                          <el-form-item>
+                            <template #label>
+                              <span>活动名称</span>
+                              <span class="campaign-hint">仅英文/数字/下划线</span>
+                            </template>
+                            <el-input
+                              v-model="adConfig.campaign"
+                              clearable
+                              placeholder="summer_sale"
+                              style="width: 100%"
+                            />
+                            <div v-if="assembledCampaign" class="campaign-preview">
+                              {{ assembledCampaign }}
+                            </div>
+                          </el-form-item>
+                        </el-col>
+                      </el-row>
+                    </el-form>
+                    <div class="ad-setting-footer">
+                      <el-button
+                        :loading="adConfigSaveLoading"
+                        type="primary"
+                        @click="handleSaveAdConfig"
+                      >
+                        保存配置
+                      </el-button>
+                    </div>
+                    <el-alert
+                      v-if="!adConfig.adPlatform"
+                      class="ad-guide-alert"
+                      :closable="false"
+                      title="请先选择广告平台和流量媒介，保存后可进行像素配置"
+                      type="info"
+                      show-icon
+                    />
+                  </div>
+                </el-scrollbar>
+              </el-tab-pane>
+
+              <!-- TAB 2: 像素追踪 -->
+              <el-tab-pane name="pixel" :disabled="!originalAdPlatform">
+                <template #label>
+                  <span class="tab-label">
+                    <el-icon><Aim /></el-icon>
+                    像素追踪
+                    <el-badge
+                      v-if="spuDetail.pixels && spuDetail.pixels.length > 0"
+                      :value="spuDetail.pixels.length"
+                      class="pixel-badge"
+                    />
+                  </span>
+                </template>
+                <el-scrollbar class="tab-content-scrollbar">
+                  <div class="tab-content pixel-tab-content">
+                    <template v-if="adConfig.adPlatform">
+                      <div class="pixel-tab-header">
+                        <el-tag effect="light" :type="platformTagType">
+                          {{ platformDisplayName }}
+                        </el-tag>
+                        <el-button
+                          :icon="Plus"
+                          type="primary"
+                          @click="handleAddPixel"
+                        >
+                          添加像素
+                        </el-button>
+                      </div>
+                      <div class="pixel-list">
+                        <template v-if="spuDetail.pixels && spuDetail.pixels.length > 0">
+                          <div v-for="pixel in spuDetail.pixels" :key="pixel.id" class="pixel-item">
+                            <div class="pixel-main">
+                              <div class="pixel-info">
+                                <span
+                                  class="pixel-platform-indicator"
+                                  :style="{ background: getPlatformColor(pixel.platform) }"
+                                />
+                                <span class="pixel-name">{{ pixel.name }}</span>
+                                <span class="pixel-id">{{ pixel.pixelId }}</span>
+                                <el-tag v-if="pixel.platform" effect="plain" size="small" type="info">
+                                  {{ pixel.platform }}
+                                </el-tag>
+                              </div>
+                              <div v-if="pixel.conversionEvent" class="pixel-event">
+                                <el-icon class="event-icon"><Flag /></el-icon>
+                                <span class="event-label">转化事件:</span>
+                                <el-tag effect="light" size="small" type="success">
+                                  {{ pixel.conversionEvent }}
+                                </el-tag>
+                              </div>
+                            </div>
+                            <el-button
+                              :icon="Delete"
+                              link
+                              type="danger"
+                              @click="handleRemovePixel(pixel)"
+                            >
+                              删除
+                            </el-button>
+                          </div>
+                        </template>
+                        <el-empty v-else :image-size="80" description="暂无绑定像素，点击「添加像素」开始" />
+                      </div>
+                    </template>
+                    <el-empty
+                      v-else
+                      :image-size="100"
+                      description="请先在「投放设置」中选择广告平台"
+                    />
+                  </div>
+                </el-scrollbar>
+              </el-tab-pane>
+
+              <!-- TAB 3: 落地页配置 -->
+              <el-tab-pane name="landing" :disabled="!originalAdPlatform">
                 <template #label>
                   <span class="tab-label">
                     <el-icon><Document /></el-icon>
@@ -406,60 +596,6 @@
                 </el-scrollbar>
               </el-tab-pane>
 
-              <!-- 像素配置 -->
-              <el-tab-pane name="pixel">
-                <template #label>
-                  <span class="tab-label">
-                    <el-icon><Aim /></el-icon>
-                    像素配置
-                    <el-badge
-                      v-if="spuDetail.pixels && spuDetail.pixels.length > 0"
-                      :value="spuDetail.pixels.length"
-                      class="pixel-badge"
-                    />
-                  </span>
-                </template>
-                <el-scrollbar class="tab-content-scrollbar">
-                  <div class="tab-content">
-                    <div class="pixel-header">
-                      <el-button :icon="Plus" type="primary" @click="handleAddPixel">
-                        添加像素
-                      </el-button>
-                    </div>
-                    <div class="pixel-list">
-                      <template v-if="spuDetail.pixels && spuDetail.pixels.length > 0">
-                        <div v-for="pixel in spuDetail.pixels" :key="pixel.id" class="pixel-item">
-                          <div class="pixel-main">
-                            <div class="pixel-info">
-                              <span class="pixel-name">{{ pixel.name }}</span>
-                              <span class="pixel-id">{{ pixel.pixelId }}</span>
-                              <el-tag v-if="pixel.platform" effect="plain" size="small" type="info">
-                                {{ pixel.platform }}
-                              </el-tag>
-                            </div>
-                            <div v-if="pixel.conversionEvent" class="pixel-event">
-                              <el-icon class="event-icon"><Flag /></el-icon>
-                              <span class="event-label">转化事件:</span>
-                              <el-tag effect="light" size="small" type="success">
-                                {{ pixel.conversionEvent }}
-                              </el-tag>
-                            </div>
-                          </div>
-                          <el-button
-                            :icon="Delete"
-                            link
-                            type="danger"
-                            @click="handleRemovePixel(pixel)"
-                          >
-                            删除
-                          </el-button>
-                        </div>
-                      </template>
-                      <el-empty v-else :image-size="80" description="暂无绑定像素" />
-                    </div>
-                  </div>
-                </el-scrollbar>
-              </el-tab-pane>
             </el-tabs>
           </div>
         </div>
@@ -672,6 +808,7 @@ import {
   bindSpuPixel,
   getBoundSpuDetail,
   getBoundSpus,
+  saveAdConfig,
   unbindLandingPageSpu,
   unbindSpu,
   unbindSpuPixel,
@@ -699,9 +836,10 @@ const subDomainId = ref<number | string>('')
 const subDomainFullName = ref<string>('')
 const subDomainCountryName = ref<string>('')
 const subDomainCountryId = ref<number | string>('')
+const subDomainCountryCode = ref<string>('')
 const selectedSpuId = ref<number | string | null>(null)
 const activeSpuTab = ref<string>('')
-const activeDetailTab = ref<string>('landing')
+const activeDetailTab = ref<string>('adSetting')
 const spuOptions = ref<any[]>([])
 const boundSpuList = ref<any[]>([])
 const boundFilterKeyword = ref<string>('')
@@ -752,6 +890,64 @@ const spuDetail = ref<{
   riskUserLandingPageProtocol: null,
   blacklistLandingPageProtocol: null,
 })
+
+// 广告配置
+const adConfig = reactive({
+  adPlatform: null as string | null,
+  medium: null as string | null,
+  cloakStrategy: null as string | null,
+  campaign: '' as string,
+  campaignDate: '' as string,
+})
+const adConfigSaveLoading = ref<boolean>(false)
+const originalAdPlatform = ref<string | null>(null)
+
+const mediumOptions = [
+  { value: 'cpc', label: '按点击付费(CPC)' },
+  { value: 'ppc', label: '付费点击(PPC)' },
+  { value: 'organic', label: '自然搜索' },
+  { value: 'email', label: '邮件营销' },
+  { value: 'social', label: '自然社交' },
+  { value: 'paid_social', label: '付费社交' },
+  { value: 'affiliate', label: '联盟推广' },
+  { value: 'referral', label: '外链引荐' },
+  { value: 'display', label: '展示广告' },
+  { value: 'video', label: '视频广告' },
+]
+
+const assembledCampaign = computed(() => {
+  if (!adConfig.campaign) return ''
+  const parts: string[] = []
+  if (adConfig.adPlatform) parts.push(adConfig.adPlatform.toLowerCase())
+  if (subDomainCountryCode.value) parts.push(subDomainCountryCode.value)
+  parts.push(adConfig.campaign)
+  if (adConfig.campaignDate) {
+    parts.push(adConfig.campaignDate)
+  } else {
+    const now = new Date()
+    parts.push(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`)
+  }
+  return parts.join('_')
+})
+
+const platformDisplayName = computed(() => {
+  const map: Record<string, string> = { META: 'Meta', GOOGLE: 'Google', TIKTOK: 'TikTok' }
+  return adConfig.adPlatform ? map[adConfig.adPlatform] || adConfig.adPlatform : ''
+})
+
+const platformTagType = computed(() => {
+  const map: Record<string, string> = { META: '', GOOGLE: 'danger', TIKTOK: 'info' }
+  return (adConfig.adPlatform ? map[adConfig.adPlatform] : 'info') as any
+})
+
+const getPlatformColor = (platform: string) => {
+  const map: Record<string, string> = {
+    META: '#1877f2',
+    GOOGLE: '#ea4335',
+    TIKTOK: '#010101',
+  }
+  return map[platform] || '#909399'
+}
 
 // 像素弹窗相关
 const pixelDialogVisible = ref<boolean>(false)
@@ -824,6 +1020,7 @@ const showEdit = (row: any) => {
   subDomainFullName.value = row.fullName || row.name
   subDomainCountryName.value = row.country?.name || ''
   subDomainCountryId.value = row.country?.id || ''
+  subDomainCountryCode.value = (row.country?.code || '').toLowerCase()
   selectedSpuId.value = null
   activeSpuTab.value = ''
   spuOptions.value = []
@@ -1003,7 +1200,7 @@ watch(activeSpuTab, async (newVal) => {
 })
 
 // 加载SPU详情
-const loadSpuDetail = async (spuId: string) => {
+const loadSpuDetail = async (spuId: string, skipTabSwitch = false) => {
   detailLoading.value = true
   try {
     const { data } = await getBoundSpuDetail(subDomainId.value, spuId)
@@ -1018,6 +1215,22 @@ const loadSpuDetail = async (spuId: string) => {
       realLandingPageProtocol: data?.realLandingPageProtocol || null,
       riskUserLandingPageProtocol: data?.riskUserLandingPageProtocol || null,
       blacklistLandingPageProtocol: data?.blacklistLandingPageProtocol || null,
+    }
+    adConfig.adPlatform = data?.adPlatform || null
+    adConfig.medium = data?.medium || null
+    adConfig.cloakStrategy = data?.cloakStrategy || null
+    adConfig.campaign = data?.campaign || ''
+    adConfig.campaignDate = data?.campaignDate || ''
+    originalAdPlatform.value = data?.adPlatform || null
+
+    if (!skipTabSwitch) {
+      if (!data?.adPlatform) {
+        activeDetailTab.value = 'adSetting'
+      } else if (!data?.pixels || data.pixels.length === 0) {
+        activeDetailTab.value = 'pixel'
+      } else {
+        activeDetailTab.value = 'landing'
+      }
     }
   } catch (error) {
     console.error('加载SPU详情失败:', error)
@@ -1052,9 +1265,23 @@ const handlePreviewLanding = async (previewType: 'LAND' | 'CLOAK' | 'BLACKLISTED
   }
 }
 
-// 复制广告链接（不带ticket）
+// 复制广告链接（携带 v7_ 追踪参数，campaign 自动组装）
 const handleCopyAdLink = async (spuId: number) => {
-  const url = `https://${subDomainFullName.value}/product/${spuId}`
+  if (!adConfig.adPlatform) {
+    $baseMessage('请先在「投放设置」中选择广告平台', 'warning', 'hey')
+    return
+  }
+  if (!adConfig.medium) {
+    $baseMessage('请先在「投放设置」中选择流量媒介', 'warning', 'hey')
+    return
+  }
+  const base = `https://${subDomainFullName.value}/product/${spuId}`
+  const params = new URLSearchParams()
+  params.set('v7_source', adConfig.adPlatform.toLowerCase())
+  params.set('v7_medium', adConfig.medium)
+  if (assembledCampaign.value) params.set('v7_campaign', assembledCampaign.value)
+  const qs = params.toString()
+  const url = `${base}?${qs}`
   try {
     await navigator.clipboard.writeText(url)
     $baseMessage('广告链接已复制到剪贴板', 'success', 'hey')
@@ -1220,11 +1447,11 @@ const handlePixelSelectFocus = () => {
   }
 }
 
-// 远程搜索像素
+// 远程搜索像素（按广告平台过滤）
 const remoteSearchPixel = async (query: string) => {
   pixelSearchLoading.value = true
   try {
-    const { data } = await getRemoteQueryPixel(query || '')
+    const { data } = await getRemoteQueryPixel(query || '', adConfig.adPlatform || undefined)
     pixelOptions.value = (data.list || []).map((item: any) => ({
       ...item,
       id: String(item.id),
@@ -1301,6 +1528,75 @@ const handleRemovePixel = (pixel: any) => {
       console.error('删除像素失败:', error)
     }
   })
+}
+
+// 保存广告配置
+const doSaveAdConfig = async () => {
+  adConfigSaveLoading.value = true
+  try {
+    const { msg }: any = await saveAdConfig({
+      subDomainId: subDomainId.value,
+      spuId: activeSpuTab.value,
+      adPlatform: adConfig.adPlatform || null,
+      medium: adConfig.medium || null,
+      cloakStrategy: adConfig.cloakStrategy || null,
+      campaign: adConfig.campaign || null,
+    })
+    $baseMessage(msg || '保存成功', 'success', 'hey')
+    originalAdPlatform.value = adConfig.adPlatform
+    await loadSpuDetail(activeSpuTab.value, true)
+    activeDetailTab.value = 'pixel'
+  } catch (error) {
+    console.error('保存广告配置失败:', error)
+  } finally {
+    adConfigSaveLoading.value = false
+  }
+}
+
+const handleSaveAdConfig = async () => {
+  if (!adConfig.adPlatform) {
+    $baseMessage('请选择广告平台', 'warning', 'hey')
+    return
+  }
+  if (!adConfig.medium) {
+    $baseMessage('请选择流量媒介', 'warning', 'hey')
+    return
+  }
+  if (!adConfig.cloakStrategy) {
+    $baseMessage('请选择斗篷策略', 'warning', 'hey')
+    return
+  }
+  if (adConfig.campaign && !/^[a-zA-Z0-9_]*$/.test(adConfig.campaign)) {
+    $baseMessage('活动名称仅允许英文字母、数字和下划线', 'warning', 'hey')
+    return
+  }
+
+  const hasPixels = spuDetail.value.pixels && spuDetail.value.pixels.length > 0
+  const platformChanged = adConfig.adPlatform !== originalAdPlatform.value
+
+  if (hasPixels && platformChanged) {
+    $baseConfirm('修改广告平台将清空已绑定的像素，是否继续？', null, async () => {
+      adConfigSaveLoading.value = true
+      try {
+        for (const pixel of spuDetail.value.pixels) {
+          await unbindSpuPixel({
+            subDomainId: subDomainId.value,
+            spuId: activeSpuTab.value,
+            pixelId: pixel.id,
+          })
+        }
+        await doSaveAdConfig()
+        await loadSpuDetail(activeSpuTab.value)
+      } catch (error) {
+        console.error('清空像素并保存失败:', error)
+      } finally {
+        adConfigSaveLoading.value = false
+      }
+    })
+    return
+  }
+
+  await doSaveAdConfig()
 }
 
 // 落地页类型名称映射
@@ -1736,6 +2032,73 @@ const handleUseDefaultConfig = () => {
   color: var(--el-text-color-placeholder);
 }
 
+// 投放设置 TAB
+.ad-setting-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.ad-setting-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.ad-guide-alert {
+  margin-top: 4px;
+}
+
+.campaign-hint {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--el-text-color-placeholder);
+}
+
+.campaign-preview {
+  margin-top: 4px;
+  font-size: 12px;
+  font-family: monospace;
+  line-height: 1.4;
+  color: var(--el-text-color-placeholder);
+}
+
+.platform-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.platform-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+// 像素追踪 TAB
+.pixel-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pixel-tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pixel-platform-indicator {
+  display: inline-block;
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 .pixel-header {
   margin-bottom: 16px;
 }
@@ -1764,13 +2127,13 @@ const handleUseDefaultConfig = () => {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
 .pixel-info {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
 }
 

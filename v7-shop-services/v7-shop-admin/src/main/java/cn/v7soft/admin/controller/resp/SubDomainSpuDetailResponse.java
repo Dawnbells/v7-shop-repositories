@@ -48,6 +48,21 @@ public class SubDomainSpuDetailResponse {
     @Schema(title = "黑名单落地页协议信息")
     private ProtocolInfo blacklistLandingPageProtocol;
 
+    @Schema(title = "广告平台")
+    private String adPlatform;
+
+    @Schema(title = "流量媒介")
+    private String medium;
+
+    @Schema(title = "斗篷策略")
+    private String cloakStrategy;
+
+    @Schema(title = "推广活动标识")
+    private String campaign;
+
+    @Schema(title = "Campaign保存日期(YYYYMM)")
+    private String campaignDate;
+
     /**
      * 协议信息内部类
      */
