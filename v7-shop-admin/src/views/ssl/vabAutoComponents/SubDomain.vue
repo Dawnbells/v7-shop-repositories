@@ -116,6 +116,7 @@ const $baseConfirm = inject<any>('$baseConfirm')
 const $baseMessage = inject<any>('$baseMessage')
 const pausePolling = inject<(() => void) | undefined>('pausePolling', undefined)
 const resumePolling = inject<(() => void) | undefined>('resumePolling', undefined)
+const subDomainRefresh = inject('subDomainRefresh', reactive({ targetId: 0, token: 0 }))
 const tableRef = ref<any>(null)
 const themeSelectRef = ref<any>(null)
 const bindDomainPixelRef = ref<any>(null)
@@ -144,6 +145,12 @@ const fetchData = async () => {
   total.value = data.total
   listLoading.value = false
 }
+
+watch(() => subDomainRefresh.token, () => {
+  if (subDomainRefresh.targetId === props.topLevelDomainId) {
+    fetchData()
+  }
+})
 
 const handleSizeChange = (value: number) => {
   queryForm.pageNo = 1

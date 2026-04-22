@@ -175,7 +175,7 @@
       @size-change="handleSizeChange"
     />
     <top-level-domain-edit ref="editRef" @close="resumePolling" @fetch-data="fetchData" />
-    <sub-domain-edit ref="subEditRef" @close="resumePolling" @fetch-data="fetchData" />
+    <sub-domain-edit ref="subEditRef" @close="resumePolling" @fetch-data="handleSubDomainSaved" />
     <top-level-domain-transfer ref="transferRef" @close="resumePolling" @fetch-data="fetchData" />
     <certificate-edit ref="certificateEditRef" @close="resumePolling" @fetch-data="fetchData" />
     <bind-domain-protocol-edit
@@ -228,6 +228,7 @@ const queryForm = reactive<any>({
 })
 const getRowKey = (row: { id: number | string }) => row.id
 const dialogOpen = ref(false)
+const subDomainRefresh = reactive({ targetId: 0, token: 0 })
 
 const clearSslPollingTimer = () => {
   if (sslPollingTimer.value) {
@@ -243,11 +244,13 @@ const pausePolling = () => {
 
 const resumePolling = () => {
   dialogOpen.value = false
-  checkAnyInSslRequesting()
+  clearSslPollingTimer()
+  sslPollingTimer.value = setTimeout(checkAnyInSslRequesting, 1500)
 }
 
 provide('pausePolling', pausePolling)
 provide('resumePolling', resumePolling)
+provide('subDomainRefresh', subDomainRefresh)
 const formatCertInfo = (row: any) => {
   return `${row.sslCertificate?.result?.replace(/\n/g, '<br />') || ''}<br /> ErrorMsg: <br />${
     row.sslCertificate?.errorMsg?.replace(/\n/g, '<br />') || ''
@@ -367,6 +370,11 @@ const handleDelete = (row: any) => {
 const handleCertificate = (row = {}) => {
   pausePolling()
   certificateEditRef.value.showEdit(row)
+}
+
+const handleSubDomainSaved = (parentDomainId: number) => {
+  subDomainRefresh.targetId = Number(parentDomainId)
+  subDomainRefresh.token++
 }
 
 const handleAddSubDomain = (row = {}) => {

@@ -126,7 +126,6 @@ const close = () => {
   languages.value = ''
   isEdit.value = false
   emit('close')
-  emit('fetch-data')
 }
 
 const remoteQueryCountry = async (query: string) => {
@@ -155,6 +154,7 @@ const save = () => {
         saveLoading.value = true
         const { msg }: any = await doEdit(form)
         await $baseMessage(msg, 'success', 'hey')
+        emit('fetch-data', form.parentDomainId)
         dialogFormVisible.value = false
       } finally {
         saveLoading.value = false
