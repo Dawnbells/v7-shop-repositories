@@ -21,19 +21,26 @@
           style="width: 300px"
           @focus="handleSelectFocus"
         >
-          <el-option v-for="item in spuOptions" :key="item.id" :label="item.name" :value="item.id">
+          <el-option
+            v-for="item in spuOptions"
+            :key="item.id"
+            :disabled="isSpuBound(item.id)"
+            :label="item.name"
+            :value="item.id"
+          >
             <span
               style="float: left"
-              :style="item.supportCurrentCountry === false ? { color: '#c0c4cc' } : {}"
+              :style="isSpuBound(item.id) || item.supportCurrentCountry === false ? { color: '#c0c4cc' } : {}"
             >
               {{ item.name }}
             </span>
             <span
               style="float: right; font-size: 12px"
-              :style="{ color: item.supportCurrentCountry === false ? '#c0c4cc' : 'var(--el-text-color-secondary)' }"
+              :style="{ color: isSpuBound(item.id) || item.supportCurrentCountry === false ? '#c0c4cc' : 'var(--el-text-color-secondary)' }"
             >
               {{ item.code }}
-              <span v-if="item.supportCurrentCountry === false" style="margin-left: 4px">(不支持当前国家)</span>
+              <span v-if="isSpuBound(item.id)" style="margin-left: 4px">(已绑定)</span>
+              <span v-else-if="item.supportCurrentCountry === false" style="margin-left: 4px">(不支持当前国家)</span>
             </span>
           </el-option>
         </el-select>
@@ -1048,6 +1055,10 @@ const handleSelectFocus = () => {
   if (spuOptions.value.length === 0) {
     remoteSearchSpu('')
   }
+}
+
+const isSpuBound = (spuId: number | string) => {
+  return boundSpuList.value.some((spu) => String(spu.id) === String(spuId))
 }
 
 // 远程搜索SPU
