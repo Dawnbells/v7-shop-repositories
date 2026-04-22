@@ -57,7 +57,9 @@ import cn.v7soft.dao.tenant.WebsiteContext;
 import cn.v7soft.dao.properties.ThemeEditorProperty;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import jakarta.persistence.criteria.Predicate;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 public class SubDomainService extends BaseService<SubDomain, SubDomainRepository> implements ISubDomainService {
 
@@ -244,7 +246,11 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
 
         if (frontServer != null) {
             int count = repository.countTopLevelDomainInSameServer(parentDomain.getId(), frontServer.getId());
+            log.info("删除子域名后检查nginx: subDomainId={}, parentDomain={}, frontServer={}, remainingCount={}",
+                    subDomain.getId(), parentDomain.getName(), frontServer.getName(), count);
             if (count <= 0) {
+                log.info("该顶级域名在服务器上无其他活跃子域名，删除nginx配置: domain={}, server={}",
+                        parentDomain.getName(), frontServer.getName());
                 NginxConfigWriter.deleteNginx(frontServer.getName(), parentDomain.getName());
                 frontServerService.pushAndRefresh(frontServer.getId());
             }

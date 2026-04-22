@@ -10,37 +10,39 @@
       <el-table-column align="center" label="名称" prop="name" />
       <el-table-column align="center" label="国家/商城">
         <template #default="{ row }">
-          <span v-if="row.country && row.country.name">{{ row.country.name }}</span>
           <el-link
-            v-else-if="row.website && row.website.name"
+            v-if="row.website && row.website.name"
             type="primary"
             @click="goWebsiteManager(row)"
           >
             {{ row.website.name }}
           </el-link>
+          <span v-else-if="row.country && row.country.name">{{ row.country.name }}</span>
           <span v-else>无</span>
         </template>
       </el-table-column>
       <el-table-column align="center" label="语言">
         <template #default="{ row }">
-          <span v-if="row.country && row.country.languages && row.country.languages.length > 0">
-            {{ row.country.languages.map((l: any) => l.cname).join(', ') }}
-          </span>
           <span
-            v-else-if="row.website && row.website.languages && row.website.languages.length > 0"
+            v-if="row.website && row.website.languages && row.website.languages.length > 0"
           >
             {{ row.website.languages.map((l: any) => l.cname).join(', ') }}
+          </span>
+          <span
+            v-else-if="row.country && row.country.languages && row.country.languages.length > 0"
+          >
+            {{ row.country.languages.map((l: any) => l.cname).join(', ') }}
           </span>
           <span v-else>无</span>
         </template>
       </el-table-column>
       <el-table-column align="center" label="货币">
         <template #default="{ row }">
-          <span v-if="row.country && row.country.currency && row.country.currency.name">
-            {{ row.country.currency.name }}
-          </span>
-          <span v-else-if="row.website && row.website.currency && row.website.currency.name">
+          <span v-if="row.website && row.website.currency && row.website.currency.name">
             {{ row.website.currency.name }}
+          </span>
+          <span v-else-if="row.country && row.country.currency && row.country.currency.name">
+            {{ row.country.currency.name }}
           </span>
           <span v-else>无</span>
         </template>

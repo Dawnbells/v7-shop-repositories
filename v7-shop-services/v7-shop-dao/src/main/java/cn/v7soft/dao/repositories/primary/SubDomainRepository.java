@@ -36,13 +36,11 @@ public interface SubDomainRepository extends BaseRepository<SubDomain> {
     SubDomain findByFullName(@Param("domain") String domain);
 
     @Query("""
-            SELECT
-            count(*)
+            SELECT count(*)
             FROM SubDomain
-            where
-            frontServer.id = :frontServerId
-            and
-            parentDomain.id = :topLevelDomainId
+            WHERE frontServer.id = :frontServerId
+            AND parentDomain.id = :topLevelDomainId
+            AND status <> 'DELETED'
             """)
     int countTopLevelDomainInSameServer(@Param("topLevelDomainId") Long topLevelDomainId, @Param("frontServerId") Long frontServerId);
 
