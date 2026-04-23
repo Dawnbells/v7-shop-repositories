@@ -567,6 +567,9 @@ onUnmounted(() => {
 }
 
 .form-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: var(--address-form-input-padding, 10px 14px);
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: var(--address-form-input-radius, 8px);
@@ -659,8 +662,7 @@ onUnmounted(() => {
 }
 
 .email-input-wrapper .form-input {
-  width: 100%;
-  box-sizing: border-box;
+  min-width: 0;
 }
 
 .email-suggestions {
