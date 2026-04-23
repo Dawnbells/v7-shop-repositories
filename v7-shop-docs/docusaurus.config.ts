@@ -80,6 +80,10 @@ const config: Config = {
               to: "/docs/intro",
             },
             {
+              label: "Mall 商城模板",
+              to: "/docs/category/Mall 商城模板使用教程",
+            },
+            {
               label: "第三方订单同步",
               to: "/docs/category/第三方商城订单同步",
             },
