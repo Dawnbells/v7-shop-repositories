@@ -283,6 +283,7 @@ const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
   padding: var(--spec-option-padding, 8px 16px);
   border: 1px solid var(--spec-option-border-color, #e5e7eb);
   border-radius: var(--spec-option-radius, 6px);
@@ -325,7 +326,7 @@ const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
 }
 
 .spec-option-text {
-  white-space: nowrap;
+  word-break: break-word;
 }
 
 /* 按钮尺寸 */
