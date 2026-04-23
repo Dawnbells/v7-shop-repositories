@@ -2,14 +2,14 @@
  * 收银台页面 Composable
  *
  * 管理收银台页面状态：
- * - 获取待结算商品（从购物车或直接下单）
+ * - 获取待结算商品（从购物车）
  * - 管理收货地址表单数据
  * - 管理支付方式选择
  * - 调用后端 API 计算订单金额
  * - 调用后端 API 提交订单
  */
 
-import type { CartItem, DirectOrderItem } from "~/composables/useCart";
+import type { CartItem } from "~/composables/useCart";
 
 /**
  * 后端价格计算响应
@@ -122,16 +122,12 @@ export interface FormErrors {
 }
 
 export function useCheckoutPage() {
-  const route = useRoute();
   const router = useRouter();
-  const { cartItems, directOrderItem, clearCart, clearDirectOrderItem, loadFromStorage } = useCart();
+  const { cartItems, clearCart, loadFromStorage } = useCart();
   const { formatPrice: baseFmtPrice } = useCurrency();
 
   // 收银台专用的价格格式化函数（跳过汇率转换，因为后端已经转换过了）
   const formatPrice = (price: number | string | null | undefined) => baseFmtPrice(price, true);
-
-  // 是否为直接下单模式
-  const isDirectMode = computed(() => route.query.mode === "direct");
 
   // 结算商品列表
   const checkoutItems = useState<CheckoutItem[]>("checkoutItems", () => []);
@@ -204,39 +200,18 @@ export function useCheckoutPage() {
   async function initCheckoutItems() {
     if (import.meta.server) return;
 
-    let items: CheckoutItem[] = [];
-
-    if (isDirectMode.value && directOrderItem.value) {
-      // 直接下单模式：使用 directOrderItem
-      const item = directOrderItem.value;
-      items = [
-        {
-          id: `${item.productId}-${item.specId ?? "default"}`,
-          productId: item.productId,
-          productName: item.productName,
-          specId: item.specId,
-          specAttributes: item.specAttributes,
-          price: item.price,
-          originPrice: item.originPrice,
-          quantity: item.quantity,
-          image: item.image,
-        },
-      ];
-    } else {
-      // 购物车模式：使用购物车商品
-      loadFromStorage();
-      items = cartItems.value.map((item) => ({
-        id: item.id,
-        productId: item.productId,
-        productName: item.productName,
-        specId: item.specId,
-        specAttributes: item.specAttributes,
-        price: item.price,
-        originPrice: item.originPrice,
-        quantity: item.quantity,
-        image: item.image,
-      }));
-    }
+    loadFromStorage();
+    const items: CheckoutItem[] = cartItems.value.map((item) => ({
+      id: item.id,
+      productId: item.productId,
+      productName: item.productName,
+      specId: item.specId,
+      specAttributes: item.specAttributes,
+      price: item.price,
+      originPrice: item.originPrice,
+      quantity: item.quantity,
+      image: item.image,
+    }));
 
     checkoutItems.value = items;
 
@@ -440,12 +415,7 @@ export function useCheckoutPage() {
         throw new Error('下单失败');
       }
 
-      // 清理数据
-      if (isDirectMode.value) {
-        clearDirectOrderItem();
-      } else {
-        clearCart();
-      }
+      clearCart();
 
       // 跳转到订单结果页（使用完整页面刷新，确保 SSR 渲染）
       window.location.href = `/order-result?orderId=${response.data.orderId}`;
@@ -487,7 +457,6 @@ export function useCheckoutPage() {
     total,
 
     // 计算属性
-    isDirectMode,
     itemCount,
     hasItems,
 

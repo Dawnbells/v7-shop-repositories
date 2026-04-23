@@ -24,20 +24,6 @@ export interface CartItem {
   stockQuantity?: number;
 }
 
-/**
- * 直接下单商品项（不通过购物车）
- */
-export interface DirectOrderItem {
-  productId: number;
-  productName: string;
-  specId: number | null;
-  specAttributes: Array<{ name: string; value: string }>;
-  price: number;
-  originPrice?: number | null;
-  quantity: number;
-  image?: string;
-}
-
 export function useCart() {
   const { siteConfig } = usePageContext();
 
@@ -47,12 +33,6 @@ export function useCart() {
 
   // 购物车商品列表
   const cartItems = useState<CartItem[]>("cartItems", () => []);
-
-  // 直接下单商品（不通过购物车时使用）
-  const directOrderItem = useState<DirectOrderItem | null>(
-    "directOrderItem",
-    () => null,
-  );
 
   // 当前使用的 storage key（用于检测 key 变化）
   const currentStorageKey = useState<string>("currentCartStorageKey", () => "");
@@ -203,16 +183,6 @@ export function useCart() {
     saveToStorage();
   }
 
-  // 设置直接下单商品
-  function setDirectOrderItem(item: DirectOrderItem | null): void {
-    directOrderItem.value = item;
-  }
-
-  // 清除直接下单商品
-  function clearDirectOrderItem(): void {
-    directOrderItem.value = null;
-  }
-
   // 购物车商品总数
   const cartCount = computed(() => {
     return cartItems.value.reduce((sum, item) => sum + item.quantity, 0);
@@ -249,14 +219,11 @@ export function useCart() {
 
   return {
     cartItems,
-    directOrderItem,
     cartDrawerVisible,
     addToCart,
     removeFromCart,
     updateQuantity,
     clearCart,
-    setDirectOrderItem,
-    clearDirectOrderItem,
     openCartDrawer,
     closeCartDrawer,
     cartCount,

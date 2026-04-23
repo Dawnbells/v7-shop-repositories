@@ -24,6 +24,7 @@ const {
   discount,
   total,
   itemCount,
+  isCalculating,
   formatPrice,
 } = useCheckoutPage();
 
@@ -56,6 +57,8 @@ const displayTotal = computed(() =>
 const displayItemCount = computed(() =>
   isInEditor.value ? previewData.itemCount : itemCount.value
 );
+
+const showSkeleton = computed(() => !isInEditor.value && isCalculating.value);
 </script>
 
 <template>
@@ -70,13 +73,15 @@ const displayItemCount = computed(() =>
             ({{ displayItemCount }}{{ t('checkout.items') }})
           </template>
         </span>
-        <span class="summary-value">{{ formatPrice(displaySubtotal) }}</span>
+        <span v-if="showSkeleton" class="price-skeleton" />
+        <span v-else class="summary-value">{{ formatPrice(displaySubtotal) }}</span>
       </div>
 
       <!-- 运费 -->
       <div v-if="showShipping" class="summary-row">
         <span class="summary-label">{{ t('checkout.shipping') }}</span>
-        <span class="summary-value">
+        <span v-if="showSkeleton" class="price-skeleton" />
+        <span v-else class="summary-value">
           {{ displayShippingFee > 0 ? formatPrice(displayShippingFee) : t('checkout.freeShipping') }}
         </span>
       </div>
@@ -84,14 +89,16 @@ const displayItemCount = computed(() =>
       <!-- 优惠 -->
       <div v-if="showDiscount && displayDiscount > 0" class="summary-row discount">
         <span class="summary-label">{{ t('checkout.discount') }}</span>
-        <span class="summary-value">-{{ formatPrice(displayDiscount) }}</span>
+        <span v-if="showSkeleton" class="price-skeleton" />
+        <span v-else class="summary-value">-{{ formatPrice(displayDiscount) }}</span>
       </div>
     </div>
 
     <!-- 总计 -->
     <div class="summary-total">
       <span class="total-label">{{ t('checkout.orderTotal') }}</span>
-      <span class="total-value">{{ formatPrice(displayTotal) }}</span>
+      <span v-if="showSkeleton" class="price-skeleton price-skeleton-lg" />
+      <span v-else class="total-value">{{ formatPrice(displayTotal) }}</span>
     </div>
   </div>
 </template>
@@ -146,6 +153,27 @@ const displayItemCount = computed(() =>
   font-size: var(--order-summary-total-value-size, 24px);
   font-weight: var(--order-summary-total-value-weight, 700);
   color: var(--primary-color, #3b82f6);
+}
+
+/* 价格骨架占位 */
+@keyframes price-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.price-skeleton {
+  display: inline-block;
+  width: 60px;
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: price-shimmer 1.5s infinite;
+}
+
+.price-skeleton-lg {
+  width: 80px;
+  height: 24px;
 }
 
 /* 紧凑布局 */

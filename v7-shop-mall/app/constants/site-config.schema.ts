@@ -22,6 +22,7 @@ export interface SiteFieldSchema {
   required?: boolean; // 是否必填
   i18n?: boolean; // 是否支持多语言
   showIf?: string; // 条件显示表达式，如 "globalConfig.enableCart === true"
+  disabled?: boolean; // 是否禁用（显示但不可编辑）
 }
 
 /**
@@ -338,6 +339,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     group: "globalConfig.features",
     description: "商城模式：所有商品共享购物车；单页模式：每个商品独立购物车",
     showIf: "globalConfig.enableCart === true",
+    disabled: true,
   },
   {
     key: "globalConfig.allowCustomAddress",

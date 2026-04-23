@@ -31,7 +31,7 @@ const displayAddToCartText = computed(() => props.addToCartText || t("product.ad
 const displayBuyNowText = computed(() => props.buyNowText || t("product.buyNow"));
 const { globalConfig } = usePageTheme();
 const { productInfo, selectedSpec, quantity, formatPrice } = useProductPage();
-const { addToCart, setDirectOrderItem, clearCart, openCartDrawer } = useCart();
+const { addToCart, clearCart, openCartDrawer } = useCart();
 const { buildImageUrl } = useImageUrl();
 
 // 检查是否在编辑器中
@@ -137,38 +137,23 @@ function handleBuyNow() {
   if (isInEditor.value) return; // 编辑模式下不执行
   if (!currentProduct.value || !canPurchase.value) return;
 
-  if (enableCart.value) {
-    // 购物车模式：将当前商品加入购物车，然后跳转到收银台
-    addToCart({
-      productId: currentProduct.value.productId,
-      productName: currentProduct.value.productName,
-      specId: currentProduct.value.specId,
-      specAttributes: currentProduct.value.specAttributes,
-      price: currentProduct.value.price,
-      originPrice: currentProduct.value.originPrice,
-      quantity: currentQuantity.value,
-      image: currentProduct.value.image,
-      stockQuantity: currentProduct.value.stockQuantity,
-    });
-
-    // 跳转到收银台（购物车模式）
-    router.push("/checkout");
-  } else {
-    // 直接下单模式：设置直接下单商品，跳转到收银台
-    setDirectOrderItem({
-      productId: currentProduct.value.productId,
-      productName: currentProduct.value.productName,
-      specId: currentProduct.value.specId,
-      specAttributes: currentProduct.value.specAttributes,
-      price: currentProduct.value.price,
-      originPrice: currentProduct.value.originPrice,
-      quantity: currentQuantity.value,
-      image: currentProduct.value.image,
-    });
-
-    // 跳转到收银台（直接下单模式）
-    router.push("/checkout?mode=direct");
+  if (!enableCart.value) {
+    clearCart();
   }
+
+  addToCart({
+    productId: currentProduct.value.productId,
+    productName: currentProduct.value.productName,
+    specId: currentProduct.value.specId,
+    specAttributes: currentProduct.value.specAttributes,
+    price: currentProduct.value.price,
+    originPrice: currentProduct.value.originPrice,
+    quantity: currentQuantity.value,
+    image: currentProduct.value.image,
+    stockQuantity: currentProduct.value.stockQuantity,
+  });
+
+  router.push("/checkout");
 }
 
 // 按钮尺寸类

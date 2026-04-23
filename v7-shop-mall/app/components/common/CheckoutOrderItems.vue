@@ -20,7 +20,7 @@ const props = withDefaults(defineProps<Props>(), {
   imageSize: "medium",
 });
 
-const { checkoutItems, formatSpecAttributes, formatPrice } = useCheckoutPage();
+const { checkoutItems, isCalculating, formatSpecAttributes, formatPrice } = useCheckoutPage();
 
 // 检查是否在编辑器中
 const isInEditor = inject<Ref<boolean>>("isInEditor", ref(false));
@@ -63,6 +63,8 @@ const displayItems = computed(() => {
 
 // 图片尺寸类
 const imageSizeClass = computed(() => `image-${props.imageSize}`);
+
+const showSkeleton = computed(() => !isInEditor.value && isCalculating.value);
 </script>
 
 <template>
@@ -97,7 +99,8 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
             </div>
           </template>
           <div class="item-unit-price">
-            {{ formatPrice(item.price) }}
+            <span v-if="showSkeleton" class="price-skeleton price-skeleton-sm" />
+            <template v-else>{{ formatPrice(item.price) }}</template>
           </div>
         </div>
 
@@ -108,7 +111,8 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
 
         <!-- 价格 -->
         <div v-if="showPrice" class="item-price">
-          {{ formatPrice(item.price * item.quantity) }}
+          <span v-if="showSkeleton" class="price-skeleton" />
+          <template v-else>{{ formatPrice(item.price * item.quantity) }}</template>
         </div>
       </div>
     </div>
@@ -231,4 +235,24 @@ const imageSizeClass = computed(() => `image-${props.imageSize}`);
   text-align: right;
 }
 
+/* 价格骨架占位 */
+@keyframes price-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.price-skeleton {
+  display: inline-block;
+  width: 60px;
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--border-color, #e5e7eb) 25%, var(--background-color, #f3f4f6) 50%, var(--border-color, #e5e7eb) 75%);
+  background-size: 200% 100%;
+  animation: price-shimmer 1.5s infinite;
+}
+
+.price-skeleton-sm {
+  width: 48px;
+  height: 12px;
+}
 </style>

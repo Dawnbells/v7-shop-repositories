@@ -388,11 +388,11 @@ function handleImageSelect(images: any[]) {
                   </div>
 
                   <!-- 左右切换开关（两选项） -->
-                  <div v-else-if="field.type === 'toggle' && field.options?.length === 2" class="toggle-switch">
+                  <div v-else-if="field.type === 'toggle' && field.options?.length === 2" class="toggle-switch" :class="{ disabled: field.disabled }">
                     <span 
                       class="toggle-label" 
                       :class="{ active: (getSiteValue(field.key) ?? field.defaultValue) === field.options[0].value }"
-                      @click="handleSiteConfigChange(field.key, field.options[0].value)"
+                      @click="!field.disabled && handleSiteConfigChange(field.key, field.options[0].value)"
                     >
                       {{ field.options[0].label }}
                     </span>
@@ -400,6 +400,7 @@ function handleImageSelect(images: any[]) {
                       type="button"
                       class="toggle-btn"
                       :class="{ toggled: (getSiteValue(field.key) ?? field.defaultValue) === field.options[1].value }"
+                      :disabled="field.disabled"
                       @click="handleSiteConfigChange(
                         field.key, 
                         (getSiteValue(field.key) ?? field.defaultValue) === field.options[0].value 
@@ -412,7 +413,7 @@ function handleImageSelect(images: any[]) {
                     <span 
                       class="toggle-label" 
                       :class="{ active: (getSiteValue(field.key) ?? field.defaultValue) === field.options[1].value }"
-                      @click="handleSiteConfigChange(field.key, field.options[1].value)"
+                      @click="!field.disabled && handleSiteConfigChange(field.key, field.options[1].value)"
                     >
                       {{ field.options[1].label }}
                     </span>
@@ -1080,6 +1081,11 @@ function handleImageSelect(images: any[]) {
 
 .toggle-btn.toggled .toggle-slider {
   transform: translateX(20px);
+}
+
+.toggle-switch.disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 /* 变量列表 */
