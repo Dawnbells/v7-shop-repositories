@@ -477,7 +477,8 @@ async function insertTemporaryOrder(
       discount_amount, shipping_fee, tax_amount, total_amount,
       order_from, from_url, order_time,
       payment_method, payment_status, payment_time,
-      platform, user_id, context_info_id, risk_info_id, phone_last_8
+      platform, user_id, context_info_id, risk_info_id, phone_last_8,
+      is_reviewed
     ) VALUES (
       LAST_INSERT_ID(), LAST_INSERT_ID(),
       ?, 'VALID', ?, ?,
@@ -486,7 +487,8 @@ async function insertTemporaryOrder(
       ?, ?, ?, ?,
       ?, ?, ?,
       ?, ?, ?,
-      ?, ?, ?, ?, ?
+      ?, ?, ?, ?, ?,
+      0
     )
   `;
 
