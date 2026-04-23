@@ -98,6 +98,23 @@ export async function findLandingPageConfig(
   }
 }
 
+/**
+ * 查询 SPU 投放设置中的斗篷策略
+ */
+export async function findSpuCloakStrategy(
+  subDomainId: number,
+  spuId: number
+): Promise<string | null> {
+  const sql = `
+    SELECT cloak_strategy
+    FROM t_sub_domain_spu_landing_pages
+    WHERE sub_domain_id = ? AND spu_id = ? AND landing_page_type = 'LAND'
+    LIMIT 1
+  `
+  const row = await queryOne<{ cloak_strategy: string | null }>(sql, [subDomainId, spuId])
+  return row?.cloak_strategy ?? null
+}
+
 export interface SaveLandingPageParams {
   subDomainId: bigint
   spuId: bigint

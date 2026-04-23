@@ -9,6 +9,7 @@ import type { CloakCheckRequest, CloakCheckResponse } from "../types/cloak";
 import { CloakPage } from "../types/cloak";
 import { showSafePage, SafePageType } from "../utils/safe-page";
 import { getPageContext, updatePageContext } from "../utils/page-context";
+import { findSpuCloakStrategy } from "../repositories/landingPageRepository";
 import { logger } from "../utils/logger";
 
 // 缓存代理 Agent
@@ -139,8 +140,9 @@ function getOrCreateFingerprint(event: H3Event): string {
 
 /**
  * 构建斗篷检查请求
+ * 优先使用 SPU 投放设置中的斗篷策略，回退到一级域名配置
  */
-function buildCloakRequest(event: H3Event): CloakCheckRequest {
+async function buildCloakRequest(event: H3Event): Promise<CloakCheckRequest> {
   const headers = getHeaders(event);
   const host = headers.host || "";
   const protocol = headers["x-forwarded-proto"] || "https";
@@ -148,29 +150,25 @@ function buildCloakRequest(event: H3Event): CloakCheckRequest {
 
   let fullPath = "";
   if (req && typeof req.url === "string") {
-    // req.url 包含 path 和 query
     fullPath = req.url;
   } else if (event.path) {
-    // event.path 通常只包含 path，不含 query
     fullPath = event.path;
     if (
       event.node?.req?.originalUrl &&
       typeof event.node.req.originalUrl === "string"
     ) {
-      fullPath = event.node.req.originalUrl; // 某些 node 服务器有 originalUrl
+      fullPath = event.node.req.originalUrl;
     }
   }
 
   const url = `${protocol}://${host}${fullPath}`;
 
-  // 获取客户端 IP
   const clientIp =
     (headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
     (headers["x-real-ip"] as string) ||
     event.node.req.socket?.remoteAddress ||
     "";
 
-  // 构建请求头 Map
   const headerMap: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
     if (typeof value === "string") {
@@ -180,22 +178,29 @@ function buildCloakRequest(event: H3Event): CloakCheckRequest {
     }
   }
 
-  // 获取或生成 fingerprint
   const fingerprint = getOrCreateFingerprint(event);
 
-  // 从 pageContext 获取域名相关信息
   const pageContext = getPageContext(event);
 
-  // 将 fingerprint 存入 pageContext
   updatePageContext(event, { fingerprint });
+
+  let cloakStrategy: string = "DEFAULT";
+  const subDomainId = pageContext.subDomain?.id;
+  const spuId = pageContext.spuId;
+  if (subDomainId && spuId) {
+    const spuStrategy = await findSpuCloakStrategy(subDomainId, spuId);
+    cloakStrategy = spuStrategy || pageContext.topLevelDomain?.cloakStrategy || "DEFAULT";
+  } else {
+    cloakStrategy = pageContext.topLevelDomain?.cloakStrategy || "DEFAULT";
+  }
 
   return {
     clientIp,
     requestUrl: url,
-    spuId: pageContext.spuId ?? undefined,
+    spuId: spuId ?? undefined,
     headers: headerMap,
     fingerprint,
-    cloakStrategy: pageContext.topLevelDomain?.cloakStrategy ?? "DEFAULT",
+    cloakStrategy,
     accessKey: pageContext.company?.accessKey ?? undefined,
     continentCode: pageContext.country?.continentCode ?? undefined,
     countryCode: pageContext.country?.code ?? undefined,
@@ -295,7 +300,7 @@ export default defineEventHandler(async (event) => {
     };
   } else if (isProductRoute(path)) {
     // 产品路由：远程调用风控服务
-    const request = buildCloakRequest(event);
+    const request = await buildCloakRequest(event);
     cloakResult = await performCloakCheck(request, fallbackPage);
 
     // 存入 cookie
