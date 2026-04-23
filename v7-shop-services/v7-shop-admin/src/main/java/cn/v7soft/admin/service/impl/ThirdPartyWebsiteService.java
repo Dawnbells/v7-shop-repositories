@@ -210,7 +210,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             newOrderCount = convertAndSaveOrders(websiteDto, orders);
         }
         if (isAutoSync) {
-            updateLastSyncInfo(request.getIdLongValue(), orders, newOrderCount > 0);
+            self.updateLastSyncInfo(request.getIdLongValue(), orders, newOrderCount > 0);
         }
 
         return extractNextPageInfo(response.getHeaders());
@@ -827,28 +827,23 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         log.warn("商城凭证失效，已停止自动同步: websiteId={}, message={}", websiteId, message);
     }
 
-    private void updateLastSyncInfo(Long websiteId, JSONArray orders, boolean hasNewOrders) {
-        ThirdPartyWebsite website = getById(websiteId);
-        website.setLastSyncTime(LocalDateTime.now());
-        website.setLastSyncHasNewOrders(hasNewOrders);
+    @Transactional
+    public void updateLastSyncInfo(Long websiteId, JSONArray orders, boolean hasNewOrders) {
+        LocalDateTime orderTime = null;
+        String lastOrderId = null;
 
-        if (hasNewOrders) {
-            LocalDateTime maxTime = null;
-            String lastOrderId = null;
+        if (hasNewOrders && orders != null) {
             for (int i = 0; i < orders.size(); i++) {
                 JSONObject o = orders.getJSONObject(i);
                 LocalDateTime createdAt = parseShoplineDateTime(o.getStr("created_at"));
-                if (createdAt != null && (maxTime == null || createdAt.isAfter(maxTime))) {
-                    maxTime = createdAt;
+                if (createdAt != null && (orderTime == null || createdAt.isAfter(orderTime))) {
+                    orderTime = createdAt;
                     lastOrderId = o.getStr("id");
                 }
             }
-            if (maxTime != null) {
-                website.setLastSyncOrderTime(maxTime);
-                website.setLastSyncOrderId(lastOrderId);
-            }
         }
-        self.saveAndFlush(website);
+
+        repository.updateSyncInfo(websiteId, LocalDateTime.now(), hasNewOrders, orderTime, lastOrderId);
     }
 
     /**

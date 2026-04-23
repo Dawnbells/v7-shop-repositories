@@ -10,10 +10,12 @@ import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.Language;
+import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.enums.*;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
+import cn.v7soft.dao.repositories.primary.SystemUserRepository;
 import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -34,6 +36,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -52,6 +55,8 @@ class ThirdPartyWebsiteServiceTest {
     @Mock private ILanguageService languageService;
     @Mock private ICountryService countryService;
     @Mock private ITemporaryOrderService temporaryOrderService;
+    @Mock private IProductSKUService productSKUService;
+    @Mock private SystemUserRepository systemUserRepository;
 
     @InjectMocks
     private ThirdPartyWebsiteService service;
@@ -237,20 +242,22 @@ class ThirdPartyWebsiteServiceTest {
             setId(us, 1L);
             when(countryService.getByCode("US")).thenReturn(Optional.of(us));
 
+            ProductSKU sku001 = ProductSKU.builder().skuCode("SKU-001").name("SKU-001").build();
+            setId(sku001, 10L);
+            when(productSKUService.listBySkuCodes(anyList(), anyLong())).thenReturn(List.of(sku001));
+
             JSONArray orders = new JSONArray();
             orders.add(order);
 
             ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
             doNothing().when(temporaryOrderService).synchronizeOrderFromExternalSystem(captor.capture());
 
-            // 通过 convertAndSaveOrders 间接调用 convertShoplineOrderToTemporary（private 方法）
-            // 使用反射调用
             invokeConvertAndSaveOrders(websiteDto, orders);
 
             EditTemporaryOrderRequest req = captor.getValue();
 
             assertEquals(100L, req.getCompanyId());
-            assertEquals("TestShop", req.getFrom());
+            assertEquals("TestShop-SHOPLINE", req.getFrom());
             assertEquals(WebsiteTypeEnum.SHOPLINE, req.getPlatform());
             assertEquals("SL-ORDER-001", req.getOriginOrderId());
             assertNotNull(req.getOrderTime());
@@ -262,7 +269,7 @@ class ThirdPartyWebsiteServiceTest {
             assertEquals("+1234567890", req.getDeliveryInfo().getPhone());
             assertEquals("California", req.getDeliveryInfo().getProvince());
             assertEquals("Los Angeles", req.getDeliveryInfo().getCity());
-            assertEquals("123 Main St", req.getDeliveryInfo().getAddress());
+            assertEquals("123 Main St /Apt 4B", req.getDeliveryInfo().getAddress());
             assertEquals("90001", req.getDeliveryInfo().getPostalCode());
             assertEquals("john@example.com", req.getDeliveryInfo().getEmail());
             assertEquals("请尽快发货", req.getDeliveryInfo().getRemark());
@@ -454,6 +461,68 @@ class ThirdPartyWebsiteServiceTest {
 
         assertEquals(1, result.size());
         assertEquals("TestShop", result.get(0).getNickName());
+    }
+
+    // ==================== updateLastSyncInfo 测试 ====================
+
+    @Nested
+    @DisplayName("updateLastSyncInfo")
+    class UpdateLastSyncInfo {
+
+        @Test
+        @DisplayName("有新订单时应传递最大订单时间和ID")
+        void shouldPassLatestOrderTimeAndId() {
+            JSONArray orders = new JSONArray();
+            JSONObject o1 = new JSONObject();
+            o1.set("id", "ORDER-001");
+            o1.set("created_at", "2025-06-01T10:00:00+08:00");
+            orders.add(o1);
+
+            JSONObject o2 = new JSONObject();
+            o2.set("id", "ORDER-002");
+            o2.set("created_at", "2025-06-01T12:00:00+08:00");
+            orders.add(o2);
+
+            service.updateLastSyncInfo(100L, orders, true);
+
+            verify(repository).updateSyncInfo(
+                    eq(100L),
+                    any(LocalDateTime.class),
+                    eq(true),
+                    argThat(t -> t != null && t.getHour() == 12),
+                    eq("ORDER-002")
+            );
+        }
+
+        @Test
+        @DisplayName("无新订单时orderTime和orderId应为null")
+        void shouldPassNullOrderInfoWhenNoNewOrders() {
+            JSONArray orders = new JSONArray();
+
+            service.updateLastSyncInfo(100L, orders, false);
+
+            verify(repository).updateSyncInfo(
+                    eq(100L),
+                    any(LocalDateTime.class),
+                    eq(false),
+                    isNull(),
+                    isNull()
+            );
+        }
+
+        @Test
+        @DisplayName("orders为null且无新订单时不应抛异常")
+        void shouldHandleNullOrders() {
+            service.updateLastSyncInfo(100L, null, false);
+
+            verify(repository).updateSyncInfo(
+                    eq(100L),
+                    any(LocalDateTime.class),
+                    eq(false),
+                    isNull(),
+                    isNull()
+            );
+        }
     }
 
     // ==================== 辅助方法 ====================
