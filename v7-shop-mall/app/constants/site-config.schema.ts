@@ -352,6 +352,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     ],
     group: "globalConfig.features",
     description: "当地址库无匹配时，允许用户手动输入地址信息",
+    disabled: true,
   },
 
   // ============ 全局皮肤 (globalStyle) ============
