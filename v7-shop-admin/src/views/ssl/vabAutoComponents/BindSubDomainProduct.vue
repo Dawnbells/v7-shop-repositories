@@ -302,7 +302,7 @@
                                 <el-icon class="event-icon"><Flag /></el-icon>
                                 <span class="event-label">转化事件:</span>
                                 <el-tag effect="light" size="small" type="success">
-                                  {{ pixel.conversionEvent }}
+                                  {{ formatConversionEvent(pixel.conversionEvent) }}
                                 </el-tag>
                               </div>
                             </div>
@@ -954,6 +954,15 @@ const getPlatformColor = (platform: string) => {
     TIKTOK: '#010101',
   }
   return map[platform] || '#909399'
+}
+
+const conversionEventLabelMap: Record<string, string> = {
+  ADD_TO_CART: '加购物车',
+  PURCHASE: '下单购买',
+}
+const formatConversionEvent = (event: string) => {
+  const label = conversionEventLabelMap[event]
+  return label ? `${label}(${event})` : event
 }
 
 // 像素弹窗相关
