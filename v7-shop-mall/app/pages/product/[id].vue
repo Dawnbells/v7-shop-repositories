@@ -18,6 +18,13 @@ const { productInfo, formatPrice } = useProductPage();
 // 像素追踪（SSR 时自动注入 Meta/Google/TikTok 脚本到 <head>）
 usePixels();
 
+// 客户端导航回来时如果 SSR 数据丢失（如在其他页面 F5 后后退），强制重新加载
+onMounted(() => {
+  if (!productInfo.value) {
+    reloadNuxtApp({ path: useRoute().fullPath });
+  }
+});
+
 // 页面配置
 const pageSchema = computed(() => getPageSchema("product-detail"));
 const layoutSchema = computed(() => {

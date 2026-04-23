@@ -77,7 +77,7 @@ const currentProduct = computed(() => {
 
   return {
     productId: product.id,
-    productName: product.name,
+    productName: product.title,
     specId: spec?.id ?? null,
     specAttributes: spec?.attributes ?? [],
     price,
@@ -126,9 +126,8 @@ function handleAddToCart() {
     quantity: currentQuantity.value,
     image: currentProduct.value.image,
     stockQuantity: currentProduct.value.stockQuantity,
-  });
+  }, { accumulate: enableQuantitySelector.value });
 
-  // 打开购物车抽屉
   openCartDrawer();
 }
 
@@ -151,7 +150,7 @@ function handleBuyNow() {
     quantity: currentQuantity.value,
     image: currentProduct.value.image,
     stockQuantity: currentProduct.value.stockQuantity,
-  });
+  }, { accumulate: enableQuantitySelector.value });
 
   router.push("/checkout");
 }

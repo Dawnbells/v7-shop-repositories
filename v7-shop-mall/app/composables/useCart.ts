@@ -111,28 +111,29 @@ export function useCart() {
   }
 
   // 添加商品到购物车
-  function addToCart(item: Omit<CartItem, "id">): void {
+  // accumulate=false 时，已存在的商品不累加数量（适用于关闭数量选择器场景）
+  function addToCart(item: Omit<CartItem, "id">, options?: { accumulate?: boolean }): void {
+    const accumulate = options?.accumulate ?? true;
     loadFromStorage();
 
     const itemId = generateItemId(item.productId, item.specId);
     const existingIndex = cartItems.value.findIndex((i) => i.id === itemId);
 
     if (existingIndex >= 0) {
-      // 已存在，增加数量
-      const existing = cartItems.value[existingIndex];
-      const newQuantity = existing.quantity + item.quantity;
+      if (accumulate) {
+        const existing = cartItems.value[existingIndex];
+        const newQuantity = existing.quantity + item.quantity;
 
-      // 检查库存限制
-      if (item.stockQuantity !== undefined && item.stockQuantity >= 0) {
-        cartItems.value[existingIndex].quantity = Math.min(
-          newQuantity,
-          item.stockQuantity,
-        );
-      } else {
-        cartItems.value[existingIndex].quantity = newQuantity;
+        if (item.stockQuantity !== undefined && item.stockQuantity >= 0) {
+          cartItems.value[existingIndex].quantity = Math.min(
+            newQuantity,
+            item.stockQuantity,
+          );
+        } else {
+          cartItems.value[existingIndex].quantity = newQuantity;
+        }
       }
 
-      // 更新价格等信息
       cartItems.value[existingIndex].price = item.price;
       cartItems.value[existingIndex].originPrice = item.originPrice;
       cartItems.value[existingIndex].image = item.image;
