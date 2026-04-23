@@ -99,7 +99,10 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
+    const _t0 = performance.now();
     const result = await findDomainByFullName(queryDomain);
+    const _t1 = performance.now();
+    logger.debug(`[01-domain timing] findDomainByFullName: ${(_t1 - _t0).toFixed(1)}ms (${path})`);
     if (!result) {
       logger.warn(`[01-domain] Domain not found: ${queryDomain}`);
       showSafePage(SafePageType.SHOP_NOT_FOUND);

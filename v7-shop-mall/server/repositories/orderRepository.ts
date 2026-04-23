@@ -221,7 +221,9 @@ export async function findProductPrices(
         AND p.status = 'VALID'
       GROUP BY p.id
     `;
+    const _t0 = performance.now();
     const rows = await query<any>(sql, [...productIds, countryId]);
+    console.log(`[findProductPrices timing] withoutSpec SQL: ${(performance.now() - _t0).toFixed(1)}ms (${productIds.length} items)`);
     for (const row of rows) {
       const key = `${row.productId}-null`;
       result.set(key, {
@@ -267,9 +269,18 @@ export async function findProductPrices(
         p.id AS productId,
         s.id AS specId,
         p.title AS title,
-        sa_agg.specTitle AS specTitle,
-        COALESCE(s.specification_image_id, pi_agg.imageId) AS imageId,
-        COALESCE(smf.relative_path, pi_agg.imagePath) AS imagePath,
+        (SELECT GROUP_CONCAT(DISTINCT sa.value ORDER BY sa.id SEPARATOR ' · ')
+         FROM t_product_specification_attributes sa
+         WHERE sa.product_specification_id = s.id) AS specTitle,
+        COALESCE(s.specification_image_id,
+          (SELECT MIN(pi2.image_file_id)
+           FROM t_product_images pi2
+           WHERE pi2.product_id = p.id)) AS imageId,
+        COALESCE(smf.relative_path,
+          (SELECT MIN(mf2.relative_path)
+           FROM t_product_images pi2
+           LEFT JOIN t_multimedia_files mf2 ON mf2.id = pi2.image_file_id
+           WHERE pi2.product_id = p.id)) AS imagePath,
         s.sell_price AS sellPrice,
         s.origin_price AS originPrice,
         s.cost_price AS costPrice,
@@ -288,20 +299,6 @@ export async function findProductPrices(
         p.is_multi_specs AS isMultiSpecs
       FROM t_product_specifications s
       JOIN t_products p ON s.product_id = p.id
-      LEFT JOIN (
-        SELECT product_specification_id,
-               GROUP_CONCAT(DISTINCT value ORDER BY id SEPARATOR ' · ') AS specTitle
-        FROM t_product_specification_attributes
-        GROUP BY product_specification_id
-      ) sa_agg ON sa_agg.product_specification_id = s.id
-      LEFT JOIN (
-        SELECT pi.product_id,
-               MIN(pi.image_file_id) AS imageId,
-               MIN(mf.relative_path) AS imagePath
-        FROM t_product_images pi
-        LEFT JOIN t_multimedia_files mf ON mf.id = pi.image_file_id
-        GROUP BY pi.product_id
-      ) pi_agg ON pi_agg.product_id = p.id
       LEFT JOIN t_multimedia_files smf ON smf.id = s.specification_image_id
       LEFT JOIN t_product_skus pk ON pk.id = s.sku_id
       WHERE s.id IN (${placeholders})
@@ -309,7 +306,9 @@ export async function findProductPrices(
         AND p.status = 'VALID'
     `;
 
+    const _t1 = performance.now();
     const rows = await query<any>(sql, [...specIds, countryId]);
+    console.log(`[findProductPrices timing] withSpec SQL: ${(performance.now() - _t1).toFixed(1)}ms (${specIds.length} items)`);
     for (const row of rows) {
       const key = `${row.productId}-${row.specId}`;
       result.set(key, {

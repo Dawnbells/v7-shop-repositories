@@ -17,8 +17,12 @@ interface CalculateRequest {
 }
 
 export default defineEventHandler(async (event) => {
+  const t0 = performance.now();
+
   // 1. 获取页面上下文
   const pageContext = getPageContext(event);
+  const t1 = performance.now();
+  console.log(`[Checkout Timing] getPageContext: ${(t1 - t0).toFixed(1)}ms`);
 
   // 检查必需的上下文数据
   if (!pageContext.country || !pageContext.currency) {
@@ -30,8 +34,8 @@ export default defineEventHandler(async (event) => {
 
   // 2. 解析请求体
   const body = await readBody<CalculateRequest>(event);
-
-  console.log(body);
+  const t2 = performance.now();
+  console.log(`[Checkout Timing] readBody: ${(t2 - t1).toFixed(1)}ms`);
 
   if (!body?.items || !Array.isArray(body.items)) {
     throw createError({
@@ -59,7 +63,10 @@ export default defineEventHandler(async (event) => {
 
   try {
     // 3. 计算价格
+    const t3 = performance.now();
     const result = await calculateOrderPrice(body.items, pageContext);
+    const t4 = performance.now();
+    console.log(`[Checkout Timing] calculateOrderPrice: ${(t4 - t3).toFixed(1)}ms | total: ${(t4 - t0).toFixed(1)}ms`);
 
     return {
       success: true,

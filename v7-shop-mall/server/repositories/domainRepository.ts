@@ -206,7 +206,10 @@ export async function findDomainByFullName(
   const storage = getRedisStorage();
   const cacheKey = `${CACHE_PREFIX}${fullName}`;
 
+  const _t0 = performance.now();
   const cached = await storage.getItem<DomainQueryResult>(cacheKey);
+  const _t1 = performance.now();
+  console.log(`[domain timing] Redis GET: ${(_t1 - _t0).toFixed(1)}ms (${cached ? 'HIT' : 'MISS'})`);
   if (cached) {
     return cached;
   }
@@ -236,7 +239,9 @@ export async function findDomainByFullName(
     LIMIT 1
   `;
 
+  const _t2 = performance.now();
   const row = await queryOne<DomainQueryRow>(sql, [fullName]);
+  console.log(`[domain timing] domain SQL: ${(performance.now() - _t2).toFixed(1)}ms`);
 
   if (!row) {
     return null;
@@ -244,7 +249,9 @@ export async function findDomainByFullName(
 
   let languages: LanguageItem[] = [];
   if (row.country_id_val) {
+    const _t3 = performance.now();
     languages = await findLanguagesByCountryId(row.country_id_val);
+    console.log(`[domain timing] languages SQL: ${(performance.now() - _t3).toFixed(1)}ms`);
   }
 
   const result = mapRowToResult(row, languages);
