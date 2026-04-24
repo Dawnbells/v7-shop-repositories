@@ -14,8 +14,11 @@ interface Props {
   showAddToCart?: boolean;
   fullWidth?: boolean;
   stickyEnabled?: boolean;
+  stickyFrame?: "bar" | "pill" | "card" | "minimal";
+  stickyLayout?: "row" | "stack" | "condensed";
   stickyShowPrice?: boolean;
   stickyShowAddToCart?: boolean;
+  stickyShowImage?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -26,8 +29,11 @@ const props = withDefaults(defineProps<Props>(), {
   showAddToCart: true,
   fullWidth: true,
   stickyEnabled: true,
+  stickyFrame: "bar",
+  stickyLayout: "row",
   stickyShowPrice: true,
   stickyShowAddToCart: true,
+  stickyShowImage: false,
 });
 
 const router = useRouter();
@@ -256,8 +262,16 @@ onBeforeUnmount(() => {
   <!-- 底部悬浮栏 -->
   <Teleport to="body">
     <Transition name="sticky-slide">
-      <div v-if="shouldShowSticky" class="sticky-action-bar">
+      <div v-if="shouldShowSticky" class="sticky-action-bar" :class="[`sticky-frame-${stickyFrame}`, `sticky-layout-${stickyLayout}`]">
         <div class="sticky-inner">
+          <!-- 商品缩图 -->
+          <img
+            v-if="stickyShowImage && currentProduct?.image"
+            :src="currentProduct.image"
+            alt=""
+            class="sticky-thumb"
+          >
+
           <!-- 价格区域 -->
           <div v-if="stickyPrice" class="sticky-price">
             <span class="sticky-sell-price">{{ stickyPrice.sell }}</span>
@@ -410,6 +424,7 @@ onBeforeUnmount(() => {
 
 <!-- 悬浮栏样式不使用 scoped，因为 Teleport 到 body -->
 <style>
+/* ====== 基础 ====== */
 .sticky-action-bar {
   position: fixed;
   bottom: 0;
@@ -428,6 +443,14 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.sticky-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .sticky-price {
@@ -461,7 +484,6 @@ onBeforeUnmount(() => {
   border-radius: var(--action-btn-radius, 8px);
 }
 
-/* 悬浮栏过渡动画 */
 .sticky-slide-enter-active,
 .sticky-slide-leave-active {
   transition: transform 0.3s ease, opacity 0.3s ease;
@@ -473,18 +495,116 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
+/* ====== 外框：pill ====== */
+.sticky-frame-pill {
+  left: 16px;
+  right: 16px;
+  bottom: 12px;
+  border-radius: 24px;
+  box-shadow: var(--sticky-bar-shadow, 0 4px 24px rgba(0, 0, 0, 0.15));
+  padding: var(--sticky-bar-padding, 10px 20px);
+}
+
+/* ====== 外框：card ====== */
+.sticky-frame-card {
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  border-radius: 12px;
+  box-shadow: var(--sticky-bar-shadow, 0 4px 20px rgba(0, 0, 0, 0.12));
+  padding: var(--sticky-bar-padding, 10px 14px);
+}
+
+/* ====== 外框：minimal ====== */
+.sticky-frame-minimal {
+  box-shadow: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--sticky-bar-bg, rgba(255, 255, 255, 0.85));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: var(--sticky-bar-padding, 8px 16px);
+}
+
+/* ====== 排版：row（默认，基础样式已覆盖） ====== */
+
+/* ====== 排版：stack ====== */
+.sticky-layout-stack .sticky-inner {
+  flex-direction: column;
+  align-items: stretch;
+  text-align: center;
+  gap: 8px;
+}
+
+.sticky-layout-stack .sticky-price {
+  justify-content: center;
+}
+
+.sticky-layout-stack .sticky-buttons {
+  width: 100%;
+}
+
+.sticky-layout-stack .sticky-btn {
+  flex: 1;
+}
+
+/* ====== 排版：condensed ====== */
+.sticky-layout-condensed .sticky-inner {
+  gap: 10px;
+}
+
+.sticky-layout-condensed .sticky-sell-price {
+  font-size: var(--sticky-price-size, 15px);
+}
+
+.sticky-layout-condensed .sticky-origin-price {
+  font-size: var(--sticky-origin-price-size, 11px);
+}
+
+.sticky-layout-condensed .sticky-btn {
+  padding: 8px 14px !important;
+  font-size: 13px !important;
+}
+
+.sticky-layout-condensed .sticky-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+}
+
+/* ====== 自适应：按钮自动撑满（无价格、无图片时） ====== */
+.sticky-inner:not(:has(.sticky-price)):not(:has(.sticky-thumb)) .sticky-buttons {
+  flex: 1;
+}
+
+.sticky-inner:not(:has(.sticky-price)):not(:has(.sticky-thumb)) .sticky-btn {
+  flex: 1;
+}
+
+/* ====== 移动端响应 ====== */
 @media (max-width: 480px) {
-  .sticky-inner {
+  .sticky-layout-row .sticky-inner {
     flex-direction: column;
     gap: 8px;
   }
 
-  .sticky-buttons {
+  .sticky-layout-row .sticky-buttons {
     width: 100%;
   }
 
-  .sticky-btn {
+  .sticky-layout-row .sticky-btn {
     flex: 1;
+  }
+
+  .sticky-frame-pill {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .sticky-frame-card {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
   }
 }
 </style>
