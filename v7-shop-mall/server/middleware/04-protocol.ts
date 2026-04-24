@@ -6,19 +6,13 @@
 
 import { findProtocolGroupsByProtocolId } from "../repositories/protocolRepository";
 import { getPageContext, updatePageContext } from "../utils/page-context";
+import { shouldSkipMiddleware } from "../utils/route-patterns";
 import { logger } from "../utils/logger";
 
 export default defineEventHandler(async (event) => {
   const path = event.path;
-  console.info("path", path);
 
-  // 跳过 API 路由和编辑器路由
-  if (
-    path.startsWith("/api/") ||
-    path.startsWith("/builder") ||
-    path.startsWith("/_nuxt") ||
-    path.startsWith("/__nuxt")
-  ) {
+  if (shouldSkipMiddleware(path)) {
     return;
   }
 

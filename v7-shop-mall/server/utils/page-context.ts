@@ -27,7 +27,6 @@ export function getPartialPageContext(event: H3Event): PartialPageContext {
  * 如果不存在则创建空的上下文
  */
 export function getPageContext(event: H3Event): PageContext {
-  console.log(event.context[PAGE_CONTEXT_KEY]);
   if (!event.context[PAGE_CONTEXT_KEY]) {
     event.context[PAGE_CONTEXT_KEY] = createEmptyPageContext();
   }

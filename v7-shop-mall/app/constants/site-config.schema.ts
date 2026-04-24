@@ -352,7 +352,7 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     ],
     group: "globalConfig.features",
     description: "当地址库无匹配时，允许用户手动输入地址信息",
-    disabled: true,
+    disabled: false,
   },
 
   // ============ 全局皮肤 (globalStyle) ============
@@ -531,7 +531,7 @@ export function getI18nFields(): SiteFieldSchema[] {
 function setNestedValue(
   obj: Record<string, any>,
   path: string,
-  value: any
+  value: any,
 ): void {
   const keys = path.split(".");
   let current = obj;

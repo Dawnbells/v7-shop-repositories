@@ -29,7 +29,6 @@ export default defineEventHandler(async (event) => {
 
   try {
     const articleInfo = await findArticleById(articleId);
-    console.info("articleInfo", articleInfo);
     if (!articleInfo) {
       logger.warn(`[11-article] Article not found for id=${articleId}`);
       return;

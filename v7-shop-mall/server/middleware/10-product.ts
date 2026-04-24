@@ -13,6 +13,7 @@ import {
   type IntroductionItem,
 } from "../repositories/productRepository";
 import { getPageContext, updatePageContext } from "../utils/page-context";
+import { isProductRoute } from "../utils/route-patterns";
 import { logger } from "../utils/logger";
 
 /** 匹配 /multimedia/{id} 格式的图片路径 */
@@ -125,27 +126,10 @@ async function parseIntroduction(
   return result;
 }
 
-const PRODUCT_ROUTE = /^\/product\/[\w-]+(\?.*)?$/;
-
-function isProductRoute(path: string): boolean {
-  return PRODUCT_ROUTE.test(path);
-}
-
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
-  // 跳过非商品详情页路由
   if (!isProductRoute(path)) {
-    return;
-  }
-
-  // 跳过 API 路由和编辑器路由
-  if (
-    path.startsWith("/api/") ||
-    path.startsWith("/builder") ||
-    path.startsWith("/_nuxt") ||
-    path.startsWith("/__nuxt")
-  ) {
     return;
   }
 

@@ -29,13 +29,7 @@ function maskEmail(email: string | null): string | null {
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
-  // 仅处理订单结果页面
   if (!path.startsWith("/order-result")) {
-    return;
-  }
-
-  // 跳过 API 路由
-  if (path.startsWith("/api/")) {
     return;
   }
 

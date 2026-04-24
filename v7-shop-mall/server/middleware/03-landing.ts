@@ -8,6 +8,7 @@ import { findLandingPageConfig } from "../repositories/landingPageRepository";
 import { getPageContext, updatePageContext } from "../utils/page-context";
 import type { PageTheme, LandingPageInfo } from "../types/page-context";
 import { CloakPage } from "../types/cloak";
+import { shouldSkipMiddleware } from "../utils/route-patterns";
 import { logger } from "../utils/logger";
 
 type LandingPageType = "LAND" | "CLOAK" | "BLACKLISTED";
@@ -34,13 +35,7 @@ function mapCloakPageToLandingType(cloakPage: CloakPage): LandingPageType {
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
-  // 跳过 API 路由和编辑器路由
-  if (
-    path.startsWith("/api/") ||
-    path.startsWith("/builder") ||
-    path.startsWith("/_nuxt") ||
-    path.startsWith("/__nuxt")
-  ) {
+  if (shouldSkipMiddleware(path)) {
     return;
   }
 

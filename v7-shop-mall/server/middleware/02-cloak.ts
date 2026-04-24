@@ -8,8 +8,12 @@ import type { H3Event } from "h3";
 import type { CloakCheckRequest, CloakCheckResponse } from "../types/cloak";
 import { CloakPage } from "../types/cloak";
 import { showSafePage, SafePageType } from "../utils/safe-page";
-import { getPageContext, updatePageContext } from "../utils/page-context";
+import {
+  getPartialPageContext,
+  updatePageContext,
+} from "../utils/page-context";
 import { findSpuCloakStrategy } from "../repositories/landingPageRepository";
+import { shouldSkipMiddleware, isProductRoute } from "../utils/route-patterns";
 import { logger } from "../utils/logger";
 
 // 缓存代理 Agent
@@ -24,9 +28,6 @@ const FINGERPRINT_MAX_AGE = 365 * 24 * 60 * 60;
 const CLOAK_COOKIE = "_pv";
 // Cloak Cookie 有效期（1年）
 const CLOAK_MAX_AGE = 365 * 24 * 60 * 60;
-
-// 需要进行斗篷检查的路由模式（产品详情页）
-const PRODUCT_ROUTE = /^\/product\/[\w-]+(\?.*)?$/;
 
 // CloakPage 枚举到数字的映射
 const CLOAK_PAGE_TO_NUM: Record<CloakPage, number> = {
@@ -52,13 +53,6 @@ const PREVIEW_ALLOWED_PAGES: Set<string> = new Set([
   CloakPage.RISK,
   CloakPage.BLACKLISTED,
 ]);
-
-/**
- * 检查是否是产品路由
- */
-function isProductRoute(path: string): boolean {
-  return PRODUCT_ROUTE.test(path);
-}
 
 /**
  * 从 query 参数获取 preview 模式的 CloakPage
@@ -180,7 +174,7 @@ async function buildCloakRequest(event: H3Event): Promise<CloakCheckRequest> {
 
   const fingerprint = getOrCreateFingerprint(event);
 
-  const pageContext = getPageContext(event);
+  const pageContext = getPartialPageContext(event);
 
   updatePageContext(event, { fingerprint });
 
@@ -189,7 +183,8 @@ async function buildCloakRequest(event: H3Event): Promise<CloakCheckRequest> {
   const spuId = pageContext.spuId;
   if (subDomainId && spuId) {
     const spuStrategy = await findSpuCloakStrategy(subDomainId, spuId);
-    cloakStrategy = spuStrategy || pageContext.topLevelDomain?.cloakStrategy || "DEFAULT";
+    cloakStrategy =
+      spuStrategy || pageContext.topLevelDomain?.cloakStrategy || "DEFAULT";
   } else {
     cloakStrategy = pageContext.topLevelDomain?.cloakStrategy || "DEFAULT";
   }
@@ -238,7 +233,7 @@ async function performCloakCheck(
       headers: {
         "Content-Type": "application/json",
       },
-      timeout: 3000,
+      timeout: 5000,
     };
 
     // 如果配置了代理，使用代理
@@ -251,7 +246,9 @@ async function performCloakCheck(
       fetchOptions,
     );
     const elapsed = Date.now() - startTime;
-    logger.info(`[Cloak] Request completed in ${elapsed}ms, page: ${response.page}`);
+    logger.info(
+      `[Cloak] Request completed in ${elapsed}ms, page: ${response.page}`,
+    );
     return {
       ...response,
       remote: true,
@@ -272,20 +269,13 @@ async function performCloakCheck(
 export default defineEventHandler(async (event) => {
   const path = event.path || "";
 
-  // 跳过不需要斗篷检查的路由
-  // 注意：/api/checkout/ 需要处理，因为需要 cloak 信息
-  if (
-    (path.startsWith("/api/") && !path.startsWith("/api/checkout/")) ||
-    path.startsWith("/builder") ||
-    path.startsWith("/_nuxt") ||
-    path.startsWith("/__nuxt")
-  ) {
+  if (shouldSkipMiddleware(path, { allowApiCheckout: true })) {
     return;
   }
 
-  // 获取降级策略
-  const pageContext = getPageContext(event);
-  const fallbackPage = (pageContext.company?.cloakFallback as CloakPage) || CloakPage.LAND;
+  const pageContext = getPartialPageContext(event);
+  const fallbackPage =
+    (pageContext.company?.cloakFallback as CloakPage) || CloakPage.LAND;
 
   let cloakResult: CloakCheckResponse | null = null;
 

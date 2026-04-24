@@ -11,11 +11,12 @@
 import { findDomainByFullName } from "../repositories/domainRepository";
 import { updatePageContext } from "../utils/page-context";
 import { showSafePage, SafePageType } from "../utils/safe-page";
+import { shouldSkipMiddleware } from "../utils/route-patterns";
 import { logger } from "../utils/logger";
 
 // spuId Cookie 配置
 const SPU_ID_COOKIE = "_spuId";
-const SPU_ID_MAX_AGE = 30 * 24 * 60 * 60; // 30 天
+const SPU_ID_MAX_AGE = 365 * 24 * 60 * 60; // 30 天
 
 // languageId Cookie 配置
 const LANGUAGE_ID_COOKIE = "_languageId";
@@ -23,19 +24,12 @@ const LANGUAGE_ID_MAX_AGE = 365 * 24 * 60 * 60; // 1 年
 
 // from_url Cookie 配置（用于 Header Logo 跳转）
 const FROM_URL_COOKIE = "_from_url";
-const FROM_URL_MAX_AGE = 30 * 24 * 60 * 60; // 30 天
+const FROM_URL_MAX_AGE = 365 * 24 * 60 * 60; // 30 天
 
 export default defineEventHandler(async (event) => {
   const path = event.path;
 
-  // 跳过不需要域名解析的路由
-  // 注意：/api/checkout/ 需要域名解析，因为需要国家、货币等信息
-  if (
-    (path.startsWith("/api/") && !path.startsWith("/api/checkout/")) ||
-    path.startsWith("/builder") ||
-    path.startsWith("/_nuxt") ||
-    path.startsWith("/__nuxt")
-  ) {
+  if (shouldSkipMiddleware(path, { allowApiCheckout: true })) {
     return;
   }
 
@@ -44,7 +38,7 @@ export default defineEventHandler(async (event) => {
 
   if (!host) {
     logger.warn("[01-domain] No host found in request");
-    showSafePage(SafePageType.SHOP_NOT_FOUND);
+    return showSafePage(SafePageType.SHOP_NOT_FOUND);
   }
 
   // 判断是否为本地开发环境
@@ -63,9 +57,8 @@ export default defineEventHandler(async (event) => {
     if (devDomain) {
       queryDomain = devDomain;
     } else {
-      // 未配置开发域名，无法确定店铺
       logger.warn("[01-domain] No devDomain configured for local development");
-      showSafePage(SafePageType.SHOP_NOT_FOUND);
+      return showSafePage(SafePageType.SHOP_NOT_FOUND);
     }
   }
 
@@ -102,7 +95,9 @@ export default defineEventHandler(async (event) => {
     const _t0 = performance.now();
     const result = await findDomainByFullName(queryDomain);
     const _t1 = performance.now();
-    logger.debug(`[01-domain timing] findDomainByFullName: ${(_t1 - _t0).toFixed(1)}ms (${path})`);
+    logger.debug(
+      `[01-domain timing] findDomainByFullName: ${(_t1 - _t0).toFixed(1)}ms (${path})`,
+    );
     if (!result) {
       logger.warn(`[01-domain] Domain not found: ${queryDomain}`);
       showSafePage(SafePageType.SHOP_NOT_FOUND);
