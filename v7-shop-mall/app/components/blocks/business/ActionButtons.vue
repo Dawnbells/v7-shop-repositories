@@ -3,6 +3,7 @@
  * ActionButtons Block - 购买操作按钮组件
  * 包含"加入购物车"和"立即购买"按钮
  * 根据全局配置控制显示和行为
+ * 支持滚动不可见时底部悬浮
  */
 
 interface Props {
@@ -12,6 +13,9 @@ interface Props {
   buyNowText?: string;
   showAddToCart?: boolean;
   fullWidth?: boolean;
+  stickyEnabled?: boolean;
+  stickyShowPrice?: boolean;
+  stickyShowAddToCart?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -21,6 +25,9 @@ const props = withDefaults(defineProps<Props>(), {
   buyNowText: "",
   showAddToCart: true,
   fullWidth: true,
+  stickyEnabled: true,
+  stickyShowPrice: true,
+  stickyShowAddToCart: true,
 });
 
 const router = useRouter();
@@ -157,10 +164,52 @@ function handleBuyNow() {
 
 // 按钮尺寸类
 const sizeClass = computed(() => `size-${props.buttonSize}`);
+
+// --- 底部悬浮逻辑 ---
+const buttonsRef = ref<HTMLElement | null>(null);
+const isOutOfView = ref(false);
+
+const shouldShowSticky = computed(() => {
+  return props.stickyEnabled && !isInEditor.value && isOutOfView.value;
+});
+
+const stickyShowAddToCartFinal = computed(() => {
+  return enableCart.value && props.stickyShowAddToCart;
+});
+
+const stickyPrice = computed(() => {
+  if (!props.stickyShowPrice || !currentProduct.value) return null;
+  return {
+    sell: formatPrice(currentProduct.value.price),
+    origin: currentProduct.value.originPrice
+      ? formatPrice(currentProduct.value.originPrice)
+      : null,
+  };
+});
+
+let observer: IntersectionObserver | null = null;
+
+onMounted(() => {
+  if (!props.stickyEnabled || isInEditor.value) return;
+  const el = buttonsRef.value;
+  if (!el) return;
+  observer = new IntersectionObserver(
+    ([entry]) => {
+      isOutOfView.value = !entry.isIntersecting;
+    },
+    { threshold: 0 },
+  );
+  observer.observe(el);
+});
+
+onBeforeUnmount(() => {
+  observer?.disconnect();
+});
 </script>
 
 <template>
   <div
+    ref="buttonsRef"
     class="block-action-buttons"
     :class="[sizeClass, `layout-${layout}`, { 'full-width': fullWidth }]"
   >
@@ -203,6 +252,43 @@ const sizeClass = computed(() => `size-${props.buttonSize}`);
       <span v-else class="btn-text">{{ displayBuyNowText }}</span>
     </button>
   </div>
+
+  <!-- 底部悬浮栏 -->
+  <Teleport to="body">
+    <Transition name="sticky-slide">
+      <div v-if="shouldShowSticky" class="sticky-action-bar">
+        <div class="sticky-inner">
+          <!-- 价格区域 -->
+          <div v-if="stickyPrice" class="sticky-price">
+            <span class="sticky-sell-price">{{ stickyPrice.sell }}</span>
+            <span v-if="stickyPrice.origin" class="sticky-origin-price">{{ stickyPrice.origin }}</span>
+          </div>
+
+          <!-- 按钮区域 -->
+          <div class="sticky-buttons">
+            <button
+              v-if="stickyShowAddToCartFinal"
+              type="button"
+              class="action-btn add-to-cart-btn sticky-btn"
+              :disabled="!canPurchase"
+              @click="handleAddToCart"
+            >
+              <span class="btn-text">{{ displayAddToCartText }}</span>
+            </button>
+            <button
+              type="button"
+              class="action-btn buy-now-btn sticky-btn"
+              :disabled="!canPurchase"
+              @click="handleBuyNow"
+            >
+              <span v-if="stockMessage" class="btn-text">{{ stockMessage }}</span>
+              <span v-else class="btn-text">{{ displayBuyNowText }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -318,6 +404,87 @@ const sizeClass = computed(() => `size-${props.buttonSize}`);
   .action-btn {
     width: 100%;
     padding: 14px 20px;
+  }
+}
+</style>
+
+<!-- 悬浮栏样式不使用 scoped，因为 Teleport 到 body -->
+<style>
+.sticky-action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--sticky-bar-z-index, 1000);
+  background: var(--sticky-bar-bg, #ffffff);
+  box-shadow: var(--sticky-bar-shadow, 0 -2px 12px rgba(0, 0, 0, 0.1));
+  padding: var(--sticky-bar-padding, 12px 16px);
+}
+
+.sticky-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sticky-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sticky-sell-price {
+  font-size: var(--sticky-price-size, 18px);
+  font-weight: 700;
+  color: var(--sticky-price-color, var(--primary-color, #3b82f6));
+}
+
+.sticky-origin-price {
+  font-size: var(--sticky-origin-price-size, 13px);
+  color: #9ca3af;
+  text-decoration: line-through;
+}
+
+.sticky-buttons {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sticky-btn {
+  padding: 10px 20px !important;
+  font-size: 14px !important;
+  border-radius: var(--action-btn-radius, 8px);
+}
+
+/* 悬浮栏过渡动画 */
+.sticky-slide-enter-active,
+.sticky-slide-leave-active {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.sticky-slide-enter-from,
+.sticky-slide-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+@media (max-width: 480px) {
+  .sticky-inner {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sticky-buttons {
+    width: 100%;
+  }
+
+  .sticky-btn {
+    flex: 1;
   }
 }
 </style>
