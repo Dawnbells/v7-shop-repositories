@@ -50,7 +50,8 @@ export function useTiktokPixel() {
   function trackPurchase(
     value: number,
     currency: string,
-    contentIds?: string[]
+    contentIds?: string[],
+    eventId?: string,
   ) {
     if (typeof window !== "undefined" && window.ttq) {
       const params: Record<string, any> = { value, currency };
@@ -60,6 +61,7 @@ export function useTiktokPixel() {
           content_type: "product",
         }));
       }
+      if (eventId) params.event_id = eventId;
       window.ttq.track("CompletePayment", params);
     }
   }
@@ -70,12 +72,13 @@ export function useTiktokPixel() {
    * @param currency 货币代码
    * @param contentId 商品ID（可选）
    */
-  function trackAddToCart(value: number, currency: string, contentId?: string) {
+  function trackAddToCart(value: number, currency: string, contentId?: string, eventId?: string) {
     if (typeof window !== "undefined" && window.ttq) {
       const params: Record<string, any> = { value, currency };
       if (contentId) {
         params.contents = [{ content_id: contentId, content_type: "product" }];
       }
+      if (eventId) params.event_id = eventId;
       window.ttq.track("AddToCart", params);
     }
   }

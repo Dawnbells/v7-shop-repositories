@@ -22,34 +22,58 @@ export function usePixels() {
     options?: {
       contentIds?: string[];
       transactionId?: string;
-    }
+      eventId?: string;
+    },
   ) {
-    meta.trackPurchase(value, currency, options?.contentIds);
+    meta.trackPurchase(value, currency, options?.contentIds, options?.eventId);
     google.trackConversion(value, currency, options?.transactionId);
-    tiktok.trackPurchase(value, currency, options?.contentIds);
+    tiktok.trackPurchase(value, currency, options?.contentIds, options?.eventId);
   }
 
-  /**
-   * 触发 AddToCart 事件（向所有平台发送）
-   * @param value 商品价格
-   * @param currency 货币代码
-   * @param contentId 商品ID（可选）
-   */
-  function trackAddToCart(value: number, currency: string, contentId?: string) {
-    meta.trackAddToCart(value, currency, contentId);
+  function trackAddToCart(
+    value: number,
+    currency: string,
+    contentId?: string,
+    eventId?: string,
+  ) {
+    meta.trackAddToCart(value, currency, contentId, eventId);
     google.trackAddToCart(value, currency, contentId);
-    tiktok.trackAddToCart(value, currency, contentId);
+    tiktok.trackAddToCart(value, currency, contentId, eventId);
   }
 
-  /**
-   * 触发 InitiateCheckout/BeginCheckout 事件（向所有平台发送）
-   * @param value 订单金额
-   * @param currency 货币代码
-   */
   function trackInitiateCheckout(value: number, currency: string) {
     meta.trackInitiateCheckout(value, currency);
     google.trackBeginCheckout(value, currency);
     tiktok.trackInitiateCheckout(value, currency);
+  }
+
+  /**
+   * 根据各像素的 conversionEvent 配置决定触发 Purchase 或 AddToCart
+   */
+  function trackConversionByConfig(
+    value: number,
+    currency: string,
+    options?: {
+      contentIds?: string[];
+      transactionId?: string;
+      eventId?: string;
+    },
+  ) {
+    const allPixels = [
+      ...(meta.metaPixels.value || []),
+      ...(google.googlePixels.value || []),
+      ...(tiktok.tiktokPixels.value || []),
+    ];
+
+    const needPurchase = allPixels.some((p) => p.conversionEvent === "PURCHASE");
+    const needAddToCart = allPixels.some((p) => p.conversionEvent === "ADD_TO_CART");
+
+    if (needPurchase) {
+      trackPurchase(value, currency, options);
+    }
+    if (needAddToCart) {
+      trackAddToCart(value, currency, options?.contentIds?.[0], options?.eventId);
+    }
   }
 
   return {
@@ -59,5 +83,6 @@ export function usePixels() {
     trackPurchase,
     trackAddToCart,
     trackInitiateCheckout,
+    trackConversionByConfig,
   };
 }

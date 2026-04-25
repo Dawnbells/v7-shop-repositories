@@ -194,6 +194,36 @@ const stickyPrice = computed(() => {
 });
 
 let observer: IntersectionObserver | null = null;
+const stickyBarRef = ref<HTMLElement | null>(null);
+let stickyResizeObserver: ResizeObserver | null = null;
+
+function applyStickyPadding() {
+  const el = stickyBarRef.value;
+  if (el) {
+    document.body.style.paddingBottom = `${el.offsetHeight}px`;
+  }
+}
+
+function resetStickyPadding() {
+  document.body.style.paddingBottom = "";
+}
+
+watch(shouldShowSticky, (visible) => {
+  if (visible) {
+    nextTick(() => {
+      applyStickyPadding();
+      const el = stickyBarRef.value;
+      if (el && !stickyResizeObserver) {
+        stickyResizeObserver = new ResizeObserver(() => applyStickyPadding());
+        stickyResizeObserver.observe(el);
+      }
+    });
+  } else {
+    stickyResizeObserver?.disconnect();
+    stickyResizeObserver = null;
+    resetStickyPadding();
+  }
+});
 
 onMounted(() => {
   if (!props.stickyEnabled || isInEditor.value) return;
@@ -210,6 +240,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   observer?.disconnect();
+  stickyResizeObserver?.disconnect();
+  resetStickyPadding();
 });
 </script>
 
@@ -262,7 +294,7 @@ onBeforeUnmount(() => {
   <!-- 底部悬浮栏 -->
   <Teleport to="body">
     <Transition name="sticky-slide">
-      <div v-if="shouldShowSticky" class="sticky-action-bar" :class="[`sticky-frame-${stickyFrame}`, `sticky-layout-${stickyLayout}`]">
+      <div v-if="shouldShowSticky" ref="stickyBarRef" class="sticky-action-bar" :class="[`sticky-frame-${stickyFrame}`, `sticky-layout-${stickyLayout}`]">
         <div class="sticky-inner">
           <!-- 商品缩图 -->
           <img

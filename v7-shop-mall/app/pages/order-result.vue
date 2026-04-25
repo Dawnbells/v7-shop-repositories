@@ -12,8 +12,8 @@
 const { cssVariables, getPageSchema, getLayoutSchema, siteConfig } = usePageTheme();
 
 // 像素追踪（SSR 时自动注入 Meta/Google/TikTok 脚本到 <head>）
-// trackPurchase 可在获取订单数据后调用，会向所有平台发送转化事件
-const { trackPurchase } = usePixels();
+const { trackConversionByConfig } = usePixels();
+const { orderResult } = usePageContext();
 
 // 页面配置
 const pageSchema = computed(() => getPageSchema("order-result"));
@@ -34,6 +34,21 @@ useHead({
 
 // 提供编辑器状态（非编辑器模式）
 provide("isInEditor", ref(false));
+
+onMounted(() => {
+  const order = orderResult.value;
+  if (!order) return;
+
+  const eventId = `order_${order.id}`;
+  const storageKey = `pixel_tracked_${eventId}`;
+  if (sessionStorage.getItem(storageKey)) return;
+
+  trackConversionByConfig(Number(order.totalAmount), order.currencyCode || "USD", {
+    transactionId: String(order.id),
+    eventId,
+  });
+  sessionStorage.setItem(storageKey, "1");
+});
 </script>
 
 <template>

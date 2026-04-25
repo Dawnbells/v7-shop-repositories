@@ -15,6 +15,9 @@ declare global {
 export function useGooglePixel() {
   const { pixels } = usePageContext();
 
+  const formatGoogleAdsId = (pixelId: string) =>
+    pixelId.startsWith("AW-") ? pixelId : `AW-${pixelId}`;
+
   const googlePixels = computed(() => pixels.value?.google || []);
   const hasGooglePixel = computed(() => googlePixels.value.length > 0);
 
@@ -23,9 +26,9 @@ export function useGooglePixel() {
     script: computed(() => {
       if (!hasGooglePixel.value) return [];
 
-      const firstPixelId = googlePixels.value[0]!.pixelId;
+      const firstPixelId = formatGoogleAdsId(googlePixels.value[0]!.pixelId);
       const configCalls = googlePixels.value
-        .map((p) => `gtag('config','${p.pixelId}');`)
+        .map((p) => `gtag('config','${formatGoogleAdsId(p.pixelId)}');`)
         .join("");
 
       return [
@@ -55,8 +58,9 @@ export function useGooglePixel() {
   ) {
     if (typeof window !== "undefined" && window.gtag) {
       for (const pixel of googlePixels.value) {
+        const pixelId = formatGoogleAdsId(pixel.pixelId);
         const params: Record<string, any> = {
-          send_to: `${pixel.pixelId}/${pixel.conversionEvent}`,
+          send_to: `${pixelId}/${pixel.conversionEvent}`,
           value,
           currency,
         };
