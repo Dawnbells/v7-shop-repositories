@@ -79,7 +79,7 @@ export function useGooglePixel() {
    * @param itemId 商品ID（可选）
    */
   function trackAddToCart(value: number, currency: string, itemId?: string) {
-    if (typeof window !== "undefined" && window.gtag) {
+    if (typeof window !== "undefined" && window.gtag && hasGooglePixel.value) {
       const params: Record<string, any> = { value, currency };
       if (itemId) {
         params.items = [{ id: itemId }];
@@ -94,7 +94,7 @@ export function useGooglePixel() {
    * @param currency 货币代码
    */
   function trackBeginCheckout(value: number, currency: string) {
-    if (typeof window !== "undefined" && window.gtag) {
+    if (typeof window !== "undefined" && window.gtag && hasGooglePixel.value) {
       window.gtag("event", "begin_checkout", { value, currency });
     }
   }

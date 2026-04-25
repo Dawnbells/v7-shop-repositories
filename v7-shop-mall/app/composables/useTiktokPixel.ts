@@ -53,7 +53,7 @@ export function useTiktokPixel() {
     contentIds?: string[],
     eventId?: string,
   ) {
-    if (typeof window !== "undefined" && window.ttq) {
+    if (typeof window !== "undefined" && window.ttq && hasTiktokPixel.value) {
       const params: Record<string, any> = { value, currency };
       if (contentIds?.length) {
         params.contents = contentIds.map((id) => ({
@@ -73,7 +73,7 @@ export function useTiktokPixel() {
    * @param contentId 商品ID（可选）
    */
   function trackAddToCart(value: number, currency: string, contentId?: string, eventId?: string) {
-    if (typeof window !== "undefined" && window.ttq) {
+    if (typeof window !== "undefined" && window.ttq && hasTiktokPixel.value) {
       const params: Record<string, any> = { value, currency };
       if (contentId) {
         params.contents = [{ content_id: contentId, content_type: "product" }];
@@ -89,7 +89,7 @@ export function useTiktokPixel() {
    * @param currency 货币代码
    */
   function trackInitiateCheckout(value: number, currency: string) {
-    if (typeof window !== "undefined" && window.ttq) {
+    if (typeof window !== "undefined" && window.ttq && hasTiktokPixel.value) {
       window.ttq.track("InitiateCheckout", { value, currency });
     }
   }

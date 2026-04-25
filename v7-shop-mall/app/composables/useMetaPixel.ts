@@ -46,7 +46,7 @@ export function useMetaPixel() {
     contentIds?: string[],
     eventId?: string,
   ) {
-    if (typeof window !== "undefined" && window.fbq) {
+    if (typeof window !== "undefined" && window.fbq && hasMetaPixel.value) {
       const params: Record<string, any> = { value, currency };
       if (contentIds?.length) {
         params.content_ids = contentIds;
@@ -64,7 +64,7 @@ export function useMetaPixel() {
    * @param contentId 商品ID（可选）
    */
   function trackAddToCart(value: number, currency: string, contentId?: string, eventId?: string) {
-    if (typeof window !== "undefined" && window.fbq) {
+    if (typeof window !== "undefined" && window.fbq && hasMetaPixel.value) {
       const params: Record<string, any> = { value, currency };
       if (contentId) {
         params.content_ids = [contentId];
@@ -81,7 +81,7 @@ export function useMetaPixel() {
    * @param currency 货币代码
    */
   function trackInitiateCheckout(value: number, currency: string) {
-    if (typeof window !== "undefined" && window.fbq) {
+    if (typeof window !== "undefined" && window.fbq && hasMetaPixel.value) {
       window.fbq("track", "InitiateCheckout", { value, currency });
     }
   }
