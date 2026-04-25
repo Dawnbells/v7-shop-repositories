@@ -176,6 +176,18 @@
                                   <span>TikTok</span>
                                 </div>
                               </el-option>
+                              <el-option label="Taboola" value="TABOOLA">
+                                <div class="platform-option">
+                                  <span class="platform-dot" style="background: #0056d6" />
+                                  <span>Taboola</span>
+                                </div>
+                              </el-option>
+                              <el-option label="Bigo" value="BIGO">
+                                <div class="platform-option">
+                                  <span class="platform-dot" style="background: #f5a400" />
+                                  <span>Bigo</span>
+                                </div>
+                              </el-option>
                             </el-select>
                           </el-form-item>
                         </el-col>
@@ -938,12 +950,12 @@ const assembledCampaign = computed(() => {
 })
 
 const platformDisplayName = computed(() => {
-  const map: Record<string, string> = { META: 'Meta', GOOGLE: 'Google', TIKTOK: 'TikTok' }
+  const map: Record<string, string> = { META: 'Meta', GOOGLE: 'Google', TIKTOK: 'TikTok', TABOOLA: 'Taboola', BIGO: 'Bigo' }
   return adConfig.adPlatform ? map[adConfig.adPlatform] || adConfig.adPlatform : ''
 })
 
 const platformTagType = computed(() => {
-  const map: Record<string, string> = { META: '', GOOGLE: 'danger', TIKTOK: 'info' }
+  const map: Record<string, string> = { META: '', GOOGLE: 'danger', TIKTOK: 'info', TABOOLA: 'primary', BIGO: 'warning' }
   return (adConfig.adPlatform ? map[adConfig.adPlatform] : 'info') as any
 })
 
@@ -952,6 +964,8 @@ const getPlatformColor = (platform: string) => {
     META: '#1877f2',
     GOOGLE: '#ea4335',
     TIKTOK: '#010101',
+    TABOOLA: '#0056d6',
+    BIGO: '#f5a400',
   }
   return map[platform] || '#909399'
 }

@@ -15,16 +15,21 @@
           <el-option label="META" value="META" />
           <el-option label="GOOGLE" value="GOOGLE" />
           <el-option label="TIKTOK" value="TIKTOK" />
+          <el-option label="TABOOLA" value="TABOOLA" />
+          <el-option label="BIGO" value="BIGO" />
         </el-select>
       </el-form-item>
       <el-form-item label="像素ID" prop="pixelId">
-        <el-input v-model.trim="form.pixelId" clearable placeholder="请输入像素ID" />
+        <el-input v-model.trim="form.pixelId" clearable :placeholder="pixelIdPlaceholder" />
       </el-form-item>
       <el-form-item v-if="form.platform === 'META'" label="AccessToken" prop="accessToken">
         <el-input v-model.trim="form.accessToken" clearable placeholder="请输入AccessToken" />
       </el-form-item>
+      <el-form-item v-if="form.platform === 'BIGO'" label="Org ID" prop="accessToken">
+        <el-input v-model.trim="form.accessToken" clearable placeholder="请输入 BIGO orgId，若像素ID已填完整URL可留空" />
+      </el-form-item>
       <el-form-item
-        v-if="form.platform === 'META' || form.platform === 'TIKTOK'"
+        v-if="form.platform === 'META' || form.platform === 'TIKTOK' || form.platform === 'TABOOLA' || form.platform === 'BIGO'"
         label="转化事件"
         prop="conversionEvent"
       >
@@ -69,6 +74,12 @@ const rules = reactive<any>({
   pixelId: [{ required: true, trigger: 'blur', message: '请输入像素ID' }],
   platform: [{ required: true, trigger: 'blur', message: '请选择像素平台' }],
   conversionEvent: [{ required: true, trigger: 'blur', message: '请选择转化事件' }],
+})
+
+const pixelIdPlaceholder = computed(() => {
+  if (form.platform === 'TABOOLA') return '请输入 Taboola Account ID'
+  if (form.platform === 'BIGO') return '请输入 BIGO accountId 或完整 resource/pixel URL'
+  return '请输入像素ID'
 })
 
 const showEdit = (row: any) => {

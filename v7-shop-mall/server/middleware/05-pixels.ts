@@ -55,6 +55,8 @@ export default defineEventHandler(async (event) => {
       meta: pixels.meta.length,
       google: pixels.google.length,
       tiktok: pixels.tiktok.length,
+      taboola: pixels.taboola.length,
+      bigo: pixels.bigo.length,
     });
     updatePageContext(event, { pixels });
   } catch (error) {

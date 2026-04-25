@@ -9,6 +9,8 @@ export function usePixels() {
   const meta = useMetaPixel();
   const google = useGooglePixel();
   const tiktok = useTiktokPixel();
+  const taboola = useTaboolaPixel();
+  const bigo = useBigoPixel();
 
   /**
    * 触发 Purchase 转化事件（向所有平台发送）
@@ -28,6 +30,8 @@ export function usePixels() {
     meta.trackPurchase(value, currency, options?.contentIds, options?.eventId);
     google.trackConversion(value, currency, options?.transactionId);
     tiktok.trackPurchase(value, currency, options?.contentIds, options?.eventId);
+    taboola.trackPurchase(value, currency, options?.contentIds, options?.transactionId);
+    bigo.trackPurchase(value, currency, options?.contentIds, options?.transactionId);
   }
 
   function trackAddToCart(
@@ -39,12 +43,16 @@ export function usePixels() {
     meta.trackAddToCart(value, currency, contentId, eventId);
     google.trackAddToCart(value, currency, contentId);
     tiktok.trackAddToCart(value, currency, contentId, eventId);
+    taboola.trackAddToCart(value, currency, contentId);
+    bigo.trackAddToCart(value, currency, contentId);
   }
 
   function trackInitiateCheckout(value: number, currency: string) {
     meta.trackInitiateCheckout(value, currency);
     google.trackBeginCheckout(value, currency);
     tiktok.trackInitiateCheckout(value, currency);
+    taboola.trackInitiateCheckout(value, currency);
+    bigo.trackInitiateCheckout(value, currency);
   }
 
   /**
@@ -63,6 +71,8 @@ export function usePixels() {
       ...(meta.metaPixels.value || []),
       ...(google.googlePixels.value || []),
       ...(tiktok.tiktokPixels.value || []),
+      ...(taboola.taboolaPixels.value || []),
+      ...(bigo.bigoPixels.value || []),
     ];
 
     const needPurchase = allPixels.some((p) => p.conversionEvent === "PURCHASE");
@@ -80,6 +90,8 @@ export function usePixels() {
     meta,
     google,
     tiktok,
+    taboola,
+    bigo,
     trackPurchase,
     trackAddToCart,
     trackInitiateCheckout,

@@ -12,5 +12,13 @@ public enum PixelAccountPlatform {
     /**
      * tiktok
      */
-    TIKTOK
+    TIKTOK,
+    /**
+     * taboola
+     */
+    TABOOLA,
+    /**
+     * bigo
+     */
+    BIGO
 }
