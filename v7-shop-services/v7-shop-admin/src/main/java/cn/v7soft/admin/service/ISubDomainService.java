@@ -1,6 +1,8 @@
 package cn.v7soft.admin.service;
 
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
+import cn.v7soft.admin.controller.req.CreateAndBindSpuPixelRequest;
+import cn.v7soft.admin.controller.resp.PixelSimpleResponse;
 import cn.v7soft.admin.controller.resp.SubDomainSpuDetailResponse;
 import cn.v7soft.admin.service.dto.SubDomainDto;
 import cn.v7soft.core.service.IBaseService;
@@ -110,6 +112,13 @@ public interface ISubDomainService extends IBaseService<SubDomain> {
      * @param pixelId 像素账号ID
      */
     void bindSpuPixel(Long subDomainId, Long spuId, Long pixelId);
+
+    /**
+     * 新增像素并绑定到子域名SPU
+     * @param request 新增并绑定请求
+     * @return 新增的像素账号
+     */
+    PixelSimpleResponse createAndBindSpuPixel(CreateAndBindSpuPixelRequest request);
 
     /**
      * 解绑像素与子域名SPU

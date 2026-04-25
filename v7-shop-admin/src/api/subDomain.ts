@@ -109,6 +109,17 @@ export function bindSpuPixel(data: {
 }
 
 /**
+ * 新增像素并绑定到子域名SPU
+ */
+export function createAndBindSpuPixel(data: any) {
+  return request({
+    url: '/sub-domain/createAndBindSpuPixel',
+    method: 'post',
+    data,
+  })
+}
+
+/**
  * 解绑子域名SPU的像素
  * @param data { subDomainId, spuId, pixelId }
  */

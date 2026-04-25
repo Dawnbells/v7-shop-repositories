@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
+import cn.v7soft.admin.controller.req.CreateAndBindSpuPixelRequest;
 import cn.v7soft.admin.controller.req.SaveAdConfigRequest;
 import cn.v7soft.admin.controller.resp.PixelSimpleResponse;
 import cn.v7soft.admin.controller.resp.SpuSimpleWithCountryResponse;
@@ -52,7 +53,9 @@ import cn.v7soft.dao.enums.CloakStrategy;
 import cn.v7soft.dao.enums.DomainType;
 import cn.v7soft.dao.enums.LandingPageType;
 import cn.v7soft.dao.enums.PixelAccountPlatform;
+import cn.v7soft.dao.enums.PixelAccountState;
 import cn.v7soft.dao.repositories.primary.ProductRepository;
+import cn.v7soft.dao.repositories.primary.PixelAccountRepository;
 import cn.v7soft.dao.repositories.primary.SubDomainRepository;
 import cn.v7soft.dao.repositories.primary.SubDomainSpuLandingPageRepository;
 import cn.v7soft.dao.repositories.primary.SubDomainSpuPixelRepository;
@@ -75,9 +78,10 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     private final ISpuService spuService;
     private final ThemeEditorProperty themeEditorProperty;
     private final ProductRepository productRepository;
+    private final PixelAccountRepository pixelAccountRepository;
     private SubDomainService subDomainService;
 
-    public SubDomainService(SubDomainRepository repository, IThemeCustomService themeCustomService, IWebsiteService websiteService, IFrontServerService frontServerService, ICloudPlatformAccountService cloudPlatformAccountService, SubDomainSpuPixelRepository subDomainSpuPixelRepository, SubDomainSpuLandingPageRepository subDomainSpuLandingPageRepository, ISpuService spuService, ThemeEditorProperty themeEditorProperty, ProductRepository productRepository) {
+    public SubDomainService(SubDomainRepository repository, IThemeCustomService themeCustomService, IWebsiteService websiteService, IFrontServerService frontServerService, ICloudPlatformAccountService cloudPlatformAccountService, SubDomainSpuPixelRepository subDomainSpuPixelRepository, SubDomainSpuLandingPageRepository subDomainSpuLandingPageRepository, ISpuService spuService, ThemeEditorProperty themeEditorProperty, ProductRepository productRepository, PixelAccountRepository pixelAccountRepository) {
         super(repository);
         this.themeCustomService = themeCustomService;
         this.websiteService = websiteService;
@@ -88,6 +92,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         this.spuService = spuService;
         this.themeEditorProperty = themeEditorProperty;
         this.productRepository = productRepository;
+        this.pixelAccountRepository = pixelAccountRepository;
     }
 
     @Override
@@ -481,6 +486,25 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
                 .pixelId(pixelId)
                 .build();
         subDomainSpuPixelRepository.save(binding);
+    }
+
+    @Override
+    @Transactional
+    public PixelSimpleResponse createAndBindSpuPixel(CreateAndBindSpuPixelRequest request) {
+        PixelAccount pixelAccount = PixelAccount.builder()
+                .pixelName(request.getPixelName())
+                .pixelId(request.getPixelId())
+                .accessToken(request.getAccessToken() == null ? "" : request.getAccessToken())
+                .platform(request.getPlatform())
+                .state(PixelAccountState.WAIT_VALID)
+                .trackingType(request.getTrackingType())
+                .conversionEvent(request.getConversionEvent())
+                .embedCode(request.getEmbedCode())
+                .website(WebsiteContext.isWebsiteAdmin() ? WebsiteContext.getCurrentWebsite() : null)
+                .build();
+        pixelAccount = pixelAccountRepository.save(pixelAccount);
+        bindSpuPixel(request.getSubDomainId(), request.getSpuId(), pixelAccount.getId());
+        return PixelSimpleResponse.convertEntity(pixelAccount);
     }
 
     @Override

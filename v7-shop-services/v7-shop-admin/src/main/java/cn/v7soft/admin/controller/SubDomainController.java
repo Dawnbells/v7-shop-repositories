@@ -22,6 +22,7 @@ import cn.v7soft.admin.controller.req.BindLandingPageProtocolRequest;
 import cn.v7soft.admin.controller.req.BindLandingPageSpuRequest;
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
 import cn.v7soft.admin.controller.req.BindSpuPixelRequest;
+import cn.v7soft.admin.controller.req.CreateAndBindSpuPixelRequest;
 import cn.v7soft.admin.controller.req.SaveAdConfigRequest;
 import cn.v7soft.admin.controller.req.EditSubDomainRequest;
 import cn.v7soft.admin.controller.req.QuerySubDomainRequest;
@@ -29,6 +30,7 @@ import cn.v7soft.admin.controller.req.UnbindLandingPageSpuRequest;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.enums.LandingPageType;
 import cn.v7soft.admin.controller.resp.SubDomainResponse;
+import cn.v7soft.admin.controller.resp.PixelSimpleResponse;
 import cn.v7soft.admin.controller.resp.SubDomainSpuDetailResponse;
 import cn.v7soft.admin.controller.resp.SubDomainSpuResponse;
 import cn.v7soft.admin.service.ICountryService;
@@ -206,6 +208,12 @@ public class SubDomainController extends BaseController<SubDomain, ISubDomainSer
     @Operation(summary = "绑定像素到子域名SPU")
     public void bindSpuPixel(@Valid @RequestBody BindSpuPixelRequest request) {
         service.bindSpuPixel(request.getSubDomainId(), request.getSpuId(), request.getPixelId());
+    }
+
+    @PostMapping("/createAndBindSpuPixel")
+    @Operation(summary = "新增像素并绑定到子域名SPU")
+    public PixelSimpleResponse createAndBindSpuPixel(@Valid @RequestBody CreateAndBindSpuPixelRequest request) {
+        return service.createAndBindSpuPixel(request);
     }
 
     @PostMapping("/unbindSpuPixel")

@@ -35,6 +35,9 @@ public class PixelSimpleResponse {
     @Schema(title = "转化事件")
     private String conversionEvent;
 
+    @Schema(title = "嵌入像素HTML代码")
+    private String embedCode;
+
     public static PixelSimpleResponse convertEntity(PixelAccount pixelAccount) {
         if (pixelAccount == null) {
             return null;
@@ -45,6 +48,7 @@ public class PixelSimpleResponse {
                 .pixelId(pixelAccount.getPixelId())
                 .platform(pixelAccount.getPlatform())
                 .conversionEvent(pixelAccount.getConversionEvent())
+                .embedCode(pixelAccount.getEmbedCode())
                 .build();
     }
 }

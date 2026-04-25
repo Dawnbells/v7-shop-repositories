@@ -11,6 +11,7 @@ export function usePixels() {
   const tiktok = useTiktokPixel();
   const taboola = useTaboolaPixel();
   const bigo = useBigoPixel();
+  const embed = useEmbedPixel();
 
   /**
    * 触发 Purchase 转化事件（向所有平台发送）
@@ -92,6 +93,7 @@ export function usePixels() {
     tiktok,
     taboola,
     bigo,
+    embed,
     trackPurchase,
     trackAddToCart,
     trackInitiateCheckout,

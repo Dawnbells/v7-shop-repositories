@@ -76,6 +76,12 @@ public class PixelAccount extends BaseDataRangeEntity {
     private String conversionEvent;
 
     /**
+     * 嵌入像素 HTML 代码
+     */
+    @Column(name = "embed_code", columnDefinition = "TEXT")
+    private String embedCode;
+
+    /**
      * 所属网站
      */
     @ManyToOne(fetch = FetchType.LAZY)

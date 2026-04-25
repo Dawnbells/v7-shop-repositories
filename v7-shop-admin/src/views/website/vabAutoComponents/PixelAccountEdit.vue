@@ -17,6 +17,7 @@
           <el-option label="TIKTOK" value="TIKTOK" />
           <el-option label="TABOOLA" value="TABOOLA" />
           <el-option label="BIGO" value="BIGO" />
+          <el-option label="EMBED" value="EMBED" />
         </el-select>
       </el-form-item>
       <el-form-item label="像素ID" prop="pixelId">
@@ -38,8 +39,16 @@
           <el-option label="下单购买" value="PURCHASE" />
         </el-select>
       </el-form-item>
-      <el-form-item v-if="form.platform === 'GOOGLE'" label="转化标签" prop="accessToken" required>
-        <el-input v-model.trim="form.accessToken" clearable placeholder="请输入转化ID" />
+      <el-form-item v-if="form.platform === 'GOOGLE'" label="转化标签" prop="conversionEvent" required>
+        <el-input v-model.trim="form.conversionEvent" clearable placeholder="请输入 Google Ads 转化标签" />
+      </el-form-item>
+      <el-form-item v-if="form.platform === 'EMBED'" label="嵌入代码" prop="embedCode">
+        <el-input
+          v-model="form.embedCode"
+          type="textarea"
+          :rows="8"
+          placeholder="直接粘贴平台提供的 HTML 像素代码，支持 script / noscript 标签"
+        />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -68,6 +77,7 @@ const form = reactive<any>({
   conversionEvent: 'PURCHASE',
   platform: 'META',
   trackingType: 'GLOBAL',
+  embedCode: '',
 })
 const rules = reactive<any>({
   pixelName: [{ required: true, trigger: 'blur', message: '请输入像素名称' }],
@@ -79,6 +89,7 @@ const rules = reactive<any>({
 const pixelIdPlaceholder = computed(() => {
   if (form.platform === 'TABOOLA') return '请输入 Taboola Account ID'
   if (form.platform === 'BIGO') return '请输入 BIGO accountId 或完整 resource/pixel URL'
+  if (form.platform === 'EMBED') return '请输入嵌入像素标识'
   return '请输入像素ID'
 })
 

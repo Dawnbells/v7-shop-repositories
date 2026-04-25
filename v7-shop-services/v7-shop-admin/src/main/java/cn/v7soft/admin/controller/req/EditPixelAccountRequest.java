@@ -41,6 +41,9 @@ public class EditPixelAccountRequest extends IdRequest {
     @Schema(title = "转化事件", example = "AddToCart", requiredMode = Schema.RequiredMode.REQUIRED)
     private String conversionEvent;
 
+    @Schema(title = "嵌入像素HTML代码")
+    private String embedCode;
+
     @Schema(title = "产品列表", example ="[\"1259518722048\"]", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<String> productIds;
 }

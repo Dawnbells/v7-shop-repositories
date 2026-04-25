@@ -188,6 +188,12 @@
                                   <span>Bigo</span>
                                 </div>
                               </el-option>
+                              <el-option label="嵌入像素" value="EMBED">
+                                <div class="platform-option">
+                                  <span class="platform-dot" style="background: #67c23a" />
+                                  <span>嵌入像素</span>
+                                </div>
+                              </el-option>
                             </el-select>
                           </el-form-item>
                         </el-col>
@@ -287,13 +293,14 @@
                         <el-tag effect="light" :type="platformTagType">
                           {{ platformDisplayName }}
                         </el-tag>
-                        <el-button
-                          :icon="Plus"
-                          type="primary"
-                          @click="handleAddPixel"
-                        >
-                          添加像素
-                        </el-button>
+                        <div class="pixel-actions">
+                          <el-button :icon="Connection" type="primary" @click="handleBindPixel">
+                            绑定像素
+                          </el-button>
+                          <el-button :icon="Plus" type="success" @click="handleCreatePixel">
+                            添加像素
+                          </el-button>
+                        </div>
                       </div>
                       <div class="pixel-list">
                         <template v-if="spuDetail.pixels && spuDetail.pixels.length > 0">
@@ -328,7 +335,7 @@
                             </el-button>
                           </div>
                         </template>
-                        <el-empty v-else :image-size="80" description="暂无绑定像素，点击「添加像素」开始" />
+                        <el-empty v-else :image-size="80" description="暂无绑定像素" />
                       </div>
                     </template>
                     <el-empty
@@ -622,11 +629,11 @@
     </div>
   </vab-dialog>
 
-  <!-- 添加像素弹窗 -->
+  <!-- 绑定像素弹窗 -->
   <vab-dialog
     v-model="pixelDialogVisible"
     append-to-body
-    title="添加像素"
+    title="绑定像素"
     width="500px"
     @close="closePixelDialog"
   >
@@ -667,7 +674,64 @@
         type="primary"
         @click="confirmAddPixel"
       >
-        确定
+        绑定
+      </el-button>
+    </template>
+  </vab-dialog>
+
+  <!-- 添加像素并绑定弹窗 -->
+  <vab-dialog
+    v-model="createPixelDialogVisible"
+    append-to-body
+    title="添加像素"
+    width="680px"
+    @close="closeCreatePixelDialog"
+  >
+    <el-form label-width="100px">
+      <el-form-item label="像素名称" required>
+        <el-input v-model.trim="createPixelForm.pixelName" clearable placeholder="请输入像素名称" />
+      </el-form-item>
+      <el-form-item label="像素平台" required>
+        <el-select v-model="createPixelForm.platform" placeholder="请选择像素平台" style="width: 100%" @change="handleCreatePixelPlatformChange">
+          <el-option label="Meta (Facebook)" value="META" />
+          <el-option label="Google" value="GOOGLE" />
+          <el-option label="TikTok" value="TIKTOK" />
+          <el-option label="Taboola" value="TABOOLA" />
+          <el-option label="Bigo" value="BIGO" />
+          <el-option label="嵌入像素" value="EMBED" />
+        </el-select>
+      </el-form-item>
+      <el-form-item :label="isCreateEmbedPixel ? '像素标识' : '像素ID'" :required="!isCreateEmbedPixel">
+        <el-input v-model.trim="createPixelForm.pixelId" clearable :placeholder="createPixelIdPlaceholder" />
+      </el-form-item>
+      <el-form-item v-if="createPixelForm.platform === 'META'" label="AccessToken">
+        <el-input v-model.trim="createPixelForm.accessToken" clearable placeholder="请输入 AccessToken" />
+      </el-form-item>
+      <el-form-item v-if="createPixelForm.platform === 'BIGO'" label="Org ID">
+        <el-input v-model.trim="createPixelForm.accessToken" clearable placeholder="请输入 BIGO orgId，若像素ID已填完整URL可留空" />
+      </el-form-item>
+      <el-form-item v-if="!isCreateEmbedPixel && createPixelForm.platform !== 'GOOGLE'" label="转化事件" required>
+        <el-select v-model="createPixelForm.conversionEvent" placeholder="请选择转化事件" style="width: 100%">
+          <el-option label="加购物车" value="ADD_TO_CART" />
+          <el-option label="下单购买" value="PURCHASE" />
+        </el-select>
+      </el-form-item>
+      <el-form-item v-if="createPixelForm.platform === 'GOOGLE'" label="转化标签" required>
+        <el-input v-model.trim="createPixelForm.conversionEvent" clearable placeholder="请输入 Google Ads 转化标签" />
+      </el-form-item>
+      <el-form-item v-if="isCreateEmbedPixel" label="嵌入代码" required>
+        <el-input
+          v-model="createPixelForm.embedCode"
+          type="textarea"
+          :rows="8"
+          placeholder="直接粘贴平台提供的 HTML 像素代码，支持 script / noscript 标签"
+        />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="createPixelDialogVisible = false">取消</el-button>
+      <el-button :loading="createPixelLoading" type="primary" @click="confirmCreatePixel">
+        保存并绑定
       </el-button>
     </template>
   </vab-dialog>
@@ -825,6 +889,7 @@ import {
   bindLandingPageSpu,
   bindSpu,
   bindSpuPixel,
+  createAndBindSpuPixel,
   getBoundSpuDetail,
   getBoundSpus,
   saveAdConfig,
@@ -950,12 +1015,12 @@ const assembledCampaign = computed(() => {
 })
 
 const platformDisplayName = computed(() => {
-  const map: Record<string, string> = { META: 'Meta', GOOGLE: 'Google', TIKTOK: 'TikTok', TABOOLA: 'Taboola', BIGO: 'Bigo' }
+  const map: Record<string, string> = { META: 'Meta', GOOGLE: 'Google', TIKTOK: 'TikTok', TABOOLA: 'Taboola', BIGO: 'Bigo', EMBED: '嵌入像素' }
   return adConfig.adPlatform ? map[adConfig.adPlatform] || adConfig.adPlatform : ''
 })
 
 const platformTagType = computed(() => {
-  const map: Record<string, string> = { META: '', GOOGLE: 'danger', TIKTOK: 'info', TABOOLA: 'primary', BIGO: 'warning' }
+  const map: Record<string, string> = { META: '', GOOGLE: 'danger', TIKTOK: 'info', TABOOLA: 'primary', BIGO: 'warning', EMBED: 'success' }
   return (adConfig.adPlatform ? map[adConfig.adPlatform] : 'info') as any
 })
 
@@ -966,6 +1031,7 @@ const getPlatformColor = (platform: string) => {
     TIKTOK: '#010101',
     TABOOLA: '#0056d6',
     BIGO: '#f5a400',
+    EMBED: '#67c23a',
   }
   return map[platform] || '#909399'
 }
@@ -985,6 +1051,26 @@ const pixelSearchLoading = ref<boolean>(false)
 const addPixelLoading = ref<boolean>(false)
 const selectedPixelId = ref<number | string | null>(null)
 const pixelOptions = ref<any[]>([])
+const createPixelDialogVisible = ref<boolean>(false)
+const createPixelLoading = ref<boolean>(false)
+const createPixelForm = reactive({
+  pixelName: '',
+  pixelId: '',
+  accessToken: '',
+  conversionEvent: 'PURCHASE',
+  platform: 'META',
+  trackingType: 'GLOBAL',
+  embedCode: '',
+})
+
+const isCreateEmbedPixel = computed(() => createPixelForm.platform === 'EMBED')
+
+const createPixelIdPlaceholder = computed(() => {
+  if (isCreateEmbedPixel.value) return '可选，留空时自动生成'
+  if (createPixelForm.platform === 'TABOOLA') return '请输入 Taboola Account ID'
+  if (createPixelForm.platform === 'BIGO') return '请输入 BIGO accountId 或完整 resource/pixel URL'
+  return '请输入像素ID'
+})
 
 // 落地页SPU配置弹窗相关
 const landingPageDialogVisible = ref<boolean>(false)
@@ -1461,17 +1547,53 @@ const getShareTypeTagType = (shareType: string) => {
   }
 }
 
-// 添加像素 - 打开弹窗
-const handleAddPixel = () => {
+// 绑定像素 - 打开弹窗
+const handleBindPixel = () => {
   pixelDialogVisible.value = true
   selectedPixelId.value = null
   pixelOptions.value = []
+}
+
+// 添加像素并绑定 - 打开弹窗
+const handleCreatePixel = () => {
+  Object.assign(createPixelForm, {
+    pixelName: '',
+    pixelId: '',
+    accessToken: '',
+    conversionEvent: adConfig.adPlatform === 'GOOGLE' ? '' : 'PURCHASE',
+    platform: adConfig.adPlatform || 'META',
+    trackingType: 'GLOBAL',
+    embedCode: '',
+  })
+  createPixelDialogVisible.value = true
+}
+
+const handleCreatePixelPlatformChange = () => {
+  createPixelForm.conversionEvent = createPixelForm.platform === 'GOOGLE' ? '' : 'PURCHASE'
+  if (createPixelForm.platform !== 'BIGO' && createPixelForm.platform !== 'META') {
+    createPixelForm.accessToken = ''
+  }
+  if (createPixelForm.platform !== 'EMBED') {
+    createPixelForm.embedCode = ''
+  }
 }
 
 // 关闭像素弹窗
 const closePixelDialog = () => {
   selectedPixelId.value = null
   pixelOptions.value = []
+}
+
+const closeCreatePixelDialog = () => {
+  Object.assign(createPixelForm, {
+    pixelName: '',
+    pixelId: '',
+    accessToken: '',
+    conversionEvent: 'PURCHASE',
+    platform: adConfig.adPlatform || 'META',
+    trackingType: 'GLOBAL',
+    embedCode: '',
+  })
 }
 
 // 像素选择框获取焦点时加载初始数据
@@ -1540,6 +1662,67 @@ const confirmAddPixel = async () => {
     console.error('添加像素失败:', error)
   } finally {
     addPixelLoading.value = false
+  }
+}
+
+const confirmCreatePixel = async () => {
+  if (!createPixelForm.pixelName) {
+    $baseMessage('请输入像素名称', 'warning', 'hey')
+    return
+  }
+  if (!createPixelForm.platform) {
+    $baseMessage('请选择像素平台', 'warning', 'hey')
+    return
+  }
+  if (!isCreateEmbedPixel.value && !createPixelForm.pixelId) {
+    $baseMessage('请输入像素ID', 'warning', 'hey')
+    return
+  }
+  if (isCreateEmbedPixel.value && !createPixelForm.embedCode) {
+    $baseMessage('请粘贴嵌入像素HTML代码', 'warning', 'hey')
+    return
+  }
+  if (!isCreateEmbedPixel.value && !createPixelForm.conversionEvent) {
+    $baseMessage('请输入或选择转化事件', 'warning', 'hey')
+    return
+  }
+
+  createPixelLoading.value = true
+  try {
+    const pixelId =
+      isCreateEmbedPixel.value && !createPixelForm.pixelId
+        ? `EMBED_${Date.now()}`
+        : createPixelForm.pixelId
+    const { data, msg }: any = await createAndBindSpuPixel({
+      subDomainId: subDomainId.value,
+      spuId: activeSpuTab.value,
+      pixelName: createPixelForm.pixelName,
+      pixelId,
+      accessToken: createPixelForm.accessToken || '',
+      conversionEvent: isCreateEmbedPixel.value ? 'EMBED' : createPixelForm.conversionEvent,
+      platform: createPixelForm.platform,
+      trackingType: createPixelForm.trackingType,
+      embedCode: isCreateEmbedPixel.value ? createPixelForm.embedCode : '',
+    })
+    $baseMessage(msg || '添加并绑定成功', 'success', 'hey')
+
+    if (data) {
+      spuDetail.value.pixels.push({
+        id: Number(data.id),
+        name: data.pixelName,
+        pixelId: data.pixelId,
+        platform: data.platform || '',
+        conversionEvent: data.conversionEvent,
+      })
+    } else {
+      await loadSpuDetail(activeSpuTab.value)
+    }
+
+    createPixelDialogVisible.value = false
+  } catch (error) {
+    console.error('添加并绑定像素失败:', error)
+  } finally {
+    createPixelLoading.value = false
   }
 }
 
@@ -2123,6 +2306,12 @@ const handleUseDefaultConfig = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.pixel-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .pixel-platform-indicator {

@@ -20,5 +20,9 @@ public enum PixelAccountPlatform {
     /**
      * bigo
      */
-    BIGO
+    BIGO,
+    /**
+     * embed html code
+     */
+    EMBED
 }

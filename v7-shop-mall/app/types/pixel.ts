@@ -5,7 +5,7 @@
 /**
  * 像素账号平台类型
  */
-export type PixelPlatform = 'META' | 'GOOGLE' | 'TIKTOK' | 'TABOOLA' | 'BIGO';
+export type PixelPlatform = 'META' | 'GOOGLE' | 'TIKTOK' | 'TABOOLA' | 'BIGO' | 'EMBED';
 
 /**
  * 像素追踪类型
@@ -23,6 +23,7 @@ export interface PixelAccount {
   platform: PixelPlatform;
   trackingType: PixelTrackingType;
   conversionEvent: string;
+  embedCode?: string | null;
 }
 
 /**
@@ -34,4 +35,5 @@ export interface PixelsByPlatform {
   tiktok: PixelAccount[];
   taboola: PixelAccount[];
   bigo: PixelAccount[];
+  embed: PixelAccount[];
 }

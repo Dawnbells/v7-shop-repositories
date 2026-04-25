@@ -49,6 +49,11 @@ public class PixelAccountResponse extends DataRangeResponse {
     private String conversionEvent;
 
     /**
+     * 嵌入像素 HTML 代码
+     */
+    private String embedCode;
+
+    /**
      * 从 `PixelAccount` 实体转换为 `PixelAccountResponse` 的静态方法。
      */
     public static PixelAccountResponse convertEntity(PixelAccount pixelAccount) {
@@ -63,6 +68,7 @@ public class PixelAccountResponse extends DataRangeResponse {
                 .trackingType(pixelAccount.getTrackingType())
                 .spuList(simpleResponses)
                 .conversionEvent(pixelAccount.getConversionEvent())
+                .embedCode(pixelAccount.getEmbedCode())
                 .build());
     }
 }

@@ -8,7 +8,7 @@ import { query } from "../utils/db";
 /**
  * 像素账号平台类型
  */
-export type PixelPlatform = "META" | "GOOGLE" | "TIKTOK" | "TABOOLA" | "BIGO";
+export type PixelPlatform = "META" | "GOOGLE" | "TIKTOK" | "TABOOLA" | "BIGO" | "EMBED";
 
 /**
  * 像素账号状态
@@ -32,6 +32,7 @@ export interface PixelAccount {
   state: PixelState;
   trackingType: PixelTrackingType;
   conversionEvent: string;
+  embedCode: string | null;
 }
 
 /**
@@ -43,6 +44,7 @@ export interface PixelsByPlatform {
   tiktok: PixelAccount[];
   taboola: PixelAccount[];
   bigo: PixelAccount[];
+  embed: PixelAccount[];
 }
 
 /**
@@ -57,6 +59,7 @@ interface PixelAccountRow {
   state: PixelState;
   tracking_type: PixelTrackingType;
   conversion_event: string;
+  embed_code: string | null;
 }
 
 /**
@@ -77,7 +80,8 @@ export async function findPixelsBySubDomainAndSpu(
       pa.platform,
       pa.state,
       pa.tracking_type,
-      pa.conversion_event
+      pa.conversion_event,
+      pa.embed_code
     FROM t_sub_domain_spu_pixels sdsp
     INNER JOIN t_pixel_accounts pa ON pa.id = sdsp.pixel_id
     WHERE sdsp.sub_domain_id = ? 
@@ -99,6 +103,7 @@ export async function findPixelsBySubDomainAndSpu(
     state: row.state,
     trackingType: row.tracking_type,
     conversionEvent: row.conversion_event,
+    embedCode: row.embed_code,
   }));
 }
 
@@ -112,6 +117,7 @@ export function groupPixelsByPlatform(pixels: PixelAccount[]): PixelsByPlatform 
     tiktok: [],
     taboola: [],
     bigo: [],
+    embed: [],
   };
 
   for (const pixel of pixels) {
