@@ -27,7 +27,7 @@ import cn.v7soft.admin.controller.resp.TopLevelDomainResponse;
 import cn.v7soft.admin.events.CertificateRequestPublisher;
 import cn.v7soft.admin.service.ICloudPlatformAccountService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
-import cn.v7soft.admin.service.dns.IDnsService;
+import cn.v7soft.admin.service.dns.impl.DnsServiceFactory;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.common.dto.SSLCertificateInfo;
 import cn.v7soft.common.utils.SslCertificateUtil;
@@ -61,14 +61,14 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
 
     private final CertificateRequestPublisher certificateRequestPublisher;
     private final ICloudPlatformAccountService cloudPlatformAccountService;
-    private final IDnsService dnsService;
+    private final DnsServiceFactory dnsServiceFactory;
 
     protected TopLevelDomainController(ITopLevelDomainService service, CertificateRequestPublisher certificateRequestPublisher,
-                                       ICloudPlatformAccountService cloudPlatformAccountService, IDnsService dnsService) {
+                                       ICloudPlatformAccountService cloudPlatformAccountService, DnsServiceFactory dnsServiceFactory) {
         super(service);
         this.certificateRequestPublisher = certificateRequestPublisher;
         this.cloudPlatformAccountService = cloudPlatformAccountService;
-        this.dnsService = dnsService;
+        this.dnsServiceFactory = dnsServiceFactory;
     }
 
     @Override
@@ -130,7 +130,9 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
         entity.setNginxConfigType(THYMELEAF);
         // 自动获取域名过期时间，获取成功则覆盖用户设置，失败则使用用户设置
         if (cloudPlatformAccount != null && StrUtil.isNotBlank(request.getName())) {
-            LocalDateTime expiryDate = dnsService.queryDomainExpiryDate(cloudPlatformAccount, request.getName());
+            LocalDateTime expiryDate = dnsServiceFactory
+                    .getServiceOrThrow(cloudPlatformAccount.getCloudPlatform())
+                    .queryDomainExpiryDate(cloudPlatformAccount, request.getName());
             if (expiryDate != null) {
                 entity.setExpiryDate(expiryDate);
             }

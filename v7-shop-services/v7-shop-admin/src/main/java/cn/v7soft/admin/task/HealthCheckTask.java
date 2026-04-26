@@ -18,6 +18,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.ISubDomainService;
 import cn.v7soft.admin.service.dns.IDnsService;
+import cn.v7soft.admin.service.dns.impl.DnsServiceFactory;
 import cn.v7soft.admin.service.dto.SubDomainDto;
 import cn.v7soft.dao.entities.primary.CloudPlatformAccount;
 import cn.v7soft.dao.entities.primary.DnsSwitchLog;
@@ -35,7 +36,7 @@ public class HealthCheckTask {
     private final Environment environment;
     private final IFrontServerService frontServerService;
     private final ISubDomainService subDomainService;
-    private final IDnsService dnsService;
+    private final DnsServiceFactory dnsServiceFactory;
     private final DnsSwitchLogRepository dnsSwitchLogRepository;
 
     private final Map<Long, AtomicInteger> failureCountMap = new ConcurrentHashMap<>();
@@ -100,6 +101,7 @@ public class HealthCheckTask {
         SubDomain subDomain = dto.getSubDomain();
         TopLevelDomain parentDomain = dto.getTopLevelDomain();
         CloudPlatformAccount account = parentDomain.getCloudPlatformAccount();
+        IDnsService dnsService = dnsServiceFactory.getServiceOrThrow(account.getCloudPlatform());
         return dnsService.queryRecord(account, parentDomain.getName(), subDomain.getName());
     }
 
@@ -112,6 +114,7 @@ public class HealthCheckTask {
         SubDomain subDomain = dto.getSubDomain();
         TopLevelDomain parentDomain = dto.getTopLevelDomain();
         CloudPlatformAccount account = parentDomain.getCloudPlatformAccount();
+        IDnsService dnsService = dnsServiceFactory.getServiceOrThrow(account.getCloudPlatform());
         dnsService.updateRecord(account, parentDomain.getName(), subDomain.getName(), targetIp);
     }
 

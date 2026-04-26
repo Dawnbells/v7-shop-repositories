@@ -22,4 +22,12 @@ public class DnsServiceFactory {
     public IDnsService getService(CloudPlatform platform) {
         return serviceMap.get(platform);
     }
+
+    public IDnsService getServiceOrThrow(CloudPlatform platform) {
+        IDnsService service = getService(platform);
+        if (service == null) {
+            throw new IllegalArgumentException("Unsupported DNS platform: " + platform);
+        }
+        return service;
+    }
 }

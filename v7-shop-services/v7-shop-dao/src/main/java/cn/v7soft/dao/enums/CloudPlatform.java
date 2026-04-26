@@ -4,4 +4,5 @@ public enum CloudPlatform {
     ALIYUN,
     TENCENT,
     GODADDY,
+    NAMECHEAP,
 }
