@@ -29,7 +29,7 @@
       <el-table-column type="selection" width="38" />
       <el-table-column align="center" label="像素名称" prop="pixelName" />
       <el-table-column align="center" label="像素ID" prop="pixelId" />
-      <el-table-column align="center" label="AccessToken" prop="accessToken" />
+      <el-table-column align="center" label="AccessToken/转化标签" prop="accessToken" />
       <el-table-column align="center" label="像素平台" prop="platform" />
       <el-table-column align="center" label="像素验证" prop="state" />
       <el-table-column align="center" label="状态" prop="status">
