@@ -30,6 +30,11 @@
       <el-table-column align="center" label="像素名称" prop="pixelName" />
       <el-table-column align="center" label="像素ID" prop="pixelId" />
       <el-table-column align="center" label="AccessToken/转化标签" prop="accessToken" />
+      <el-table-column align="center" label="转化事件" prop="conversionEvent">
+        <template #default="{ row }">
+          {{ formatConversionEvent(row.conversionEvent) }}
+        </template>
+      </el-table-column>
       <el-table-column align="center" label="像素平台" prop="platform" />
       <el-table-column align="center" label="像素验证" prop="state" />
       <el-table-column align="center" label="状态" prop="status">
@@ -86,6 +91,15 @@ const queryForm = reactive<any>({
   pageNo: 1,
   pageSize: 20,
 })
+const conversionEventLabelMap: Record<string, string> = {
+  ADD_TO_CART: '加购物车',
+  PURCHASE: '下单购买',
+}
+const formatConversionEvent = (event?: string) => {
+  if (!event) return '-'
+  const label = conversionEventLabelMap[event]
+  return label ? `${label}(${event})` : event
+}
 
 const fetchData = async () => {
   listLoading.value = true

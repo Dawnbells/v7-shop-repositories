@@ -37,6 +37,9 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
     @Query(value = "SELECT * FROM t_system_users WHERE name=:userName and status <> 'DELETED' LIMIT 1 ", nativeQuery = true)
     Optional<SystemUser> findByUserName(@Param("userName") String userName);
 
+    @Query(value = "SELECT * FROM t_system_users WHERE name=:userName and status = 'DELETED'  LIMIT 1 ", nativeQuery = true)
+    Optional<SystemUser> findByDeletedUserNames(@Param("userName") String userName);
+
     @Modifying
     @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits + :amount " +
            "WHERE u.id = :userId " +

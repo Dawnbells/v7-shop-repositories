@@ -27,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, TemporaryOrderRepository> implements ITemporaryOrderService {
+
     private final Lock lock = new ReentrantLock();
     private final ICompanyService companyService;
     private final SystemUserRepository systemUserRepository;
@@ -70,7 +71,9 @@ public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, 
     public void doSynchronizeOrderFromExternalSystem(EditTemporaryOrderRequest request) {
         log.debug("sync order: {}", JSONUtil.toJsonPrettyStr(request));
         SystemUser owner = systemUserRepository.findByUserName(request.getContextInfo().getSalesPerson())
-                .orElse(SystemUser.builder().id(1L).name("系统").build());
+                .orElse(systemUserRepository.findByDeletedUserNames(request.getContextInfo().getSalesPerson())
+                                .orElse(SystemUser.builder().id(1L).name("系统").build()));
+
         Company company = this.companyService.companyCached(request.getCompanyId());
         TenantContext.setCurrentTenant(company.getId(), company);
         Optional<TemporaryOrder> existed = findByOriginOrderId(request.getOriginOrderId());
