@@ -58,9 +58,10 @@ export function useGooglePixel() {
   ) {
     if (typeof window !== "undefined" && window.gtag) {
       for (const pixel of googlePixels.value) {
+        if (!pixel.accessToken) continue;
         const pixelId = formatGoogleAdsId(pixel.pixelId);
         const params: Record<string, any> = {
-          send_to: `${pixelId}/${pixel.conversionEvent}`,
+          send_to: `${pixelId}/${pixel.accessToken}`,
           value,
           currency,
         };

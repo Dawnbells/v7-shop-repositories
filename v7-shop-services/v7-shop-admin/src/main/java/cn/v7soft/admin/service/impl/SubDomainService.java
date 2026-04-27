@@ -491,6 +491,9 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     @Override
     @Transactional
     public PixelSimpleResponse createAndBindSpuPixel(CreateAndBindSpuPixelRequest request) {
+        if (request.getPlatform() == PixelAccountPlatform.GOOGLE) {
+            ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(request.getAccessToken(), "请输入 Google Ads 转化标签");
+        }
         PixelAccount pixelAccount = PixelAccount.builder()
                 .pixelName(request.getPixelName())
                 .pixelId(request.getPixelId())

@@ -710,14 +710,14 @@
       <el-form-item v-if="createPixelForm.platform === 'BIGO'" label="Org ID">
         <el-input v-model.trim="createPixelForm.accessToken" clearable placeholder="请输入 BIGO orgId，若像素ID已填完整URL可留空" />
       </el-form-item>
-      <el-form-item v-if="!isCreateEmbedPixel && createPixelForm.platform !== 'GOOGLE'" label="转化事件" required>
+      <el-form-item v-if="createPixelForm.platform === 'GOOGLE'" label="转化标签" required>
+        <el-input v-model.trim="createPixelForm.accessToken" clearable placeholder="请输入 Google Ads 转化标签" />
+      </el-form-item>
+      <el-form-item v-if="!isCreateEmbedPixel" label="转化事件" required>
         <el-select v-model="createPixelForm.conversionEvent" placeholder="请选择转化事件" style="width: 100%">
           <el-option label="加购物车" value="ADD_TO_CART" />
           <el-option label="下单购买" value="PURCHASE" />
         </el-select>
-      </el-form-item>
-      <el-form-item v-if="createPixelForm.platform === 'GOOGLE'" label="转化标签" required>
-        <el-input v-model.trim="createPixelForm.conversionEvent" clearable placeholder="请输入 Google Ads 转化标签" />
       </el-form-item>
       <el-form-item v-if="isCreateEmbedPixel" label="嵌入代码" required>
         <el-input
@@ -1560,7 +1560,7 @@ const handleCreatePixel = () => {
     pixelName: '',
     pixelId: '',
     accessToken: '',
-    conversionEvent: adConfig.adPlatform === 'GOOGLE' ? '' : 'PURCHASE',
+    conversionEvent: 'PURCHASE',
     platform: adConfig.adPlatform || 'META',
     trackingType: 'GLOBAL',
     embedCode: '',
@@ -1569,8 +1569,8 @@ const handleCreatePixel = () => {
 }
 
 const handleCreatePixelPlatformChange = () => {
-  createPixelForm.conversionEvent = createPixelForm.platform === 'GOOGLE' ? '' : 'PURCHASE'
-  if (createPixelForm.platform !== 'BIGO' && createPixelForm.platform !== 'META') {
+  createPixelForm.conversionEvent = 'PURCHASE'
+  if (createPixelForm.platform !== 'BIGO' && createPixelForm.platform !== 'META' && createPixelForm.platform !== 'GOOGLE') {
     createPixelForm.accessToken = ''
   }
   if (createPixelForm.platform !== 'EMBED') {
@@ -1684,6 +1684,10 @@ const confirmCreatePixel = async () => {
   }
   if (!isCreateEmbedPixel.value && !createPixelForm.conversionEvent) {
     $baseMessage('请输入或选择转化事件', 'warning', 'hey')
+    return
+  }
+  if (createPixelForm.platform === 'GOOGLE' && !createPixelForm.accessToken) {
+    $baseMessage('请输入 Google Ads 转化标签', 'warning', 'hey')
     return
   }
 

@@ -29,8 +29,11 @@
       <el-form-item v-if="form.platform === 'BIGO'" label="Org ID" prop="accessToken">
         <el-input v-model.trim="form.accessToken" clearable placeholder="请输入 BIGO orgId，若像素ID已填完整URL可留空" />
       </el-form-item>
+      <el-form-item v-if="form.platform === 'GOOGLE'" label="转化标签" prop="accessToken" required>
+        <el-input v-model.trim="form.accessToken" clearable placeholder="请输入 Google Ads 转化标签" />
+      </el-form-item>
       <el-form-item
-        v-if="form.platform === 'META' || form.platform === 'TIKTOK' || form.platform === 'TABOOLA' || form.platform === 'BIGO'"
+        v-if="form.platform === 'META' || form.platform === 'GOOGLE' || form.platform === 'TIKTOK' || form.platform === 'TABOOLA' || form.platform === 'BIGO'"
         label="转化事件"
         prop="conversionEvent"
       >
@@ -38,9 +41,6 @@
           <el-option label="加购物车" value="ADD_TO_CART" />
           <el-option label="下单购买" value="PURCHASE" />
         </el-select>
-      </el-form-item>
-      <el-form-item v-if="form.platform === 'GOOGLE'" label="转化标签" prop="conversionEvent" required>
-        <el-input v-model.trim="form.conversionEvent" clearable placeholder="请输入 Google Ads 转化标签" />
       </el-form-item>
       <el-form-item v-if="form.platform === 'EMBED'" label="嵌入代码" prop="embedCode">
         <el-input
@@ -79,10 +79,18 @@ const form = reactive<any>({
   trackingType: 'GLOBAL',
   embedCode: '',
 })
+const validateAccessToken = (_rule: any, value: string, callback: any) => {
+  if (form.platform === 'GOOGLE' && !value) {
+    callback(new Error('请输入 Google Ads 转化标签'))
+    return
+  }
+  callback()
+}
 const rules = reactive<any>({
   pixelName: [{ required: true, trigger: 'blur', message: '请输入像素名称' }],
   pixelId: [{ required: true, trigger: 'blur', message: '请输入像素ID' }],
   platform: [{ required: true, trigger: 'blur', message: '请选择像素平台' }],
+  accessToken: [{ validator: validateAccessToken, trigger: 'blur' }],
   conversionEvent: [{ required: true, trigger: 'blur', message: '请选择转化事件' }],
 })
 
@@ -119,6 +127,10 @@ const close = () => {
 }
 
 const save = () => {
+  if (form.platform === 'GOOGLE' && !form.accessToken) {
+    $baseMessage('请输入 Google Ads 转化标签', 'warning', 'hey')
+    return
+  }
   formRef.value.validate(async (valid: any) => {
     if (valid) {
       try {
