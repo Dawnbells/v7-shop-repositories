@@ -51,7 +51,9 @@ const config: Config = {
   themeConfig: {
     image: "img/docusaurus-social-card.jpg",
     colorMode: {
-      respectPrefersColorScheme: true,
+      defaultMode: "light",
+      respectPrefersColorScheme: false,
+      disableSwitch: false,
     },
     navbar: {
       title: "V7 Shop",
@@ -73,15 +75,15 @@ const config: Config = {
       style: "dark",
       links: [
         {
-          title: "文档",
+          title: "产品能力",
           items: [
             {
-              label: "操作手册",
-              to: "/docs/intro",
+              label: "多站点商城",
+              to: "/docs/mall-guide/overview",
             },
             {
-              label: "Mall 商城模板",
-              to: "/docs/mall-guide/overview",
+              label: "商品与主题配置",
+              to: "/docs/mall-guide/product-management",
             },
             {
               label: "第三方订单同步",
@@ -90,16 +92,41 @@ const config: Config = {
           ],
         },
         {
-          title: "更多",
+          title: "操作中心",
+          items: [
+            {
+              label: "操作手册",
+              to: "/docs/intro",
+            },
+            {
+              label: "域名配置",
+              to: "/docs/mall-guide/domain-setup",
+            },
+            {
+              label: "实时同步",
+              to: "/docs/third-party-order-sync/realtime-sync",
+            },
+          ],
+        },
+        {
+          title: "版本与资源",
           items: [
             {
               label: "更新日志",
               to: "/blog",
             },
+            {
+              label: "历史同步",
+              to: "/docs/third-party-order-sync/history-sync",
+            },
+            {
+              label: "常见问题",
+              to: "/docs/third-party-order-sync/faq",
+            },
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} V7Soft. All rights reserved.`,
+      copyright: `V7 Shop Commerce Platform · Copyright © ${new Date().getFullYear()} V7Soft. All rights reserved.`,
     },
     prism: {
       theme: prismThemes.github,
