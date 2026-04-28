@@ -10,6 +10,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     ActiveUsersBar: typeof import('./../../../src/views/index/vabAutoComponents/ActiveUsersBar.vue')['default']
     AddPanel: typeof import('./../../../src/views/other/workflow/vabAutoComponents/lFComponents/AddPanel.vue')['default']
+    AiAccountEdit: typeof import('./../../../src/views/ai/vabAutoComponents/AiAccountEdit.vue')['default']
     ArticleEdit: typeof import('./../../../src/views/article/vabAutoComponents/ArticleEdit.vue')['default']
     Authorization: typeof import('./../../../src/views/index/vabAutoComponents/Authorization.vue')['default']
     AwardGrid: typeof import('./../../../src/views/other/award/vabAutoComponents/AwardGrid.vue')['default']
