@@ -6,9 +6,9 @@ import Heading from "@theme/Heading";
 import styles from "./index.module.css";
 
 const highlights = [
-  { value: "Multi-site", label: "多站点独立运营" },
-  { value: "SaaS", label: "租户隔离与权限体系" },
-  { value: "H5", label: "商城页面快速交付" },
+  { value: "DTC", label: "外贸品牌独立站" },
+  { value: "Multi-site", label: "多市场站点运营" },
+  { value: "H5", label: "投放落地页快速交付" },
 ];
 
 const capabilities = [
@@ -16,49 +16,49 @@ const capabilities = [
     title: "运营后台",
     eyebrow: "Admin Console",
     description:
-      "覆盖站点、商品、订单、域名、SSL、支付与营销配置，让日常运营动作清晰、稳定、可追踪。",
+      "覆盖站点、商品、订单、域名、SSL、支付与投放配置，让外贸团队的日常运营动作清晰、稳定、可追踪。",
   },
   {
-    title: "商城前台",
+    title: "独立站前台",
     eyebrow: "Storefront",
     description:
-      "面向 H5、PC 与多终端访问场景，支持模板化页面、商品转化链路和品牌化视觉呈现。",
+      "面向 H5、PC 与多终端访问场景，支持品牌独立站、商品转化链路和投放落地页的视觉呈现。",
   },
   {
     title: "服务底座",
     eyebrow: "Service Layer",
     description:
-      "以 Spring Boot 微服务承载鉴权、多租户、对象存储、DNS、消息与第三方订单同步能力。",
+      "以 Spring Boot 微服务承载鉴权、多租户、对象存储、DNS、消息与第三方平台订单同步能力。",
   },
 ];
 
 const workflows = [
   "创建站点与品牌域名",
   "配置商品、库存与履约",
-  "搭建 H5 商城页面",
+  "搭建 H5 独立站页面",
   "同步订单与业务系统",
 ];
 
 export default function Home(): ReactNode {
   return (
-    <Layout title="V7 Shop" description="V7 Shop 多站点电商建站平台">
+    <Layout title="VantaSite" description="VantaSite 梵塔独立站外贸品牌自建站平台">
       <main className={styles.page}>
         <section className={styles.hero}>
           <div className={styles.heroShell}>
             <div className={styles.heroContent}>
-              <span className={styles.kicker}>V7 Shop Commerce Platform</span>
+              <span className={styles.kicker}>VantaSite Global Commerce Builder</span>
               <Heading as="h1" className={styles.title}>
-                专业级多站点电商 H5 建站平台
+                外贸品牌独立站与 H5 增长平台
               </Heading>
               <p className={styles.subtitle}>
-                从商城前台、运营后台到后端服务，把品牌站点、商品管理、订单同步和履约配置整合到一套稳定的商业基础设施中。
+                从独立站前台、运营后台到后端服务，把品牌站点、投放落地页、商品管理、订单同步和履约配置整合到一套稳定的出海增长基础设施中。
               </p>
               <div className={styles.actions}>
                 <Link className={styles.primaryAction} to="/docs/intro">
                   开始使用
                 </Link>
                 <Link className={styles.secondaryAction} to="/docs/mall-guide/overview">
-                  查看商城方案
+                  查看建站方案
                 </Link>
               </div>
               <div className={styles.metrics}>
@@ -117,7 +117,7 @@ export default function Home(): ReactNode {
         <section className={styles.capabilitySection}>
           <div className={styles.sectionHeader}>
             <span className={styles.kicker}>Core Capability</span>
-            <Heading as="h2">把电商建站的关键链路收进一个专业工作台</Heading>
+            <Heading as="h2">把外贸自建站的关键链路收进一个专业工作台</Heading>
           </div>
           <div className={styles.capabilityGrid}>
             {capabilities.map((item, index) => (
@@ -155,7 +155,7 @@ export default function Home(): ReactNode {
         <section className={styles.ctaSection}>
           <div>
             <span className={styles.kicker}>Ready</span>
-            <Heading as="h2">开始配置你的 V7 Shop 商城</Heading>
+            <Heading as="h2">开始配置你的 VantaSite 独立站</Heading>
           </div>
           <Link className={styles.primaryAction} to="/docs/intro">
             进入操作手册

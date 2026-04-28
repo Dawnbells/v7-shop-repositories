@@ -3,19 +3,19 @@ import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
-  title: "V7 Shop 操作手册",
-  tagline: "多站点电商建站平台 — 管理后台 · 商城前台 · 后端服务",
+  title: "VantaSite 梵塔独立站",
+  tagline: "外贸品牌自建站平台 — 独立站建站 · 投放落地页 · 订单同步",
   favicon: "img/favicon.ico",
 
   future: {
     v4: true,
   },
 
-  url: "https://docs.v7soft.cn",
+  url: "https://docs.vantasite.com",
   baseUrl: "/",
 
   organizationName: "Dawnbells",
-  projectName: "v7-shop-docs",
+  projectName: "vantasite-docs",
 
   onBrokenLinks: "throw",
 
@@ -56,9 +56,9 @@ const config: Config = {
       disableSwitch: false,
     },
     navbar: {
-      title: "V7 Shop",
+      title: "VantaSite",
       logo: {
-        alt: "V7 Shop Logo",
+        alt: "VantaSite Logo",
         src: "img/logo.svg",
       },
       items: [
@@ -78,7 +78,7 @@ const config: Config = {
           title: "产品能力",
           items: [
             {
-              label: "多站点商城",
+              label: "外贸独立站",
               to: "/docs/mall-guide/overview",
             },
             {
@@ -126,7 +126,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `V7 Shop Commerce Platform · Copyright © ${new Date().getFullYear()} V7Soft. All rights reserved.`,
+      copyright: `VantaSite 梵塔独立站 · Copyright © ${new Date().getFullYear()} VantaSite. All rights reserved.`,
     },
     prism: {
       theme: prismThemes.github,

@@ -431,7 +431,7 @@ pre {
 }
 
 .footer::before {
-  content: "V7";
+  content: "VS";
   position: absolute;
   right: max(1.5rem, calc((100vw - 1180px) / 2));
   top: 0.4rem;
@@ -466,7 +466,7 @@ pre {
 }
 
 .footer .container::before {
-  content: "V7 Shop Commerce Platform";
+  content: "VantaSite";
   display: block;
   grid-column: 1;
   grid-row: 1;
@@ -480,7 +480,7 @@ pre {
 }
 
 .footer .container::after {
-  content: "多站点电商建站平台，连接商城前台、运营后台与后端服务。";
+  content: "梵塔独立站，面向外贸品牌的自建站、投放落地页与多市场增长平台。";
   display: block;
   grid-column: 1;
   grid-row: 2;
