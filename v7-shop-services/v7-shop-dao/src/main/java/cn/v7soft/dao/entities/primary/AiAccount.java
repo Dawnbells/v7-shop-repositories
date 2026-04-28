@@ -4,6 +4,7 @@ import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.InvokeMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -48,6 +49,10 @@ public class AiAccount extends BaseDataRangeEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "api_channel", nullable = false, length = 20)
     private AiApiChannel apiChannel;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "invoke_mode", length = 20)
+    private InvokeMode invokeMode;
 
     @Column(name = "api_key", nullable = false, length = 2048)
     private String apiKey;

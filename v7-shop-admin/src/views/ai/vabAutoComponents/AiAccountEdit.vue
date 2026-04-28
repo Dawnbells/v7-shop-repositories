@@ -3,7 +3,7 @@
     <el-form ref="formRef" class="ai-account-form" label-width="96px" :model="form" :rules="rules">
       <section class="form-section">
         <div class="section-title">基础信息</div>
-        <el-row :gutter="16">
+        <el-row class="form-grid" :gutter="16">
           <el-col :span="12">
             <el-form-item label="账号名称" prop="name">
               <el-input v-model.trim="form.name" clearable placeholder="例如：Gemini官方翻译账号" />
@@ -16,7 +16,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="服务商" prop="provider">
-              <el-select v-model="form.provider" placeholder="请选择服务商" style="width: 100%">
+              <el-select v-model="form.provider" placeholder="请选择服务商" style="width: 100%" @change="handleProviderChange">
                 <el-option label="Gemini" value="GEMINI" />
                 <el-option label="OpenAI" value="OPENAI" />
               </el-select>
@@ -30,6 +30,14 @@
               </el-select>
             </el-form-item>
           </el-col>
+          <el-col v-if="form.provider === 'GEMINI'" :span="12">
+            <el-form-item label="接口模式" prop="invokeMode">
+              <el-radio-group v-model="form.invokeMode">
+                <el-radio-button label="STANDARD">标准接口</el-radio-button>
+                <el-radio-button label="BATCH">批量接口</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+          </el-col>
           <el-col :span="24">
             <el-form-item label="描述" prop="description">
               <el-input v-model.trim="form.description" clearable placeholder="账号用途说明" />
@@ -40,7 +48,7 @@
 
       <section class="form-section">
         <div class="section-title">接口配置</div>
-        <el-row :gutter="16">
+        <el-row class="form-grid" :gutter="16">
           <el-col :span="24">
             <el-form-item label="API Key" prop="apiKey">
               <el-input v-model.trim="form.apiKey" clearable placeholder="官方或Sub2API提供的API Key" show-password />
@@ -56,7 +64,7 @@
 
       <section class="form-section">
         <div class="section-title">使用设置</div>
-        <el-row :gutter="16">
+        <el-row class="form-grid" :gutter="16">
           <el-col :span="8">
             <el-form-item label="每日限额" prop="dailyLimit">
               <el-input-number v-model="form.dailyLimit" controls-position="right" :min="0" :precision="0" style="width: 100%" />
@@ -80,13 +88,6 @@
 
       <section class="form-section billing-section">
         <div class="section-title">计费配置</div>
-        <el-row :gutter="16">
-          <el-col :span="8">
-            <el-form-item label="计费币种" prop="billingCurrency">
-              <el-input v-model.trim="form.billingCurrency" clearable placeholder="USD" />
-            </el-form-item>
-          </el-col>
-        </el-row>
         <div class="billing-table">
           <div class="billing-header">
             <div />
@@ -98,25 +99,39 @@
           <div v-for="item in billingRows" :key="item.name" class="billing-row">
             <div class="billing-name">{{ item.name }}</div>
             <div class="billing-cell">
-              <el-form-item :prop="item.inputPrice">
-                <el-input-number v-model="form[item.inputPrice]" :controls="false" :min="0" :precision="6" placeholder="0.000000" />
+              <el-form-item label-width="0" :prop="item.inputPrice">
+                <el-input-number
+                  v-model="form[item.inputPrice]"
+                  :controls="false"
+                  :min="0"
+                  :precision="6"
+                  placeholder="0.000000"
+                  @change="validateBillingPair(item.inputPrice, item.inputUnit)"
+                />
               </el-form-item>
             </div>
             <div class="billing-cell">
-              <el-form-item :prop="item.inputUnit">
-                <el-select v-model="form[item.inputUnit]" clearable placeholder="请选择单位">
+              <el-form-item label-width="0" :prop="item.inputUnit">
+                <el-select v-model="form[item.inputUnit]" clearable placeholder="请选择单位" @change="validateBillingPair(item.inputPrice, item.inputUnit)">
                   <el-option v-for="unit in priceUnitOptions" :key="unit.value" :label="unit.label" :value="unit.value" />
                 </el-select>
               </el-form-item>
             </div>
             <div class="billing-cell">
-              <el-form-item :prop="item.outputPrice">
-                <el-input-number v-model="form[item.outputPrice]" :controls="false" :min="0" :precision="6" placeholder="0.000000" />
+              <el-form-item label-width="0" :prop="item.outputPrice">
+                <el-input-number
+                  v-model="form[item.outputPrice]"
+                  :controls="false"
+                  :min="0"
+                  :precision="6"
+                  placeholder="0.000000"
+                  @change="validateBillingPair(item.outputPrice, item.outputUnit)"
+                />
               </el-form-item>
             </div>
             <div class="billing-cell">
-              <el-form-item :prop="item.outputUnit">
-                <el-select v-model="form[item.outputUnit]" clearable placeholder="请选择单位">
+              <el-form-item label-width="0" :prop="item.outputUnit">
+                <el-select v-model="form[item.outputUnit]" clearable placeholder="请选择单位" @change="validateBillingPair(item.outputPrice, item.outputUnit)">
                   <el-option v-for="unit in priceUnitOptions" :key="unit.value" :label="unit.label" :value="unit.value" />
                 </el-select>
               </el-form-item>
@@ -154,6 +169,7 @@ const defaultForm = () => ({
   description: '',
   provider: 'GEMINI',
   apiChannel: 'OFFICIAL',
+  invokeMode: 'STANDARD',
   apiKey: '',
   baseUrl: '',
   model: '',
@@ -225,8 +241,6 @@ const baseUrlPlaceholder = computed(() => {
   return '官方渠道可留空；代理接口可填写'
 })
 
-const hasAnyPrice = () => billingItems.some((item) => form[item.price] !== undefined && form[item.price] !== null)
-
 const validateBaseUrl = (_rule: any, value: string, callback: any) => {
   if (form.apiChannel === 'SUB2API' && !value) {
     callback(new Error('Sub2API渠道必须填写Base URL'))
@@ -235,24 +249,34 @@ const validateBaseUrl = (_rule: any, value: string, callback: any) => {
   callback()
 }
 
-const validateBillingCurrency = (_rule: any, value: string, callback: any) => {
-  if (hasAnyPrice() && !value) {
-    callback(new Error('填写价格时必须填写计费币种'))
+const validateInvokeMode = (_rule: any, value: string, callback: any) => {
+  if (form.provider === 'GEMINI' && !value) {
+    callback(new Error('请选择Gemini接口模式'))
     return
   }
   callback()
 }
 
-const createPriceUnitValidator = (priceField: string, unitField: string, label: string) => {
+const hasValue = (value: any) => value !== undefined && value !== null && value !== ''
+
+const createBillingPriceValidator = (priceField: string, unitField: string, label: string) => {
   return (_rule: any, _value: string, callback: any) => {
     const price = form[priceField]
     const unit = form[unitField]
-    if ((price === undefined || price === null) && unit) {
-      callback(new Error(`${label}已选择单位时必须填写价格`))
+    if (!hasValue(price) && hasValue(unit)) {
+      callback(new Error(`${label}不能为空`))
       return
     }
-    if (price !== undefined && price !== null && !unit) {
-      callback(new Error(`${label}已填写价格时必须选择单位`))
+    callback()
+  }
+}
+
+const createBillingUnitValidator = (priceField: string, unitField: string, label: string) => {
+  return (_rule: any, _value: string, callback: any) => {
+    const price = form[priceField]
+    const unit = form[unitField]
+    if (hasValue(price) && !hasValue(unit)) {
+      callback(new Error(`${label}不能为空`))
       return
     }
     callback()
@@ -263,16 +287,32 @@ const rules = reactive<any>({
   name: [{ required: true, trigger: 'blur', message: '请输入账号名称' }],
   provider: [{ required: true, trigger: 'change', message: '请选择服务商' }],
   apiChannel: [{ required: true, trigger: 'change', message: '请选择API渠道' }],
+  invokeMode: [{ validator: validateInvokeMode, trigger: 'change' }],
   apiKey: [{ required: true, trigger: 'blur', message: '请输入API Key' }],
   baseUrl: [{ validator: validateBaseUrl, trigger: 'blur' }],
   model: [{ required: true, trigger: 'blur', message: '请输入模型' }],
-  billingCurrency: [{ validator: validateBillingCurrency, trigger: 'blur' }],
 })
 
 billingItems.forEach((item) => {
-  rules[item.price] = [{ validator: createPriceUnitValidator(item.price, item.unit, item.priceLabel), trigger: 'blur' }]
-  rules[item.unit] = [{ validator: createPriceUnitValidator(item.price, item.unit, item.priceLabel), trigger: 'change' }]
+  rules[item.price] = [{ validator: createBillingPriceValidator(item.price, item.unit, item.priceLabel), trigger: 'blur' }]
+  rules[item.unit] = [{ validator: createBillingUnitValidator(item.price, item.unit, item.unitLabel), trigger: 'change' }]
 })
+
+const validateBillingPair = (priceField: string, unitField: string) => {
+  nextTick(() => {
+    formRef.value?.validateField(priceField, () => undefined)
+    formRef.value?.validateField(unitField, () => undefined)
+  })
+}
+
+const handleProviderChange = () => {
+  if (form.provider !== 'GEMINI') {
+    form.invokeMode = 'STANDARD'
+  } else {
+    form.invokeMode = form.invokeMode || 'STANDARD'
+  }
+  formRef.value?.clearValidate('invokeMode')
+}
 
 const showEdit = (row: any) => {
   dialogFormVisible.value = true
@@ -284,6 +324,8 @@ const showEdit = (row: any) => {
     } else {
       title.value = '添加'
     }
+    handleProviderChange()
+    form.billingCurrency = form.billingCurrency || 'USD'
   })
 }
 
@@ -302,6 +344,10 @@ const save = () => {
     if (!valid) return
     try {
       saveLoading.value = true
+      form.billingCurrency = 'USD'
+      if (form.provider !== 'GEMINI') {
+        form.invokeMode = 'STANDARD'
+      }
       const { msg }: any = await doEdit(form)
       await $baseMessage(msg, 'success', 'hey')
       dialogFormVisible.value = false
@@ -314,10 +360,10 @@ const save = () => {
 
 <style lang="scss" scoped>
 .ai-account-form {
-  padding: 4px 8px 0;
+  padding: 12px 10px 2px;
 
   :deep(.el-form-item) {
-    margin-bottom: 18px;
+    margin-bottom: 20px;
   }
 
   :deep(.el-input-number .el-input__inner) {
@@ -326,17 +372,21 @@ const save = () => {
 }
 
 .form-section {
-  padding: 6px 0 4px;
+  padding: 10px 0 8px;
 
   & + & {
-    margin-top: 10px;
+    margin-top: 14px;
     border-top: 1px solid var(--el-border-color-lighter);
-    padding-top: 18px;
+    padding-top: 22px;
   }
 }
 
+.form-grid {
+  row-gap: 2px;
+}
+
 .section-title {
-  margin-bottom: 14px;
+  margin-bottom: 18px;
   color: var(--el-text-color-primary);
   font-size: 15px;
   font-weight: 600;
@@ -351,15 +401,13 @@ const save = () => {
 }
 
 .billing-section {
-  :deep(.el-form-item) {
-    margin-bottom: 0;
-  }
+  padding-bottom: 2px;
 }
 
 .billing-table {
   display: grid;
   gap: 12px;
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .billing-header {
@@ -393,8 +441,18 @@ const save = () => {
 .billing-cell {
   min-width: 0;
 
+  :deep(.el-form-item) {
+    margin-bottom: 0;
+  }
+
+  :deep(.el-form-item__label) {
+    display: none;
+    width: 0 !important;
+  }
+
   :deep(.el-form-item__content) {
     display: block;
+    margin-left: 0 !important;
     line-height: 1.4;
   }
 

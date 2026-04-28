@@ -55,6 +55,12 @@
           </el-tag>
         </template>
       </el-table-column>
+      <el-table-column align="center" label="接口模式" width="100">
+        <template #default="{ row }">
+          <span v-if="row.provider === 'GEMINI'">{{ invokeModeLabel(row.invokeMode) }}</span>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
       <el-table-column align="center" label="模型" min-width="150" prop="model" show-overflow-tooltip />
       <el-table-column align="center" label="Base URL" min-width="180" prop="baseUrl" show-overflow-tooltip>
         <template #default="{ row }">
@@ -173,6 +179,12 @@ const apiChannelLabel = (apiChannel?: string) => {
   if (apiChannel === 'OFFICIAL') return '官方'
   if (apiChannel === 'SUB2API') return 'Sub2API'
   return apiChannel || '-'
+}
+
+const invokeModeLabel = (invokeMode?: string) => {
+  if (invokeMode === 'BATCH') return '批量接口'
+  if (invokeMode === 'STANDARD') return '标准接口'
+  return invokeMode || '标准接口'
 }
 
 const priceUnitLabel = (unit?: string) => {

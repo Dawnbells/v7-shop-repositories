@@ -35,6 +35,9 @@ public class AiAccountService extends BaseDataRangeService<AiAccount, AiAccountR
         ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(entity.getModel(), "模型不能为空");
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getProvider(), "AI服务商不能为空");
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getApiChannel(), "API渠道不能为空");
+        if (entity.getProvider() == AiProvider.GEMINI) {
+            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getInvokeMode(), "Gemini接口模式不能为空");
+        }
         if (entity.getApiChannel() == AiApiChannel.SUB2API) {
             ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(StrUtil.isNotBlank(entity.getBaseUrl()), "Sub2API渠道必须填写Base URL");
         }

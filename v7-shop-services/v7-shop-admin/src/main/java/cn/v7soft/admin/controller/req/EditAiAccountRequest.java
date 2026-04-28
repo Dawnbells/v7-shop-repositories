@@ -4,6 +4,7 @@ import cn.v7soft.core.controller.request.IdRequest;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.InvokeMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -30,6 +31,9 @@ public class EditAiAccountRequest extends IdRequest {
     @NotNull(message = "API渠道不能为空")
     @Schema(title = "API渠道", example = "OFFICIAL")
     private AiApiChannel apiChannel;
+
+    @Schema(title = "Gemini接口模式", description = "STANDARD为标准接口，BATCH为批量接口", example = "STANDARD")
+    private InvokeMode invokeMode;
 
     @NotBlank(message = "API Key不能为空")
     @Schema(title = "API Key")
