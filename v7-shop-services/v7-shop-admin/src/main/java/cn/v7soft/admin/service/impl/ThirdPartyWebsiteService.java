@@ -66,6 +66,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     private static final String METAFIELD_KEY_WAYBILL_PRODUCT_NAME = "waybill_product_name";
     private static final String METAFIELD_KEY_OWNER_NAME = "owner_name";
     private static final String METAFIELD_KEY_OWNER_TELEPHONE = "owner_telephone";
+    private static final String METAFIELD_KEY_SKU_CODE = "sku_code";
+    private static final String METAFIELD_KEY_SKU_CODE_HIGH = "sku_code_high";
     private static final Pattern LINK_PAGE_INFO_PATTERN = Pattern.compile("<[^>]*[?&]page_info=([^&>]+)[^>]*>;\\s*rel=\"next\"");
     private static final Pattern LOCALE_PATTERN = Pattern.compile("([a-z]{2})[_-]([A-Z]{2})");
     private static final DateTimeFormatter ISO_OFFSET = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
@@ -669,7 +671,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
             if (lineItem != null) {
-                String code = lineItem.getStr("sku");
+                String code = resolveSkuCode(lineItem, productMetafieldsMap);
                 if (StrUtil.isNotBlank(code)) {
                     skuCodes.add(code.trim());
                 }
@@ -726,7 +728,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             item.setBarcode("");
             item.setQuantity(Integer.parseInt(StrUtil.blankToDefault(lineItem.getStr("quantity"), "0")));
 
-            String skuCode = StrUtil.blankToDefault(lineItem.getStr("sku"), "").trim();
+            String skuCode = resolveSkuCode(lineItem, productMetafieldsMap);
             item.setSkuCode(skuCode);
             ProductSKU matchedSku = skuMap.get(skuCode);
             if (matchedSku != null) {
@@ -760,6 +762,24 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             items.add(item);
         }
         return items;
+    }
+
+    private String resolveSkuCode(JSONObject lineItem, Map<String, Map<String, String>> productMetafieldsMap) {
+        String skuCode = StrUtil.blankToDefault(lineItem.getStr("sku"), "").trim();
+        String shoplineProductId = lineItem.getStr("product_id");
+        if (StrUtil.isBlank(shoplineProductId)) {
+            return skuCode;
+        }
+        Map<String, String> metafields = productMetafieldsMap.getOrDefault(shoplineProductId, Map.of());
+        String highPrioritySkuCode = metafields.get(METAFIELD_KEY_SKU_CODE_HIGH);
+        if (StrUtil.isNotBlank(highPrioritySkuCode)) {
+            return highPrioritySkuCode.trim();
+        }
+        String fallbackSkuCode = metafields.get(METAFIELD_KEY_SKU_CODE);
+        if (StrUtil.isBlank(skuCode) && StrUtil.isNotBlank(fallbackSkuCode)) {
+            return fallbackSkuCode.trim();
+        }
+        return skuCode;
     }
 
     // ==================== Metafield 相关 ====================
