@@ -18,10 +18,10 @@
               <el-option label="Sub2API" value="SUB2API" />
             </el-select>
           </el-form-item>
-          <el-form-item v-show="!fold" label="启用">
-            <el-select v-model="queryForm.enabled" clearable placeholder="全部" style="width: 120px">
-              <el-option label="启用" :value="true" />
-              <el-option label="停用" :value="false" />
+          <el-form-item v-show="!fold" label="状态">
+            <el-select v-model="queryForm.status" clearable placeholder="全部" style="width: 120px">
+              <el-option label="有效" value="VALID" />
+              <el-option label="无效" value="INVALID" />
             </el-select>
           </el-form-item>
           <el-form-item>
@@ -108,11 +108,6 @@
         </template>
       </el-table-column>
       <el-table-column align="center" label="优先级" prop="priority" width="80" />
-      <el-table-column align="center" label="启用" width="80">
-        <template #default="{ row }">
-          <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
-        </template>
-      </el-table-column>
       <el-table-column align="center" label="状态" prop="status" width="90">
         <template #default="{ row }">
           <el-switch
@@ -124,9 +119,10 @@
           />
         </template>
       </el-table-column>
-      <el-table-column align="center" fixed="right" label="操作" width="150">
+      <el-table-column align="center" fixed="right" label="操作" width="190">
         <template #default="{ row }">
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
+          <el-button text type="primary" @click="handleCopy(row)">复制</el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -246,6 +242,10 @@ const handleAdd = () => {
 
 const handleEdit = (row = {}) => {
   editRef.value.showEdit(row)
+}
+
+const handleCopy = (row: any) => {
+  editRef.value.showEdit(row, true)
 }
 
 const handleDelete = (row: any) => {

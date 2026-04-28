@@ -65,22 +65,14 @@
       <section class="form-section">
         <div class="section-title">使用设置</div>
         <el-row class="form-grid" :gutter="16">
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item label="每日限额" prop="dailyLimit">
               <el-input-number v-model="form.dailyLimit" controls-position="right" :min="0" :precision="0" style="width: 100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item label="优先级" prop="priority">
               <el-input-number v-model="form.priority" controls-position="right" :min="0" :precision="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="是否启用" prop="enabled">
-              <div class="switch-line">
-                <el-switch v-model="form.enabled" />
-                <span>{{ form.enabled ? '启用' : '停用' }}</span>
-              </div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -188,7 +180,6 @@ const defaultForm = () => ({
   billingCurrency: 'USD',
   dailyLimit: undefined,
   priority: 100,
-  enabled: true,
 })
 
 const form = reactive<any>(defaultForm())
@@ -314,13 +305,19 @@ const handleProviderChange = () => {
   formRef.value?.clearValidate('invokeMode')
 }
 
-const showEdit = (row: any) => {
+const showEdit = (row: any, copy = false) => {
   dialogFormVisible.value = true
   nextTick(() => {
     Object.assign(form, defaultForm())
     if (row) {
-      title.value = '编辑'
-      Object.assign(form, row)
+      title.value = copy ? '添加' : '编辑'
+      const source = { ...row }
+      if (copy) {
+        delete source.id
+        delete source.compactId
+        delete source.status
+      }
+      Object.assign(form, source)
     } else {
       title.value = '添加'
     }
@@ -390,14 +387,6 @@ const save = () => {
   color: var(--el-text-color-primary);
   font-size: 15px;
   font-weight: 600;
-}
-
-.switch-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 32px;
-  color: var(--el-text-color-regular);
 }
 
 .billing-section {

@@ -30,7 +30,6 @@ import java.math.BigDecimal;
 @Table(name = "t_ai_accounts", indexes = {
         @Index(name = "idx_ai_account_provider", columnList = "provider"),
         @Index(name = "idx_ai_account_channel", columnList = "api_channel"),
-        @Index(name = "idx_ai_account_enabled", columnList = "enabled"),
         @Index(name = "idx_ai_account_priority", columnList = "priority")
 })
 @SQLRestriction("status <> 'DELETED'")
@@ -114,8 +113,4 @@ public class AiAccount extends BaseDataRangeEntity {
     @Builder.Default
     @Column(name = "priority", nullable = false)
     private Integer priority = 100;
-
-    @Builder.Default
-    @Column(name = "enabled", nullable = false)
-    private Boolean enabled = true;
 }

@@ -42,7 +42,6 @@ public class AiAccountResponse extends DataRangeResponse {
     private String billingCurrency;
     private Integer dailyLimit;
     private Integer priority;
-    private Boolean enabled;
 
     public static AiAccountResponse convertEntity(AiAccount entity) {
         return filling(entity, AiAccountResponse.builder()
@@ -69,7 +68,6 @@ public class AiAccountResponse extends DataRangeResponse {
                 .billingCurrency(entity.getBillingCurrency())
                 .dailyLimit(entity.getDailyLimit())
                 .priority(entity.getPriority())
-                .enabled(entity.getEnabled())
                 .build());
     }
 }

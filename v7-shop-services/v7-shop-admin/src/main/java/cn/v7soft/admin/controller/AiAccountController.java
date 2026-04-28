@@ -37,7 +37,7 @@ public class AiAccountController extends BaseDataRangeController<AiAccount, IAiA
                 .addConstraint(StrUtil.isNotBlank(request.getName()), LikeAttribute.builder().name("name").value(request.getName()).build())
                 .addConstraint(request.getProvider() != null, EqualsQueryAttribute.builder().name("provider").value(request.getProvider()).build())
                 .addConstraint(request.getApiChannel() != null, EqualsQueryAttribute.builder().name("apiChannel").value(request.getApiChannel()).build())
-                .addConstraint(request.getEnabled() != null, EqualsQueryAttribute.builder().name("enabled").value(request.getEnabled()).build());
+                .addConstraint(request.getStatus() != null, EqualsQueryAttribute.builder().name("status").value(request.getStatus()).build());
     }
 
     @Override
@@ -51,7 +51,6 @@ public class AiAccountController extends BaseDataRangeController<AiAccount, IAiA
         BeanUtil.copyProperties(request, entity);
         entity.setInvokeMode(request.getProvider() == AiProvider.GEMINI && request.getInvokeMode() != null ? request.getInvokeMode() : InvokeMode.STANDARD);
         entity.setPriority(request.getPriority() == null ? 100 : request.getPriority());
-        entity.setEnabled(request.getEnabled() == null || request.getEnabled());
         return entity;
     }
 

@@ -7,6 +7,7 @@ import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiProvider;
@@ -25,7 +26,7 @@ public class AiAccountService extends BaseDataRangeService<AiAccount, AiAccountR
 
     @Override
     public List<AiAccount> findAvailableAccounts(AiProvider provider) {
-        return repository.findByProviderAndEnabledTrueOrderByPriorityAscIdAsc(provider);
+        return repository.findByProviderAndStatusOrderByPriorityAscIdAsc(provider, StatusEnum.VALID);
     }
 
     @Override

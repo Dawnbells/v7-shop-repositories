@@ -90,7 +90,4 @@ public class EditAiAccountRequest extends IdRequest {
 
     @Schema(title = "优先级", description = "数值越小越优先")
     private Integer priority;
-
-    @Schema(title = "是否启用")
-    private Boolean enabled;
 }
