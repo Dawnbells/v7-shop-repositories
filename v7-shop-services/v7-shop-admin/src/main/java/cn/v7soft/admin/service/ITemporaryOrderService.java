@@ -16,5 +16,7 @@ public interface ITemporaryOrderService extends IBaseDataRangeService<TemporaryO
 
     Optional<TemporaryOrder> findByOriginOrderId(String originOrderId);
 
-    void synchronizeOrderFromExternalSystem(EditTemporaryOrderRequest request);
+    boolean synchronizeOrderFromExternalSystem(EditTemporaryOrderRequest request);
+
+    boolean synchronizeOrderFromExternalSystem(EditTemporaryOrderRequest request, boolean updateExisting);
 }

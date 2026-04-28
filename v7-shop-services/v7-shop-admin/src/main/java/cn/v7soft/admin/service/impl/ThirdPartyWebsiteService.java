@@ -207,7 +207,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         JSONArray orders = body.getJSONArray("orders");
         int newOrderCount = 0;
         if (orders != null && !orders.isEmpty()) {
-            newOrderCount = convertAndSaveOrders(websiteDto, orders);
+            newOrderCount = convertAndSaveOrders(websiteDto, orders, syncMode);
         }
         if (isAutoSync) {
             self.updateLastSyncInfo(request.getIdLongValue(), orders, newOrderCount > 0);
@@ -320,14 +320,16 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     /**
      * @return 实际新增的订单数（已存在的重复订单不计入）
      */
-    private int convertAndSaveOrders(ThirdPartyWebsiteDto website, JSONArray orders) {
+    private int convertAndSaveOrders(ThirdPartyWebsiteDto website, JSONArray orders, SyncMode syncMode) {
         SystemUserDto owner = website.getOwner();
         int newCount = 0;
+        boolean updateExisting = syncMode == SyncMode.MANUAL;
         for (int i = 0; i < orders.size(); i++) {
             JSONObject order = orders.getJSONObject(i);
             try {
-                convertShoplineOrderToTemporary(website, owner, order);
-                newCount++;
+                if (convertShoplineOrderToTemporary(website, owner, order, updateExisting)) {
+                    newCount++;
+                }
             } catch (Exception e) {
                 String orderId = order.getStr("id");
                 if (e.getMessage() != null && e.getMessage().contains("已存在相同的原始订单ID")) {
@@ -340,7 +342,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         return newCount;
     }
 
-    private void convertShoplineOrderToTemporary(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order) {
+    private boolean convertShoplineOrderToTemporary(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order, boolean updateExisting) {
         CurrencyMode currencyMode = website.getCurrencyMode() != null ? website.getCurrencyMode() : CurrencyMode.SHOP_MONEY;
         String moneyKey = currencyMode == CurrencyMode.PRESENTMENT_MONEY ? "presentment_money" : "shop_money";
 
@@ -386,8 +388,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 request.getDeliveryInfo() != null ? request.getDeliveryInfo().getPhone() : "",
                 request.getDeliveryInfo() != null ? request.getDeliveryInfo().getCity() : "");
 
-        temporaryOrderService.synchronizeOrderFromExternalSystem(request);
+        boolean created = temporaryOrderService.synchronizeOrderFromExternalSystem(request, updateExisting);
         log.info("=== Shopline订单转换完成 === originOrderId={} 已写入临时表", request.getOriginOrderId());
+        return created;
     }
 
     private TemporaryOrderDeliveryInfoRequest buildDeliveryInfo(JSONObject order) {
