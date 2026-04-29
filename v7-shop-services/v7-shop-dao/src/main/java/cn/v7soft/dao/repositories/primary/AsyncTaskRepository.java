@@ -24,6 +24,8 @@ public interface AsyncTaskRepository extends BaseRepository<AsyncTask> {
 
     List<AsyncTask> findByTaskTypeAndDedupKeyAndStateIn(TaskType taskType, String dedupKey, List<TaskState> states);
 
+    List<AsyncTask> findByTaskTypeAndStateOrderByCreateTimeAsc(TaskType taskType, TaskState state, Pageable pageable);
+
     List<AsyncTask> findByStateIn(List<TaskState> states);
 
     Page<AsyncTask> findByStateOrderByCreateTimeDesc(TaskState state, Pageable pageable);

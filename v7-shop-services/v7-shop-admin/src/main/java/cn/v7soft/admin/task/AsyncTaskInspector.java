@@ -53,6 +53,10 @@ public class AsyncTaskInspector {
 
         for (AsyncTask task : stuckTasks) {
             try {
+                if (task.getTaskType() == TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE) {
+                    continue;
+                }
+
                 LocalDateTime updateTime = task.getUpdateTime() != null ? task.getUpdateTime() : task.getCreateTime();
                 if (updateTime == null) continue;
 
