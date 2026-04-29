@@ -42,72 +42,57 @@
 
     <el-table ref="tableRef" v-loading="listLoading" border :data="list" @selection-change="setSelectRows">
       <el-table-column type="selection" width="38" />
-      <el-table-column align="center" label="名称" min-width="140" prop="name" show-overflow-tooltip />
-      <el-table-column align="center" label="服务商" width="100">
+      <el-table-column align="center" label="名称" min-width="150" prop="name" show-overflow-tooltip />
+      <el-table-column label="服务配置" min-width="280">
         <template #default="{ row }">
-          <el-tag>{{ providerLabel(row.provider) }}</el-tag>
+          <div class="config-cell">
+            <div class="config-line">
+              <el-tag size="small">{{ providerLabel(row.provider) }}</el-tag>
+              <el-tag size="small" :type="row.apiChannel === 'SUB2API' ? 'success' : 'primary'">
+                {{ apiChannelLabel(row.apiChannel) }}
+              </el-tag>
+              <el-tag v-if="row.provider === 'GEMINI'" size="small" type="info">
+                {{ invokeModeLabel(row.invokeMode) }}
+              </el-tag>
+            </div>
+            <div class="config-text text-ellipsis" :title="row.model || '-'">{{ row.model || '-' }}</div>
+            <div class="config-muted text-ellipsis" :title="row.baseUrl || '官方接口'">{{ row.baseUrl || '官方接口' }}</div>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column align="center" label="渠道" width="100">
+      <el-table-column label="计费配置" min-width="260">
         <template #default="{ row }">
-          <el-tag :type="row.apiChannel === 'SUB2API' ? 'success' : 'primary'">
-            {{ apiChannelLabel(row.apiChannel) }}
-          </el-tag>
+          <div class="billing-summary">
+            <div
+              class="text-ellipsis"
+              :title="formatBillingPair(row.textInputPrice, row.textInputPriceUnit, row.textOutputPrice, row.textOutputPriceUnit)"
+            >
+              文本：{{ formatBillingPair(row.textInputPrice, row.textInputPriceUnit, row.textOutputPrice, row.textOutputPriceUnit) }}
+            </div>
+            <div
+              class="text-ellipsis"
+              :title="formatBillingPair(row.imageInputPrice, row.imageInputPriceUnit, row.imageOutputPrice, row.imageOutputPriceUnit)"
+            >
+              图片：{{ formatBillingPair(row.imageInputPrice, row.imageInputPriceUnit, row.imageOutputPrice, row.imageOutputPriceUnit) }}
+            </div>
+            <div
+              class="text-ellipsis"
+              :title="formatBillingPair(row.videoInputPrice, row.videoInputPriceUnit, row.videoOutputPrice, row.videoOutputPriceUnit)"
+            >
+              视频：{{ formatBillingPair(row.videoInputPrice, row.videoInputPriceUnit, row.videoOutputPrice, row.videoOutputPriceUnit) }}
+            </div>
+            <div class="config-muted">币种：{{ row.billingCurrency || '-' }}</div>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column align="center" label="接口模式" width="100">
+      <el-table-column align="center" label="流控" width="120">
         <template #default="{ row }">
-          <span v-if="row.provider === 'GEMINI'">{{ invokeModeLabel(row.invokeMode) }}</span>
-          <span v-else>-</span>
+          <div class="quota-cell">
+            <div>{{ row.dailyLimit == null ? '不限' : row.dailyLimit }}</div>
+            <div class="config-muted">优先级 {{ row.priority ?? '-' }}</div>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column align="center" label="模型" min-width="150" prop="model" show-overflow-tooltip />
-      <el-table-column align="center" label="Base URL" min-width="180" prop="baseUrl" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ row.baseUrl || '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="币种" width="80">
-        <template #default="{ row }">
-          {{ row.billingCurrency || '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="文本输入" width="120">
-        <template #default="{ row }">
-          {{ formatPrice(row.textInputPrice, row.textInputPriceUnit) }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="文本输出" width="120">
-        <template #default="{ row }">
-          {{ formatPrice(row.textOutputPrice, row.textOutputPriceUnit) }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="图片输入" width="120">
-        <template #default="{ row }">
-          {{ formatPrice(row.imageInputPrice, row.imageInputPriceUnit) }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="图片输出" width="120">
-        <template #default="{ row }">
-          {{ formatPrice(row.imageOutputPrice, row.imageOutputPriceUnit) }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="视频输入" width="120">
-        <template #default="{ row }">
-          {{ formatPrice(row.videoInputPrice, row.videoInputPriceUnit) }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="视频输出" width="120">
-        <template #default="{ row }">
-          {{ formatPrice(row.videoOutputPrice, row.videoOutputPriceUnit) }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="每日限额" width="90">
-        <template #default="{ row }">
-          {{ row.dailyLimit == null ? '-' : row.dailyLimit }}
-        </template>
-      </el-table-column>
-      <el-table-column align="center" label="优先级" prop="priority" width="80" />
       <el-table-column align="center" label="状态" prop="status" width="90">
         <template #default="{ row }">
           <el-switch
@@ -201,6 +186,10 @@ const formatPrice = (price?: number | string | null, unit?: string) => {
   return `${price}${priceUnitLabel(unit)}`
 }
 
+const formatBillingPair = (inputPrice?: number | string | null, inputUnit?: string, outputPrice?: number | string | null, outputUnit?: string) => {
+  return `入 ${formatPrice(inputPrice, inputUnit)} / 出 ${formatPrice(outputPrice, outputUnit)}`
+}
+
 const fetchData = async () => {
   listLoading.value = true
   try {
@@ -287,3 +276,38 @@ onBeforeMount(() => {
   fetchData()
 })
 </script>
+
+<style lang="scss" scoped>
+.config-cell,
+.billing-summary,
+.quota-cell {
+  line-height: 22px;
+}
+
+.config-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.config-text {
+  color: var(--el-text-color-primary);
+  font-weight: 500;
+}
+
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-muted {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.billing-summary {
+  color: var(--el-text-color-regular);
+}
+</style>

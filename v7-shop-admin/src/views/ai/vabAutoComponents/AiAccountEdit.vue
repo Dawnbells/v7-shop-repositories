@@ -63,11 +63,18 @@
       </section>
 
       <section class="form-section">
-        <div class="section-title">使用设置</div>
+        <div class="section-title">流控配置</div>
         <el-row class="form-grid" :gutter="16">
           <el-col :span="12">
-            <el-form-item label="每日限额" prop="dailyLimit">
-              <el-input-number v-model="form.dailyLimit" controls-position="right" :min="0" :precision="0" style="width: 100%" />
+            <el-form-item label="每日调用上限" prop="dailyLimit">
+              <el-input-number
+                v-model="form.dailyLimit"
+                controls-position="right"
+                :min="0"
+                :precision="0"
+                placeholder="不填则不限制"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -342,6 +349,7 @@ const save = () => {
     try {
       saveLoading.value = true
       form.billingCurrency = 'USD'
+      form.dailyLimit = form.dailyLimit === '' || form.dailyLimit === null ? undefined : form.dailyLimit
       if (form.provider !== 'GEMINI') {
         form.invokeMode = 'STANDARD'
       }

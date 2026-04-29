@@ -211,6 +211,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         if (orders != null && !orders.isEmpty()) {
             newOrderCount = convertAndSaveOrders(websiteDto, orders, syncMode);
         }
+        if (newOrderCount > 0) {
+            log.info("Shopline新增订单概要: websiteId={}, handle={}, syncMode={}, fetched={}, created={}",
+                    websiteDto.getId(), websiteDto.getHandle(), syncMode, orders.size(), newOrderCount);
+        }
         if (isAutoSync) {
             self.updateLastSyncInfo(request.getIdLongValue(), orders, newOrderCount > 0);
         }
@@ -348,8 +352,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         CurrencyMode currencyMode = website.getCurrencyMode() != null ? website.getCurrencyMode() : CurrencyMode.SHOP_MONEY;
         String moneyKey = currencyMode == CurrencyMode.PRESENTMENT_MONEY ? "presentment_money" : "shop_money";
 
-        log.info("=== Shopline订单转换开始 === originOrderId={}, createdAt={}, currency={}, locale={}, currencyMode={}",
-                order.getStr("id"), order.getStr("created_at"), order.getStr("currency"), order.getStr("customer_locale"), currencyMode);
         if (log.isDebugEnabled()) {
             log.debug("Shopline原始订单JSON: {}", order.toStringPretty());
         }
@@ -376,23 +378,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         // 归属人优先级：归属人账号(telephone) > 归属人(name) > 第三方商城归属(website owner)
         applyOwnerFromMetafields(request.getContextInfo(), order, productMetafieldsMap);
 
-        log.info("=== 转换后临时订单 === originOrderId={}, from={}, salesPerson={}, country={}, currency={}, "
-                        + "totalAmount={}, shippingFee={}, itemCount={}, recipient={} {}, phone={}, city={}",
-                request.getOriginOrderId(), request.getFrom(),
-                request.getContextInfo() != null ? request.getContextInfo().getSalesPerson() : "N/A",
-                request.getContextInfo() != null ? request.getContextInfo().getCountryCode() : "N/A",
-                request.getContextInfo() != null ? request.getContextInfo().getCurrencyCode() : "N/A",
-                request.getFinancialInfo() != null ? request.getFinancialInfo().getTotalAmount() : "N/A",
-                request.getFinancialInfo() != null ? request.getFinancialInfo().getShippingFee() : "N/A",
-                request.getItemInfos() != null ? request.getItemInfos().size() : 0,
-                request.getDeliveryInfo() != null ? request.getDeliveryInfo().getFirstName() : "",
-                request.getDeliveryInfo() != null ? request.getDeliveryInfo().getLastName() : "",
-                request.getDeliveryInfo() != null ? request.getDeliveryInfo().getPhone() : "",
-                request.getDeliveryInfo() != null ? request.getDeliveryInfo().getCity() : "");
-
-        boolean created = temporaryOrderService.synchronizeOrderFromExternalSystem(request, updateExisting);
-        log.info("=== Shopline订单转换完成 === originOrderId={} 已写入临时表", request.getOriginOrderId());
-        return created;
+        return temporaryOrderService.synchronizeOrderFromExternalSystem(request, updateExisting);
     }
 
     private TemporaryOrderDeliveryInfoRequest buildDeliveryInfo(JSONObject order) {
@@ -633,19 +619,14 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
 
         if (StrUtil.isNotBlank(ownerTelephone)) {
             resolvedOwner = systemUserRepository.findByTelephoneWithDepartment(ownerTelephone.trim());
-            if (resolvedOwner != null) {
-                log.info("Metafield归属人匹配(telephone): telephone={}, userId={}, name={}",
-                        ownerTelephone, resolvedOwner.getId(), resolvedOwner.getName());
-            } else {
+            if (resolvedOwner == null) {
                 log.warn("Metafield归属人账号未找到对应用户: telephone={}", ownerTelephone);
             }
         }
 
         if (resolvedOwner == null && StrUtil.isNotBlank(ownerName)) {
             resolvedOwner = systemUserRepository.findByUserNameWithDepartment(ownerName.trim()).orElse(null);
-            if (resolvedOwner != null) {
-                log.info("Metafield归属人匹配(name): name={}, userId={}", ownerName, resolvedOwner.getId());
-            } else {
+            if (resolvedOwner == null) {
                 log.warn("Metafield归属人未找到对应用户: name={}", ownerName);
             }
         }
@@ -680,13 +661,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
 
         Map<String, ProductSKU> skuMap = new HashMap<>();
         if (!skuCodes.isEmpty()) {
-            log.info("SKU查询(按部门): skuCodes={}, ownerId={}", skuCodes, owner.getLongId());
             List<ProductSKU> skuList = productSKUService.listBySkuCodes(skuCodes, owner.getLongId());
-            log.info("SKU查询结果(按部门): 查询{}个, 命中{}个", skuCodes.size(), skuList.size());
             if (skuList.isEmpty()) {
-                log.info("SKU按部门查询无结果，fallback按ownerId查询: ownerId={}", owner.getLongId());
                 skuList = productSKUService.listBySkuCodesAndOwnerId(skuCodes, owner.getLongId());
-                log.info("SKU查询结果(按ownerId): 查询{}个, 命中{}个", skuCodes.size(), skuList.size());
             }
             for (ProductSKU sku : skuList) {
                 skuMap.put(sku.getSkuCode(), sku);
@@ -697,8 +674,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 missingCodes.removeAll(skuMap.keySet());
                 log.warn("SKU未命中: missingSkuCodes={}", missingCodes);
             }
-        } else {
-            log.info("SKU查询: 订单中无有效SKU编码");
         }
 
         List<TemporaryOrderItemInfoRequest> items = new ArrayList<>(lineItems.size());
@@ -738,8 +713,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 item.setSkuId(0L);
                 item.setSkuName("");
             }
-            log.info("SKU赋值: skuCode={}, skuId={}, skuName={}, matched={}",
-                    skuCode, item.getSkuId(), item.getSkuName(), matchedSku != null);
 
             item.setSkuIsVirtual(false);
 

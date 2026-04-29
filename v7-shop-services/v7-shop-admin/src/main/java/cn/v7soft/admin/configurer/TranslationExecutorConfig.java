@@ -56,13 +56,13 @@ public class TranslationExecutorConfig {
     }
 
     /**
-     * Gemini API 速率限制：RPM=100, 每分钟最多 100 个请求。
+     * Gemini API 速率限制：Nano Banana 2 (Gemini 3.1 Flash Image) 按 RPM=500 放行。
      * 超额请求最多等待 5 分钟获取许可。
      */
     @Bean
     public RateLimiter geminiRateLimiter() {
         RateLimiterConfig config = RateLimiterConfig.custom()
-                .limitForPeriod(100)
+                .limitForPeriod(500)
                 .limitRefreshPeriod(Duration.ofMinutes(1))
                 .timeoutDuration(Duration.ofMinutes(5))
                 .build();

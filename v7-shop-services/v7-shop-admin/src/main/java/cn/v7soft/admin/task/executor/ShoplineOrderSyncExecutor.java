@@ -33,8 +33,6 @@ public class ShoplineOrderSyncExecutor {
                 return t;
             });
 
-    private volatile long lastIdleLogTime = 0;
-
     /**
      * 扫描所有 VALID 且已认证的商城，按条件决定是否同步：
      * - 上次有新订单 → 立即同步
@@ -48,13 +46,11 @@ public class ShoplineOrderSyncExecutor {
             List<ThirdPartyWebsite> activeWebsites = thirdPartyWebsiteService.findActiveWebsites();
 
             if (activeWebsites.isEmpty()) {
-                logIdleIfNeeded();
                 return 60_000;
             }
 
             List<ThirdPartyWebsite> syncable = filterSyncableWebsites(activeWebsites);
             if (syncable.isEmpty()) {
-                log.debug("所有商城均未达到同步条件，等待下一轮");
                 return 10_000;
             }
 
@@ -88,7 +84,6 @@ public class ShoplineOrderSyncExecutor {
                 }
             }
 
-            log.info("本轮同步完成: 同步商城数={}, 有新订单={}", syncable.size(), hasNewOrders.get());
             return hasNewOrders.get() ? 10_000 : 60_000;
         } finally {
             TenantContext.restore();
@@ -115,19 +110,10 @@ public class ShoplineOrderSyncExecutor {
         String nextPage = thirdPartyWebsiteService.loadOrders(request, "", SyncMode.AUTO);
 
         if (nextPage != null) {
-            log.info("商城同步有新订单且有下一页: websiteId={}, handle={}", website.getId(), website.getHandle());
             return true;
         }
 
         ThirdPartyWebsite refreshed = thirdPartyWebsiteService.getById(website.getId());
         return Boolean.TRUE.equals(refreshed.getLastSyncHasNewOrders());
-    }
-
-    private void logIdleIfNeeded() {
-        long now = System.currentTimeMillis();
-        if (now - lastIdleLogTime > 300_000) {
-            log.debug("没有需要同步的商城");
-            lastIdleLogTime = now;
-        }
     }
 }

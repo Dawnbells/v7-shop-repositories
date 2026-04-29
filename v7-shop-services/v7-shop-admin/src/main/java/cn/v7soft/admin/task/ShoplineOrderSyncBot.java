@@ -39,6 +39,5 @@ public class ShoplineOrderSyncBot {
     @PreDestroy
     public void shutdown() {
         executorService.shutdownNow();
-        log.info("ShoplineOrderSyncBot 已停止");
     }
 }
