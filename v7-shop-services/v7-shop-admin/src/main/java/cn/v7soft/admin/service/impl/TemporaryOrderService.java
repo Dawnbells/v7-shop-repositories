@@ -84,7 +84,7 @@ public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, 
 
     @Transactional
     public boolean doSynchronizeOrderFromExternalSystem(EditTemporaryOrderRequest request, boolean updateExisting) {
-        log.debug("sync order: {}", JSONUtil.toJsonPrettyStr(request));
+//        log.debug("sync order: {}", JSONUtil.toJsonPrettyStr(request));
         SystemUser owner = systemUserRepository.findByUserName(request.getContextInfo().getSalesPerson())
                 .orElse(systemUserRepository.findByDeletedUserNames(request.getContextInfo().getSalesPerson())
                         .orElse(SystemUser.builder().id(1L).name("系统").build()));
