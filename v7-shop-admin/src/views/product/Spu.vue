@@ -69,6 +69,9 @@
                 <el-button text type="primary" @click="handleAITranslate(props.row, row)">
                   翻译
                 </el-button>
+                <el-button text type="primary" @click="handleProductAITranslate(props.row, row)">
+                  AI翻译
+                </el-button>
                 <el-button text type="danger" @click="handleDeleteProduct(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -210,6 +213,10 @@ const handleShare = (row: any) => {
 
 const handleAITranslate = (spuRow: any, productRow: any) => {
   productTranslateRef.value.showEdit(spuRow, productRow)
+}
+
+const handleProductAITranslate = (spuRow: any, productRow: any) => {
+  productTranslateRef.value.showEdit(spuRow, productRow, { ai: true })
 }
 
 const handleDelete = (row: any) => {

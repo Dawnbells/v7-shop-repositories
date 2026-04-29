@@ -2,7 +2,7 @@
   <vab-dialog
     v-model="dialogFormVisible"
     append-to-body
-    title="AI 翻译"
+    :title="dialogTitle"
     width="500px"
     @close="close"
   >
@@ -42,22 +42,62 @@
           />
         </el-select>
       </el-form-item>
+      <el-form-item v-if="isAiMode" label="AI账号" prop="aiAccountId" :required="isAiMode">
+        <div class="ai-account-select">
+          <el-select
+            v-model="form.aiAccountId"
+            filterable
+            placeholder="请选择AI账号"
+            :loading="aiAccountLoading"
+          >
+            <el-option
+              v-for="item in aiAccountOptions"
+              :key="item.id"
+              :label="aiAccountOptionLabel(item)"
+              :value="String(item.id)"
+            />
+          </el-select>
+          <el-tooltip v-if="selectedAiAccount" placement="right" :show-after="150">
+            <template #content>
+              <div class="ai-account-detail">
+                <div>账号名称：{{ selectedAiAccount.name || '-' }}</div>
+                <div>服务商：{{ providerLabel(selectedAiAccount.provider) }}</div>
+                <div>渠道：{{ apiChannelLabel(selectedAiAccount.apiChannel) }}</div>
+                <div>接口模式：{{ invokeModeLabel(selectedAiAccount.invokeMode) }}</div>
+                <div>模型：{{ selectedAiAccount.model || '-' }}</div>
+                <div>Base URL：{{ selectedAiAccount.baseUrl || '-' }}</div>
+                <div>API Key：{{ maskApiKey(selectedAiAccount.apiKey) }}</div>
+                <div>计费币种：{{ selectedAiAccount.billingCurrency || 'USD' }}</div>
+                <div>每日限额：{{ selectedAiAccount.dailyLimit ?? '-' }}</div>
+                <div>优先级：{{ selectedAiAccount.priority ?? '-' }}</div>
+                <div>文本输入：{{ formatPrice(selectedAiAccount.textInputPrice, selectedAiAccount.textInputPriceUnit) }}</div>
+                <div>文本输出：{{ formatPrice(selectedAiAccount.textOutputPrice, selectedAiAccount.textOutputPriceUnit) }}</div>
+                <div>图片输入：{{ formatPrice(selectedAiAccount.imageInputPrice, selectedAiAccount.imageInputPriceUnit) }}</div>
+                <div>图片输出：{{ formatPrice(selectedAiAccount.imageOutputPrice, selectedAiAccount.imageOutputPriceUnit) }}</div>
+                <div>视频输入：{{ formatPrice(selectedAiAccount.videoInputPrice, selectedAiAccount.videoInputPriceUnit) }}</div>
+                <div>视频输出：{{ formatPrice(selectedAiAccount.videoOutputPrice, selectedAiAccount.videoOutputPriceUnit) }}</div>
+                <div>描述：{{ selectedAiAccount.description || '-' }}</div>
+              </div>
+            </template>
+            <el-icon class="help-icon"><QuestionFilled /></el-icon>
+          </el-tooltip>
+        </div>
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="dialogFormVisible = false">取消</el-button>
-      <el-button :loading="batchLoading" type="primary" @click="save('batch')">
-        批量翻译
-      </el-button>
-      <el-button :loading="directLoading" type="success" @click="save('direct')">
-        即时翻译
+      <el-button :loading="submitLoading" type="primary" @click="save">
+        提交翻译
       </el-button>
     </template>
   </vab-dialog>
 </template>
 
 <script lang="ts" setup>
+import { QuestionFilled } from '@element-plus/icons-vue'
+import { page as pageAiAccount } from '/@/api/aiAccount'
 import { getRemoteQuery as getRemoteQueryCountry } from '/@/api/country'
-import { translateByAI, translateByAIDirect } from '/@/api/product'
+import { translateByAI } from '/@/api/product'
 import { useTasksStore } from '/@/store/modules/tasks'
 
 defineOptions({
@@ -69,24 +109,99 @@ const $baseMessage = inject<any>('$baseMessage')
 const tasksStore = useTasksStore()
 const formRef = ref<any>(null)
 const dialogFormVisible = ref<boolean>(false)
-const batchLoading = ref<boolean>(false)
-const directLoading = ref<boolean>(false)
+const isAiMode = ref<boolean>(false)
+const submitLoading = ref<boolean>(false)
+const aiAccountLoading = ref<boolean>(false)
 const countryLoading = ref<boolean>(false)
 const languageLoading = ref<boolean>(false)
+const aiAccountOptions = ref<any[]>([])
 const countryOptions = ref<any[]>([])
 const languageOptions = ref<any[]>([])
 const form = reactive<any>({
+  aiAccountId: '',
   productId: '',
   countryId: '',
   languageId: '',
 })
+const validateAiAccount = (_rule: any, value: string, callback: any) => {
+  if (isAiMode.value && !value) {
+    callback(new Error('请选择AI账号'))
+    return
+  }
+  callback()
+}
 const rules = reactive<any>({
+  aiAccountId: [{ validator: validateAiAccount, trigger: 'change' }],
   countryId: [{ required: true, trigger: 'change', message: '请选择目标国家' }],
   languageId: [{ required: true, trigger: 'change', message: '请选择目标语言' }],
 })
 
 let currentProductTitle = ''
 let existingLanguageCountryPairs = new Set<string>()
+
+const dialogTitle = computed(() => (isAiMode.value ? 'AI 翻译' : '翻译'))
+const selectedAiAccount = computed(() => aiAccountOptions.value.find((item: any) => String(item.id) === String(form.aiAccountId)))
+
+const providerLabel = (provider?: string) => {
+  if (provider === 'GEMINI') return 'Gemini'
+  if (provider === 'OPENAI') return 'OpenAI'
+  return provider || '-'
+}
+
+const apiChannelLabel = (apiChannel?: string) => {
+  if (apiChannel === 'OFFICIAL') return '官方'
+  if (apiChannel === 'SUB2API') return 'Sub2API'
+  return apiChannel || '-'
+}
+
+const invokeModeLabel = (invokeMode?: string) => {
+  if (invokeMode === 'BATCH') return '批量接口'
+  if (invokeMode === 'STANDARD') return '标准接口'
+  return invokeMode || '标准接口'
+}
+
+const maskApiKey = (apiKey?: string) => {
+  if (!apiKey) return '-'
+  if (apiKey.length <= 8) return '已配置'
+  return `${apiKey.slice(0, 4)}****${apiKey.slice(-4)}`
+}
+
+const priceUnitLabel = (unit?: string) => {
+  const map: Record<string, string> = {
+    PER_1M_TOKENS: '/百万Tokens',
+    PER_1K_TOKENS: '/千Tokens',
+    PER_IMAGE: '/张',
+    PER_1K_IMAGES: '/千张',
+    PER_VIDEO: '/个视频',
+    PER_MINUTE: '/分钟',
+    PER_SECOND: '/秒',
+  }
+  return unit ? map[unit] || unit : ''
+}
+
+const formatPrice = (price?: number | string | null, unit?: string) => {
+  if (price === undefined || price === null || price === '') return '-'
+  return `${price}${priceUnitLabel(unit)}`
+}
+
+const aiAccountOptionLabel = (item: any) => {
+  return `${item.name || '未命名'} / ${providerLabel(item.provider)} / ${item.model || '-'}`
+}
+
+const loadAiAccounts = async () => {
+  aiAccountLoading.value = true
+  try {
+    const { data }: any = await pageAiAccount({
+      pageNo: 1,
+      pageSize: 100,
+      status: 'VALID',
+      sortBy: 'priority asc,id asc',
+    })
+    aiAccountOptions.value = data.list || []
+  } finally {
+    aiAccountLoading.value = false
+  }
+}
 
 const onCountryChange = () => {
   form.languageId = ''
@@ -110,7 +225,9 @@ const loadLanguagesForCountry = (countryId: string) => {
   languageLoading.value = false
 }
 
-const showEdit = async (spuRow: any, productRow: any) => {
+const showEdit = async (spuRow: any, productRow: any, options?: { ai?: boolean }) => {
+  isAiMode.value = Boolean(options?.ai)
+  form.aiAccountId = ''
   form.productId = String(productRow.id)
   form.countryId = ''
   form.languageId = ''
@@ -122,6 +239,10 @@ const showEdit = async (spuRow: any, productRow: any) => {
       (p: any) => `${p.country?.id}:${p.language?.id}`
     )
   )
+
+  if (isAiMode.value) {
+    await loadAiAccounts()
+  }
 
   countryLoading.value = true
   try {
@@ -139,28 +260,37 @@ defineExpose({
 const close = () => {
   formRef.value?.clearValidate()
   formRef.value?.resetFields()
+  form.aiAccountId = ''
   form.productId = ''
   form.countryId = ''
   form.languageId = ''
+  isAiMode.value = false
+  aiAccountOptions.value = []
   languageOptions.value = []
   emit('fetch-data')
 }
 
-const save = (mode: 'batch' | 'direct') => {
+const save = () => {
   formRef.value.validate(async (valid: any) => {
     if (valid) {
-      const isDirect = mode === 'direct'
-      const loading = isDirect ? directLoading : batchLoading
       try {
-        loading.value = true
-        const apiFn = isDirect ? translateByAIDirect : translateByAI
-        const taskType = isDirect ? 'PRODUCT_AI_TRANSLATE_DIRECT' : 'PRODUCT_AI_TRANSLATE'
-
-        const { data }: any = await apiFn({
+        submitLoading.value = true
+        const payload: {
+          productId: string
+          countryId: string
+          languageId: string
+          aiAccountId?: string
+        } = {
           productId: form.productId,
           countryId: String(form.countryId),
           languageId: String(form.languageId),
-        })
+        }
+
+        if (isAiMode.value) {
+          payload.aiAccountId = String(form.aiAccountId)
+        }
+
+        const { data }: any = await translateByAI(payload)
 
         const selectedLang = languageOptions.value.find(
           (l: any) => l.id === form.languageId
@@ -169,7 +299,8 @@ const save = (mode: 'batch' | 'direct') => {
           ? `${selectedLang.cname}(${selectedLang.name})`
           : form.languageId
 
-        const modeLabel = isDirect ? '即时翻译' : 'AI翻译'
+        const taskType = data.taskType || 'PRODUCT_AI_TRANSLATE'
+        const modeLabel = isAiMode.value ? 'AI翻译' : '翻译'
 
         tasksStore.addTask({
           taskId: String(data.id ?? data.taskId),
@@ -180,6 +311,7 @@ const save = (mode: 'batch' | 'direct') => {
           progress: data.progress ?? 0,
           message: data.message || '',
           parameters: {
+            aiAccountId: isAiMode.value ? String(form.aiAccountId) : '',
             productId: form.productId,
             countryId: String(form.countryId),
             languageId: String(form.languageId),
@@ -191,9 +323,36 @@ const save = (mode: 'batch' | 'direct') => {
       } catch {
         // Error already displayed by global interceptor
       } finally {
-        loading.value = false
+        submitLoading.value = false
       }
     }
   })
 }
 </script>
+
+<style lang="scss" scoped>
+.ai-account-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+
+  .el-select {
+    flex: 1;
+  }
+}
+
+.help-icon {
+  flex: none;
+  color: var(--el-text-color-secondary);
+  cursor: help;
+  font-size: 15px;
+}
+
+.ai-account-detail {
+  display: grid;
+  gap: 4px;
+  max-width: 420px;
+  line-height: 1.5;
+}
+</style>
