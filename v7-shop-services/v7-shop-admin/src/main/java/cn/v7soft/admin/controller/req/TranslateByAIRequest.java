@@ -20,5 +20,8 @@ public class TranslateByAIRequest {
     @Pattern(regexp = "^[0-9]+$", message = "语言ID格式不正确")
     private String languageId;
 
+    @Pattern(regexp = "^[0-9]+$", message = "AI账号ID格式不正确")
+    private String aiAccountId;
+
     private Integer totalRequests;
 }

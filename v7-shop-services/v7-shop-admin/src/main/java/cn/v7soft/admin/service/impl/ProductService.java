@@ -28,7 +28,6 @@ import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductSKUService;
 import cn.v7soft.admin.service.IProductService;
-import cn.v7soft.admin.service.IS3Service;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.utils.MultimediaUtil;
 import cn.v7soft.admin.utils.TokenCostCalculator;
@@ -53,7 +52,6 @@ import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ProductRepository;
 import cn.v7soft.dao.repositories.primary.SpuRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
-import jakarta.persistence.EntityManager;
 import lombok.extern.slf4j.Slf4j;
 
 import static cn.v7soft.admin.service.impl.TaskExecutorService.IMG_ID_PATTERN;
@@ -343,11 +341,16 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
                                                     "同一SPU下该国家和语言已存在商品，不允许重复");
 
-        String dedupKey = "PRODUCT_AI_TRANSLATE:" +
+        boolean useSelectedAiAccount = StrUtil.isNotBlank(request.getAiAccountId());
+        TaskType taskType = useSelectedAiAccount
+                            ? TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE
+                            : TaskType.PRODUCT_AI_TRANSLATE;
+
+        String dedupKey = taskType.name() + ":" +
                           request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
 
         List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndDedupKeyAndStateIn(
-                TaskType.PRODUCT_AI_TRANSLATE, dedupKey,
+                taskType, dedupKey,
                 List.of(TaskState.PENDING, TaskState.PROCESSING));
         if (!existing.isEmpty()) {
             translateTaskMetrics.recordDedupHit();
@@ -361,10 +364,10 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                        : "商品#" + product.getId();
         String taskName = "AI翻译: " + title + " → " + language.getName();
 
-        Integer estimated = estimateAndFreezeCredits(product, InvokeMode.BATCH);
+        Integer estimated = useSelectedAiAccount ? null : estimateAndFreezeCredits(product, InvokeMode.BATCH);
 
         AsyncTask asyncTask = AsyncTask.builder()
-                .taskType(TaskType.PRODUCT_AI_TRANSLATE)
+                .taskType(taskType)
                 .state(TaskState.PENDING)
                 .progress(0)
                 .parameters(parameters)
@@ -375,7 +378,9 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         translateTaskMetrics.recordSubmit();
-        taskExecutorService.submitAsyncTask(asyncTask.getId());
+        if (!useSelectedAiAccount) {
+            taskExecutorService.submitAsyncTask(asyncTask.getId());
+        }
         return AsyncTaskResponse.convert(asyncTask);
     }
 

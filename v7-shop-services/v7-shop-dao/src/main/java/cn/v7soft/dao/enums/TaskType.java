@@ -22,6 +22,10 @@ public enum TaskType {
      */
     PRODUCT_AI_TRANSLATE_DIRECT,
     /**
+     * 商品指定 AI 账号翻译任务
+     */
+    PRODUCT_AI_ACCOUNT_TRANSLATE,
+    /**
      * 地址库导入任务
      */
     ADDRESS_IMPORT,
