@@ -6,7 +6,6 @@ import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -16,7 +15,6 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ShoplineOrderSyncExecutor {
@@ -65,8 +63,7 @@ public class ShoplineOrderSyncExecutor {
                         if (synced) {
                             hasNewOrders.set(true);
                         }
-                    } catch (Exception e) {
-                        log.error("同步商城订单失败: websiteId={}, handle={}", website.getId(), website.getHandle(), e);
+                    } catch (Exception ignored) {
                     } finally {
                         TenantContext.restore();
                     }
@@ -76,11 +73,9 @@ public class ShoplineOrderSyncExecutor {
             for (Future<?> future : futures) {
                 try {
                     future.get(TIMEOUT_PER_WEBSITE_SECONDS, TimeUnit.SECONDS);
-                } catch (TimeoutException e) {
+                } catch (TimeoutException ignored) {
                     future.cancel(true);
-                    log.warn("商城同步超时({}s)，已取消", TIMEOUT_PER_WEBSITE_SECONDS);
-                } catch (Exception e) {
-                    log.error("等待商城同步结果异常", e);
+                } catch (Exception ignored) {
                 }
             }
 

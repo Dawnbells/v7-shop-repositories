@@ -180,7 +180,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
         builder.queryParam("limit", "100");
         URI uri = builder.build().toUri();
-        log.debug("uri = {}", uri);
         ResponseEntity<String> response;
         try {
             response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(websiteDto.getToken()), String.class);
@@ -189,9 +188,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             if (statusCode == 401 || statusCode == 403) {
                 self.markWebsiteAuthError(request.getIdLongValue(), "Token无效或已过期 (HTTP " + statusCode + ")");
             }
-            throw e;
-        } catch (ResourceAccessException e) {
-            log.error("连接Shopline失败: websiteId={}", request.getIdLongValue(), e);
             throw e;
         }
 
@@ -202,7 +198,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         JSONObject body = JSONUtil.parseObj(response.getBody());
         if (body.containsKey("errors")) {
             String errors = body.get("errors", String.class);
-            log.error("Shopline API返回错误: websiteId={}, errors={}", request.getIdLongValue(), errors);
             throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(request.getIdLongValue(), errors);
         }
 
@@ -336,13 +331,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 if (convertShoplineOrderToTemporary(website, owner, order, updateExisting)) {
                     newCount++;
                 }
-            } catch (Exception e) {
-                String orderId = order.getStr("id");
-                if (e.getMessage() != null && e.getMessage().contains("已存在相同的原始订单ID")) {
-                    log.debug("跳过已同步订单: originOrderId={}", orderId);
-                } else {
-                    log.error("转换Shopline订单失败: orderId={}", orderId, e);
-                }
+            } catch (Exception ignored) {
+                // 单条订单转换失败不影响本页其它订单继续同步。
             }
         }
         return newCount;
@@ -351,10 +341,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     private boolean convertShoplineOrderToTemporary(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order, boolean updateExisting) {
         CurrencyMode currencyMode = website.getCurrencyMode() != null ? website.getCurrencyMode() : CurrencyMode.SHOP_MONEY;
         String moneyKey = currencyMode == CurrencyMode.PRESENTMENT_MONEY ? "presentment_money" : "shop_money";
-
-        if (log.isDebugEnabled()) {
-            log.debug("Shopline原始订单JSON: {}", order.toStringPretty());
-        }
 
         // 收集 line_items 中所有不重复的 Shopline product_id，批量获取 metafields
         Map<String, Map<String, String>> productMetafieldsMap = fetchMetafieldsForLineItems(
@@ -619,16 +605,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
 
         if (StrUtil.isNotBlank(ownerTelephone)) {
             resolvedOwner = systemUserRepository.findByTelephoneWithDepartment(ownerTelephone.trim());
-            if (resolvedOwner == null) {
-                log.warn("Metafield归属人账号未找到对应用户: telephone={}", ownerTelephone);
-            }
         }
 
         if (resolvedOwner == null && StrUtil.isNotBlank(ownerName)) {
             resolvedOwner = systemUserRepository.findByUserNameWithDepartment(ownerName.trim()).orElse(null);
-            if (resolvedOwner == null) {
-                log.warn("Metafield归属人未找到对应用户: name={}", ownerName);
-            }
         }
 
         if (resolvedOwner != null) {
@@ -667,12 +647,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             }
             for (ProductSKU sku : skuList) {
                 skuMap.put(sku.getSkuCode(), sku);
-                log.debug("SKU映射: skuCode={} -> skuId={}, skuName={}", sku.getSkuCode(), sku.getId(), sku.getName());
-            }
-            if (skuList.size() < skuCodes.size()) {
-                List<String> missingCodes = new ArrayList<>(skuCodes);
-                missingCodes.removeAll(skuMap.keySet());
-                log.warn("SKU未命中: missingSkuCodes={}", missingCodes);
             }
         }
 
@@ -782,7 +756,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             URI uri = UriComponentsBuilder.fromHttpUrl(url)
                     .queryParam("namespace", METAFIELD_NAMESPACE)
                     .build().toUri();
-            log.debug("获取商品Metafield: productId={}, uri={}", productId, uri);
 
             ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(token), String.class);
             if (StrUtil.isBlank(response.getBody())) {
@@ -804,9 +777,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                     result.put(key, value.toString());
                 }
             }
-            log.debug("商品Metafield结果: productId={}, fields={}", productId, result.keySet());
-        } catch (Exception e) {
-            log.warn("获取商品Metafield失败（不影响订单同步）: productId={}, error={}", productId, e.getMessage());
+        } catch (Exception ignored) {
         }
         return result;
     }
@@ -820,7 +791,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         website.setAuthMessage(message);
         website.setStatus(StatusEnum.INVALID);
         saveAndFlush(website);
-        log.warn("商城凭证失效，已停止自动同步: websiteId={}, message={}", websiteId, message);
     }
 
     @Transactional
@@ -888,8 +858,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         try {
             OffsetDateTime odt = OffsetDateTime.parse(dateStr, ISO_OFFSET);
             return odt.toLocalDateTime();
-        } catch (Exception e) {
-            log.warn("解析Shopline时间失败: {}", dateStr);
+        } catch (Exception ignored) {
             return LocalDateTime.now();
         }
     }
