@@ -32,16 +32,12 @@ import com.google.genai.types.Part;
 import com.google.genai.types.UploadFileConfig;
 
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
-import cn.v7soft.admin.service.AiTranslationClient;
-import cn.v7soft.dao.entities.primary.AiAccount;
-import cn.v7soft.dao.enums.AiApiChannel;
-import cn.v7soft.dao.enums.AiProvider;
 import io.github.resilience4j.retry.Retry;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
-public class GeminiTranslateService implements AiTranslationClient {
+public class GeminiTranslateService {
 
     private static final String MODEL = "gemini-3.1-flash-image-preview";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -105,43 +101,6 @@ public class GeminiTranslateService implements AiTranslationClient {
                                                            .build())
                                      .build())
                 .build();
-    }
-
-    @Override
-    public boolean supports(AiProvider provider) {
-        return provider == AiProvider.GEMINI;
-    }
-
-    private Client buildClient(AiAccount account, int timeoutMs) {
-        HttpOptions.Builder httpOptions = HttpOptions.builder()
-                .timeout(timeoutMs)
-                .retryOptions(HttpRetryOptions.builder()
-                        .attempts(2)
-                        .httpStatusCodes(408, 500, 502, 503, 504)
-                        .initialDelay(2.0)
-                        .maxDelay(10.0)
-                        .expBase(2.0)
-                        .build());
-        if (account.getApiChannel() == AiApiChannel.SUB2API && account.getBaseUrl() != null && !account.getBaseUrl().isBlank()) {
-            httpOptions.baseUrl(account.getBaseUrl());
-        }
-        applyUserAgent(httpOptions, account);
-        return Client.builder()
-                .apiKey(account.getApiKey())
-                .httpOptions(httpOptions.build())
-                .build();
-    }
-
-    private HttpOptions buildRequestHttpOptions(AiAccount account, int timeoutMs) {
-        HttpOptions.Builder httpOptions = HttpOptions.builder().timeout(timeoutMs);
-        applyUserAgent(httpOptions, account);
-        return httpOptions.build();
-    }
-
-    private void applyUserAgent(HttpOptions.Builder httpOptions, AiAccount account) {
-        if (account != null && account.getUserAgent() != null && !account.getUserAgent().isBlank()) {
-            httpOptions.headers(Map.of("User-Agent", account.getUserAgent()));
-        }
     }
 
     // ======================== callGemini: 统一配额管理入口 ========================
@@ -211,10 +170,6 @@ public class GeminiTranslateService implements AiTranslationClient {
     }
 
     public String translateTextRaw(String text, String targetLanguageName, Consumer<TokenUsage> usageCallback) {
-        return translateTextRaw(null, text, targetLanguageName, usageCallback);
-    }
-
-    public String translateTextRaw(AiAccount account, String text, String targetLanguageName, Consumer<TokenUsage> usageCallback) {
         if (text == null || text.isBlank()) {
             return text;
         }
@@ -233,17 +188,15 @@ public class GeminiTranslateService implements AiTranslationClient {
 
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .temperature(0.1f)
-                .httpOptions(buildRequestHttpOptions(account, TIMEOUT_TEXT_MS))
+                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_TEXT_MS).build())
                 .build();
 
         long start = System.currentTimeMillis();
-        String model = getModel(account);
-        Function<Client, GenerateContentResponse> action = client -> {
+        GenerateContentResponse response = callGemini(client -> {
             log.info("[translateText] 请求 Gemini: model={}, targetLang={}, textLength={}, timeout={}ms",
-                     model, targetLanguageName, text.length(), TIMEOUT_TEXT_MS);
-            return client.models.generateContent(model, prompt, config);
-        };
-        GenerateContentResponse response = account == null ? callGemini(action) : action.apply(buildClient(account, TIMEOUT_TEXT_MS));
+                     MODEL, targetLanguageName, text.length(), TIMEOUT_TEXT_MS);
+            return client.models.generateContent(MODEL, prompt, config);
+        });
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
@@ -257,10 +210,6 @@ public class GeminiTranslateService implements AiTranslationClient {
     }
 
     public String translateHtmlRaw(String html, String targetLanguageName, Consumer<TokenUsage> usageCallback) {
-        return translateHtmlRaw(null, html, targetLanguageName, usageCallback);
-    }
-
-    public String translateHtmlRaw(AiAccount account, String html, String targetLanguageName, Consumer<TokenUsage> usageCallback) {
         if (html == null || html.isBlank()) {
             return html;
         }
@@ -280,20 +229,18 @@ public class GeminiTranslateService implements AiTranslationClient {
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .systemInstruction(systemInstruction)
                 .temperature(0.1f)
-                .httpOptions(buildRequestHttpOptions(account, TIMEOUT_HTML_MS))
+                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_HTML_MS).build())
                 .build();
 
         String prompt = "Translate the text content in this HTML to "
                         + targetLanguageName + ":\n\n" + html;
 
         long start = System.currentTimeMillis();
-        String model = getModel(account);
-        Function<Client, GenerateContentResponse> action = c -> {
+        GenerateContentResponse response = callGemini(c -> {
             log.info("[translateHtml] 请求 Gemini: model={}, targetLang={}, htmlLength={}, timeout={}ms",
-                     model, targetLanguageName, html.length(), TIMEOUT_HTML_MS);
-            return c.models.generateContent(model, prompt, config);
-        };
-        GenerateContentResponse response = account == null ? callGemini(action) : action.apply(buildClient(account, TIMEOUT_HTML_MS));
+                     MODEL, targetLanguageName, html.length(), TIMEOUT_HTML_MS);
+            return c.models.generateContent(MODEL, prompt, config);
+        });
         long elapsed = System.currentTimeMillis() - start;
         String result = response.text();
 
@@ -307,11 +254,6 @@ public class GeminiTranslateService implements AiTranslationClient {
     }
 
     public byte[] translateImageRaw(byte[] imageBytes, String mimeType, String targetLanguageName,
-                                    Consumer<TokenUsage> usageCallback) {
-        return translateImageRaw(null, imageBytes, mimeType, targetLanguageName, usageCallback);
-    }
-
-    public byte[] translateImageRaw(AiAccount account, byte[] imageBytes, String mimeType, String targetLanguageName,
                                     Consumer<TokenUsage> usageCallback) {
         String prompt = """
                 First, analyze whether the image contains any readable text.
@@ -375,19 +317,17 @@ public class GeminiTranslateService implements AiTranslationClient {
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .responseModalities(List.of("TEXT", "IMAGE"))
                 .temperature(0.2f)
-                .httpOptions(buildRequestHttpOptions(account, TIMEOUT_IMAGE_MS))
+                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_IMAGE_MS).build())
                 .build();
 
 
 
         long start = System.currentTimeMillis();
-        String model = getModel(account);
-        Function<Client, GenerateContentResponse> action = c -> {
+        GenerateContentResponse response = callGemini(c -> {
             log.info("[translateImage] 请求 Gemini: model={}, targetLang={}, mimeType={}, imageSize={}bytes, timeout={}ms",
-                     model, targetLanguageName, mimeType, imageBytes.length, TIMEOUT_IMAGE_MS);
-            return c.models.generateContent(model, content, config);
-        };
-        GenerateContentResponse response = account == null ? callGemini(action) : action.apply(buildClient(account, TIMEOUT_IMAGE_MS));
+                     MODEL, targetLanguageName, mimeType, imageBytes.length, TIMEOUT_IMAGE_MS);
+            return c.models.generateContent(MODEL, content, config);
+        });
         long elapsed = System.currentTimeMillis() - start;
 
         logTokenUsage("translateImage", elapsed, response);
@@ -433,12 +373,6 @@ public class GeminiTranslateService implements AiTranslationClient {
 
     public String getModel() {
         return MODEL;
-    }
-
-    public String getModel(AiAccount account) {
-        return account != null && account.getModel() != null && !account.getModel().isBlank()
-                ? account.getModel()
-                : MODEL;
     }
 
     public String buildTextTranslateJsonlEntry(String key, String text, String targetLanguageName) {
@@ -594,18 +528,13 @@ public class GeminiTranslateService implements AiTranslationClient {
     }
 
     public String uploadBatchFile(String jsonlContent) throws IOException {
-        return uploadBatchFile(null, jsonlContent);
-    }
-
-    public String uploadBatchFile(AiAccount account, String jsonlContent) throws IOException {
-        Client client = account == null ? primaryClient : buildClient(account, TIMEOUT_DEFAULT_MS);
         File tempFile = File.createTempFile("batch-translate-", ".jsonl");
         try {
             try (FileWriter writer = new FileWriter(tempFile)) {
                 writer.write(jsonlContent);
             }
             log.info("[uploadBatchFile] 上传 JSONL 文件: size={}bytes", jsonlContent.length());
-            var uploadedFile = client.files.upload(
+            var uploadedFile = primaryClient.files.upload(
                     tempFile,
                     UploadFileConfig.builder()
                             .displayName("product-ai-translate-" + System.currentTimeMillis())
@@ -620,39 +549,24 @@ public class GeminiTranslateService implements AiTranslationClient {
     }
 
     public BatchJob createBatchJob(String uploadedFileName) {
-        return createBatchJob(null, uploadedFileName);
-    }
-
-    public BatchJob createBatchJob(AiAccount account, String uploadedFileName) {
-        Client client = account == null ? primaryClient : buildClient(account, TIMEOUT_DEFAULT_MS);
         BatchJobSource source = BatchJobSource.builder()
                 .fileName(uploadedFileName)
                 .build();
         CreateBatchJobConfig config = CreateBatchJobConfig.builder()
                 .displayName("product-ai-translate-" + System.currentTimeMillis())
                 .build();
-        BatchJob job = client.batches.create(getModel(account), source, config);
+        BatchJob job = primaryClient.batches.create(MODEL, source, config);
         log.info("[createBatchJob] 批量任务已创建: name={}", job.name().orElse("N/A"));
         return job;
     }
 
     public BatchJob getBatchJob(String jobName) {
-        return getBatchJob(null, jobName);
-    }
-
-    public BatchJob getBatchJob(AiAccount account, String jobName) {
-        Client client = account == null ? primaryClient : buildClient(account, TIMEOUT_DEFAULT_MS);
-        return client.batches.get(jobName, null);
+        return primaryClient.batches.get(jobName, null);
     }
 
     public void cancelBatchJob(String jobName) {
-        cancelBatchJob(null, jobName);
-    }
-
-    public void cancelBatchJob(AiAccount account, String jobName) {
-        Client client = account == null ? primaryClient : buildClient(account, TIMEOUT_DEFAULT_MS);
         try {
-            client.batches.cancel(jobName, null);
+            primaryClient.batches.cancel(jobName, null);
             log.info("[cancelBatchJob] 已取消: {}", jobName);
         } catch (Exception e) {
             log.warn("[cancelBatchJob] 取消失败: {}, error={}", jobName, e.getMessage());
@@ -660,13 +574,8 @@ public class GeminiTranslateService implements AiTranslationClient {
     }
 
     public void deleteBatchJob(String jobName) {
-        deleteBatchJob(null, jobName);
-    }
-
-    public void deleteBatchJob(AiAccount account, String jobName) {
-        Client client = account == null ? primaryClient : buildClient(account, TIMEOUT_DEFAULT_MS);
         try {
-            client.batches.delete(jobName, null);
+            primaryClient.batches.delete(jobName, null);
             log.info("[deleteBatchJob] 已删除: {}", jobName);
         } catch (Exception e) {
             log.warn("[deleteBatchJob] 删除失败: {}, error={}", jobName, e.getMessage());
@@ -674,15 +583,10 @@ public class GeminiTranslateService implements AiTranslationClient {
     }
 
     public String downloadBatchResult(String fileName) throws IOException {
-        return downloadBatchResult(null, fileName);
-    }
-
-    public String downloadBatchResult(AiAccount account, String fileName) throws IOException {
-        Client client = account == null ? primaryClient : buildClient(account, TIMEOUT_DEFAULT_MS);
         log.info("[downloadBatchResult] 下载结果文件: {}", fileName);
         File tempFile = File.createTempFile("batch-result-", ".jsonl");
         try {
-            client.files.download(fileName, tempFile.getAbsolutePath(), null);
+            primaryClient.files.download(fileName, tempFile.getAbsolutePath(), null);
             String result = Files.readString(tempFile.toPath(), java.nio.charset.StandardCharsets.UTF_8);
             log.info("[downloadBatchResult] 下载完成: size={}bytes", result.length());
             return result;
@@ -692,13 +596,8 @@ public class GeminiTranslateService implements AiTranslationClient {
     }
 
     public void deleteFile(String fileName) {
-        deleteFile(null, fileName);
-    }
-
-    public void deleteFile(AiAccount account, String fileName) {
-        Client client = account == null ? primaryClient : buildClient(account, TIMEOUT_DEFAULT_MS);
         try {
-            client.files.delete(fileName, null);
+            primaryClient.files.delete(fileName, null);
             log.info("[deleteFile] 已删除文件: {}", fileName);
         } catch (Exception e) {
             log.warn("[deleteFile] 删除文件失败: {}, error={}", fileName, e.getMessage());

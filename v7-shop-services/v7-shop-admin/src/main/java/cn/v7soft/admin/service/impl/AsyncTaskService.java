@@ -14,7 +14,6 @@ import cn.hutool.core.lang.Pair;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
-import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.service.IS3Service;
@@ -23,7 +22,6 @@ import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.dao.dto.SystemUserDto;
-import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.enums.TaskState;
@@ -50,15 +48,13 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     private final ITaskExecutorService taskExecutorService;
     private final AiCreditsService aiCreditsService;
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
-    private final IAiAccountService aiAccountService;
 
     public AsyncTaskService(AsyncTaskRepository repository,
                             IS3Service s3Service,
                             GeminiTranslateService geminiTranslateService,
                             @Lazy ITaskExecutorService taskExecutorService,
                             AiCreditsService aiCreditsService,
-                            AiTokenUsageRecordRepository aiTokenUsageRecordRepository,
-                            IAiAccountService aiAccountService) {
+                            AiTokenUsageRecordRepository aiTokenUsageRecordRepository) {
         super(repository);
         this.asyncTaskRepository = repository;
         this.s3Service = s3Service;
@@ -66,7 +62,6 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         this.taskExecutorService = taskExecutorService;
         this.aiCreditsService = aiCreditsService;
         this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
-        this.aiAccountService = aiAccountService;
     }
 
     @Override
@@ -183,8 +178,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
             if (task.getBatchJobName() != null && !task.getBatchJobName().isBlank()
                     && !TaskExecutorService.ALL_CACHED_BATCH_JOB_NAME.equals(task.getBatchJobName())) {
                 try {
-                    AiAccount aiAccount = loadAiAccount(task);
-                    BatchJob batchJob = geminiTranslateService.getBatchJob(aiAccount, task.getBatchJobName());
+                    BatchJob batchJob = geminiTranslateService.getBatchJob(task.getBatchJobName());
                     JsonNode jobJson = OBJECT_MAPPER.readTree(batchJob.toJson());
                     JsonNode statsNode = jobJson.path("batchStats");
                     long successCount = 0;
@@ -201,17 +195,16 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
                                 taskId, successCount, totalRequests, estimatedUsedCredits);
                     }
 
-                    geminiTranslateService.cancelBatchJob(aiAccount, task.getBatchJobName());
-                    geminiTranslateService.deleteBatchJob(aiAccount, task.getBatchJobName());
+                    geminiTranslateService.cancelBatchJob(task.getBatchJobName());
+                    geminiTranslateService.deleteBatchJob(task.getBatchJobName());
                     log.info("[cancel] taskId={} Gemini Batch 资源已清理", taskId);
                 } catch (Exception e) {
                     log.warn("[cancel] taskId={} 查询/清理 Batch 资源失败: {}", taskId, e.getMessage());
                 }
             } else if (task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
                 try {
-                    AiAccount aiAccount = loadAiAccount(task);
-                    geminiTranslateService.cancelBatchJob(aiAccount, task.getBatchJobName());
-                    geminiTranslateService.deleteBatchJob(aiAccount, task.getBatchJobName());
+                    geminiTranslateService.cancelBatchJob(task.getBatchJobName());
+                    geminiTranslateService.deleteBatchJob(task.getBatchJobName());
                 } catch (Exception ignored) {}
             }
 
@@ -236,11 +229,6 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
             log.warn("[parseTotalRequests] taskId={} 解析失败", task.getId(), e);
             return 0;
         }
-    }
-
-    private AiAccount loadAiAccount(AsyncTask task) {
-        TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
-        return aiAccountService.getById(Long.valueOf(request.getAiAccountId()));
     }
 
     private void saveCancelEstimateRecord(AsyncTask task, int estimatedUsedCredits) {
@@ -321,8 +309,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         }
 
         if (task.getBatchJobName() != null && !task.getBatchJobName().isBlank()) {
-            AiAccount aiAccount = loadAiAccount(task);
-            BatchJob batchJob = geminiTranslateService.getBatchJob(aiAccount, task.getBatchJobName());
+            BatchJob batchJob = geminiTranslateService.getBatchJob(task.getBatchJobName());
             try {
                 JsonNode jobJson = OBJECT_MAPPER.readTree(batchJob.toJson());
                 JsonNode statsNode = jobJson.path("batchStats");
@@ -341,8 +328,8 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
                 log.warn("[switchToDirectTranslate] taskId={} 读取 batchStats 失败, 继续切换", task.getId(), e);
             }
             try {
-                geminiTranslateService.cancelBatchJob(aiAccount, task.getBatchJobName());
-                geminiTranslateService.deleteBatchJob(aiAccount, task.getBatchJobName());
+                geminiTranslateService.cancelBatchJob(task.getBatchJobName());
+                geminiTranslateService.deleteBatchJob(task.getBatchJobName());
             } catch (Exception e) {
                 log.warn("[switchToDirectTranslate] taskId={} 清理 Batch Job 失败: {}", taskId, e.getMessage());
             }

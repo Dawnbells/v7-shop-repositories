@@ -5,12 +5,10 @@ import java.math.RoundingMode;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
-import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
 
@@ -108,49 +106,6 @@ public final class TokenCostCalculator {
         return inputCost.add(outputCost);
     }
 
-    public static BigDecimal calculateCost(AiAccount account, TranslationContentType contentType, InvokeMode invokeMode,
-                                           int promptTokens, int completionTokens, int thinkingTokens) {
-        if (account == null) {
-            return calculateCost(contentType, invokeMode, promptTokens, completionTokens, thinkingTokens);
-        }
-        BigDecimal inputPrice = contentType == TranslationContentType.IMAGE
-                ? account.getImageInputPrice() : account.getTextInputPrice();
-        AiBillingPriceUnit inputUnit = contentType == TranslationContentType.IMAGE
-                ? account.getImageInputPriceUnit() : account.getTextInputPriceUnit();
-        BigDecimal outputPrice = contentType == TranslationContentType.IMAGE
-                ? account.getImageOutputPrice() : account.getTextOutputPrice();
-        AiBillingPriceUnit outputUnit = contentType == TranslationContentType.IMAGE
-                ? account.getImageOutputPriceUnit() : account.getTextOutputPriceUnit();
-
-        boolean missingPrice = inputPrice == null || inputUnit == null || outputPrice == null || outputUnit == null;
-        if (missingPrice) {
-            return calculateCost(contentType, invokeMode, promptTokens, completionTokens, thinkingTokens);
-        }
-
-        BigDecimal inputCost = calculateByUnit(inputPrice, inputUnit, promptTokens);
-        BigDecimal outputCost = calculateByUnit(outputPrice, outputUnit, completionTokens);
-        if (thinkingTokens > 0) {
-            BigDecimal thinkingPrice = account.getTextOutputPrice() != null ? account.getTextOutputPrice() : outputPrice;
-            AiBillingPriceUnit thinkingUnit = account.getTextOutputPriceUnit() != null ? account.getTextOutputPriceUnit() : outputUnit;
-            outputCost = outputCost.add(calculateByUnit(thinkingPrice, thinkingUnit, thinkingTokens));
-        }
-        return inputCost.add(outputCost);
-    }
-
-    private static BigDecimal calculateByUnit(BigDecimal price, AiBillingPriceUnit unit, int amount) {
-        if (price == null || unit == null || amount <= 0) {
-            return BigDecimal.ZERO;
-        }
-        return switch (unit) {
-            case PER_1M_TOKENS -> BigDecimal.valueOf(amount)
-                    .multiply(price).divide(MILLION, 6, RoundingMode.HALF_UP);
-            case PER_1K_TOKENS -> BigDecimal.valueOf(amount)
-                    .multiply(price).divide(new BigDecimal("1000"), 6, RoundingMode.HALF_UP);
-            case PER_IMAGE, PER_VIDEO, PER_MINUTE, PER_SECOND -> price;
-            case PER_1K_IMAGES -> price.divide(new BigDecimal("1000"), 6, RoundingMode.HALF_UP);
-        };
-    }
-
     /**
      * 将 USD 金额转换为 AI Credits（向上取整）。1 Credit = $0.001
      */
@@ -173,17 +128,6 @@ public final class TokenCostCalculator {
                                             textEstimateTokens, textEstimateTokens, 0);
 
         BigDecimal imgCost = calculateCost(TranslationContentType.IMAGE, mode,
-                                           imageEstimateTokens, imageEstimateTokens, 0);
-
-        int credits = usdToCredits(textCost.add(imgCost));
-        return Math.max(credits, 1);
-    }
-
-    public static int estimateCredits(int textEstimateTokens, int imageEstimateTokens, InvokeMode mode, AiAccount account) {
-        BigDecimal textCost = calculateCost(account, TranslationContentType.TEXT, mode,
-                                            textEstimateTokens, textEstimateTokens, 0);
-
-        BigDecimal imgCost = calculateCost(account, TranslationContentType.IMAGE, mode,
                                            imageEstimateTokens, imageEstimateTokens, 0);
 
         int credits = usdToCredits(textCost.add(imgCost));
