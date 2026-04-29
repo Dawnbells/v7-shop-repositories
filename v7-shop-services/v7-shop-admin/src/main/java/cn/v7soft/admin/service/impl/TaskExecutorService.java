@@ -50,6 +50,7 @@ import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.service.IAddressService;
+import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.IOrderTemplateService;
@@ -76,9 +77,11 @@ import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
+import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.TextTranslationCache;
 import cn.v7soft.dao.tenant.TenantContext;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
@@ -117,6 +120,7 @@ public class TaskExecutorService implements ITaskExecutorService {
     private static final int COMPLETED_OR_FAILED_PROGRESS = 100;
 
     public static final String QUOTA_EXHAUSTED_MSG = "当前任务已暂停，API今日配额已用尽，恢复配额后将自动重试";
+    public static final String ACCOUNT_QUOTA_EXHAUSTED_MSG = "当前任务已暂停，AI账号今日配额已用尽，恢复配额后将自动重试";
     public static final String ALL_CACHED_BATCH_JOB_NAME = "ALL_CACHED";
     private static final int MAX_ACTIVE_BATCH_JOBS = 90;
 
@@ -157,6 +161,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         private Language language;
         private Country country;
         private SystemUser owner;
+        private AiAccount aiAccount;
         private String langName;
         private String introduction;
 
@@ -200,6 +205,8 @@ public class TaskExecutorService implements ITaskExecutorService {
     private final IOrderTemplateService orderTemplateService;
     private final IProductService productService;
     private final GeminiTranslateService geminiTranslateService;
+    private final AiTranslateService aiTranslateService;
+    private final IAiAccountService aiAccountService;
     private final IMultimediaFileService multimediaFileService;
     private final cn.v7soft.admin.service.ILanguageService languageService;
     private final cn.v7soft.admin.service.ICountryService countryService;
@@ -214,12 +221,12 @@ public class TaskExecutorService implements ITaskExecutorService {
     private final Retry geminiDirectRetry;
     private final Retry batchPollRetry;
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
-    private final GeminiQuotaTracker geminiQuotaTracker;
 
     public TaskExecutorService(IAsyncTaskService asyncTaskService, @Lazy IAddressService addressService,
                        @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
                        @Lazy IProductService productService, GeminiTranslateService geminiTranslateService,
+                       AiTranslateService aiTranslateService, IAiAccountService aiAccountService,
                        IMultimediaFileService multimediaFileService, cn.v7soft.admin.service.ILanguageService languageService,
                        cn.v7soft.admin.service.ICountryService countryService,
                        AsyncTaskRepository asyncTaskRepository, TranslateTaskMetrics translateTaskMetrics,
@@ -232,7 +239,6 @@ public class TaskExecutorService implements ITaskExecutorService {
                        @Qualifier("geminiDirectRetry") Retry geminiDirectRetry,
                        @Qualifier("batchPollRetry") Retry batchPollRetry,
                        AiTokenUsageRecordRepository aiTokenUsageRecordRepository,
-                       GeminiQuotaTracker geminiQuotaTracker,
                        @Value("${application.ai.graceful-shutdown-wait-seconds:180}") long gracefulShutdownWaitSeconds) {
         this.asyncTaskService = asyncTaskService;
         this.addressService = addressService;
@@ -242,6 +248,8 @@ public class TaskExecutorService implements ITaskExecutorService {
         this.orderTemplateService = orderTemplateService;
         this.productService = productService;
         this.geminiTranslateService = geminiTranslateService;
+        this.aiTranslateService = aiTranslateService;
+        this.aiAccountService = aiAccountService;
         this.multimediaFileService = multimediaFileService;
         this.languageService = languageService;
         this.countryService = countryService;
@@ -256,7 +264,6 @@ public class TaskExecutorService implements ITaskExecutorService {
         this.geminiDirectRetry = geminiDirectRetry;
         this.batchPollRetry = batchPollRetry;
         this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
-        this.geminiQuotaTracker = geminiQuotaTracker;
         this.gracefulShutdownWaitSeconds = gracefulShutdownWaitSeconds;
     }
 
@@ -338,12 +345,6 @@ public class TaskExecutorService implements ITaskExecutorService {
             } else if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE) {
                 executeBatchTranslate(task);
             } else if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE_DIRECT) {
-                if (geminiQuotaTracker.isAllExhausted()) {
-                    log.info("[submitAsyncTask] taskId={} API配额已耗尽, 保持PENDING等待配额恢复", task.getId());
-                    task.setMessage(QUOTA_EXHAUSTED_MSG);
-                    asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
-                    return;
-                }
                 executeDirectTranslate(task);
             } else if (task.getTaskType() == TaskType.ADDRESS_IMPORT) {
                 executeAddressImport(task);
@@ -370,6 +371,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                 ? countryService.getById(Long.valueOf(request.getCountryId()))
                 : product.getCountry();
         SystemUser owner = task.getOwner();
+        AiAccount aiAccount = loadAiAccount(request);
         String langName = language.getName();
         String introduction = product.getIntroduction();
 
@@ -417,6 +419,7 @@ public class TaskExecutorService implements ITaskExecutorService {
 
         return TranslateContext.builder()
                 .product(product).language(language).country(country).owner(owner)
+                .aiAccount(aiAccount)
                 .langName(langName).introduction(introduction)
                 .uncachedTextMap(uncachedTextMap).cachedTextMap(cachedTextMap)
                 .imageIdToHash(imageIdToHash)
@@ -425,6 +428,21 @@ public class TaskExecutorService implements ITaskExecutorService {
                 .uncachedHtml(uncachedHtml).cachedTranslatedHtml(cachedTranslatedHtml)
                 .allTextMap(allTextMap)
                 .build();
+    }
+
+    private AiAccount loadAiAccount(TranslateByAIRequest request) {
+        ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(request.getAiAccountId(), "AI账号不能为空");
+        AiAccount aiAccount = aiAccountService.getById(Long.valueOf(request.getAiAccountId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(aiAccount, "AI账号不存在");
+        ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(aiAccount.getStatus() == StatusEnum.VALID, "AI账号不是有效状态");
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(aiAccount.getProvider(), "AI账号服务商不能为空");
+        return aiAccount;
+    }
+
+    private String quotaExhaustedMessage(DailyQuotaExhaustedException e) {
+        return e.getMessage() != null && e.getMessage().contains("AI账号")
+                ? ACCOUNT_QUOTA_EXHAUSTED_MSG
+                : QUOTA_EXHAUSTED_MSG;
     }
 
     private void downloadAndFilterImages(List<String> imgIds, Language language,
@@ -545,6 +563,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             boolean hasUncached = !ctx.getUncachedTextMap().isEmpty()
                     || ctx.getUncachedHtml() != null
                     || !ctx.getUncachedImageData().isEmpty();
+            int uncachedRequestCount = totalRequests - cachedCount;
 
             log.info("[batchTranslate] taskId={} JSONL: totalRequests={}, cachedCount={}, size={}bytes",
                     task.getId(), totalRequests, cachedCount, jsonl.length());
@@ -557,6 +576,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 return;
             }
 
+            aiAccountService.checkDailyQuota(ctx.getAiAccount(), uncachedRequestCount);
+
             request.setTotalRequests(totalRequests);
             task.setParameters(JSONUtil.toJsonStr(request));
             task.setMessage("正在上传翻译请求...");
@@ -565,8 +586,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 return;
             }
 
-            String uploadedFileName = geminiTranslateService.uploadBatchFile(jsonl.toString());
-            BatchJob batchJob = geminiTranslateService.createBatchJob(uploadedFileName);
+            String uploadedFileName = geminiTranslateService.uploadBatchFile(ctx.getAiAccount(), jsonl.toString());
+            BatchJob batchJob = geminiTranslateService.createBatchJob(ctx.getAiAccount(), uploadedFileName);
             String jobName = batchJob.name().orElseThrow(() -> new RuntimeException("Batch Job 创建后无 name"));
             task.setBatchJobName(jobName);
             activeBatchJobs.incrementAndGet();
@@ -576,6 +597,10 @@ public class TaskExecutorService implements ITaskExecutorService {
             task.setMessage("AI翻译中: 等待Batch完成...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, 10);
 
+        } catch (DailyQuotaExhaustedException e) {
+            log.warn("[batchTranslate] taskId={} 每日配额已耗尽, 暂停任务等待配额恢复", task.getId());
+            task.setMessage(quotaExhaustedMessage(e));
+            asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
         } catch (Throwable e) {
             log.error("[batchTranslate] taskId={} 提交异常", task.getId(), e);
             if (task.getBatchJobName() != null) {
@@ -613,7 +638,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         }
 
         try {
-            String resultContent = geminiTranslateService.downloadBatchResult(resultFileName);
+            String resultContent = geminiTranslateService.downloadBatchResult(ctx.getAiAccount(), resultFileName);
             Map<String, JsonNode> resultMap = new HashMap<>();
             for (String line : resultContent.split("\n")) {
                 if (line.isBlank()) continue;
@@ -643,7 +668,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                     GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(respNode);
                     saveTokenUsageRecord(task.getId(), TranslationContentType.TEXT, hash, langName,
                             false, InvokeMode.BATCH, usage, false, null, null, null, owner,
-                            entry.getValue(), translated, null, null);
+                            entry.getValue(), translated, null, null, ctx.getAiAccount());
                 }
             }
 
@@ -660,7 +685,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                     GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(respNode);
                     saveTokenUsageRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName,
                             false, InvokeMode.BATCH, usage, false, null, null, null, owner,
-                            ctx.getUncachedHtml(), translatedHtml, null, null);
+                            ctx.getUncachedHtml(), translatedHtml, null, null, ctx.getAiAccount());
                 }
             }
 
@@ -680,17 +705,18 @@ public class TaskExecutorService implements ITaskExecutorService {
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
                         saveTokenUsageRecord(task.getId(), TranslationContentType.IMAGE, hash, langName,
                                 false, InvokeMode.BATCH, usage, true, null, null, null, owner,
-                                null, null, sourceFile.getRelativePath(), newFile.getRelativePath());
+                                null, null, sourceFile.getRelativePath(), newFile.getRelativePath(), ctx.getAiAccount());
                     } catch (Exception e) {
                         log.warn("[processResult] taskId={} 图片 hash={} 保存失败", task.getId(), hash, e);
                     }
                 } else if (sourceFile != null) {
                     saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), null, true);
-                    saveNoOutputImageTokenRecord(task.getId(), hash, langName, InvokeMode.BATCH, usage, sourceFile, owner);
+                    saveNoOutputImageTokenRecord(task.getId(), hash, langName, InvokeMode.BATCH, usage, sourceFile, owner,
+                            ctx.getAiAccount());
                 }
             }
 
-            geminiTranslateService.deleteFile(resultFileName);
+            geminiTranslateService.deleteFile(ctx.getAiAccount(), resultFileName);
         } catch (Exception e) {
             log.error("[processResult] taskId={} 下载/解析结果失败", task.getId(), e);
         }
@@ -743,7 +769,8 @@ public class TaskExecutorService implements ITaskExecutorService {
 
         TranslateContext fallbackCtx = TranslateContext.builder()
                 .product(ctx.getProduct()).language(ctx.getLanguage()).country(ctx.getCountry())
-                .owner(ctx.getOwner()).langName(ctx.getLangName()).introduction(ctx.getIntroduction())
+                .owner(ctx.getOwner()).aiAccount(ctx.getAiAccount())
+                .langName(ctx.getLangName()).introduction(ctx.getIntroduction())
                 .uncachedTextMap(failedTextMap).cachedTextMap(new HashMap<>())
                 .imageIdToHash(ctx.getImageIdToHash())
                 .uncachedImageData(failedImageData).uncachedImageMimeTypes(failedImageMimeTypes)
@@ -779,7 +806,8 @@ public class TaskExecutorService implements ITaskExecutorService {
             AsyncTask freshTask = asyncTaskService.getById(task.getId());
             if (freshTask.getState() == TaskState.CANCELLED) {
                 log.info("[resumeTranslate] taskId={} 任务已取消", task.getId());
-                geminiTranslateService.cancelBatchJob(jobName);
+                TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+                geminiTranslateService.cancelBatchJob(loadAiAccount(request), jobName);
                 activeBatchJobs.decrementAndGet();
                 batchCountDecremented = true;
                 return;
@@ -787,8 +815,10 @@ public class TaskExecutorService implements ITaskExecutorService {
 
             BatchJob currentJob;
             try {
+                TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+                AiAccount aiAccount = loadAiAccount(request);
                 currentJob = Retry.decorateSupplier(batchPollRetry,
-                        () -> geminiTranslateService.getBatchJob(jobName)).get();
+                        () -> geminiTranslateService.getBatchJob(aiAccount, jobName)).get();
             } catch (Exception e) {
                 // 不 decrement：远程 job 可能仍在运行，下次轮询再试；
                 // 如果连续失败多次，由 recoverUnfinishedTasks 的 set() 校准
@@ -829,7 +859,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 log.info("[resumeTranslate] taskId={} 处理结果前发现已取消", task.getId());
                 activeBatchJobs.decrementAndGet();
                 batchCountDecremented = true;
-                cleanupBatchResources(jobName, null);
+                TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+                cleanupBatchResources(loadAiAccount(request), jobName, null);
                 return;
             }
 
@@ -846,7 +877,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             writeCacheHitTokenRecords(task, ctx, InvokeMode.BATCH);
 
             TranslateResult batchResult = processBatchResult(task, batchState, currentJob, ctx);
-            cleanupBatchResources(jobName, null);
+            cleanupBatchResources(ctx.getAiAccount(), jobName, null);
 
             TranslateResult fallbackResult = fallbackFailedItems(task, ctx, batchResult);
             TranslateResult mergedResult = mergeResults(batchResult, fallbackResult);
@@ -861,7 +892,7 @@ public class TaskExecutorService implements ITaskExecutorService {
 
         } catch (DailyQuotaExhaustedException e) {
             log.warn("[resumeTranslate] taskId={} 每日配额已耗尽, 暂停任务等待配额恢复", task.getId());
-            task.setMessage(QUOTA_EXHAUSTED_MSG);
+            task.setMessage(quotaExhaustedMessage(e));
             asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
         } catch (Throwable e) {
             long elapsed = System.currentTimeMillis() - taskStart;
@@ -923,7 +954,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
         } catch (DailyQuotaExhaustedException e) {
             log.warn("[directTranslate] taskId={} 每日配额已耗尽, 暂停任务等待配额恢复", task.getId());
-            task.setMessage(QUOTA_EXHAUSTED_MSG);
+            task.setMessage(quotaExhaustedMessage(e));
             asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
         } catch (Throwable e) {
             long elapsed = System.currentTimeMillis() - taskStart;
@@ -981,13 +1012,14 @@ public class TaskExecutorService implements ITaskExecutorService {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 Long recordId = null;
                 try {
+                    aiAccountService.checkDailyQuota(ctx.getAiAccount(), 1);
                     recordId = saveEstimatedTokenRecord(task.getId(), TranslationContentType.TEXT,
-                            hash, langName, InvokeMode.STANDARD, sourceText, null, owner);
+                            hash, langName, InvokeMode.STANDARD, sourceText, null, owner, ctx.getAiAccount());
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     String translated = callWithRateLimitAndRetry(() -> {
                         checkDirectCallAllowed(cancelledFlag, task);
-                        return geminiTranslateService.translateTextRaw(sourceText, langName, usageRef::set);
+                        return aiTranslateService.translateTextRaw(ctx.getAiAccount(), sourceText, langName, usageRef::set);
                     });
                     if (translated != null && !translated.isBlank()) {
                         translatedTextMap.put(hash, translated);
@@ -995,7 +1027,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                     }
                     updateTokenRecordWithActual(recordId, TranslationContentType.TEXT,
                             InvokeMode.STANDARD, usageRef.get(), false, null, null, null,
-                            translated, null);
+                            translated, null, ctx.getAiAccount());
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
@@ -1030,13 +1062,14 @@ public class TaskExecutorService implements ITaskExecutorService {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 Long recordId = null;
                 try {
+                    aiAccountService.checkDailyQuota(ctx.getAiAccount(), 1);
                     recordId = saveEstimatedTokenRecord(task.getId(), TranslationContentType.HTML,
-                            htmlHash, langName, InvokeMode.STANDARD, ctx.getUncachedHtml(), null, owner);
+                            htmlHash, langName, InvokeMode.STANDARD, ctx.getUncachedHtml(), null, owner, ctx.getAiAccount());
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     String html = callWithRateLimitAndRetry(() -> {
                         checkDirectCallAllowed(cancelledFlag, task);
-                        return geminiTranslateService.translateHtmlRaw(ctx.getUncachedHtml(), langName, usageRef::set);
+                        return aiTranslateService.translateHtmlRaw(ctx.getAiAccount(), ctx.getUncachedHtml(), langName, usageRef::set);
                     });
                     if (html != null) {
                         translatedHtmlRef.set(html);
@@ -1044,7 +1077,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                     }
                     updateTokenRecordWithActual(recordId, TranslationContentType.HTML,
                             InvokeMode.STANDARD, usageRef.get(), false, null, null, null,
-                            html, null);
+                            html, null, ctx.getAiAccount());
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
                     throw e;
@@ -1082,13 +1115,14 @@ public class TaskExecutorService implements ITaskExecutorService {
                 TenantContext.setCurrentTenant(tenantId, tenantCompany);
                 Long recordId = null;
                 try {
+                    aiAccountService.checkDailyQuota(ctx.getAiAccount(), 1);
                     recordId = saveEstimatedTokenRecord(task.getId(), TranslationContentType.IMAGE,
-                            hash, langName, InvokeMode.STANDARD, null, sourceFile, owner);
+                            hash, langName, InvokeMode.STANDARD, null, sourceFile, owner, ctx.getAiAccount());
                     java.util.concurrent.atomic.AtomicReference<GeminiTranslateService.TokenUsage> usageRef =
                             new java.util.concurrent.atomic.AtomicReference<>();
                     byte[] result = callWithRateLimitAndRetry(() -> {
                         checkDirectCallAllowed(cancelledFlag, task);
-                        return geminiTranslateService.translateImageRaw(imgBytes, mimeType, langName, usageRef::set);
+                        return aiTranslateService.translateImageRaw(ctx.getAiAccount(), imgBytes, mimeType, langName, usageRef::set);
                     });
                     if (result != null && sourceFile != null) {
                         MultimediaFile newFile = multimediaFileService.saveTranslatedImage(
@@ -1097,7 +1131,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), newFile, false);
                         updateTokenRecordWithActual(recordId, TranslationContentType.IMAGE,
                                 InvokeMode.STANDARD, usageRef.get(), true, null, null, null,
-                                null, newFile.getRelativePath());
+                                null, newFile.getRelativePath(), ctx.getAiAccount());
                     } else if (sourceFile != null) {
                         saveImageTranslationCache(hash, sourceFile, ctx.getLanguage(), null, true);
                         int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
@@ -1107,7 +1141,7 @@ public class TaskExecutorService implements ITaskExecutorService {
                                 InvokeMode.STANDARD, usageRef.get(), false,
                                 usageRef.get() != null && usageRef.get().getPromptTokens() != null
                                         ? usageRef.get().getPromptTokens() : null,
-                                bizCompletion, 0, null, null);
+                                bizCompletion, 0, null, null, ctx.getAiAccount());
                     }
                 } catch (DailyQuotaExhaustedException e) {
                     quotaExhaustedFlag.set(true);
@@ -1363,10 +1397,10 @@ public class TaskExecutorService implements ITaskExecutorService {
         return null;
     }
 
-    private void cleanupBatchResources(String jobName, String uploadedFileName) {
-        try { if (uploadedFileName != null) geminiTranslateService.deleteFile(uploadedFileName); }
+    private void cleanupBatchResources(AiAccount aiAccount, String jobName, String uploadedFileName) {
+        try { if (uploadedFileName != null) geminiTranslateService.deleteFile(aiAccount, uploadedFileName); }
         catch (Exception e) { log.warn("[cleanupBatch] 清理上传文件失败", e); }
-        try { if (jobName != null) geminiTranslateService.deleteBatchJob(jobName); }
+        try { if (jobName != null) geminiTranslateService.deleteBatchJob(aiAccount, jobName); }
         catch (Exception e) { log.warn("[cleanupBatch] 删除 batch job 失败", e); }
     }
 
@@ -1458,7 +1492,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                                       Integer bizPrompt, Integer bizCompletion, Integer bizThinking,
                                       SystemUser owner,
                                       String sourceText, String translatedText,
-                                      String sourceImagePath, String translatedImagePath) {
+                                      String sourceImagePath, String translatedImagePath,
+                                      AiAccount aiAccount) {
         try {
             if (aiTokenUsageRecordRepository.existsByTaskIdAndContentHashAndTargetLanguage(
                     taskId, contentHash, targetLanguage)) {
@@ -1477,19 +1512,20 @@ public class TaskExecutorService implements ITaskExecutorService {
             int bTotal = bPrompt + bCompletion + bThinking;
 
             BigDecimal actualCost = TokenCostCalculator.calculateCost(
-                    contentType, invokeMode, aPrompt, aCompletion, aThinking);
+                    aiAccount, contentType, invokeMode, aPrompt, aCompletion, aThinking);
             BigDecimal businessCost = TokenCostCalculator.calculateCost(
-                    contentType, invokeMode, bPrompt, bCompletion, bThinking);
+                    aiAccount, contentType, invokeMode, bPrompt, bCompletion, bThinking);
 
             int businessCredits = TokenCostCalculator.usdToCredits(businessCost);
 
             AiTokenUsageRecord record = AiTokenUsageRecord.builder()
                     .taskId(taskId)
+                    .aiAccount(aiAccount)
                     .contentType(contentType)
                     .contentHash(contentHash)
                     .targetLanguage(targetLanguage)
                     .cacheHit(cacheHit)
-                    .model(geminiTranslateService.getModel())
+                    .model(aiTranslateService.getModel(aiAccount))
                     .invokeMode(invokeMode)
                     .actualPromptTokens(aPrompt)
                     .actualCompletionTokens(aCompletion)
@@ -1523,7 +1559,8 @@ public class TaskExecutorService implements ITaskExecutorService {
      */
     private Long saveEstimatedTokenRecord(Long taskId, TranslationContentType contentType,
                                           String contentHash, String targetLanguage, InvokeMode invokeMode,
-                                          String sourceText, MultimediaFile sourceFile, SystemUser owner) {
+                                          String sourceText, MultimediaFile sourceFile, SystemUser owner,
+                                          AiAccount aiAccount) {
         try {
             if (aiTokenUsageRecordRepository.existsByTaskIdAndContentHashAndTargetLanguage(
                     taskId, contentHash, targetLanguage)) {
@@ -1549,16 +1586,17 @@ public class TaskExecutorService implements ITaskExecutorService {
             }
 
             BigDecimal businessCost = TokenCostCalculator.calculateCost(
-                    contentType, invokeMode, estPrompt, estCompletion, estThinking);
+                    aiAccount, contentType, invokeMode, estPrompt, estCompletion, estThinking);
             int businessCredits = TokenCostCalculator.usdToCredits(businessCost);
 
             AiTokenUsageRecord record = AiTokenUsageRecord.builder()
                     .taskId(taskId)
+                    .aiAccount(aiAccount)
                     .contentType(contentType)
                     .contentHash(contentHash)
                     .targetLanguage(targetLanguage)
                     .cacheHit(false)
-                    .model(geminiTranslateService.getModel())
+                    .model(aiTranslateService.getModel(aiAccount))
                     .invokeMode(invokeMode)
                     .actualPromptTokens(0)
                     .actualCompletionTokens(0)
@@ -1595,7 +1633,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                                              InvokeMode invokeMode, GeminiTranslateService.TokenUsage actual,
                                              boolean hasImageOutput,
                                              Integer bizPrompt, Integer bizCompletion, Integer bizThinking,
-                                             String translatedText, String translatedImagePath) {
+                                             String translatedText, String translatedImagePath,
+                                             AiAccount aiAccount) {
         if (recordId == null) return;
         try {
             Optional<AiTokenUsageRecord> opt = aiTokenUsageRecordRepository.findById(recordId);
@@ -1614,9 +1653,9 @@ public class TaskExecutorService implements ITaskExecutorService {
             int bTotal = bPrompt + bCompletion + bThinking;
 
             BigDecimal actualCost = TokenCostCalculator.calculateCost(
-                    contentType, invokeMode, aPrompt, aCompletion, aThinking);
+                    aiAccount, contentType, invokeMode, aPrompt, aCompletion, aThinking);
             BigDecimal businessCost = TokenCostCalculator.calculateCost(
-                    contentType, invokeMode, bPrompt, bCompletion, bThinking);
+                    aiAccount, contentType, invokeMode, bPrompt, bCompletion, bThinking);
             int businessCredits = TokenCostCalculator.usdToCredits(businessCost);
 
             record.setActualPromptTokens(aPrompt);
@@ -1648,7 +1687,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                                          String contentHash, String targetLanguage, InvokeMode invokeMode,
                                          String sourceText, MultimediaFile sourceFile,
                                          SystemUser owner,
-                                         String translatedText, String sourceImagePath, String translatedImagePath) {
+                                         String translatedText, String sourceImagePath, String translatedImagePath,
+                                         AiAccount aiAccount) {
         try {
             Optional<AiTokenUsageRecord> historyOpt = aiTokenUsageRecordRepository
                     .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(contentHash, targetLanguage);
@@ -1673,7 +1713,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             }
             saveTokenUsageRecord(taskId, contentType, contentHash, targetLanguage,
                     true, invokeMode, null, hasImageOutput, bizPrompt, bizCompletion, bizThinking, owner,
-                    sourceText, translatedText, sourceImagePath, translatedImagePath);
+                    sourceText, translatedText, sourceImagePath, translatedImagePath, aiAccount);
         } catch (Exception e) {
             log.warn("[tokenUsage] 缓存命中记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
         }
@@ -1684,7 +1724,8 @@ public class TaskExecutorService implements ITaskExecutorService {
      */
     private void saveNoOutputImageTokenRecord(Long taskId, String contentHash, String targetLanguage,
                                               InvokeMode invokeMode, GeminiTranslateService.TokenUsage actual,
-                                              MultimediaFile sourceFile, SystemUser owner) {
+                                              MultimediaFile sourceFile, SystemUser owner,
+                                              AiAccount aiAccount) {
         try {
             int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
             if (maxDim <= 0) maxDim = 512;
@@ -1692,7 +1733,7 @@ public class TaskExecutorService implements ITaskExecutorService {
             int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
             saveTokenUsageRecord(taskId, TranslationContentType.IMAGE, contentHash, targetLanguage,
                     false, invokeMode, actual, false, bizPrompt, bizCompletion, 0, owner,
-                    null, null, sourceFile.getRelativePath(), null);
+                    null, null, sourceFile.getRelativePath(), null, aiAccount);
         } catch (Exception e) {
             log.warn("[tokenUsage] 无输出图片记录写入失败: taskId={}, hash={}", taskId, contentHash, e);
         }
@@ -1710,20 +1751,20 @@ public class TaskExecutorService implements ITaskExecutorService {
             String translatedText = entry.getValue();
             String sourceText = ctx.getAllTextMap() != null ? ctx.getAllTextMap().get(hash) : null;
             saveCacheHitTokenRecord(task.getId(), TranslationContentType.TEXT, hash, langName, invokeMode, sourceText, null, owner,
-                    translatedText, null, null);
+                    translatedText, null, null, ctx.getAiAccount());
         }
 
         if (ctx.getCachedTranslatedHtml() != null && ctx.getIntroduction() != null) {
             String htmlHash = DigestUtil.sha256Hex(ctx.getIntroduction());
             saveCacheHitTokenRecord(task.getId(), TranslationContentType.HTML, htmlHash, langName, invokeMode, ctx.getIntroduction(), null, owner,
-                    ctx.getCachedTranslatedHtml(), null, null);
+                    ctx.getCachedTranslatedHtml(), null, null, ctx.getAiAccount());
         }
 
         for (Map.Entry<String, MultimediaFile> entry : ctx.getCachedImageMap().entrySet()) {
             MultimediaFile sourceFile = ctx.getImageHashToSourceFile() != null ? ctx.getImageHashToSourceFile().get(entry.getKey()) : null;
             saveCacheHitTokenRecord(task.getId(), TranslationContentType.IMAGE, entry.getKey(), langName, invokeMode, null, null, owner,
                     null, sourceFile != null ? sourceFile.getRelativePath() : null,
-                    entry.getValue() != null ? entry.getValue().getRelativePath() : null);
+                    entry.getValue() != null ? entry.getValue().getRelativePath() : null, ctx.getAiAccount());
         }
     }
 

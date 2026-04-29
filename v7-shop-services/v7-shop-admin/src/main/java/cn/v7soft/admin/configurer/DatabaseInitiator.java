@@ -30,6 +30,7 @@ public class DatabaseInitiator implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
+        ensureAiQuotaColumns();
         ensureFullTextIndexes();
         Optional<SystemUser> admin = systemUserRepository.findById(1L);
         if (admin.isPresent()) {
@@ -37,6 +38,42 @@ public class DatabaseInitiator implements ApplicationRunner {
         }
         initAdminUser();
         initSystemRouter();
+    }
+
+    private void ensureAiQuotaColumns() {
+        try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
+            String database = conn.getCatalog();
+            addColumnIfMissing(stmt, database, "t_ai_accounts", "daily_limit", "INT NULL");
+            addColumnIfMissing(stmt, database, "t_ai_token_usage_records", "ai_account_id", "BIGINT NULL");
+            if (!indexExists(stmt, database, "t_ai_token_usage_records", "idx_atur_ai_account_create_time")) {
+                stmt.execute("ALTER TABLE t_ai_token_usage_records ADD INDEX idx_atur_ai_account_create_time(ai_account_id, create_time)");
+                log.info("Created INDEX idx_atur_ai_account_create_time on t_ai_token_usage_records");
+            }
+        } catch (Exception e) {
+            log.warn("Failed to ensure AI quota columns: {}", e.getMessage());
+        }
+    }
+
+    private void addColumnIfMissing(Statement stmt, String database, String table, String column, String definition) {
+        if (columnExists(stmt, database, table, column)) {
+            return;
+        }
+        try {
+            stmt.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
+            log.info("Created COLUMN {}.{}", table, column);
+        } catch (Exception e) {
+            log.warn("COLUMN creation skipped for {}.{}: {}", table, column, e.getMessage());
+        }
+    }
+
+    private boolean columnExists(Statement stmt, String database, String table, String column) {
+        String sql = "SELECT 1 FROM information_schema.columns WHERE table_schema = '"
+                + database + "' AND table_name = '" + table + "' AND column_name = '" + column + "' LIMIT 1";
+        try (ResultSet rs = stmt.executeQuery(sql)) {
+            return rs.next();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void ensureFullTextIndexes() {

@@ -119,7 +119,7 @@
           />
         </template>
       </el-table-column>
-      <el-table-column align="center" fixed="right" label="操作" width="190">
+      <el-table-column align="center" label="操作" width="210">
         <template #default="{ row }">
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button text type="primary" @click="handleCopy(row)">复制</el-button>

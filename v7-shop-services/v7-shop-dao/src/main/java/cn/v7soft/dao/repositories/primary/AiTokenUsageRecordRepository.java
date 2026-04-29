@@ -41,4 +41,7 @@ public interface AiTokenUsageRecordRepository extends BaseRepository<AiTokenUsag
 
     @Query("SELECT COALESCE(SUM(r.businessCredits), 0) FROM AiTokenUsageRecord r WHERE r.createTime >= :start AND r.owner.id IN :ownerIds")
     int sumBusinessCreditsAfterByOwners(@Param("start") LocalDateTime start, @Param("ownerIds") List<Long> ownerIds);
+
+    @Query("SELECT COUNT(r) FROM AiTokenUsageRecord r WHERE r.aiAccount.id = :aiAccountId AND r.cacheHit = false AND r.createTime >= :start")
+    long countDailyCallsByAiAccount(@Param("aiAccountId") Long aiAccountId, @Param("start") LocalDateTime start);
 }

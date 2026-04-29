@@ -27,11 +27,16 @@ import java.math.BigDecimal;
         @Index(name = "idx_atur_task_id", columnList = "task_id"),
         @Index(name = "idx_atur_content_hash", columnList = "content_hash"),
         @Index(name = "idx_atur_create_time", columnList = "create_time"),
+        @Index(name = "idx_atur_ai_account_create_time", columnList = "ai_account_id, create_time"),
 })
 public class AiTokenUsageRecord extends BaseDataRangeEntity {
 
     @Column(name = "task_id", nullable = false)
     private Long taskId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "ai_account_id")
+    private AiAccount aiAccount;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "content_type", nullable = false, length = 20)

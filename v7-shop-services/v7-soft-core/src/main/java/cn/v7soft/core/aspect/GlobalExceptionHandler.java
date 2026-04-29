@@ -69,7 +69,7 @@ public class GlobalExceptionHandler {
     @ResponseBody
     @ExceptionHandler(BaseException.class)
     public ResponseEntity<?> handleBaseException(BaseException ex) {
-        log.error("handleBaseException: " + ex.getMessage());
+        log.error("handleBaseException: ", ex);
         // 创建并返回一个适当的响应实体
         return ResponseEntity
                 .status(ex.getStatus())

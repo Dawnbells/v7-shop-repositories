@@ -1,6 +1,7 @@
 package cn.v7soft.admin.service.impl;
 
 import cn.hutool.core.util.StrUtil;
+import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
 import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.common.controller.req.attributes.AccessDataRangeAttribute;
 import cn.v7soft.common.enums.AccessDataRangeLevel;
@@ -12,21 +13,50 @@ import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.repositories.primary.AiAccountRepository;
+import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 @Service
 public class AiAccountService extends BaseDataRangeService<AiAccount, AiAccountRepository> implements IAiAccountService {
 
-    public AiAccountService(AiAccountRepository repository) {
+    private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
+
+    public AiAccountService(AiAccountRepository repository,
+                            AiTokenUsageRecordRepository aiTokenUsageRecordRepository) {
         super(repository);
+        this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
     }
 
     @Override
     public List<AiAccount> findAvailableAccounts(AiProvider provider) {
         return repository.findByProviderAndStatusOrderByPriorityAscIdAsc(provider, StatusEnum.VALID);
+    }
+
+    @Override
+    public boolean hasDailyQuota(AiAccount account, int requestedCalls) {
+        if (account == null) {
+            return false;
+        }
+        if (account.getDailyLimit() == null) {
+            return true;
+        }
+        if (requestedCalls <= 0) {
+            return true;
+        }
+        long used = aiTokenUsageRecordRepository.countDailyCallsByAiAccount(
+                account.getId(), LocalDate.now().atStartOfDay());
+        return used + requestedCalls <= account.getDailyLimit();
+    }
+
+    @Override
+    public void checkDailyQuota(AiAccount account, int requestedCalls) {
+        if (!hasDailyQuota(account, requestedCalls)) {
+            throw new DailyQuotaExhaustedException("AI账号今日配额已用尽");
+        }
     }
 
     @Override
@@ -48,6 +78,9 @@ public class AiAccountService extends BaseDataRangeService<AiAccount, AiAccountR
         checkPrice(entity.getImageOutputPrice(), entity.getImageOutputPriceUnit(), "图片输出");
         checkPrice(entity.getVideoInputPrice(), entity.getVideoInputPriceUnit(), "视频输入");
         checkPrice(entity.getVideoOutputPrice(), entity.getVideoOutputPriceUnit(), "视频输出");
+        if (entity.getDailyLimit() != null) {
+            ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(entity.getDailyLimit() >= 0, "每日限额不能小于0");
+        }
         AiAccount existing = repository.findBySameName(entity.getName(), entity.getId());
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(existing, "AI账号名称不允许重复");
     }

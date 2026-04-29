@@ -8,11 +8,15 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import cn.hutool.json.JSONUtil;
+import cn.v7soft.admin.controller.req.TranslateByAIRequest;
+import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.service.impl.GeminiQuotaTracker;
 import cn.v7soft.admin.service.impl.TaskExecutorService;
 import cn.v7soft.admin.service.impl.TranslateTaskMetrics;
+import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
@@ -36,6 +40,7 @@ public class AsyncTaskInspector {
     private final TranslateTaskMetrics translateTaskMetrics;
     private final GeminiQuotaTracker geminiQuotaTracker;
     private final SystemUserRepository systemUserRepository;
+    private final IAiAccountService aiAccountService;
 
     @Scheduled(fixedDelay = 5 * 60 * 1000, initialDelay = 3 * 60 * 1000)
     public void inspectStuckTasks() {
@@ -73,7 +78,7 @@ public class AsyncTaskInspector {
                     }
                 } else if (task.getState() == TaskState.PENDING) {
                     if (isQuotaExhaustedPending(task)) {
-                        if (!geminiQuotaTracker.isAllExhausted()) {
+                        if (isQuotaRecovered(task)) {
                             log.info("[TaskInspector] 配额已恢复, 重新投递任务: taskId={}", task.getId());
                             task.setMessage(null);
                             asyncTaskService.updateAsyncTask(task, TaskState.PENDING, 0);
@@ -113,7 +118,25 @@ public class AsyncTaskInspector {
 
     private boolean isQuotaExhaustedPending(AsyncTask task) {
         return isTranslateTask(task)
-                && TaskExecutorService.QUOTA_EXHAUSTED_MSG.equals(task.getMessage());
+                && (TaskExecutorService.QUOTA_EXHAUSTED_MSG.equals(task.getMessage())
+                || TaskExecutorService.ACCOUNT_QUOTA_EXHAUSTED_MSG.equals(task.getMessage()));
+    }
+
+    private boolean isQuotaRecovered(AsyncTask task) {
+        if (TaskExecutorService.QUOTA_EXHAUSTED_MSG.equals(task.getMessage())) {
+            return !geminiQuotaTracker.isAllExhausted();
+        }
+        try {
+            TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
+            if (request.getAiAccountId() == null || request.getAiAccountId().isBlank()) {
+                return false;
+            }
+            AiAccount aiAccount = aiAccountService.getById(Long.valueOf(request.getAiAccountId()));
+            return aiAccountService.hasDailyQuota(aiAccount, 1);
+        } catch (Exception e) {
+            log.warn("[TaskInspector] 检查AI账号配额恢复失败: taskId={}", task.getId(), e);
+            return false;
+        }
     }
 
     private boolean isBatchQueuedPending(AsyncTask task) {
