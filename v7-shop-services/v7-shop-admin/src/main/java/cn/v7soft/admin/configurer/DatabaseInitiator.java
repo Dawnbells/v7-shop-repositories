@@ -44,6 +44,7 @@ public class DatabaseInitiator implements ApplicationRunner {
         try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
             String database = conn.getCatalog();
             addColumnIfMissing(stmt, database, "t_ai_accounts", "daily_limit", "INT NULL");
+            addColumnIfMissing(stmt, database, "t_ai_accounts", "user_agent", "VARCHAR(512) NULL");
             addColumnIfMissing(stmt, database, "t_ai_token_usage_records", "ai_account_id", "BIGINT NULL");
             if (!indexExists(stmt, database, "t_ai_token_usage_records", "idx_atur_ai_account_create_time")) {
                 stmt.execute("ALTER TABLE t_ai_token_usage_records ADD INDEX idx_atur_ai_account_create_time(ai_account_id, create_time)");

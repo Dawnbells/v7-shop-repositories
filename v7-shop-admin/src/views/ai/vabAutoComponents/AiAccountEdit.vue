@@ -59,6 +59,11 @@
               <el-input v-model.trim="form.baseUrl" clearable :placeholder="baseUrlPlaceholder" />
             </el-form-item>
           </el-col>
+          <el-col :span="24">
+            <el-form-item label="User-Agent" prop="userAgent">
+              <el-input v-model.trim="form.userAgent" clearable placeholder="不填则使用默认请求头" />
+            </el-form-item>
+          </el-col>
         </el-row>
       </section>
 
@@ -171,6 +176,7 @@ const defaultForm = () => ({
   invokeMode: 'STANDARD',
   apiKey: '',
   baseUrl: '',
+  userAgent: '',
   model: '',
   textInputPrice: undefined,
   textInputPriceUnit: undefined,

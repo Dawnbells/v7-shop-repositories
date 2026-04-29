@@ -26,6 +26,7 @@ public class AiAccountResponse extends DataRangeResponse {
     private InvokeMode invokeMode;
     private String apiKey;
     private String baseUrl;
+    private String userAgent;
     private String model;
     private BigDecimal textInputPrice;
     private AiBillingPriceUnit textInputPriceUnit;
@@ -52,6 +53,7 @@ public class AiAccountResponse extends DataRangeResponse {
                 .invokeMode(entity.getInvokeMode() == null ? InvokeMode.STANDARD : entity.getInvokeMode())
                 .apiKey(entity.getApiKey())
                 .baseUrl(entity.getBaseUrl())
+                .userAgent(entity.getUserAgent())
                 .model(entity.getModel())
                 .textInputPrice(entity.getTextInputPrice())
                 .textInputPriceUnit(entity.getTextInputPriceUnit())

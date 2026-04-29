@@ -32,14 +32,16 @@ import com.google.genai.types.Part;
 import com.google.genai.types.UploadFileConfig;
 
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
+import cn.v7soft.admin.service.AiTranslationClient;
 import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.enums.AiApiChannel;
+import cn.v7soft.dao.enums.AiProvider;
 import io.github.resilience4j.retry.Retry;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
-public class GeminiTranslateService {
+public class GeminiTranslateService implements AiTranslationClient {
 
     private static final String MODEL = "gemini-3.1-flash-image-preview";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -105,6 +107,11 @@ public class GeminiTranslateService {
                 .build();
     }
 
+    @Override
+    public boolean supports(AiProvider provider) {
+        return provider == AiProvider.GEMINI;
+    }
+
     private Client buildClient(AiAccount account, int timeoutMs) {
         HttpOptions.Builder httpOptions = HttpOptions.builder()
                 .timeout(timeoutMs)
@@ -118,10 +125,23 @@ public class GeminiTranslateService {
         if (account.getApiChannel() == AiApiChannel.SUB2API && account.getBaseUrl() != null && !account.getBaseUrl().isBlank()) {
             httpOptions.baseUrl(account.getBaseUrl());
         }
+        applyUserAgent(httpOptions, account);
         return Client.builder()
                 .apiKey(account.getApiKey())
                 .httpOptions(httpOptions.build())
                 .build();
+    }
+
+    private HttpOptions buildRequestHttpOptions(AiAccount account, int timeoutMs) {
+        HttpOptions.Builder httpOptions = HttpOptions.builder().timeout(timeoutMs);
+        applyUserAgent(httpOptions, account);
+        return httpOptions.build();
+    }
+
+    private void applyUserAgent(HttpOptions.Builder httpOptions, AiAccount account) {
+        if (account != null && account.getUserAgent() != null && !account.getUserAgent().isBlank()) {
+            httpOptions.headers(Map.of("User-Agent", account.getUserAgent()));
+        }
     }
 
     // ======================== callGemini: 统一配额管理入口 ========================
@@ -213,7 +233,7 @@ public class GeminiTranslateService {
 
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .temperature(0.1f)
-                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_TEXT_MS).build())
+                .httpOptions(buildRequestHttpOptions(account, TIMEOUT_TEXT_MS))
                 .build();
 
         long start = System.currentTimeMillis();
@@ -260,7 +280,7 @@ public class GeminiTranslateService {
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .systemInstruction(systemInstruction)
                 .temperature(0.1f)
-                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_HTML_MS).build())
+                .httpOptions(buildRequestHttpOptions(account, TIMEOUT_HTML_MS))
                 .build();
 
         String prompt = "Translate the text content in this HTML to "
@@ -355,7 +375,7 @@ public class GeminiTranslateService {
         GenerateContentConfig config = GenerateContentConfig.builder()
                 .responseModalities(List.of("TEXT", "IMAGE"))
                 .temperature(0.2f)
-                .httpOptions(HttpOptions.builder().timeout(TIMEOUT_IMAGE_MS).build())
+                .httpOptions(buildRequestHttpOptions(account, TIMEOUT_IMAGE_MS))
                 .build();
 
 

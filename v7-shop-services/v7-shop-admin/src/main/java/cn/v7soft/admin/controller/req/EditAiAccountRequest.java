@@ -42,6 +42,9 @@ public class EditAiAccountRequest extends IdRequest {
     @Schema(title = "Base URL", description = "Sub2API或代理接口地址")
     private String baseUrl;
 
+    @Schema(title = "User-Agent", description = "调用AI接口时使用的User-Agent请求头")
+    private String userAgent;
+
     @NotBlank(message = "模型不能为空")
     @Schema(title = "模型", description = "一个AI账号只对应一个模型；多个模型请创建多个AI账号")
     private String model;

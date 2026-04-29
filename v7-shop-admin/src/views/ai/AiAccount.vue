@@ -57,6 +57,9 @@
             </div>
             <div class="config-text text-ellipsis" :title="row.model || '-'">{{ row.model || '-' }}</div>
             <div class="config-muted text-ellipsis" :title="row.baseUrl || '官方接口'">{{ row.baseUrl || '官方接口' }}</div>
+            <div class="config-muted text-ellipsis" :title="row.userAgent || '默认User-Agent'">
+              UA：{{ row.userAgent || '默认' }}
+            </div>
           </div>
         </template>
       </el-table-column>

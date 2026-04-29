@@ -59,6 +59,9 @@ public class AiAccount extends BaseDataRangeEntity {
     @Column(name = "base_url", length = 512)
     private String baseUrl;
 
+    @Column(name = "user_agent", length = 512)
+    private String userAgent;
+
     @Column(name = "model", length = 100)
     private String model;
 
