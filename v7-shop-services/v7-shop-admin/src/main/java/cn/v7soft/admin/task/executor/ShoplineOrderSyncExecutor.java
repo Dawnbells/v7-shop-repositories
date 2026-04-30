@@ -3,9 +3,11 @@ package cn.v7soft.admin.task.executor;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.admin.service.SyncMode;
+import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -17,6 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ShoplineOrderSyncExecutor {
 
     private static final int MAX_CONCURRENCY = 5;
@@ -63,7 +66,9 @@ public class ShoplineOrderSyncExecutor {
                         if (synced) {
                             hasNewOrders.set(true);
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        log.error("Shopline auto sync website failed: websiteId={}, handle={}",
+                                website.getId(), website.getHandle(), e);
                     } finally {
                         TenantContext.restore();
                     }
@@ -73,9 +78,11 @@ public class ShoplineOrderSyncExecutor {
             for (Future<?> future : futures) {
                 try {
                     future.get(TIMEOUT_PER_WEBSITE_SECONDS, TimeUnit.SECONDS);
-                } catch (TimeoutException ignored) {
+                } catch (TimeoutException e) {
                     future.cancel(true);
-                } catch (Exception ignored) {
+                    log.error("Shopline auto sync website timeout after {} seconds", TIMEOUT_PER_WEBSITE_SECONDS, e);
+                } catch (Exception e) {
+                    log.error("Shopline auto sync website future failed", e);
                 }
             }
 
@@ -102,13 +109,13 @@ public class ShoplineOrderSyncExecutor {
                 : (website.getLastSyncTime() != null ? website.getLastSyncTime() : website.getCreateTime());
         request.setCreateAtMin(syncFrom);
 
-        String nextPage = thirdPartyWebsiteService.loadOrders(request, "", SyncMode.AUTO);
+        ShoplineOrderLoadResult result = thirdPartyWebsiteService.loadOrders(request, "", SyncMode.AUTO);
 
-        if (nextPage != null) {
+        if (result.getNextPageInfo() != null) {
             return true;
         }
 
         ThirdPartyWebsite refreshed = thirdPartyWebsiteService.getById(website.getId());
-        return Boolean.TRUE.equals(refreshed.getLastSyncHasNewOrders());
+        return result.getCreatedCount() > 0 || Boolean.TRUE.equals(refreshed.getLastSyncHasNewOrders());
     }
 }

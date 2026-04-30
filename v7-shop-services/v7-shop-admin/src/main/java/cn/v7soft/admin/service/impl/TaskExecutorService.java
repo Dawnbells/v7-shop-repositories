@@ -1880,26 +1880,39 @@ public class TaskExecutorService implements ITaskExecutorService {
     }
 
     private void executeThirdPartyOrderSyncUpload(AsyncTask task, SystemUserDto owner) {
+        int page = 0;
+        int fetchedCount = 0;
+        int successCount = 0;
+        int failedCount = 0;
+        int skippedCount = 0;
         try {
             task.setMessage("正在连接Shopline...");
             asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, RUNNING_PROGRESS);
             String parameters = task.getParameters();
             SyncThirdPartyOrdersRequest request = JSONUtil.toBean(parameters, SyncThirdPartyOrdersRequest.class);
-            int page = 0;
             String pageInfo = "";
             while (pageInfo != null) {
-                pageInfo = thirdPartyWebsiteService.loadOrders(request, pageInfo, SyncMode.MANUAL);
+                var result = thirdPartyWebsiteService.loadOrders(request, pageInfo, SyncMode.MANUAL);
+                pageInfo = result.getNextPageInfo();
                 page++;
+                fetchedCount += result.getFetchedCount();
+                successCount += result.getSuccessCount();
+                failedCount += result.getFailedCount();
+                skippedCount += result.getSkippedCount();
                 int progress = Math.min(page * 10, 99);
-                task.setMessage("正在同步第 " + page + " 页订单...");
+                task.setMessage("正在同步第 " + page + " 页，已成功 " + successCount + " 条，失败 " + failedCount + " 条");
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progress);
             }
             thirdPartyWebsiteService.updateLastManualSyncTime(request.getIdLongValue());
-            task.setMessage("同步完成，共处理 " + page + " 页订单");
+            task.setMessage("同步完成，成功: " + successCount + " 条，失败: " + failedCount + " 条（共拉取 " + fetchedCount + " 条，" + page + " 页）");
             asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+            log.info("Shopline手动同步任务完成: taskId={}, pages={}, fetched={}, success={}, failed={}, skipped={}",
+                    task.getId(), page, fetchedCount, successCount, failedCount, skippedCount);
         } catch (Throwable e) {
-            log.error("订单同步失败: ", e);
-            task.setMessage("同步失败: " + e.getMessage());
+            log.error("Shopline手动同步任务异常: taskId={}, pages={}, fetched={}, success={}, failed={}, skipped={}",
+                    task.getId(), page, fetchedCount, successCount, failedCount, skippedCount, e);
+            String partialInfo = page > 0 ? "（已完成 " + page + " 页，成功 " + successCount + " 条，失败 " + failedCount + " 条）" : "";
+            task.setMessage("同步失败: " + e.getMessage() + partialInfo);
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
         }
     }

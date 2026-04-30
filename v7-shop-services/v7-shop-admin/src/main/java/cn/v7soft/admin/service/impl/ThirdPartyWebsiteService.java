@@ -16,6 +16,7 @@ import cn.v7soft.admin.controller.req.TemporaryOrderRiskRecordInfoRequest;
 import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
 import cn.v7soft.admin.service.*;
 import cn.v7soft.admin.service.SyncMode;
+import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
@@ -156,7 +157,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
      * 拉取订单并写入临时表，返回下一页的 page_info（null 表示没有更多页）
      */
     @Override
-    public String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, SyncMode syncMode) {
+    public ShoplineOrderLoadResult loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, SyncMode syncMode) {
         boolean isAutoSync = syncMode == SyncMode.AUTO;
         ThirdPartyWebsiteDto websiteDto = self.getThirdPartyWebsiteDtoById(request.getIdLongValue());
         ServiceResponseEnum.ERR_TOKEN_EMPTY.notBlank(websiteDto.getToken(), request.getId());
@@ -180,6 +181,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
         builder.queryParam("limit", "100");
         URI uri = builder.build().toUri();
+        log.info("Shopline order sync page start: websiteId={}, handle={}, syncMode={}, hasPageInfo={}, createAtMin={}, createAtMax={}, uri={}",
+                websiteDto.getId(), websiteDto.getHandle(), syncMode, StrUtil.isNotBlank(pageInfo),
+                request.getCreateAtMin(), request.getCreateAtMax(), uri);
         ResponseEntity<String> response;
         try {
             response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(websiteDto.getToken()), String.class);
@@ -188,11 +192,15 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             if (statusCode == 401 || statusCode == 403) {
                 self.markWebsiteAuthError(request.getIdLongValue(), "Token无效或已过期 (HTTP " + statusCode + ")");
             }
+            log.error("Shopline order sync page request failed: websiteId={}, handle={}, syncMode={}, status={}, uri={}",
+                    websiteDto.getId(), websiteDto.getHandle(), syncMode, statusCode, uri, e);
             throw e;
         }
 
         if (StrUtil.isBlank(response.getBody())) {
-            return null;
+            log.warn("Shopline order sync page empty response: websiteId={}, handle={}, syncMode={}, uri={}",
+                    websiteDto.getId(), websiteDto.getHandle(), syncMode, uri);
+            return ShoplineOrderLoadResult.empty(null);
         }
 
         JSONObject body = JSONUtil.parseObj(response.getBody());
@@ -202,19 +210,33 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
 
         JSONArray orders = body.getJSONArray("orders");
-        int newOrderCount = 0;
+        String nextPageInfoFromHeader = extractNextPageInfo(response.getHeaders());
+        int apiFetchedCount = orders != null ? orders.size() : 0;
+        log.info("Shopline order sync page API response: websiteId={}, handle={}, syncMode={}, apiFetchedCount={}, hasNextPage={}, httpStatus={}",
+                websiteDto.getId(), websiteDto.getHandle(), syncMode, apiFetchedCount,
+                nextPageInfoFromHeader != null, response.getStatusCode());
+
+        ShoplineOrderLoadResult pageResult = ShoplineOrderLoadResult.empty(nextPageInfoFromHeader);
         if (orders != null && !orders.isEmpty()) {
-            newOrderCount = convertAndSaveOrders(websiteDto, orders, syncMode);
+            pageResult = convertAndSaveOrders(websiteDto, orders, syncMode, nextPageInfoFromHeader);
+        } else {
+            log.warn("Shopline order sync page no orders in response: websiteId={}, handle={}, syncMode={}, ordersNull={}, ordersEmpty={}",
+                    websiteDto.getId(), websiteDto.getHandle(), syncMode, orders == null, orders != null && orders.isEmpty());
         }
+        log.info("Shopline order sync page finished: websiteId={}, handle={}, syncMode={}, fetched={}, success={}, failed={}, skipped={}, created={}, hasNextPage={}",
+                websiteDto.getId(), websiteDto.getHandle(), syncMode, pageResult.getFetchedCount(),
+                pageResult.getSuccessCount(), pageResult.getFailedCount(), pageResult.getSkippedCount(), pageResult.getCreatedCount(),
+                StrUtil.isNotBlank(pageResult.getNextPageInfo()));
+        int newOrderCount = pageResult.getCreatedCount();
         if (newOrderCount > 0) {
             log.info("Shopline新增订单概要: websiteId={}, handle={}, syncMode={}, fetched={}, created={}",
                     websiteDto.getId(), websiteDto.getHandle(), syncMode, orders.size(), newOrderCount);
         }
         if (isAutoSync) {
-            self.updateLastSyncInfo(request.getIdLongValue(), orders, newOrderCount > 0);
+            self.updateLastSyncInfo(request.getIdLongValue(), orders, pageResult.getCreatedCount() > 0);
         }
 
-        return extractNextPageInfo(response.getHeaders());
+        return pageResult;
     }
 
     @Override
@@ -276,10 +298,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     }
 
     @Override
+    @Transactional
     public void updateLastManualSyncTime(Long websiteId) {
-        ThirdPartyWebsite website = getById(websiteId);
-        website.setLastManualSyncTime(LocalDateTime.now());
-        self.saveAndFlush(website);
+        repository.updateLastManualSyncTime(websiteId, LocalDateTime.now());
     }
 
 
@@ -321,23 +342,45 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     /**
      * @return 实际新增的订单数（已存在的重复订单不计入）
      */
-    private int convertAndSaveOrders(ThirdPartyWebsiteDto website, JSONArray orders, SyncMode syncMode) {
+    private ShoplineOrderLoadResult convertAndSaveOrders(ThirdPartyWebsiteDto website, JSONArray orders, SyncMode syncMode, String nextPageInfo) {
         SystemUserDto owner = website.getOwner();
-        int newCount = 0;
+        int successCount = 0;
+        int failedCount = 0;
+        int skippedCount = 0;
+        int createdCount = 0;
         boolean updateExisting = syncMode == SyncMode.MANUAL;
         for (int i = 0; i < orders.size(); i++) {
             JSONObject order = orders.getJSONObject(i);
             try {
                 if (convertShoplineOrderToTemporary(website, owner, order, updateExisting)) {
-                    newCount++;
+                    createdCount++;
                 }
-            } catch (Exception ignored) {
-                // 单条订单转换失败不影响本页其它订单继续同步。
+                successCount++;
+            } catch (Exception e) {
+                String orderId = order.getStr("id");
+                String orderName = order.getStr("name");
+                String msg = e.getMessage();
+                if (msg != null && msg.contains("已存在相同的原始订单ID")) {
+                    skippedCount++;
+                    log.warn("Shopline order sync skipped (duplicate): websiteId={}, handle={}, syncMode={}, orderIndex={}/{}, orderId={}, orderName={}",
+                            website.getId(), website.getHandle(), syncMode, i, orders.size(), orderId, orderName);
+                } else {
+                    failedCount++;
+                    log.error("Shopline order sync failed: websiteId={}, handle={}, syncMode={}, orderIndex={}/{}, orderId={}, orderName={}, createdAt={}, financialStatus={}, fulfillmentStatus={}",
+                            website.getId(), website.getHandle(), syncMode, i, orders.size(), orderId, orderName,
+                            order.getStr("created_at"), order.getStr("financial_status"), order.getStr("fulfillment_status"), e);
+                }
             }
         }
-        return newCount;
+        return ShoplineOrderLoadResult.builder()
+                .nextPageInfo(nextPageInfo)
+                .fetchedCount(orders.size())
+                .successCount(successCount)
+                .failedCount(failedCount)
+                .skippedCount(skippedCount)
+                .createdCount(createdCount)
+                .build();
     }
-
     private boolean convertShoplineOrderToTemporary(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order, boolean updateExisting) {
         CurrencyMode currencyMode = website.getCurrencyMode() != null ? website.getCurrencyMode() : CurrencyMode.SHOP_MONEY;
         String moneyKey = currencyMode == CurrencyMode.PRESENTMENT_MONEY ? "presentment_money" : "shop_money";

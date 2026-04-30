@@ -3,6 +3,7 @@ package cn.v7soft.admin.service;
 import cn.v7soft.admin.controller.req.CountThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
+import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
@@ -24,7 +25,7 @@ public interface IThirdPartyWebsiteService extends IBaseDataRangeService<ThirdPa
      * 拉取订单并写入临时表，返回下一页 page_info（null 表示没有更多页）
      * @param syncMode AUTO 时使用 since_id 去重并更新 lastSyncTime/lastSyncOrderId；MANUAL 时按时间范围全量拉取
      */
-    String loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, SyncMode syncMode);
+    ShoplineOrderLoadResult loadOrders(SyncThirdPartyOrdersRequest request, String pageInfo, SyncMode syncMode);
 
     ThirdPartyWebsiteDto getThirdPartyWebsiteDtoById(Long id);
 

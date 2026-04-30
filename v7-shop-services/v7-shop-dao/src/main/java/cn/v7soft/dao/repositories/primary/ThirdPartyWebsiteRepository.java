@@ -30,4 +30,8 @@ public interface ThirdPartyWebsiteRepository extends BaseRepository<ThirdPartyWe
                         @Param("hasNew") Boolean hasNew,
                         @Param("orderTime") LocalDateTime orderTime,
                         @Param("orderId") String orderId);
+
+    @Modifying
+    @Query("UPDATE ThirdPartyWebsite w SET w.lastManualSyncTime = :syncTime WHERE w.id = :id")
+    void updateLastManualSyncTime(@Param("id") Long id, @Param("syncTime") LocalDateTime syncTime);
 }
