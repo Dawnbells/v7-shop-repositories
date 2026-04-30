@@ -2,6 +2,7 @@ package cn.v7soft.admin.task.executor;
 
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.admin.service.SyncMode;
+import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
@@ -59,7 +60,7 @@ class ShoplineOrderSyncExecutorTest {
     void shouldSyncImmediatelyWhenLastSyncHadNewOrders() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now(), true);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
 
         executor.syncNext();
 
@@ -83,7 +84,7 @@ class ShoplineOrderSyncExecutorTest {
     void shouldSyncWhenNoNewOrdersButIntervalExceeded() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusSeconds(120), false);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
 
         executor.syncNext();
 
@@ -95,7 +96,7 @@ class ShoplineOrderSyncExecutorTest {
     void shouldSyncWhenLastSyncTimeIsNull() {
         ThirdPartyWebsite website = buildWebsite(1L, null, false);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
 
         executor.syncNext();
 
@@ -107,7 +108,7 @@ class ShoplineOrderSyncExecutorTest {
     void shouldReturn10sWhenHasMorePages() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn("page2");
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(loadResult("page2", 0));
 
         long delay = executor.syncNext();
 
@@ -119,7 +120,7 @@ class ShoplineOrderSyncExecutorTest {
     void shouldReturn60sWhenNoMorePages() {
         ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website));
-        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(null);
+        when(thirdPartyWebsiteService.loadOrders(any(), eq(""), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
 
         long delay = executor.syncNext();
 
@@ -134,7 +135,7 @@ class ShoplineOrderSyncExecutorTest {
         when(thirdPartyWebsiteService.findActiveWebsites()).thenReturn(List.of(website1, website2));
         when(thirdPartyWebsiteService.loadOrders(any(), any(), eq(SyncMode.AUTO)))
                 .thenThrow(new RuntimeException("模拟失败"))
-                .thenReturn(null);
+                .thenReturn(loadResult(null, 0));
 
         assertDoesNotThrow(() -> executor.syncNext());
         verify(thirdPartyWebsiteService, times(2)).loadOrders(any(), any(), eq(SyncMode.AUTO));
@@ -142,6 +143,13 @@ class ShoplineOrderSyncExecutorTest {
 
     private void setId(Object entity, Long id) {
         setField(entity, "id", id);
+    }
+
+    private ShoplineOrderLoadResult loadResult(String nextPageInfo, int createdCount) {
+        return ShoplineOrderLoadResult.builder()
+                .nextPageInfo(nextPageInfo)
+                .createdCount(createdCount)
+                .build();
     }
 
     private void setField(Object entity, String fieldName, Object value) {

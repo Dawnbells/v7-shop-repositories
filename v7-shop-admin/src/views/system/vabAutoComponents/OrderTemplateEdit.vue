@@ -114,6 +114,7 @@ const uploadOrderTemplateFieldOptions = [
 ]
 const downloadOrderTemplateFieldOptions = [
   { label: '订单ID', value: 'id' },
+  { label: '原单号ID', value: 'originOrderId' },
   { label: '是否COD', value: 'cod' },
   { label: '总价', value: 'totalAmount' },
   { label: '订单编号', value: 'orderNo' },

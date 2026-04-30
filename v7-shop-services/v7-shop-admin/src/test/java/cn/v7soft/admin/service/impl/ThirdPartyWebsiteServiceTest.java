@@ -250,7 +250,7 @@ class ThirdPartyWebsiteServiceTest {
             orders.add(order);
 
             ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
-            doNothing().when(temporaryOrderService).synchronizeOrderFromExternalSystem(captor.capture());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), anyBoolean())).thenReturn(true);
 
             invokeConvertAndSaveOrders(websiteDto, orders);
 
@@ -322,7 +322,7 @@ class ThirdPartyWebsiteServiceTest {
             orders.add(order);
 
             doThrow(new RuntimeException("已存在相同的原始订单ID：SL-ORDER-001"))
-                    .when(temporaryOrderService).synchronizeOrderFromExternalSystem(any());
+                    .when(temporaryOrderService).synchronizeOrderFromExternalSystem(any(), anyBoolean());
 
             assertDoesNotThrow(() -> invokeConvertAndSaveOrders(websiteDto, orders));
         }
@@ -340,7 +340,7 @@ class ThirdPartyWebsiteServiceTest {
             lenient().when(currencyService.getByCode(anyString())).thenReturn(Optional.empty());
 
             ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
-            doNothing().when(temporaryOrderService).synchronizeOrderFromExternalSystem(captor.capture());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), anyBoolean())).thenReturn(true);
 
             invokeConvertAndSaveOrders(websiteDto, orders);
 
@@ -364,7 +364,7 @@ class ThirdPartyWebsiteServiceTest {
             lenient().when(countryService.getByCode(anyString())).thenReturn(Optional.empty());
 
             ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
-            doNothing().when(temporaryOrderService).synchronizeOrderFromExternalSystem(captor.capture());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), anyBoolean())).thenReturn(true);
 
             invokeConvertAndSaveOrders(websiteDto, orders);
 
@@ -530,9 +530,9 @@ class ThirdPartyWebsiteServiceTest {
     private void invokeConvertAndSaveOrders(ThirdPartyWebsiteDto website, JSONArray orders) {
         try {
             var method = ThirdPartyWebsiteService.class.getDeclaredMethod(
-                    "convertAndSaveOrders", ThirdPartyWebsiteDto.class, JSONArray.class);
+                    "convertAndSaveOrders", ThirdPartyWebsiteDto.class, JSONArray.class, SyncMode.class, String.class);
             method.setAccessible(true);
-            method.invoke(service, website, orders);
+            method.invoke(service, website, orders, SyncMode.MANUAL, null);
         } catch (Exception e) {
             if (e.getCause() instanceof RuntimeException re) {
                 throw re;

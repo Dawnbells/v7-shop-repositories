@@ -4,6 +4,7 @@ import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.AiRateLimitMode;
 import cn.v7soft.dao.enums.InvokeMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -112,6 +113,21 @@ public class AiAccount extends BaseDataRangeEntity {
 
     @Column(name = "daily_limit")
     private Integer dailyLimit;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "rate_limit_mode", length = 20)
+    private AiRateLimitMode rateLimitMode = AiRateLimitMode.CONCURRENCY;
+
+    @Column(name = "requests_per_day")
+    private Integer requestsPerDay;
+
+    @Column(name = "requests_per_minute")
+    private Integer requestsPerMinute;
+
+    @Builder.Default
+    @Column(name = "max_concurrency")
+    private Integer maxConcurrency = 1;
 
     @Builder.Default
     @Column(name = "priority", nullable = false)

@@ -12,6 +12,7 @@ import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.AiRateLimitMode;
 import cn.v7soft.dao.repositories.primary.AiAccountRepository;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import org.springframework.stereotype.Service;
@@ -80,6 +81,17 @@ public class AiAccountService extends BaseDataRangeService<AiAccount, AiAccountR
         checkPrice(entity.getVideoOutputPrice(), entity.getVideoOutputPriceUnit(), "视频输出");
         if (entity.getDailyLimit() != null) {
             ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(entity.getDailyLimit() >= 0, "每日限额不能小于0");
+        }
+        AiRateLimitMode rateLimitMode = entity.getRateLimitMode() == null ? AiRateLimitMode.CONCURRENCY : entity.getRateLimitMode();
+        if (rateLimitMode == AiRateLimitMode.RPD_RPM) {
+            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getRequestsPerDay(), "每日请求限制不能为空");
+            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getRequestsPerMinute(), "每分钟请求限制不能为空");
+            ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(entity.getRequestsPerDay() > 0, "每日请求限制必须大于0");
+            ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(entity.getRequestsPerMinute() > 0, "每分钟请求限制必须大于0");
+        }
+        if (rateLimitMode == AiRateLimitMode.CONCURRENCY) {
+            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getMaxConcurrency(), "最大并发数不能为空");
+            ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(entity.getMaxConcurrency() > 0, "最大并发数必须大于0");
         }
         AiAccount existing = repository.findBySameName(entity.getName(), entity.getId());
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(existing, "AI账号名称不允许重复");

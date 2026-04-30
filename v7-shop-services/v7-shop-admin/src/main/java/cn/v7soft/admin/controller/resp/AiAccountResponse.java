@@ -5,6 +5,7 @@ import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.AiRateLimitMode;
 import cn.v7soft.dao.enums.InvokeMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
@@ -42,6 +43,10 @@ public class AiAccountResponse extends DataRangeResponse {
     private AiBillingPriceUnit videoOutputPriceUnit;
     private String billingCurrency;
     private Integer dailyLimit;
+    private AiRateLimitMode rateLimitMode;
+    private Integer requestsPerDay;
+    private Integer requestsPerMinute;
+    private Integer maxConcurrency;
     private Integer priority;
 
     public static AiAccountResponse convertEntity(AiAccount entity) {
@@ -69,6 +74,10 @@ public class AiAccountResponse extends DataRangeResponse {
                 .videoOutputPriceUnit(entity.getVideoOutputPriceUnit())
                 .billingCurrency(entity.getBillingCurrency())
                 .dailyLimit(entity.getDailyLimit())
+                .rateLimitMode(entity.getRateLimitMode() == null ? AiRateLimitMode.CONCURRENCY : entity.getRateLimitMode())
+                .requestsPerDay(entity.getRequestsPerDay())
+                .requestsPerMinute(entity.getRequestsPerMinute())
+                .maxConcurrency(entity.getMaxConcurrency() == null ? 1 : entity.getMaxConcurrency())
                 .priority(entity.getPriority())
                 .build());
     }

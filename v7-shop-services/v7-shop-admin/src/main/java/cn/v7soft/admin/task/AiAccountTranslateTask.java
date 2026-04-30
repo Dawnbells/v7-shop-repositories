@@ -1,6 +1,8 @@
 package cn.v7soft.admin.task;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -15,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import cn.hutool.core.util.StrUtil;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -22,12 +25,15 @@ import org.springframework.stereotype.Component;
 import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
+import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.IProductService;
+import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
+import cn.v7soft.dao.enums.AiRateLimitMode;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
@@ -41,13 +47,15 @@ import lombok.extern.slf4j.Slf4j;
 public class AiAccountTranslateTask {
 
     private static final int MAX_TASKS_PER_ROUND = 10;
-    private static final int SUBTASK_EXECUTE_BATCH_SIZE = 10;
+    private static final int DEFAULT_MAX_CONCURRENCY = 1;
     private static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
 
     private final AsyncTaskRepository asyncTaskRepository;
     private final IProductService productService;
-    private final ConcurrentLinkedDeque<AiAccountTranslateSubTask> subTaskStack = new ConcurrentLinkedDeque<>();
+    private final IAiAccountService aiAccountService;
+    private final ConcurrentMap<Long, ConcurrentLinkedDeque<AiAccountTranslateSubTask>> subTaskStacksByAccount = new ConcurrentHashMap<>();
     private final ConcurrentMap<Long, AiAccountTranslateTaskStatus> runningTasks = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, AiAccountRuntimeState> accountRuntimeStates = new ConcurrentHashMap<>();
     private final AtomicBoolean loadingTasks = new AtomicBoolean(false);
     private final AtomicBoolean executingSubTasks = new AtomicBoolean(false);
     private final AtomicBoolean syncingTaskStatus = new AtomicBoolean(false);
@@ -80,12 +88,8 @@ public class AiAccountTranslateTask {
             return;
         }
         try {
-            for (int i = 0; i < SUBTASK_EXECUTE_BATCH_SIZE; i++) {
-                AiAccountTranslateSubTask subTask = subTaskStack.poll();
-                if (subTask == null) {
-                    return;
-                }
-                executeSubTask(subTask);
+            for (Map.Entry<Long, ConcurrentLinkedDeque<AiAccountTranslateSubTask>> entry : subTaskStacksByAccount.entrySet()) {
+                executeAccountSubTasks(entry.getKey(), entry.getValue());
             }
         } finally {
             executingSubTasks.set(false);
@@ -123,7 +127,9 @@ public class AiAccountTranslateTask {
 
             for (AiAccountTranslateSubTask subTask : subTasks) {
                 status.addSubTask(subTask);
-                subTaskStack.push(subTask);
+                subTaskStacksByAccount
+                        .computeIfAbsent(subTask.getAiAccountId(), key -> new ConcurrentLinkedDeque<>())
+                        .push(subTask);
             }
             status.setProcessing("已拆分AI账号翻译子任务: " + subTasks.size());
         } catch (Exception e) {
@@ -211,9 +217,58 @@ public class AiAccountTranslateTask {
         }
     }
 
-    private void executeSubTask(AiAccountTranslateSubTask subTask) {
+    private void executeAccountSubTasks(Long aiAccountId, ConcurrentLinkedDeque<AiAccountTranslateSubTask> subTaskStack) {
+        AiAccountRuntimeState runtimeState = accountRuntimeStates.computeIfAbsent(aiAccountId, AiAccountRuntimeState::new);
+        AiAccount account;
+        try {
+            account = aiAccountService.getById(aiAccountId);
+        } catch (Exception e) {
+            log.error("[AiAccountTranslateTask] 获取AI账号失败: aiAccountId={}", aiAccountId, e);
+            failQueuedSubTasks(subTaskStack, "AI账号不存在或不可用: " + aiAccountId);
+            cleanupAccountState(aiAccountId, subTaskStack, runtimeState);
+            return;
+        }
+
+        int executableCount = runtimeState.reserveSlots(account, subTaskStack.size());
+        int unusedReservations = 0;
+        for (int i = 0; i < executableCount; i++) {
+            AiAccountTranslateSubTask subTask = subTaskStack.poll();
+            if (subTask == null) {
+                unusedReservations++;
+                continue;
+            }
+            executeSubTask(runtimeState, subTask);
+        }
+        if (unusedReservations > 0) {
+            runtimeState.releaseUnusedReservations(unusedReservations);
+        }
+        cleanupAccountState(aiAccountId, subTaskStack, runtimeState);
+    }
+
+    private void failQueuedSubTasks(ConcurrentLinkedDeque<AiAccountTranslateSubTask> subTaskStack, String message) {
+        AiAccountTranslateSubTask subTask;
+        while ((subTask = subTaskStack.poll()) != null) {
+            AiAccountTranslateTaskStatus taskStatus = runningTasks.get(subTask.getTaskId());
+            if (taskStatus == null) {
+                continue;
+            }
+            subTask.fail(message);
+            taskStatus.failPendingSubTask(subTask, message);
+        }
+    }
+
+    private void cleanupAccountState(Long aiAccountId, ConcurrentLinkedDeque<AiAccountTranslateSubTask> subTaskStack,
+                                     AiAccountRuntimeState runtimeState) {
+        if (subTaskStack.isEmpty() && runtimeState.getInFlightCount() == 0) {
+            subTaskStacksByAccount.remove(aiAccountId, subTaskStack);
+            accountRuntimeStates.remove(aiAccountId, runtimeState);
+        }
+    }
+
+    private void executeSubTask(AiAccountRuntimeState runtimeState, AiAccountTranslateSubTask subTask) {
         AiAccountTranslateTaskStatus taskStatus = runningTasks.get(subTask.getTaskId());
         if (taskStatus == null) {
+            runtimeState.releaseFinishedSlot();
             return;
         }
 
@@ -228,6 +283,8 @@ public class AiAccountTranslateTask {
             taskStatus.failSubTask(subTask, e.getMessage());
             log.error("[AiAccountTranslateTask] 子任务执行失败: taskId={}, subTaskId={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), e);
+        } finally {
+            runtimeState.releaseFinishedSlot();
         }
     }
 
@@ -257,6 +314,89 @@ public class AiAccountTranslateTask {
         PENDING, PROCESSING, COMPLETED, FAILED
     }
 
+    private static class AiAccountRuntimeState {
+
+        private final Long aiAccountId;
+        private final AtomicInteger inFlightCount = new AtomicInteger(0);
+        private LocalDate dayWindowStart = LocalDate.now();
+        private LocalDateTime minuteWindowStart = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
+        private int dayUsed;
+        private int minuteUsed;
+
+        private AiAccountRuntimeState(Long aiAccountId) {
+            this.aiAccountId = aiAccountId;
+        }
+
+        private synchronized int reserveSlots(AiAccount account, int pendingCount) {
+            if (pendingCount <= 0) {
+                return 0;
+            }
+
+            AiRateLimitMode mode = account.getRateLimitMode() == null
+                    ? AiRateLimitMode.CONCURRENCY
+                    : account.getRateLimitMode();
+            int available;
+            if (mode == AiRateLimitMode.RPD_RPM) {
+                refreshWindows();
+                int requestsPerDay = positiveOrZero(account.getRequestsPerDay());
+                int requestsPerMinute = positiveOrZero(account.getRequestsPerMinute());
+                available = Math.min(requestsPerDay - dayUsed, requestsPerMinute - minuteUsed);
+            } else {
+                int maxConcurrency = account.getMaxConcurrency() == null
+                        ? DEFAULT_MAX_CONCURRENCY
+                        : Math.max(DEFAULT_MAX_CONCURRENCY, account.getMaxConcurrency());
+                available = maxConcurrency - inFlightCount.get();
+            }
+
+            int reserved = Math.min(pendingCount, Math.max(available, 0));
+            if (reserved <= 0) {
+                return 0;
+            }
+
+            inFlightCount.addAndGet(reserved);
+            if (mode == AiRateLimitMode.RPD_RPM) {
+                dayUsed += reserved;
+                minuteUsed += reserved;
+            }
+            return reserved;
+        }
+
+        private synchronized void releaseUnusedReservations(int count) {
+            for (int i = 0; i < count; i++) {
+                releaseFinishedSlot();
+            }
+        }
+
+        private void releaseFinishedSlot() {
+            int current = inFlightCount.decrementAndGet();
+            if (current < 0) {
+                inFlightCount.compareAndSet(current, 0);
+            }
+        }
+
+        private int getInFlightCount() {
+            return inFlightCount.get();
+        }
+
+        private void refreshWindows() {
+            LocalDate today = LocalDate.now();
+            if (!today.equals(dayWindowStart)) {
+                dayWindowStart = today;
+                dayUsed = 0;
+            }
+
+            LocalDateTime currentMinute = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
+            if (!currentMinute.equals(minuteWindowStart)) {
+                minuteWindowStart = currentMinute;
+                minuteUsed = 0;
+            }
+        }
+
+        private int positiveOrZero(Integer value) {
+            return value == null ? 0 : Math.max(0, value);
+        }
+    }
+
     @Getter
     private static class AiAccountTranslateSubTask {
 
@@ -268,7 +408,7 @@ public class AiAccountTranslateTask {
         private final String productId;
         private final String countryId;
         private final String languageId;
-        private final String aiAccountId;
+        private final Long aiAccountId;
         private volatile AiAccountTranslateSubTaskState state = AiAccountTranslateSubTaskState.PENDING;
         private volatile String message;
 
@@ -281,7 +421,10 @@ public class AiAccountTranslateTask {
             this.productId = request.getProductId();
             this.countryId = request.getCountryId();
             this.languageId = request.getLanguageId();
-            this.aiAccountId = request.getAiAccountId();
+            if (StrUtil.isBlank(request.getAiAccountId())) {
+                throw new IllegalArgumentException("AI账号不能为空");
+            }
+            this.aiAccountId = Long.parseLong(request.getAiAccountId());
             this.subTaskId = taskId + ":" + type + ":" + contentKey;
         }
 
@@ -360,6 +503,13 @@ public class AiAccountTranslateTask {
 
         private void failSubTask(AiAccountTranslateSubTask subTask, String message) {
             processingSubTaskCount.decrementAndGet();
+            failedSubTaskCount.incrementAndGet();
+            subTasks.put(subTask.getSubTaskId(), subTask);
+            this.message = message;
+            refreshProgress();
+        }
+
+        private void failPendingSubTask(AiAccountTranslateSubTask subTask, String message) {
             failedSubTaskCount.incrementAndGet();
             subTasks.put(subTask.getSubTaskId(), subTask);
             this.message = message;

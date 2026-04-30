@@ -12,6 +12,7 @@ import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.core.controller.request.attributes.LikeAttribute;
 import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.AiRateLimitMode;
 import cn.v7soft.dao.enums.InvokeMode;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.jetbrains.annotations.Nullable;
@@ -50,6 +51,8 @@ public class AiAccountController extends BaseDataRangeController<AiAccount, IAiA
         AiAccount entity = Optional.ofNullable(dbEntity).orElse(AiAccount.builder().build());
         BeanUtil.copyProperties(request, entity);
         entity.setInvokeMode(request.getProvider() == AiProvider.GEMINI && request.getInvokeMode() != null ? request.getInvokeMode() : InvokeMode.STANDARD);
+        entity.setRateLimitMode(request.getRateLimitMode() == null ? AiRateLimitMode.CONCURRENCY : request.getRateLimitMode());
+        entity.setMaxConcurrency(request.getMaxConcurrency() == null ? 1 : request.getMaxConcurrency());
         entity.setPriority(request.getPriority() == null ? 100 : request.getPriority());
         return entity;
     }

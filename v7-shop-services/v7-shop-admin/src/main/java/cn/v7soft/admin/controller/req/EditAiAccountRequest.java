@@ -4,6 +4,7 @@ import cn.v7soft.core.controller.request.IdRequest;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.AiRateLimitMode;
 import cn.v7soft.dao.enums.InvokeMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -90,6 +91,18 @@ public class EditAiAccountRequest extends IdRequest {
 
     @Schema(title = "每日限额", description = "为空表示不单独限制")
     private Integer dailyLimit;
+
+    @Schema(title = "AI账号流控模式", description = "RPD_RPM为RPD/RPM流控，CONCURRENCY为简单并发数流控", example = "CONCURRENCY")
+    private AiRateLimitMode rateLimitMode;
+
+    @Schema(title = "每日请求限制", description = "rateLimitMode=RPD_RPM时必填")
+    private Integer requestsPerDay;
+
+    @Schema(title = "每分钟请求限制", description = "rateLimitMode=RPD_RPM时必填")
+    private Integer requestsPerMinute;
+
+    @Schema(title = "最大并发数", description = "rateLimitMode=CONCURRENCY时必填")
+    private Integer maxConcurrency;
 
     @Schema(title = "优先级", description = "数值越小越优先")
     private Integer priority;

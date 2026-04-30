@@ -49,6 +49,10 @@ public class OrderDownloadDto {
      */
     private String orderNo;
     /**
+     * 原单号
+     */
+    private String originOrderId;
+    /**
      * 商品ID
      */
     private String productId;
@@ -281,6 +285,7 @@ public class OrderDownloadDto {
     private String domain;
 
     public static OrderDownloadDto convert(Order order) {
+        String originOrderId = order.getOriginOrderId();
         int currencyFractionDigits = order.getContextInfo().getCurrencyFractionDigits();
         OrderDeliveryInfo deliveryInfo = order.getDeliveryInfo();
         OrderLogisticsInfo logisticsInfo = order.getLogisticsInfo();
@@ -350,6 +355,7 @@ public class OrderDownloadDto {
                 .cod(order.getPaymentInfo().getPaymentMethod() == PaymentMethod.COD ? "是" : "否")
                 .totalAmount(financialInfo.getTotalAmount().setScale(currencyFractionDigits, RoundingMode.HALF_UP).toPlainString())
                 .orderNo(orderNo)
+                .originOrderId(originOrderId)
                 .productId(orderItemInfo == null ? "" : String.valueOf(orderItemInfo.getId()))
                 .skuName((merchandiseLeft == null ? "" : merchandiseLeft) + (orderItemInfo == null ? "" : orderItemInfo.getSkuName()))
                 .skuCode(orderItemInfo == null ? "" : orderItemInfo.getSkuCode())
@@ -413,6 +419,7 @@ public class OrderDownloadDto {
     public static LinkedHashMap<String, String> headerAlias() {
         LinkedHashMap<String, String> headerAliasMap = new LinkedHashMap<>();
         headerAliasMap.put("orderNo", "订单编号");
+        headerAliasMap.put("originOrderId", "原单号");
         headerAliasMap.put("sellerName", "姓名");
         headerAliasMap.put("merchandise", "中文品名");
         headerAliasMap.put("skuName", "品名1");
@@ -431,6 +438,7 @@ public class OrderDownloadDto {
         auditHeaderAliasMap.put("cod", "是否COD");
         auditHeaderAliasMap.put("itemPrice", "单价");
         auditHeaderAliasMap.put("orderNo", "订单编号");
+        auditHeaderAliasMap.put("originOrderId", "原单号");
         auditHeaderAliasMap.put("skuName", "品名1");
         auditHeaderAliasMap.put("skuCode", "sku1");
         auditHeaderAliasMap.put("merchandise", "中文名称");
