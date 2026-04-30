@@ -88,6 +88,7 @@ const rules = reactive<any>({
 })
 const uploadOrderTemplateFieldOptions = [
   { label: '订单编号', value: 'orderId' },
+  { label: '原单号ID', value: 'originOrderId' },
   { label: 'SKU 代码', value: 'skuCodes' },
   { label: 'SKU 名称', value: 'skuNames' },
   { label: '中文名称', value: 'chineseName' },
