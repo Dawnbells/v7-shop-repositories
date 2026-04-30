@@ -35,6 +35,10 @@ import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
 import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import lombok.extern.slf4j.Slf4j;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterConfig;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -52,10 +56,13 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -137,7 +144,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
         URI uri = builder.build().toUri();
 
-        ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(website.getToken()), String.class);
+        ResponseEntity<String> response = callShoplineApi(website.getHandle(),
+                () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(website.getToken()), String.class));
 
         String errors = "status: " + response.getStatusCode();
         if (StrUtil.isNotBlank(response.getBody())) {
@@ -187,7 +195,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 request.getCreateAtMin(), request.getCreateAtMax(), uri);
         ResponseEntity<String> response;
         try {
-            response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(websiteDto.getToken()), String.class);
+            response = callShoplineApi(websiteDto.getHandle(),
+                    () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(websiteDto.getToken()), String.class));
         } catch (HttpClientErrorException e) {
             int statusCode = e.getStatusCode().value();
             if (statusCode == 401 || statusCode == 403) {
@@ -267,7 +276,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         try {
             String url = buildApiUrl(website.getHandle(), "orders/count.json");
             URI uri = UriComponentsBuilder.fromHttpUrl(url).build().toUri();
-            ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(website.getToken()), String.class);
+            ResponseEntity<String> response = callShoplineApi(website.getHandle(),
+                    () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(website.getToken()), String.class));
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 website.setAuthStatus(ThirdPartyAuthStatusEnum.AUTHED);
@@ -639,6 +649,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             }
         }
         if (firstMetafields == null || firstMetafields.isEmpty()) {
+            log.debug("Shopline applyOwner: no metafields found for first line_item");
             return;
         }
 
@@ -750,6 +761,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 if (StrUtil.isNotBlank(waybillName)) {
                     item.setWaybillProductName(waybillName);
                 }
+                log.debug("Shopline itemMetafields: orderId={}, productId={}, cnProductName={}, waybillName={}, metaKeys={}",
+                          order.getStr("id"),   shoplineProductId, cnProductName, waybillName, metafields.keySet());
             }
 
             items.add(item);
@@ -775,12 +788,41 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         return skuCode;
     }
 
+    // ==================== Shopline API 限流 & 重试 ====================
+
+    private static final int SHOPLINE_RATE_LIMIT_PER_SECOND = 4;
+    private static final int SHOPLINE_MAX_RETRIES = 3;
+    private static final Duration SHOPLINE_RETRY_WAIT = Duration.ofSeconds(1);
+
+    private final ConcurrentHashMap<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
+
+    private final Retry shoplineRetry = Retry.of("shopline-api", RetryConfig.custom()
+            .maxAttempts(SHOPLINE_MAX_RETRIES)
+            .waitDuration(SHOPLINE_RETRY_WAIT)
+            .retryOnException(e -> e instanceof HttpClientErrorException.TooManyRequests)
+            .build());
+
+    private RateLimiter getRateLimiter(String handle) {
+        return rateLimiters.computeIfAbsent(handle, h -> RateLimiter.of("shopline-" + h, RateLimiterConfig.custom()
+                .limitForPeriod(SHOPLINE_RATE_LIMIT_PER_SECOND)
+                .limitRefreshPeriod(Duration.ofSeconds(1))
+                .timeoutDuration(Duration.ofSeconds(10))
+                .build()));
+    }
+
+    /**
+     * 统一包裹 Shopline API 调用：限流 + 429 重试。
+     */
+    private <T> T callShoplineApi(String handle, Supplier<T> apiCall) {
+        RateLimiter limiter = getRateLimiter(handle);
+        Supplier<T> decorated = Retry.decorateSupplier(shoplineRetry, RateLimiter.decorateSupplier(limiter, apiCall));
+        return decorated.get();
+    }
+
     // ==================== Metafield 相关 ====================
 
     /**
-     * 批量获取多个商品的 metafields（v7_order namespace），对 productId 去重。
-     *
-     * @return productId -> (metafield key -> value)
+     * 批量获取多个商品的 metafields，对 productId 去重。
      */
     private Map<String, Map<String, String>> fetchProductMetafieldsForIds(String handle, String token, Set<String> productIds) {
         Map<String, Map<String, String>> result = new HashMap<>();
@@ -791,39 +833,45 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     }
 
     /**
-     * 调用 Shopline GET /products/{productId}/metafields.json?namespace=v7_order 获取商品元字段。
-     *
-     * @return metafield key -> value 的映射；API 调用失败时返回空 Map 不中断同步
+     * 获取单个商品的 metafields，受限流 + 重试保护。失败时降级返回空 Map。
      */
     private Map<String, String> fetchProductMetafields(String handle, String token, String productId) {
-        Map<String, String> result = new HashMap<>();
+        String url = buildApiUrl(handle, "products/" + productId + "/metafields.json");
+        URI uri = UriComponentsBuilder.fromHttpUrl(url)
+                .queryParam("namespace", METAFIELD_NAMESPACE)
+                .build().toUri();
         try {
-            String url = buildApiUrl(handle, "products/" + productId + "/metafields.json");
-            URI uri = UriComponentsBuilder.fromHttpUrl(url)
-                    .queryParam("namespace", METAFIELD_NAMESPACE)
-                    .build().toUri();
+            ResponseEntity<String> response = callShoplineApi(handle,
+                    () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(token), String.class));
+            return parseMetafieldResponse(response.getBody());
+        } catch (HttpClientErrorException.TooManyRequests e) {
+            log.warn("Shopline fetchMetafields 429 exhausted retries: productId={}", productId);
+        } catch (HttpClientErrorException e) {
+            log.warn("Shopline fetchMetafields HTTP error: productId={}, status={}", productId, e.getStatusCode());
+        } catch (Exception e) {
+            log.warn("Shopline fetchMetafields failed: productId={}, error={}", productId, e.getMessage());
+        }
+        return Map.of();
+    }
 
-            ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(token), String.class);
-            if (StrUtil.isBlank(response.getBody())) {
-                return result;
+    private Map<String, String> parseMetafieldResponse(String body) {
+        if (StrUtil.isBlank(body)) {
+            return Map.of();
+        }
+        JSONObject json = JSONUtil.parseObj(body);
+        JSONArray metafields = json.getJSONArray("metafields");
+        if (metafields == null || metafields.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> result = new HashMap<>();
+        for (int i = 0; i < metafields.size(); i++) {
+            JSONObject mf = metafields.getJSONObject(i);
+            if (mf == null) continue;
+            String key = mf.getStr("key");
+            Object value = mf.get("value");
+            if (StrUtil.isNotBlank(key) && value != null) {
+                result.put(key, value.toString());
             }
-
-            JSONObject body = JSONUtil.parseObj(response.getBody());
-            JSONArray metafields = body.getJSONArray("metafields");
-            if (metafields == null || metafields.isEmpty()) {
-                return result;
-            }
-
-            for (int i = 0; i < metafields.size(); i++) {
-                JSONObject mf = metafields.getJSONObject(i);
-                if (mf == null) continue;
-                String key = mf.getStr("key");
-                Object value = mf.get("value");
-                if (StrUtil.isNotBlank(key) && value != null) {
-                    result.put(key, value.toString());
-                }
-            }
-        } catch (Exception ignored) {
         }
         return result;
     }
