@@ -82,6 +82,7 @@ public class DatabaseInitiator implements ApplicationRunner {
                 {"t_orders", "ft_idx_address", "address"},
                 {"t_order_items", "ft_idx_title", "title"},
                 {"t_order_items", "ft_idx_merchandise", "merchandise"},
+                {"t_order_context_infos", "ft_idx_website_url", "website_url"},
         };
         try (Connection conn = dataSource.getConnection(); Statement stmt = conn.createStatement()) {
             for (String[] idx : indexes) {
