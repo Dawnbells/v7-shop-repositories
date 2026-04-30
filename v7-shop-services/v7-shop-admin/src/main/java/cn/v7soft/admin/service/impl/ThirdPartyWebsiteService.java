@@ -190,9 +190,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
         builder.queryParam("limit", "100");
         URI uri = builder.build().toUri();
-        log.info("Shopline order sync page start: websiteId={}, handle={}, syncMode={}, hasPageInfo={}, createAtMin={}, createAtMax={}, uri={}",
-                websiteDto.getId(), websiteDto.getHandle(), syncMode, StrUtil.isNotBlank(pageInfo),
-                request.getCreateAtMin(), request.getCreateAtMax(), uri);
         ResponseEntity<String> response;
         try {
             response = callShoplineApi(websiteDto.getHandle(),
@@ -208,8 +205,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
 
         if (StrUtil.isBlank(response.getBody())) {
-            log.warn("Shopline order sync page empty response: websiteId={}, handle={}, syncMode={}, uri={}",
-                    websiteDto.getId(), websiteDto.getHandle(), syncMode, uri);
             return ShoplineOrderLoadResult.empty(null);
         }
 
@@ -221,26 +216,9 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
 
         JSONArray orders = body.getJSONArray("orders");
         String nextPageInfoFromHeader = extractNextPageInfo(response.getHeaders());
-        int apiFetchedCount = orders != null ? orders.size() : 0;
-        log.info("Shopline order sync page API response: websiteId={}, handle={}, syncMode={}, apiFetchedCount={}, hasNextPage={}, httpStatus={}",
-                websiteDto.getId(), websiteDto.getHandle(), syncMode, apiFetchedCount,
-                nextPageInfoFromHeader != null, response.getStatusCode());
-
         ShoplineOrderLoadResult pageResult = ShoplineOrderLoadResult.empty(nextPageInfoFromHeader);
         if (orders != null && !orders.isEmpty()) {
             pageResult = convertAndSaveOrders(websiteDto, orders, syncMode, nextPageInfoFromHeader);
-        } else {
-            log.warn("Shopline order sync page no orders in response: websiteId={}, handle={}, syncMode={}, ordersNull={}, ordersEmpty={}",
-                    websiteDto.getId(), websiteDto.getHandle(), syncMode, orders == null, orders != null && orders.isEmpty());
-        }
-        log.info("Shopline order sync page finished: websiteId={}, handle={}, syncMode={}, fetched={}, success={}, failed={}, skipped={}, created={}, hasNextPage={}",
-                websiteDto.getId(), websiteDto.getHandle(), syncMode, pageResult.getFetchedCount(),
-                pageResult.getSuccessCount(), pageResult.getFailedCount(), pageResult.getSkippedCount(), pageResult.getCreatedCount(),
-                StrUtil.isNotBlank(pageResult.getNextPageInfo()));
-        int newOrderCount = pageResult.getCreatedCount();
-        if (newOrderCount > 0) {
-            log.info("Shopline新增订单概要: websiteId={}, handle={}, syncMode={}, fetched={}, created={}",
-                    websiteDto.getId(), websiteDto.getHandle(), syncMode, orders.size(), newOrderCount);
         }
         if (isAutoSync) {
             self.updateLastSyncInfo(request.getIdLongValue(), orders, pageResult.getCreatedCount() > 0);
@@ -373,8 +351,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("已存在相同的原始订单ID")) {
                     skippedCount++;
-                    log.warn("Shopline order sync skipped (duplicate): websiteId={}, handle={}, syncMode={}, orderIndex={}/{}, orderId={}, orderName={}",
-                            website.getId(), website.getHandle(), syncMode, i, orders.size(), orderId, orderName);
                 } else {
                     failedCount++;
                     log.error("Shopline order sync failed: websiteId={}, handle={}, syncMode={}, orderIndex={}/{}, orderId={}, orderName={}, createdAt={}, financialStatus={}, fulfillmentStatus={}",
@@ -649,7 +625,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             }
         }
         if (firstMetafields == null || firstMetafields.isEmpty()) {
-            log.debug("Shopline applyOwner: no metafields found for first line_item");
             return;
         }
 
@@ -761,8 +736,6 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 if (StrUtil.isNotBlank(waybillName)) {
                     item.setWaybillProductName(waybillName);
                 }
-                log.debug("Shopline itemMetafields: orderId={}, productId={}, cnProductName={}, waybillName={}, metaKeys={}",
-                          order.getStr("id"),   shoplineProductId, cnProductName, waybillName, metafields.keySet());
             }
 
             items.add(item);

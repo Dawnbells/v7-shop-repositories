@@ -1906,8 +1906,6 @@ public class TaskExecutorService implements ITaskExecutorService {
             thirdPartyWebsiteService.updateLastManualSyncTime(request.getIdLongValue());
             task.setMessage("同步完成，成功: " + successCount + " 条，失败: " + failedCount + " 条（共拉取 " + fetchedCount + " 条，" + page + " 页）");
             asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
-            log.info("Shopline手动同步任务完成: taskId={}, pages={}, fetched={}, success={}, failed={}, skipped={}",
-                    task.getId(), page, fetchedCount, successCount, failedCount, skippedCount);
         } catch (Throwable e) {
             log.error("Shopline手动同步任务异常: taskId={}, pages={}, fetched={}, success={}, failed={}, skipped={}",
                     task.getId(), page, fetchedCount, successCount, failedCount, skippedCount, e);
