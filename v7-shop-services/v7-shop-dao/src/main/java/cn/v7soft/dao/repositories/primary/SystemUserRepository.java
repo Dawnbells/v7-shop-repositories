@@ -8,6 +8,9 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -21,11 +24,13 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
     // 根据手机号查找用户
     SystemUser findByTelephone(String telephone);
 
-    @Query("from SystemUser u LEFT JOIN FETCH u.department where u.telephone=:telephone and u.status <> 'DELETED'")
-    SystemUser findByTelephoneWithDepartment(@Param("telephone") String telephone);
+    @EntityGraph(attributePaths = {"department"})
+    @Query("from SystemUser u where u.telephone = :telephone and u.status <> 'DELETED'")
+    List<SystemUser> findByTelephoneWithDepartment(@Param("telephone") String telephone, Pageable pageable);
 
-    @Query(value = "from SystemUser u LEFT JOIN FETCH u.department where u.name=:userName and u.status <> 'DELETED'")
-    Optional<SystemUser> findByUserNameWithDepartment(@Param("userName") String userName);
+    @EntityGraph(attributePaths = {"department"})
+    @Query("from SystemUser u where u.name = :userName and u.status <> 'DELETED'")
+    List<SystemUser> findByUserNameWithDepartment(@Param("userName") String userName, Pageable pageable);
 
     @Query("from SystemUser where telephone=:telephone and (:id is null or id<>:id) and status='VALID'")
     SystemUser findBySameUser(@Param("telephone") String telephone, @Param("id") Long id);

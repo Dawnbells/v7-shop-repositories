@@ -35,6 +35,7 @@ import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
 import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpEntity;
@@ -647,11 +648,13 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         SystemUser resolvedOwner = null;
 
         if (StrUtil.isNotBlank(ownerTelephone)) {
-            resolvedOwner = systemUserRepository.findByTelephoneWithDepartment(ownerTelephone.trim());
+            List<SystemUser> users = systemUserRepository.findByTelephoneWithDepartment(ownerTelephone.trim(), PageRequest.of(0, 1));
+            resolvedOwner = users.isEmpty() ? null : users.get(0);
         }
 
         if (resolvedOwner == null && StrUtil.isNotBlank(ownerName)) {
-            resolvedOwner = systemUserRepository.findByUserNameWithDepartment(ownerName.trim()).orElse(null);
+            List<SystemUser> owners = systemUserRepository.findByUserNameWithDepartment(ownerName.trim(), PageRequest.of(0, 1));
+            resolvedOwner = owners.isEmpty() ? null : owners.get(0);
         }
 
         if (resolvedOwner != null) {
