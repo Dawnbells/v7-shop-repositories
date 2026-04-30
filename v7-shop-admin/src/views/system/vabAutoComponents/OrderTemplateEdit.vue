@@ -11,18 +11,27 @@
         <el-form-item label="模版名称" prop="templateName">
           <el-input v-model.trim="form.templateName" clearable />
         </el-form-item>
+        <VueDraggable
+          v-model="form.columns"
+          :animation="150"
+          ghost-class="ghost"
+          handle=".column-drag-handle"
+          item-key="id"
+        >
         <el-form-item
           v-for="(column, index) in form.columns"
           :key="column.id"
-          v-drag
-          draggable="true"
-          :label="(form.downloadTemplate ? '下载' : '上传') + '字段' + index"
+          :label="(form.downloadTemplate ? '下载' : '上传') + '字段' + (index + 1)"
           :prop="'columns.' + index + '.headerName'"
-          @dragover.prevent
-          @dragstart="onDragStart(index)"
-          @drop="onDrop(index)"
         >
           <div class="column-input-container">
+            <el-button
+              class="column-drag-handle"
+              circle
+              :icon="Rank"
+              text
+              type="info"
+            />
             <el-select
               v-model="column.fieldKey"
               clearable
@@ -48,6 +57,7 @@
             <el-button circle :icon="Delete" type="danger" @click="removeColumn(column)" />
           </div>
         </el-form-item>
+        </VueDraggable>
       </el-form>
     </div>
     <template #footer>
@@ -58,8 +68,9 @@
 </template>
 
 <script lang="ts" setup>
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Rank } from '@element-plus/icons-vue'
 import { random } from 'lodash-es'
+import { VueDraggable } from 'vue-draggable-plus'
 import { type OrderTemplateColumn, doEdit } from '/@/api/orderTemplate'
 
 defineOptions({
@@ -248,21 +259,6 @@ const addColumn = () => {
     }
   })
 }
-// 拖拽相关逻辑
-let dragIndex: number | null = null
-
-const onDragStart = (index: number) => {
-  dragIndex = index
-}
-
-const onDrop = (dropIndex: number) => {
-  if (dragIndex === null || dragIndex === dropIndex) return
-  const columns = form.columns
-  const dragged = columns[dragIndex]
-  columns.splice(dragIndex, 1)
-  columns.splice(dropIndex, 0, dragged)
-  dragIndex = null
-}
 </script>
 
 <style lang="scss" scoped>
@@ -308,5 +304,17 @@ const onDrop = (dropIndex: number) => {
 // 确保表单项目有适当的间距
 .el-form-item {
   margin-bottom: 18px;
+}
+.column-drag-handle {
+  flex-shrink: 0;
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.ghost {
+  opacity: 0.6;
 }
 </style>
