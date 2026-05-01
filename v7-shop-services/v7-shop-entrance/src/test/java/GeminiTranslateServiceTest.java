@@ -1,13 +1,13 @@
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
-import cn.v7soft.admin.service.impl.GeminiTranslateService;
-import cn.v7soft.entrance.V7ShopEntranceApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+
+import cn.v7soft.admin.service.impl.GeminiTranslateService;
+import cn.v7soft.entrance.V7ShopEntranceApplication;
 
 @SpringBootTest(classes = V7ShopEntranceApplication.class)
 public class GeminiTranslateServiceTest {
@@ -21,16 +21,9 @@ public class GeminiTranslateServiceTest {
 
     @Test
     public void testTranslateTexts() {
-        List<String> texts = List.of(
-                "Wireless Bluetooth Headphones",
-                "High Quality Stainless Steel Water Bottle",
-                "USB-C Fast Charging Cable 2m"
-        );
-        List<String> result = geminiTranslateService.translateTexts(texts, "Slovenščina");
+        String result = geminiTranslateService.translateText("Wireless Bluetooth Headphones", "Slovenščina");
         System.out.println("=== translateTexts 结果 ===");
-        for (int i = 0; i < texts.size(); i++) {
-            System.out.println(texts.get(i) + " -> " + result.get(i));
-        }
+        System.out.println("Wireless Bluetooth Headphones" + " -> " + result);
     }
 
     @Test
