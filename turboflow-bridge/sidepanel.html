@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TurboFlow Bridge</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>TurboFlow Bridge</h1>
+      <p id="bridge-id">Loading...</p>
+    </div>
+    <button id="btn-check">Check</button>
+  </header>
+
+  <section class="status-card">
+    <div class="status-row">
+      <span id="status-dot" class="dot disconnected"></span>
+      <span id="status-text">Checking Flow...</span>
+    </div>
+    <button id="btn-open-flow" class="open-flow hidden">打开 Google Flow</button>
+  </section>
+
+  <section class="panel">
+    <div class="section-title">Services</div>
+    <div id="services"></div>
+    <button id="btn-add-service" class="secondary">Add Service</button>
+    <button id="btn-save" class="primary">Save</button>
+  </section>
+
+  <section class="panel">
+    <div class="section-title">Current Task</div>
+    <pre id="task-state">Idle</pre>
+  </section>
+
+  <section class="panel">
+    <div class="section-title">Logs</div>
+    <div id="logs" class="logs"></div>
+  </section>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

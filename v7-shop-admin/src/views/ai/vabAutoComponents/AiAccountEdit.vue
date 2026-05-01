@@ -19,6 +19,7 @@
               <el-select v-model="form.provider" placeholder="请选择服务商" style="width: 100%" @change="handleProviderChange">
                 <el-option label="Gemini" value="GEMINI" />
                 <el-option label="OpenAI" value="OPENAI" />
+                <el-option label="TurboFlow" value="TURBOFLOW" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -85,6 +86,11 @@
           <el-col :span="12">
             <el-form-item label="优先级" prop="priority">
               <el-input-number v-model="form.priority" controls-position="right" :min="0" :precision="0" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="Max Concurrency" prop="maxConcurrency">
+              <el-input-number v-model="form.maxConcurrency" controls-position="right" :min="1" :precision="0" style="width: 100%" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -192,6 +198,7 @@ const defaultForm = () => ({
   videoOutputPriceUnit: undefined,
   billingCurrency: 'USD',
   dailyLimit: undefined,
+  maxConcurrency: 1,
   priority: 100,
 })
 

@@ -10,6 +10,7 @@
             <el-select v-model="queryForm.provider" clearable placeholder="全部" style="width: 130px">
               <el-option label="Gemini" value="GEMINI" />
               <el-option label="OpenAI" value="OPENAI" />
+              <el-option label="TurboFlow" value="TURBOFLOW" />
             </el-select>
           </el-form-item>
           <el-form-item v-show="!fold" label="API渠道">
@@ -156,6 +157,7 @@ const queryForm = reactive<any>({
 const providerLabel = (provider?: string) => {
   if (provider === 'GEMINI') return 'Gemini'
   if (provider === 'OPENAI') return 'OpenAI'
+  if (provider === 'TURBOFLOW') return 'TurboFlow'
   return provider || '-'
 }
 

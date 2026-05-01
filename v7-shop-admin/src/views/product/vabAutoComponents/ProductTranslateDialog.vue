@@ -145,6 +145,7 @@ const selectedAiAccount = computed(() => aiAccountOptions.value.find((item: any)
 const providerLabel = (provider?: string) => {
   if (provider === 'GEMINI') return 'Gemini'
   if (provider === 'OPENAI') return 'OpenAI'
+  if (provider === 'TURBOFLOW') return 'TurboFlow'
   return provider || '-'
 }
 

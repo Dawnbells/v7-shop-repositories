@@ -364,7 +364,9 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                        : "商品#" + product.getId();
         String taskName = "AI翻译: " + title + " → " + language.getName();
 
-        Integer estimated = useSelectedAiAccount ? null : estimateAndFreezeCredits(product, InvokeMode.BATCH);
+        Integer estimated = useSelectedAiAccount
+                            ? estimateAndFreezeCredits(product, InvokeMode.STANDARD)
+                            : estimateAndFreezeCredits(product, InvokeMode.BATCH);
 
         AsyncTask asyncTask = AsyncTask.builder()
                 .taskType(taskType)
