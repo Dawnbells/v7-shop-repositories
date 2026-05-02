@@ -42,7 +42,7 @@
     if (target) target.classList.add('active');
 
     if (viewId === 'settings') loadSettings();
-    if (viewId === 'logs' && !logsLoaded) loadLogs();
+    if (viewId === 'logs') loadLogs();
   }
 
   /* ── Main View ── */

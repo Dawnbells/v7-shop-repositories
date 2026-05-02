@@ -183,9 +183,11 @@ async function runLoop() {
     const conn = await checkConnection().catch((e) => ({ connected: false, reason: e.message }));
     lastStatus = { connected: conn.connected, message: conn.reason || 'Connected', projectId: conn.projectId };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
+    addLog(conn.connected ? 'info' : 'warn', `Flow: ${conn.connected ? 'connected' : conn.reason || 'disconnected'}`);
 
     const orderedServices = rotateServices(services);
     if (orderedServices.length === 0) {
+      addLog('warn', 'No enabled services, idle');
       scheduleLoop(IDLE_DELAY_MS);
       return;
     }
@@ -194,12 +196,14 @@ async function runLoop() {
       const service = orderedServices[i];
       const task = await pollTask(service, conn);
       if (task?.hasTask) {
+        addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
         serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
         await executeTask(service, task);
         return;
       }
     }
 
+    addLog('info', `Poll done, no tasks (${orderedServices.length} services)`);
     scheduleLoop(IDLE_DELAY_MS);
   } finally {
     running = false;
