@@ -40,9 +40,11 @@ import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AiTranslateUsageRecord;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
+import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.Product;
+import cn.v7soft.dao.entities.primary.TextTranslationCache;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.enums.AiProvider;
@@ -51,6 +53,8 @@ import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.dao.repositories.primary.AiTranslateUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
+import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
+import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 
@@ -102,6 +106,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final ILanguageService languageService;
     private final ICountryService countryService;
     private final AiTranslateUsageRecordRepository usageRecordRepository;
+    private final ImageTranslationCacheRepository imageTranslationCacheRepository;
+    private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final AiCreditsService aiCreditsService;
     private final TransactionTemplate transactionTemplate;
     private final List<TranslateProvider> providers;
@@ -123,6 +129,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                   ILanguageService languageService,
                                   ICountryService countryService,
                                   AiTranslateUsageRecordRepository usageRecordRepository,
+                                  ImageTranslationCacheRepository imageTranslationCacheRepository,
+                                  TextTranslationCacheRepository textTranslationCacheRepository,
                                   AiCreditsService aiCreditsService,
                                   TransactionTemplate transactionTemplate,
                                   List<TranslateProvider> providers) {
@@ -133,6 +141,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.languageService = languageService;
         this.countryService = countryService;
         this.usageRecordRepository = usageRecordRepository;
+        this.imageTranslationCacheRepository = imageTranslationCacheRepository;
+        this.textTranslationCacheRepository = textTranslationCacheRepository;
         this.aiCreditsService = aiCreditsService;
         this.transactionTemplate = transactionTemplate;
         this.providers = providers;
@@ -404,6 +414,12 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 unusedReservations++;
                 continue;
             }
+            // 分发前检查缓存，命中则直接完成，不调用 Provider
+            AiAccountTranslateTaskStatus status = runningTasks.get(subTask.getTaskId());
+            if (status != null && tryCompleteFromCache(status, subTask)) {
+                runtimeState.releaseFinishedSlot();
+                continue;
+            }
             provider.executeSubTask(subTask);
         }
         if (unusedReservations > 0) {
@@ -662,6 +678,58 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
         for (int i = 12; i < data.length - 4; i++) {
             if (data[i] == 'A' && data[i + 1] == 'N' && data[i + 2] == 'I' && data[i + 3] == 'M') return true;
+        }
+        return false;
+    }
+
+    // --- Cache check ---
+
+    /**
+     * 分发前检查翻译缓存。命中时直接完成子任务，返回 true 跳过 Provider 执行。
+     * TEXT/HTML 查 TextTranslationCache，IMAGE 查 ImageTranslationCache。
+     */
+    private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask) {
+        try {
+            Language language = status.getLanguage();
+            if (language == null) {
+                return false;
+            }
+            if (subTask.getType() == AiAccountTranslateSubTaskType.TEXT) {
+                Optional<TextTranslationCache> cached = textTranslationCacheRepository
+                        .findByContentHashAndLanguageIdAndContentType(
+                                subTask.getContentKey(), language.getId(), TranslationContentType.TEXT);
+                if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
+                    status.completeTextSubTask(subTask, cached.get().getTranslatedText());
+                    return true;
+                }
+            } else if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
+                Optional<TextTranslationCache> cached = textTranslationCacheRepository
+                        .findByContentHashAndLanguageIdAndContentType(
+                                subTask.getContentKey(), language.getId(), TranslationContentType.HTML);
+                if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
+                    status.completeHtmlSubTask(subTask, cached.get().getTranslatedText());
+                    return true;
+                }
+            } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
+                MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
+                byte[] imageBytes = readImageBytes(sourceFile);
+                String imageHash = DigestUtil.sha256Hex(imageBytes);
+                subTask.setImageHash(imageHash);
+                Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
+                        .findByImageHashAndLanguageId(imageHash, language.getId());
+                if (cached.isPresent()) {
+                    MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
+                    if (translatedFile != null) {
+                        status.completeImageSubTask(subTask, translatedFile);
+                    } else {
+                        status.completeSubTask(subTask);
+                    }
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] cache lookup failed: taskId={}, subTaskId={}",
+                     subTask.getTaskId(), subTask.getSubTaskId(), e);
         }
         return false;
     }
