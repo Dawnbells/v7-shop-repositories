@@ -137,6 +137,13 @@ public class AiAccountTranslateTaskStatus {
         touch();
     }
 
+    public void complete(String message) {
+        this.state = TaskState.COMPLETED;
+        this.progress = 100;
+        this.message = message;
+        touch();
+    }
+
     public void fail(String message) {
         this.state = TaskState.FAILED;
         this.progress = 100;
@@ -159,14 +166,14 @@ public class AiAccountTranslateTaskStatus {
         int finished = completedSubTaskCount.get() + failedSubTaskCount.get();
         this.progress = totalSubTaskCount == 0 ? 100 : Math.min(100, finished * 100 / totalSubTaskCount);
         if (finished >= totalSubTaskCount) {
-            // 所有子任务已结束
-            if (failedSubTaskCount.get() > 0) {
+            if (completedSubTaskCount.get() == 0 && failedSubTaskCount.get() > 0) {
                 this.state = TaskState.FAILED;
-                this.message = "AI账号翻译子任务失败: " + failedSubTaskCount.get();
+                this.message = "所有翻译子任务失败: " + failedSubTaskCount.get();
             } else {
-                // 全部成功，等待 finalizeAiAccountTranslateStatus 组装产物
                 this.state = TaskState.PROCESSING;
-                this.message = "AI account translate subtasks complete, assembling product";
+                this.message = failedSubTaskCount.get() > 0
+                        ? "部分子任务失败(" + failedSubTaskCount.get() + "), 正在组装已完成的翻译"
+                        : "翻译子任务全部完成, 正在组装产物";
             }
         }
         touch();
@@ -177,13 +184,13 @@ public class AiAccountTranslateTaskStatus {
         return state == TaskState.COMPLETED || state == TaskState.FAILED || state == TaskState.CANCELLED;
     }
 
-    /** 是否可以开始组装翻译产物（所有子任务成功完成，且尚未开始组装） */
+    /** 是否可以开始组装翻译产物（所有子任务已结束且至少有成功的，尚未开始组装） */
     public boolean isReadyToFinalize() {
         int finished = completedSubTaskCount.get() + failedSubTaskCount.get();
         return productId != null
                 && !isFinished()
                 && finished >= totalSubTaskCount
-                && failedSubTaskCount.get() == 0
+                && completedSubTaskCount.get() > 0
                 && !finalized.get();
     }
 

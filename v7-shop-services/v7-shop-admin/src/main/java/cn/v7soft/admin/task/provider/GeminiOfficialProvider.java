@@ -205,7 +205,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
      * 判断异常是否为"可能已产生 API 费用"的错误。
      * 超限/配额耗尽/鉴权失败 = 非计费；超时/5xx/网络异常 = 可能已计费。
      */
-    private static boolean isBillableError(Throwable e) {
+    static boolean isBillableError(Throwable e) {
         if (e instanceof DailyQuotaExhaustedException) return false;
         if (e instanceof ApiException ae) {
             int code = ae.code();

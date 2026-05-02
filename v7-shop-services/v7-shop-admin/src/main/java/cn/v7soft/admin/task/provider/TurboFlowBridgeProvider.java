@@ -32,13 +32,19 @@ import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
+import cn.v7soft.admin.service.impl.GeminiTranslateService;
 import cn.v7soft.dao.repositories.primary.AiTranslateUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
+import io.github.resilience4j.ratelimiter.RateLimiter;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * TurboFlow 浏览器插件的 Provider 实现。
@@ -51,7 +57,6 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class TurboFlowBridgeProvider implements TranslateProvider {
 
     private static final int TURBOFLOW_LEASE_MINUTES = 10;
@@ -61,6 +66,28 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final ILanguageService languageService;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
     private final AiTranslateUsageRecordRepository usageRecordRepository;
+    private final GeminiTranslateService geminiTranslateService;
+    private final ThreadPoolTaskExecutor executor;
+    private final RateLimiter rateLimiter;
+
+    public TurboFlowBridgeProvider(
+            IAiAccountService aiAccountService,
+            IMultimediaFileService multimediaFileService,
+            ILanguageService languageService,
+            ImageTranslationCacheRepository imageTranslationCacheRepository,
+            AiTranslateUsageRecordRepository usageRecordRepository,
+            GeminiTranslateService geminiTranslateService,
+            @Qualifier("translationExecutor") ThreadPoolTaskExecutor executor,
+            RateLimiter geminiRateLimiter) {
+        this.aiAccountService = aiAccountService;
+        this.multimediaFileService = multimediaFileService;
+        this.languageService = languageService;
+        this.imageTranslationCacheRepository = imageTranslationCacheRepository;
+        this.usageRecordRepository = usageRecordRepository;
+        this.geminiTranslateService = geminiTranslateService;
+        this.executor = executor;
+        this.rateLimiter = geminiRateLimiter;
+    }
 
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> internalQueues = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, AiAccountTranslateSubTask> assignments = new ConcurrentHashMap<>();
@@ -87,12 +114,78 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         return TokenCostCalculator.estimateCredits(textTokens, 0, InvokeMode.STANDARD);
     }
 
-    /** 被动分发：仅将子任务存入内部队列，等待 TurboFlow 插件 poll 时取走执行 */
     @Override
     public void executeSubTask(AiAccountTranslateSubTask subTask) {
-        internalQueues
-                .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
-                .offer(subTask);
+        if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
+            internalQueues
+                    .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
+                    .offer(subTask);
+        } else {
+            subTask.start();
+            subTask.getAttemptCount().incrementAndGet();
+            executor.submit(() -> executeTextViaGemini(subTask));
+        }
+    }
+
+    private void executeTextViaGemini(AiAccountTranslateSubTask subTask) {
+        try {
+            RateLimiter.waitForPermission(rateLimiter);
+            Language language = languageService.getById(Long.parseLong(subTask.getLanguageId()));
+            String langName = language.getName();
+
+            AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
+            String translated;
+            TranslationContentType contentType;
+            if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
+                translated = geminiTranslateService.translateHtmlRaw(subTask.getContent(), langName, usageRef::set);
+                contentType = TranslationContentType.HTML;
+            } else {
+                translated = geminiTranslateService.translateTextRaw(subTask.getContent(), langName, usageRef::set);
+                contentType = TranslationContentType.TEXT;
+            }
+
+            GeminiTranslateService.TokenUsage usage = usageRef.get();
+            int prompt = usage != null ? safeInt(usage.getPromptTokens()) : 0;
+            int completion = usage != null ? safeInt(usage.getCompletionTokens()) : 0;
+            int thinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
+            BigDecimal cost = TokenCostCalculator.calculateCost(contentType, InvokeMode.STANDARD, prompt, completion, thinking);
+
+            SubTaskResult.SubTaskResultBuilder resultBuilder = SubTaskResult.builder()
+                    .elapsedMs(usage != null ? usage.getElapsedMs() : null)
+                    .actualPromptTokens(prompt)
+                    .actualCompletionTokens(completion)
+                    .actualThinkingTokens(thinking)
+                    .businessPromptTokens(prompt)
+                    .businessCompletionTokens(completion)
+                    .businessThinkingTokens(thinking)
+                    .businessCredits(TokenCostCalculator.usdToCredits(cost));
+            if (contentType == TranslationContentType.HTML) {
+                resultBuilder.translatedHtml(translated);
+            } else {
+                resultBuilder.translatedText(translated);
+            }
+            callback.onSubTaskCompleted(subTask, resultBuilder.build());
+        } catch (Exception e) {
+            log.error("[TurboFlowBridge] text translation failed: subTaskId={}", subTask.getSubTaskId(), e);
+            boolean billable = GeminiOfficialProvider.isBillableError(e);
+            SubTaskResult partialResult = null;
+            if (billable) {
+                TranslationContentType ct = subTask.getType() == AiAccountTranslateSubTaskType.HTML
+                        ? TranslationContentType.HTML : TranslationContentType.TEXT;
+                int est = TokenCostCalculator.estimateTextTokens(subTask.getContent());
+                BigDecimal cost = TokenCostCalculator.calculateCost(ct, InvokeMode.STANDARD, est, est, 0);
+                partialResult = SubTaskResult.builder()
+                        .businessPromptTokens(est)
+                        .businessCompletionTokens(est)
+                        .businessCredits(TokenCostCalculator.usdToCredits(cost))
+                        .build();
+            }
+            callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult);
+        }
+    }
+
+    private static int safeInt(Integer value) {
+        return value != null ? value : 0;
     }
 
     /**
@@ -125,15 +218,10 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
         }
 
-        // 非图片任务：TurboFlow 无法处理，返回原文作为译文（避免产物为空）
+        // 防御：TEXT/HTML 已在 executeSubTask 阶段由 Gemini 处理，理论上不会出现在队列中
         if (subTask.getType() != AiAccountTranslateSubTaskType.IMAGE) {
-            SubTaskResult.SubTaskResultBuilder resultBuilder = SubTaskResult.builder();
-            if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
-                resultBuilder.translatedHtml(subTask.getContent());
-            } else {
-                resultBuilder.translatedText(subTask.getContent());
-            }
-            callback.onSubTaskCompleted(subTask, resultBuilder.build());
+            log.warn("[TurboFlowBridge] unexpected non-image task in queue: {}", subTask.getSubTaskId());
+            callback.onSubTaskFailed(subTask, "non-image task in TurboFlow queue", true, null);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("non-image task skipped").build();
         }
 

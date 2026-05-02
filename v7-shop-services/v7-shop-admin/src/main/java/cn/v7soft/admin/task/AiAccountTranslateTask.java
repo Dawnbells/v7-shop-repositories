@@ -884,22 +884,22 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
-    /** 所有子任务完成后，加载产品数据并组装翻译结果（文本替换 + 图片替换） */
+    /** 所有子任务结束后，用已完成的翻译组装产品（部分失败也保存已有结果） */
     private void finalizeAiAccountTranslateStatus(AiAccountTranslateTaskStatus status) {
         if (!status.markFinalizing()) {
             return;
         }
         try {
-            if (status.getFailedSubTaskCount().get() > 0) {
-                status.fail("AI account translate failed: " + status.getFailedSubTaskCount().get());
-                return;
-            }
             Product product = productService.getByIdWithSpecifications(status.getProductId());
             Country country = countryService.getById(status.getCountryId());
             productService.assembleTranslatedProduct(
                     product, status.getLanguage(), country, status.getOwner(),
                     status.getTranslatedTextMap(), status.getTranslatedHtml(), status.getTranslatedImageMap());
-            status.complete();
+            if (status.getFailedSubTaskCount().get() > 0) {
+                status.complete("翻译完成(部分失败: " + status.getFailedSubTaskCount().get() + " 个子任务)");
+            } else {
+                status.complete();
+            }
         } catch (Exception e) {
             status.fail("assemble translated product failed: " + e.getMessage());
             log.error("[AiAccountTranslateTask] assemble translated product failed: taskId={}",
