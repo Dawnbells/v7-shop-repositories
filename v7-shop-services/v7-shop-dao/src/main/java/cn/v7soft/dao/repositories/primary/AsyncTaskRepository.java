@@ -2,7 +2,6 @@ package cn.v7soft.dao.repositories.primary;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -25,7 +24,7 @@ public interface AsyncTaskRepository extends BaseRepository<AsyncTask> {
 
     List<AsyncTask> findByTaskTypeAndDedupKeyAndStateIn(TaskType taskType, String dedupKey, List<TaskState> states);
 
-    Optional<AsyncTask> findByTaskTypeAndStateOrderByCreateTimeAsc(TaskType taskType, TaskState state, Pageable pageable);
+    List<AsyncTask> findByTaskTypeAndStateOrderByCreateTimeAsc(TaskType taskType, TaskState state, Pageable pageable);
 
     List<AsyncTask> findByTaskTypeAndState(TaskType taskType, TaskState state);
 

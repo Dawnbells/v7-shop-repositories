@@ -292,15 +292,15 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             return;
         }
         try {
-            Optional<AsyncTask> taskOptional = asyncTaskRepository.findByTaskTypeAndStateOrderByCreateTimeAsc(
+            List<AsyncTask> pendingTasks = asyncTaskRepository.findByTaskTypeAndStateOrderByCreateTimeAsc(
                     TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE,
                     TaskState.PENDING,
                     PageRequest.of(0, MAX_TASKS_PER_ROUND));
 
-            if (taskOptional.isEmpty()) {
+            if (pendingTasks.isEmpty()) {
                 return;
             }
-            AsyncTask task = taskOptional.get();
+            AsyncTask task = pendingTasks.get(0);
             // 任务已在内存中运行，同步 DB 状态为 PROCESSING
             if (runningTasks.containsKey(task.getId())) {
                 task.setState(TaskState.PROCESSING);
