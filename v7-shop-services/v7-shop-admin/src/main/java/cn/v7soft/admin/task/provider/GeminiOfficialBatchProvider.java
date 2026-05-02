@@ -124,9 +124,13 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             }
         }
         // 2. activeBatches 中的 entries：已提交到 Gemini，可能已消耗 token，按预估计费
+        //    必须从 entries map 中移除，否则 batch 完成时 processBatchResult 会再次回调导致双重 releaseSlot
         for (ActiveBatch ab : activeBatches.values()) {
-            for (BatchEntry entry : ab.entries.values()) {
+            Iterator<Map.Entry<String, BatchEntry>> entryIt = ab.entries.entrySet().iterator();
+            while (entryIt.hasNext()) {
+                BatchEntry entry = entryIt.next().getValue();
                 if (taskId.equals(entry.subTask.getTaskId())) {
+                    entryIt.remove();
                     callback.onSubTaskFailed(entry.subTask, "task cancelled (batch in-flight)",
                             false, buildEstimatedResult(entry));
                 }

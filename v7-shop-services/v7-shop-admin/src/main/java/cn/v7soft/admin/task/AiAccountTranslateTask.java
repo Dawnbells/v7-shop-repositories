@@ -579,10 +579,16 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             status.setProcessing("已拆分AI账号翻译子任务: " + subTasks.size());
         } catch (Exception e) {
             log.error("[AiAccountTranslateTask] 拆分任务失败: taskId={}", task.getId(), e);
-            AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(
-                    task.getId(), 0, null, null, null, task.getOwner());
-            status.fail("拆分任务失败: " + e.getMessage());
-            runningTasks.put(task.getId(), status);
+            AiAccountTranslateTaskStatus existing = runningTasks.get(task.getId());
+            if (existing != null && existing.getTotalSubTaskCount() > 0) {
+                // 事务已提交，积分已冻结，status 已含有效子任务——不覆盖，由 syncTaskStatus 正常流转
+                log.warn("[AiAccountTranslateTask] 事务已提交但后续操作异常，保留已有状态: taskId={}", task.getId());
+            } else {
+                AiAccountTranslateTaskStatus failStatus = new AiAccountTranslateTaskStatus(
+                        task.getId(), 0, null, null, null, task.getOwner());
+                failStatus.fail("拆分任务失败: " + e.getMessage());
+                runningTasks.put(task.getId(), failStatus);
+            }
         }
     }
 
@@ -840,7 +846,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 return;
             }
 
-            // 所有子任务完成且无失败 → 组装翻译产物
+            // 所有子任务结束且有成功的 → 组装翻译产物（部分失败也组装）
             if (status.isReadyToFinalize()) {
                 finalizeAiAccountTranslateStatus(status);
             }
