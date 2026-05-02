@@ -422,7 +422,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             }
             // 分发前检查缓存，命中则直接完成，不调用 Provider
             AiAccountTranslateTaskStatus status = runningTasks.get(subTask.getTaskId());
-            if (status != null && tryCompleteFromCache(status, subTask)) {
+            if (status != null && tryCompleteFromCache(status, subTask, account.getInvokeMode())) {
                 runtimeState.releaseFinishedSlot();
                 continue;
             }
@@ -710,7 +710,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      * 分发前检查翻译缓存。命中时直接完成子任务，返回 true 跳过 Provider 执行。
      * TEXT/HTML 查 TextTranslationCache，IMAGE 查 ImageTranslationCache。
      */
-    private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask) {
+    private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask,
+                                          InvokeMode invokeMode) {
         try {
             Language language = status.getLanguage();
             if (language == null) {
@@ -722,7 +723,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.TEXT);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeTextSubTask(subTask, cached.get().getTranslatedText());
-                    updateCacheHitUsageRecord(subTask, language.getName());
+                    updateCacheHitUsageRecord(subTask, language.getName(), invokeMode);
                     return true;
                 }
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
@@ -731,7 +732,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.HTML);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeHtmlSubTask(subTask, cached.get().getTranslatedText());
-                    updateCacheHitUsageRecord(subTask, language.getName());
+                    updateCacheHitUsageRecord(subTask, language.getName(), invokeMode);
                     return true;
                 }
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
@@ -748,7 +749,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     } else {
                         status.completeSubTask(subTask);
                     }
-                    updateCacheHitUsageRecord(subTask, language.getName());
+                    updateCacheHitUsageRecord(subTask, language.getName(), invokeMode);
                     return true;
                 }
             }
@@ -763,7 +764,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      * 缓存命中时，为对应的 AiTranslateUsageRecord 写入 businessCredits。
      * 优先复制上次同 contentHash+targetLanguage 的实际扣费记录；无历史则按预估兜底。
      */
-    private void updateCacheHitUsageRecord(AiAccountTranslateSubTask subTask, String targetLanguage) {
+    private void updateCacheHitUsageRecord(AiAccountTranslateSubTask subTask, String targetLanguage,
+                                              InvokeMode invokeMode) {
         try {
             usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
                     .ifPresent(record -> {
@@ -798,7 +800,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                             record.setBusinessThinkingTokens(0);
                             record.setBusinessTotalTokens(bizPrompt + bizCompletion);
                             BigDecimal businessCost = TokenCostCalculator.calculateCost(
-                                    contentType, InvokeMode.STANDARD, bizPrompt, bizCompletion, 0);
+                                    contentType, invokeMode != null ? invokeMode : InvokeMode.STANDARD,
+                                    bizPrompt, bizCompletion, 0);
                             record.setBusinessCost(businessCost);
                             record.setBusinessCredits(TokenCostCalculator.usdToCredits(businessCost));
                         }
@@ -822,8 +825,16 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      */
     private void syncSingleTaskStatus(AiAccountTranslateTaskStatus status) {
         asyncTaskRepository.findById(status.getTaskId()).ifPresent(task -> {
-            // 外部取消：直接结算冻结积分并清理
+            // 外部取消：通知各 Provider 清理 in-flight 子任务并估算费用，然后结算
             if (task.getState() == TaskState.CANCELLED) {
+                for (TranslateProvider provider : providerRegistry.values()) {
+                    try {
+                        provider.onTaskCancelling(status.getTaskId());
+                    } catch (Exception e) {
+                        log.warn("[AiAccountTranslateTask] onTaskCancelling failed: provider={}, taskId={}",
+                                 provider.getProviderType(), status.getTaskId(), e);
+                    }
+                }
                 settleTask(task);
                 runningTasks.remove(status.getTaskId());
                 return;

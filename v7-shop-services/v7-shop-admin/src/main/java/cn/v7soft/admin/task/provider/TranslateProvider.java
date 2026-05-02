@@ -39,4 +39,13 @@ public interface TranslateProvider {
      */
     default void reclaimExpiredAssignments() {
     }
+
+    /**
+     * 任务取消时调用（settleTask 之前）。
+     * Provider 应清理属于该 taskId 的 in-flight 子任务：
+     * - 未提交到 API 的子任务：callback.onSubTaskFailed(retryable=false, partialResult=null)
+     * - 已提交/可能消耗 API 的子任务：callback.onSubTaskFailed(retryable=false, partialResult=estimated)
+     */
+    default void onTaskCancelling(Long taskId) {
+    }
 }

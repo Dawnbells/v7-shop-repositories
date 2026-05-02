@@ -297,6 +297,31 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         callback.onSubTaskFailed(subTask, message, retryable, null);
     }
 
+    @Override
+    public void onTaskCancelling(Long taskId) {
+        // 1. 从 internalQueues 移除：尚未分发给插件，不计费
+        for (ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue : internalQueues.values()) {
+            Iterator<AiAccountTranslateSubTask> it = queue.iterator();
+            while (it.hasNext()) {
+                AiAccountTranslateSubTask subTask = it.next();
+                if (taskId.equals(subTask.getTaskId())) {
+                    it.remove();
+                    callback.onSubTaskFailed(subTask, "task cancelled", false, null);
+                }
+            }
+        }
+        // 2. assignments：已分发给插件，但 TurboFlow 免费 AI 不计费
+        Iterator<Map.Entry<String, AiAccountTranslateSubTask>> it = assignments.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, AiAccountTranslateSubTask> entry = it.next();
+            AiAccountTranslateSubTask subTask = entry.getValue();
+            if (taskId.equals(subTask.getTaskId())) {
+                it.remove();
+                callback.onSubTaskFailed(subTask, "task cancelled", false, null);
+            }
+        }
+    }
+
     /** 回收 lease 过期的 assignment。由 syncTaskStatus 定时器(5s)调用 */
     @Override
     public void reclaimExpiredAssignments() {
