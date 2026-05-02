@@ -79,9 +79,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final AtomicBoolean syncingTaskStatus = new AtomicBoolean(false);
 
     private Map<AiProvider, TranslateProvider> providerRegistry;
-    // aiAccountId -> AiAccount/Provider 映射缓存，避免每次估算/分发时重复查 DB
-    private final ConcurrentMap<Long, AiAccount> accountCache = new ConcurrentHashMap<>();
-    private final ConcurrentMap<Long, TranslateProvider> accountProviderCache = new ConcurrentHashMap<>();
 
     public AiAccountTranslateTask(AsyncTaskRepository asyncTaskRepository,
                                   IProductService productService,
@@ -329,9 +326,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             return;
         }
 
-        TranslateProvider provider = resolveProvider(aiAccountId);
+        TranslateProvider provider = providerRegistry.get(account.getProvider());
         if (provider == null) {
-            log.warn("[AiAccountTranslateTask] 未找到对应的 Provider: aiAccountId={}", aiAccountId);
+            log.warn("[AiAccountTranslateTask] 未找到对应的 Provider: provider={}", account.getProvider());
             return;
         }
 
@@ -416,6 +413,10 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 return;
             }
 
+            Long aiAccountId = Long.parseLong(request.getAiAccountId());
+            AiAccount account = aiAccountService.getById(aiAccountId);
+            TranslateProvider provider = providerRegistry.get(account.getProvider());
+
             int totalEstimatedCredits = 0;
             List<AiTranslateUsageRecord> usageRecords = new ArrayList<>();
 
@@ -423,10 +424,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 subTask.setOwner(task.getOwner());
                 status.addSubTask(subTask);
 
-                int estimated = estimateSubTaskCredits(subTask);
+                int estimated = estimateSubTaskCredits(provider, subTask);
                 totalEstimatedCredits += estimated;
 
-                AiAccount account = resolveAccount(subTask.getAiAccountId());
                 AiTranslateUsageRecord record = AiTranslateUsageRecord.builder()
                         .taskId(task.getId())
                         .subTaskId(subTask.getSubTaskId())
@@ -473,18 +473,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         };
     }
 
-    private AiAccount resolveAccount(Long aiAccountId) {
-        return accountCache.computeIfAbsent(aiAccountId, aiAccountService::getById);
-    }
-
-    private TranslateProvider resolveProvider(Long aiAccountId) {
-        return accountProviderCache.computeIfAbsent(aiAccountId, id ->
-                providerRegistry.get(resolveAccount(id).getProvider()));
-    }
-
-    private int estimateSubTaskCredits(AiAccountTranslateSubTask subTask) {
+    private int estimateSubTaskCredits(TranslateProvider provider, AiAccountTranslateSubTask subTask) {
         try {
-            TranslateProvider provider = resolveProvider(subTask.getAiAccountId());
             if (provider != null) {
                 return provider.estimateSubTaskCredits(subTask);
             }
