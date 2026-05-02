@@ -1,7 +1,23 @@
 package cn.v7soft.dao.enums;
 
 public enum AiProvider {
-    GEMINI,
-    OPENAI,
-    TURBOFLOW
+    TURBOFLOW_GEMINI,
+    GEMINI_OFFICIAL_BATCH,
+    GEMINI_OFFICIAL_STANDARD;
+
+    public AiApiChannel getApiChannel() {
+        return AiApiChannel.OFFICIAL;
+    }
+
+    public InvokeMode getInvokeMode() {
+        return this == GEMINI_OFFICIAL_BATCH ? InvokeMode.BATCH : InvokeMode.STANDARD;
+    }
+
+    public boolean isTurboFlow() {
+        return this == TURBOFLOW_GEMINI;
+    }
+
+    public boolean isGeminiOfficial() {
+        return this == GEMINI_OFFICIAL_BATCH || this == GEMINI_OFFICIAL_STANDARD;
+    }
 }

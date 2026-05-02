@@ -2,11 +2,9 @@ package cn.v7soft.admin.controller.resp;
 
 import cn.v7soft.common.controller.resp.DataRangeResponse;
 import cn.v7soft.dao.entities.primary.AiAccount;
-import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.AiRateLimitMode;
-import cn.v7soft.dao.enums.InvokeMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
@@ -23,8 +21,6 @@ public class AiAccountResponse extends DataRangeResponse {
     private String name;
     private String description;
     private AiProvider provider;
-    private AiApiChannel apiChannel;
-    private InvokeMode invokeMode;
     private String apiKey;
     private String baseUrl;
     private String userAgent;
@@ -54,8 +50,6 @@ public class AiAccountResponse extends DataRangeResponse {
                 .name(entity.getName())
                 .description(entity.getDescription())
                 .provider(entity.getProvider())
-                .apiChannel(entity.getApiChannel())
-                .invokeMode(entity.getInvokeMode() == null ? InvokeMode.STANDARD : entity.getInvokeMode())
                 .apiKey(entity.getApiKey())
                 .baseUrl(entity.getBaseUrl())
                 .userAgent(entity.getUserAgent())

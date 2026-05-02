@@ -1,6 +1,5 @@
 package cn.v7soft.admin.service.impl;
 
-import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
 import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.common.controller.req.attributes.AccessDataRangeAttribute;
@@ -10,7 +9,6 @@ import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.AiAccount;
-import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.AiRateLimitMode;
 import cn.v7soft.dao.repositories.primary.AiAccountRepository;
@@ -65,14 +63,11 @@ public class AiAccountService extends BaseDataRangeService<AiAccount, AiAccountR
         ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(entity.getName(), "AI账号名称不能为空");
         ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(entity.getApiKey(), "API Key不能为空");
         ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(entity.getModel(), "模型不能为空");
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getProvider(), "AI服务商不能为空");
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getApiChannel(), "API渠道不能为空");
-        if (entity.getProvider() == AiProvider.GEMINI) {
-            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getInvokeMode(), "Gemini接口模式不能为空");
-        }
-        if (entity.getApiChannel() == AiApiChannel.SUB2API) {
-            ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(StrUtil.isNotBlank(entity.getBaseUrl()), "Sub2API渠道必须填写Base URL");
-        }
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getProvider(), "AI账号类型不能为空");
+
+        entity.setApiChannel(entity.getProvider().getApiChannel());
+        entity.setInvokeMode(entity.getProvider().getInvokeMode());
+
         checkPrice(entity.getTextInputPrice(), entity.getTextInputPriceUnit(), "文本输入");
         checkPrice(entity.getTextOutputPrice(), entity.getTextOutputPriceUnit(), "文本输出");
         checkPrice(entity.getImageInputPrice(), entity.getImageInputPriceUnit(), "图片输入");

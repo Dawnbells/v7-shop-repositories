@@ -15,28 +15,12 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="服务商" prop="provider">
-              <el-select v-model="form.provider" placeholder="请选择服务商" style="width: 100%" @change="handleProviderChange">
-                <el-option label="Gemini" value="GEMINI" />
-                <el-option label="OpenAI" value="OPENAI" />
-                <el-option label="TurboFlow" value="TURBOFLOW" />
+            <el-form-item label="账号类型" prop="provider">
+              <el-select v-model="form.provider" placeholder="请选择账号类型" style="width: 100%" @change="handleProviderChange">
+                <el-option label="TurboFlow Gemini" value="TURBOFLOW_GEMINI" />
+                <el-option label="Gemini 官方批量" value="GEMINI_OFFICIAL_BATCH" />
+                <el-option label="Gemini 官方标准" value="GEMINI_OFFICIAL_STANDARD" />
               </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="API渠道" prop="apiChannel">
-              <el-select v-model="form.apiChannel" placeholder="请选择API渠道" style="width: 100%">
-                <el-option label="官方" value="OFFICIAL" />
-                <el-option label="Sub2API" value="SUB2API" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col v-if="form.provider === 'GEMINI'" :span="12">
-            <el-form-item label="接口模式" prop="invokeMode">
-              <el-radio-group v-model="form.invokeMode">
-                <el-radio-button label="STANDARD">标准接口</el-radio-button>
-                <el-radio-button label="BATCH">批量接口</el-radio-button>
-              </el-radio-group>
             </el-form-item>
           </el-col>
           <el-col :span="24">
@@ -177,9 +161,7 @@ const defaultForm = () => ({
   id: undefined,
   name: '',
   description: '',
-  provider: 'GEMINI',
-  apiChannel: 'OFFICIAL',
-  invokeMode: 'STANDARD',
+  provider: 'GEMINI_OFFICIAL_STANDARD',
   apiKey: '',
   baseUrl: '',
   userAgent: '',
@@ -248,23 +230,11 @@ const billingRows = [
 ]
 
 const baseUrlPlaceholder = computed(() => {
-  if (form.apiChannel === 'SUB2API') return '请输入Sub2API接口地址，例如 https://api.example.com'
-  return '官方渠道可留空；代理接口可填写'
+  if (form.provider === 'TURBOFLOW_GEMINI') return 'TurboFlow 插件不使用该字段，可留空'
+  return 'Gemini 官方接口可留空'
 })
 
 const validateBaseUrl = (_rule: any, value: string, callback: any) => {
-  if (form.apiChannel === 'SUB2API' && !value) {
-    callback(new Error('Sub2API渠道必须填写Base URL'))
-    return
-  }
-  callback()
-}
-
-const validateInvokeMode = (_rule: any, value: string, callback: any) => {
-  if (form.provider === 'GEMINI' && !value) {
-    callback(new Error('请选择Gemini接口模式'))
-    return
-  }
   callback()
 }
 
@@ -296,9 +266,7 @@ const createBillingUnitValidator = (priceField: string, unitField: string, label
 
 const rules = reactive<any>({
   name: [{ required: true, trigger: 'blur', message: '请输入账号名称' }],
-  provider: [{ required: true, trigger: 'change', message: '请选择服务商' }],
-  apiChannel: [{ required: true, trigger: 'change', message: '请选择API渠道' }],
-  invokeMode: [{ validator: validateInvokeMode, trigger: 'change' }],
+  provider: [{ required: true, trigger: 'change', message: '请选择账号类型' }],
   apiKey: [{ required: true, trigger: 'blur', message: '请输入API Key' }],
   baseUrl: [{ validator: validateBaseUrl, trigger: 'blur' }],
   model: [{ required: true, trigger: 'blur', message: '请输入模型' }],
@@ -317,12 +285,7 @@ const validateBillingPair = (priceField: string, unitField: string) => {
 }
 
 const handleProviderChange = () => {
-  if (form.provider !== 'GEMINI') {
-    form.invokeMode = 'STANDARD'
-  } else {
-    form.invokeMode = form.invokeMode || 'STANDARD'
-  }
-  formRef.value?.clearValidate('invokeMode')
+  formRef.value?.clearValidate('provider')
 }
 
 const showEdit = (row: any, copy = false) => {
@@ -363,9 +326,6 @@ const save = () => {
       saveLoading.value = true
       form.billingCurrency = 'USD'
       form.dailyLimit = form.dailyLimit === '' || form.dailyLimit === null ? undefined : form.dailyLimit
-      if (form.provider !== 'GEMINI') {
-        form.invokeMode = 'STANDARD'
-      }
       const { msg }: any = await doEdit(form)
       await $baseMessage(msg, 'success', 'hey')
       dialogFormVisible.value = false

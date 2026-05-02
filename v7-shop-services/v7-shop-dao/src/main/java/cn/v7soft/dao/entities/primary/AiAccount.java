@@ -1,5 +1,6 @@
 package cn.v7soft.dao.entities.primary;
 
+import cn.v7soft.dao.converter.AiProviderConverter;
 import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
 import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
@@ -7,10 +8,12 @@ import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.AiRateLimitMode;
 import cn.v7soft.dao.enums.InvokeMode;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Index;
+import jakarta.persistence.PostLoad;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -42,8 +45,8 @@ public class AiAccount extends BaseDataRangeEntity {
     @Column(name = "description", length = 255)
     private String description;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "provider", nullable = false, length = 20)
+    @Convert(converter = AiProviderConverter.class)
+    @Column(name = "provider", nullable = false, length = 40)
     private AiProvider provider;
 
     @Enumerated(EnumType.STRING)
@@ -132,4 +135,15 @@ public class AiAccount extends BaseDataRangeEntity {
     @Builder.Default
     @Column(name = "priority", nullable = false)
     private Integer priority = 100;
+
+    @PostLoad
+    private void normalizeMergedProvider() {
+        if (provider == AiProvider.GEMINI_OFFICIAL_STANDARD && invokeMode == InvokeMode.BATCH) {
+            provider = AiProvider.GEMINI_OFFICIAL_BATCH;
+        }
+        if (provider != null) {
+            apiChannel = provider.getApiChannel();
+            invokeMode = provider.getInvokeMode();
+        }
+    }
 }

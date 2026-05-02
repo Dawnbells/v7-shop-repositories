@@ -479,7 +479,7 @@ public class AiAccountTranslateTask {
             return;
         }
 
-        if (account.getProvider() == AiProvider.TURBOFLOW) {
+        if (account.getProvider().isTurboFlow()) {
             return;
         }
 
@@ -570,7 +570,7 @@ public class AiAccountTranslateTask {
         if (StrUtil.isBlank(token)) {
             throw new IllegalArgumentException("missing bridge token");
         }
-        return aiAccountService.findAvailableAccounts(AiProvider.TURBOFLOW).stream()
+        return aiAccountService.findAvailableAccounts(AiProvider.TURBOFLOW_GEMINI).stream()
                 .filter(account -> token.equals(account.getApiKey()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("invalid TurboFlow bridge token"));

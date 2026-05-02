@@ -24,6 +24,7 @@ import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.admin.service.ICountryService;
+import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductSKUService;
@@ -35,6 +36,7 @@ import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Language;
@@ -69,13 +71,15 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     private final ITaskExecutorService taskExecutorService;
     private final TranslateTaskMetrics translateTaskMetrics;
     private final AiCreditsService aiCreditsService;
+    private final IAiAccountService aiAccountService;
 
     public ProductService(ProductRepository repository, IProductSKUService productSKUService,
                           ILanguageService languageService, ICountryService countryService,
                           IMultimediaFileService multimediaFileService, SpuRepository spuRepository,
                           AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService,
                           TranslateTaskMetrics translateTaskMetrics,
-                          AiCreditsService aiCreditsService) {
+                          AiCreditsService aiCreditsService,
+                          IAiAccountService aiAccountService) {
         super(repository);
         this.productSKUService = productSKUService;
         this.languageService = languageService;
@@ -86,6 +90,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         this.taskExecutorService = taskExecutorService;
         this.translateTaskMetrics = translateTaskMetrics;
         this.aiCreditsService = aiCreditsService;
+        this.aiAccountService = aiAccountService;
     }
 
     @Override
@@ -341,10 +346,8 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
                                                     "同一SPU下该国家和语言已存在商品，不允许重复");
 
-        boolean useSelectedAiAccount = StrUtil.isNotBlank(request.getAiAccountId());
-        TaskType taskType = useSelectedAiAccount
-                            ? TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE
-                            : TaskType.PRODUCT_AI_TRANSLATE;
+        AiAccount selectedAiAccount = resolveSelectedAiAccount(request);
+        TaskType taskType = resolveAiTranslateTaskType(selectedAiAccount);
 
         String dedupKey = taskType.name() + ":" +
                           request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
@@ -364,9 +367,10 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                        : "商品#" + product.getId();
         String taskName = "AI翻译: " + title + " → " + language.getName();
 
-        Integer estimated = useSelectedAiAccount
-                            ? estimateAndFreezeCredits(product, InvokeMode.STANDARD)
-                            : estimateAndFreezeCredits(product, InvokeMode.BATCH);
+        InvokeMode invokeMode = selectedAiAccount != null
+                                ? selectedAiAccount.getProvider().getInvokeMode()
+                                : InvokeMode.BATCH;
+        Integer estimated = estimateAndFreezeCredits(product, invokeMode);
 
         AsyncTask asyncTask = AsyncTask.builder()
                 .taskType(taskType)
@@ -380,10 +384,31 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         translateTaskMetrics.recordSubmit();
-        if (!useSelectedAiAccount) {
+        if (taskType != TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE) {
             taskExecutorService.submitAsyncTask(asyncTask.getId());
         }
         return AsyncTaskResponse.convert(asyncTask);
+    }
+
+    private AiAccount resolveSelectedAiAccount(TranslateByAIRequest request) {
+        if (StrUtil.isBlank(request.getAiAccountId())) {
+            return null;
+        }
+        AiAccount account = aiAccountService.getById(Long.parseLong(request.getAiAccountId()));
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(account, "AI账号不存在");
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(account.getProvider(), "AI账号类型不能为空");
+        return account;
+    }
+
+    private TaskType resolveAiTranslateTaskType(AiAccount account) {
+        if (account == null) {
+            return TaskType.PRODUCT_AI_TRANSLATE;
+        }
+        return switch (account.getProvider()) {
+            case TURBOFLOW_GEMINI -> TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE;
+            case GEMINI_OFFICIAL_BATCH -> TaskType.PRODUCT_AI_TRANSLATE;
+            case GEMINI_OFFICIAL_STANDARD -> TaskType.PRODUCT_AI_TRANSLATE_DIRECT;
+        };
     }
 
     @Override

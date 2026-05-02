@@ -61,9 +61,7 @@
             <template #content>
               <div class="ai-account-detail">
                 <div>账号名称：{{ selectedAiAccount.name || '-' }}</div>
-                <div>服务商：{{ providerLabel(selectedAiAccount.provider) }}</div>
-                <div>渠道：{{ apiChannelLabel(selectedAiAccount.apiChannel) }}</div>
-                <div>接口模式：{{ invokeModeLabel(selectedAiAccount.invokeMode) }}</div>
+                <div>账号类型：{{ providerLabel(selectedAiAccount.provider) }}</div>
                 <div>模型：{{ selectedAiAccount.model || '-' }}</div>
                 <div>Base URL：{{ selectedAiAccount.baseUrl || '-' }}</div>
                 <div>API Key：{{ maskApiKey(selectedAiAccount.apiKey) }}</div>
@@ -143,22 +141,10 @@ const dialogTitle = computed(() => (isAiMode.value ? 'AI 翻译' : '翻译'))
 const selectedAiAccount = computed(() => aiAccountOptions.value.find((item: any) => String(item.id) === String(form.aiAccountId)))
 
 const providerLabel = (provider?: string) => {
-  if (provider === 'GEMINI') return 'Gemini'
-  if (provider === 'OPENAI') return 'OpenAI'
-  if (provider === 'TURBOFLOW') return 'TurboFlow'
+  if (provider === 'TURBOFLOW_GEMINI') return 'TurboFlow Gemini'
+  if (provider === 'GEMINI_OFFICIAL_BATCH') return 'Gemini 官方批量'
+  if (provider === 'GEMINI_OFFICIAL_STANDARD') return 'Gemini 官方标准'
   return provider || '-'
-}
-
-const apiChannelLabel = (apiChannel?: string) => {
-  if (apiChannel === 'OFFICIAL') return '官方'
-  if (apiChannel === 'SUB2API') return 'Sub2API'
-  return apiChannel || '-'
-}
-
-const invokeModeLabel = (invokeMode?: string) => {
-  if (invokeMode === 'BATCH') return '批量接口'
-  if (invokeMode === 'STANDARD') return '标准接口'
-  return invokeMode || '标准接口'
 }
 
 const maskApiKey = (apiKey?: string) => {

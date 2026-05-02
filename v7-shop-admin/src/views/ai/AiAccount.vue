@@ -6,17 +6,11 @@
           <el-form-item label="账号名称">
             <el-input v-model="queryForm.name" clearable placeholder="请输入账号名称" />
           </el-form-item>
-          <el-form-item v-show="!fold" label="服务商">
+          <el-form-item v-show="!fold" label="账号类型">
             <el-select v-model="queryForm.provider" clearable placeholder="全部" style="width: 130px">
-              <el-option label="Gemini" value="GEMINI" />
-              <el-option label="OpenAI" value="OPENAI" />
-              <el-option label="TurboFlow" value="TURBOFLOW" />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-show="!fold" label="API渠道">
-            <el-select v-model="queryForm.apiChannel" clearable placeholder="全部" style="width: 130px">
-              <el-option label="官方" value="OFFICIAL" />
-              <el-option label="Sub2API" value="SUB2API" />
+              <el-option label="TurboFlow Gemini" value="TURBOFLOW_GEMINI" />
+              <el-option label="Gemini 官方批量" value="GEMINI_OFFICIAL_BATCH" />
+              <el-option label="Gemini 官方标准" value="GEMINI_OFFICIAL_STANDARD" />
             </el-select>
           </el-form-item>
           <el-form-item v-show="!fold" label="状态">
@@ -49,12 +43,6 @@
           <div class="config-cell">
             <div class="config-line">
               <el-tag size="small">{{ providerLabel(row.provider) }}</el-tag>
-              <el-tag size="small" :type="row.apiChannel === 'SUB2API' ? 'success' : 'primary'">
-                {{ apiChannelLabel(row.apiChannel) }}
-              </el-tag>
-              <el-tag v-if="row.provider === 'GEMINI'" size="small" type="info">
-                {{ invokeModeLabel(row.invokeMode) }}
-              </el-tag>
             </div>
             <div class="config-text text-ellipsis" :title="row.model || '-'">{{ row.model || '-' }}</div>
             <div class="config-muted text-ellipsis" :title="row.baseUrl || '官方接口'">{{ row.baseUrl || '官方接口' }}</div>
@@ -155,22 +143,10 @@ const queryForm = reactive<any>({
 })
 
 const providerLabel = (provider?: string) => {
-  if (provider === 'GEMINI') return 'Gemini'
-  if (provider === 'OPENAI') return 'OpenAI'
-  if (provider === 'TURBOFLOW') return 'TurboFlow'
+  if (provider === 'TURBOFLOW_GEMINI') return 'TurboFlow Gemini'
+  if (provider === 'GEMINI_OFFICIAL_BATCH') return 'Gemini 官方批量'
+  if (provider === 'GEMINI_OFFICIAL_STANDARD') return 'Gemini 官方标准'
   return provider || '-'
-}
-
-const apiChannelLabel = (apiChannel?: string) => {
-  if (apiChannel === 'OFFICIAL') return '官方'
-  if (apiChannel === 'SUB2API') return 'Sub2API'
-  return apiChannel || '-'
-}
-
-const invokeModeLabel = (invokeMode?: string) => {
-  if (invokeMode === 'BATCH') return '批量接口'
-  if (invokeMode === 'STANDARD') return '标准接口'
-  return invokeMode || '标准接口'
 }
 
 const priceUnitLabel = (unit?: string) => {

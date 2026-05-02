@@ -11,9 +11,7 @@ import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.core.controller.request.attributes.LikeAttribute;
 import cn.v7soft.dao.entities.primary.AiAccount;
-import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.AiRateLimitMode;
-import cn.v7soft.dao.enums.InvokeMode;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.jetbrains.annotations.Nullable;
 import org.springframework.validation.annotation.Validated;
@@ -37,7 +35,6 @@ public class AiAccountController extends BaseDataRangeController<AiAccount, IAiA
         return super.convertQueryPageRequest(request)
                 .addConstraint(StrUtil.isNotBlank(request.getName()), LikeAttribute.builder().name("name").value(request.getName()).build())
                 .addConstraint(request.getProvider() != null, EqualsQueryAttribute.builder().name("provider").value(request.getProvider()).build())
-                .addConstraint(request.getApiChannel() != null, EqualsQueryAttribute.builder().name("apiChannel").value(request.getApiChannel()).build())
                 .addConstraint(request.getStatus() != null, EqualsQueryAttribute.builder().name("status").value(request.getStatus()).build());
     }
 
@@ -50,7 +47,10 @@ public class AiAccountController extends BaseDataRangeController<AiAccount, IAiA
     protected AiAccount convertRequest(@Nullable AiAccount dbEntity, EditAiAccountRequest request) {
         AiAccount entity = Optional.ofNullable(dbEntity).orElse(AiAccount.builder().build());
         BeanUtil.copyProperties(request, entity);
-        entity.setInvokeMode(request.getProvider() == AiProvider.GEMINI && request.getInvokeMode() != null ? request.getInvokeMode() : InvokeMode.STANDARD);
+        if (request.getProvider() != null) {
+            entity.setApiChannel(request.getProvider().getApiChannel());
+            entity.setInvokeMode(request.getProvider().getInvokeMode());
+        }
         entity.setRateLimitMode(request.getRateLimitMode() == null ? AiRateLimitMode.CONCURRENCY : request.getRateLimitMode());
         entity.setMaxConcurrency(request.getMaxConcurrency() == null ? 1 : request.getMaxConcurrency());
         entity.setPriority(request.getPriority() == null ? 100 : request.getPriority());
