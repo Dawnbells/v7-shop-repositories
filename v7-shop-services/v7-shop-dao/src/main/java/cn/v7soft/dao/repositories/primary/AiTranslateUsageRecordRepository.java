@@ -26,4 +26,7 @@ public interface AiTranslateUsageRecordRepository extends BaseRepository<AiTrans
     @Modifying
     @Query("UPDATE AiTranslateUsageRecord r SET r.settled = true WHERE r.taskId = :taskId")
     int markSettledByTaskId(@Param("taskId") Long taskId);
+
+    Optional<AiTranslateUsageRecord> findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
+            String contentHash, String targetLanguage);
 }

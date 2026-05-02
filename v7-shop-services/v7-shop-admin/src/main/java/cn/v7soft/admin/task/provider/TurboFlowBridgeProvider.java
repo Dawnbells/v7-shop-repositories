@@ -25,12 +25,14 @@ import cn.v7soft.admin.task.AiAccountTranslateSubTask;
 import cn.v7soft.admin.task.AiAccountTranslateSubTaskType;
 import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.dao.entities.primary.AiAccount;
+import cn.v7soft.dao.entities.primary.AiTranslateUsageRecord;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
+import cn.v7soft.dao.repositories.primary.AiTranslateUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -58,6 +60,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final IMultimediaFileService multimediaFileService;
     private final ILanguageService languageService;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
+    private final AiTranslateUsageRecordRepository usageRecordRepository;
 
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> internalQueues = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, AiAccountTranslateSubTask> assignments = new ConcurrentHashMap<>();
@@ -145,13 +148,30 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .findByImageHashAndLanguageId(imageHash, Long.parseLong(subTask.getLanguageId()));
             if (cached.isPresent()) {
                 MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
-                int promptTokens = 718;
-                int completionTokens = TokenCostCalculator.estimateImageTokens();
+                Language language = resolveLanguage(subTask);
+
+                int promptTokens;
+                int completionTokens;
+                int businessCredits;
+                Optional<AiTranslateUsageRecord> historyOpt = usageRecordRepository
+                        .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
+                                subTask.getContentKey(), language.getName());
+                if (historyOpt.isPresent() && historyOpt.get().getBusinessCredits() > 0) {
+                    AiTranslateUsageRecord history = historyOpt.get();
+                    promptTokens = history.getBusinessPromptTokens();
+                    completionTokens = history.getBusinessCompletionTokens();
+                    businessCredits = history.getBusinessCredits();
+                } else {
+                    promptTokens = 718;
+                    completionTokens = TokenCostCalculator.estimateImageTokens();
+                    businessCredits = TokenCostCalculator.estimateCredits(0, completionTokens, InvokeMode.STANDARD);
+                }
+
                 SubTaskResult result = SubTaskResult.builder()
                         .translatedFile(translatedFile)
                         .businessPromptTokens(promptTokens)
                         .businessCompletionTokens(completionTokens)
-                        .businessCredits(TokenCostCalculator.estimateCredits(0, completionTokens, InvokeMode.STANDARD))
+                        .businessCredits(businessCredits)
                         .build();
                 callback.onSubTaskCompleted(subTask, result);
                 return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("cache hit").build();

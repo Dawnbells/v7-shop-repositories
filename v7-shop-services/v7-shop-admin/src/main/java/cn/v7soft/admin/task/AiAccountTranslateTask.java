@@ -1,5 +1,6 @@
 package cn.v7soft.admin.task;
 
+import java.math.BigDecimal;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -32,6 +33,7 @@ import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.service.impl.AiCreditsService;
+import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.admin.task.provider.SubTaskResult;
 import cn.v7soft.admin.task.provider.TranslateProvider;
 import cn.v7soft.admin.task.provider.TranslateProviderCallback;
@@ -48,6 +50,7 @@ import cn.v7soft.dao.entities.primary.TextTranslationCache;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
@@ -700,6 +703,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.TEXT);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeTextSubTask(subTask, cached.get().getTranslatedText());
+                    updateCacheHitUsageRecord(subTask, language.getName());
                     return true;
                 }
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
@@ -708,6 +712,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.HTML);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeHtmlSubTask(subTask, cached.get().getTranslatedText());
+                    updateCacheHitUsageRecord(subTask, language.getName());
                     return true;
                 }
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
@@ -724,6 +729,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     } else {
                         status.completeSubTask(subTask);
                     }
+                    updateCacheHitUsageRecord(subTask, language.getName());
                     return true;
                 }
             }
@@ -732,6 +738,58 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                      subTask.getTaskId(), subTask.getSubTaskId(), e);
         }
         return false;
+    }
+
+    /**
+     * 缓存命中时，为对应的 AiTranslateUsageRecord 写入 businessCredits。
+     * 优先复制上次同 contentHash+targetLanguage 的实际扣费记录；无历史则按预估兜底。
+     */
+    private void updateCacheHitUsageRecord(AiAccountTranslateSubTask subTask, String targetLanguage) {
+        try {
+            usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
+                    .ifPresent(record -> {
+                        record.setCacheHit(true);
+                        String contentHash = record.getContentHash();
+
+                        Optional<AiTranslateUsageRecord> historyOpt = usageRecordRepository
+                                .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
+                                        contentHash, targetLanguage);
+
+                        if (historyOpt.isPresent()) {
+                            AiTranslateUsageRecord history = historyOpt.get();
+                            record.setBusinessPromptTokens(history.getBusinessPromptTokens());
+                            record.setBusinessCompletionTokens(history.getBusinessCompletionTokens());
+                            record.setBusinessThinkingTokens(history.getBusinessThinkingTokens());
+                            record.setBusinessTotalTokens(history.getBusinessTotalTokens());
+                            record.setBusinessCost(history.getBusinessCost());
+                            record.setBusinessCredits(history.getBusinessCredits());
+                        } else {
+                            TranslationContentType contentType = mapContentType(subTask.getType());
+                            int bizPrompt, bizCompletion;
+                            if (contentType == TranslationContentType.IMAGE) {
+                                bizPrompt = 718;
+                                bizCompletion = TokenCostCalculator.estimateImageTokens();
+                            } else {
+                                int estTokens = TokenCostCalculator.estimateTextTokens(subTask.getContent());
+                                bizPrompt = estTokens;
+                                bizCompletion = estTokens;
+                            }
+                            record.setBusinessPromptTokens(bizPrompt);
+                            record.setBusinessCompletionTokens(bizCompletion);
+                            record.setBusinessThinkingTokens(0);
+                            record.setBusinessTotalTokens(bizPrompt + bizCompletion);
+                            BigDecimal businessCost = TokenCostCalculator.calculateCost(
+                                    contentType, InvokeMode.STANDARD, bizPrompt, bizCompletion, 0);
+                            record.setBusinessCost(businessCost);
+                            record.setBusinessCredits(TokenCostCalculator.usdToCredits(businessCost));
+                        }
+
+                        usageRecordRepository.save(record);
+                    });
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] updateCacheHitUsageRecord failed: subTaskId={}",
+                     subTask.getSubTaskId(), e);
+        }
     }
 
     // --- Status sync & settlement ---
