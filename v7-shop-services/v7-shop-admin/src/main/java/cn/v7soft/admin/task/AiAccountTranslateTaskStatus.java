@@ -6,10 +6,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import cn.v7soft.dao.entities.primary.Country;
-import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
-import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.TaskState;
 import lombok.Getter;
@@ -23,9 +20,9 @@ public class AiAccountTranslateTaskStatus {
     private final AtomicInteger completedSubTaskCount = new AtomicInteger(0);
     private final AtomicInteger failedSubTaskCount = new AtomicInteger(0);
     private final ConcurrentMap<String, AiAccountTranslateSubTask> subTasks = new ConcurrentHashMap<>();
-    private final Product product;
-    private final Language language;
-    private final Country country;
+    private final Long productId;
+    private final Long languageId;
+    private final Long countryId;
     private final SystemUser owner;
     private final ConcurrentMap<String, String> translatedTextMap = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, MultimediaFile> translatedImageMap = new ConcurrentHashMap<>();
@@ -38,12 +35,12 @@ public class AiAccountTranslateTaskStatus {
     private volatile LocalDateTime updateTime = LocalDateTime.now();
 
     public AiAccountTranslateTaskStatus(Long taskId, int totalSubTaskCount,
-                                        Product product, Language language, Country country, SystemUser owner) {
+                                        Long productId, Long languageId, Long countryId, SystemUser owner) {
         this.taskId = taskId;
         this.totalSubTaskCount = totalSubTaskCount;
-        this.product = product;
-        this.language = language;
-        this.country = country;
+        this.productId = productId;
+        this.languageId = languageId;
+        this.countryId = countryId;
         this.owner = owner;
         this.progress = totalSubTaskCount == 0 ? 100 : 0;
         this.message = totalSubTaskCount == 0 ? "没有需要翻译的内容" : null;
@@ -162,7 +159,7 @@ public class AiAccountTranslateTaskStatus {
 
     public boolean isReadyToFinalize() {
         int finished = completedSubTaskCount.get() + failedSubTaskCount.get();
-        return product != null
+        return productId != null
                 && !isFinished()
                 && finished >= totalSubTaskCount
                 && failedSubTaskCount.get() == 0

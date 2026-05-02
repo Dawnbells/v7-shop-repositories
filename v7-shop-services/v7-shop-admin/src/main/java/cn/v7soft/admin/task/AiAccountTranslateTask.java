@@ -2,7 +2,6 @@ package cn.v7soft.admin.task;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -27,7 +26,6 @@ import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.service.IAiAccountService;
-import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.ICountryService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
@@ -69,7 +67,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final AsyncTaskRepository asyncTaskRepository;
     private final IProductService productService;
     private final IAiAccountService aiAccountService;
-    private final IAsyncTaskService asyncTaskService;
     private final IMultimediaFileService multimediaFileService;
     private final ILanguageService languageService;
     private final ICountryService countryService;
@@ -92,7 +89,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     public AiAccountTranslateTask(AsyncTaskRepository asyncTaskRepository,
                                   IProductService productService,
                                   IAiAccountService aiAccountService,
-                                  IAsyncTaskService asyncTaskService,
                                   IMultimediaFileService multimediaFileService,
                                   ILanguageService languageService,
                                   ICountryService countryService,
@@ -104,7 +100,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.asyncTaskRepository = asyncTaskRepository;
         this.productService = productService;
         this.aiAccountService = aiAccountService;
-        this.asyncTaskService = asyncTaskService;
         this.multimediaFileService = multimediaFileService;
         this.languageService = languageService;
         this.countryService = countryService;
@@ -389,9 +384,11 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             Language language = languageService.getById(Long.parseLong(request.getLanguageId()));
             Country country = countryService.getById(Long.parseLong(request.getCountryId()));
             AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(
-                    task.getId(), subTasks.size(), product, language, country, task.getOwner());
+                    task.getId(), subTasks.size(), product.getId(), language.getId(), country.getId(), task.getOwner());
             AiAccountTranslateTaskStatus existing = runningTasks.putIfAbsent(task.getId(), status);
-            if (existing != null) return;
+            if (existing != null) {
+                return;
+            }
 
             if (subTasks.isEmpty()) {
                 status.complete();
@@ -449,6 +446,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         } catch (Exception e) {
             log.error("[AiAccountTranslateTask] 拆分任务失败: taskId={}", task.getId(), e);
             AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(task.getId(), 0, null, null, null, task.getOwner());
+
             status.fail("拆分任务失败: " + e.getMessage());
             runningTasks.put(task.getId(), status);
         }
@@ -669,8 +667,11 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 status.fail("AI account translate failed: " + status.getFailedSubTaskCount().get());
                 return;
             }
+            Product product = productService.getByIdWithSpecifications(status.getProductId());
+            Language language = languageService.getById(status.getLanguageId());
+            Country country = countryService.getById(status.getCountryId());
             productService.assembleTranslatedProduct(
-                    status.getProduct(), status.getLanguage(), status.getCountry(), status.getOwner(),
+                    product, language, country, status.getOwner(),
                     status.getTranslatedTextMap(), status.getTranslatedHtml(), status.getTranslatedImageMap());
             status.complete();
         } catch (Exception e) {
