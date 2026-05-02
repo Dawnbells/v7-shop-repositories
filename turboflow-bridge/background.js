@@ -67,7 +67,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'SAVE_CONFIG') {
-    saveConfig(msg.config || {}).then(() => {
+    saveConfig(msg.config || {}).then(async () => {
+      const stored = await chrome.storage.local.get(['services']);
+      const count = Array.isArray(stored.services) ? stored.services.length : 0;
+      addLog('info', `Config saved (${count} services)`);
       scheduleLoop(1000);
       sendResponse({ ok: true });
     });
@@ -102,6 +105,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CLEAR_LOGS') {
     logHistory = [];
     persistLogs();
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (msg.type === 'LOG') {
+    addLog(msg.level || 'info', msg.message || '');
     sendResponse({ ok: true });
     return false;
   }

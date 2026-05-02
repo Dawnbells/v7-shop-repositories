@@ -46,7 +46,10 @@
   }
 
   /* ── Main View ── */
-  btnOpenFlow.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'OPEN_FLOW' }));
+  btnOpenFlow.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_FLOW' });
+    log('info', 'Opening Google Flow tab');
+  });
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'CONNECTION_CHANGED') {
@@ -213,6 +216,7 @@
   btnAddService.addEventListener('click', () => {
     services.push({ baseUrl: '', token: '', enabled: true });
     renderServices();
+    log('info', `Service added (total: ${services.length})`);
   });
   btnSave.addEventListener('click', saveConfig);
 
@@ -244,8 +248,9 @@
       row.querySelector('.base-url').addEventListener('input', (e) => service.baseUrl = e.target.value);
       row.querySelector('.token').addEventListener('input', (e) => service.token = e.target.value);
       row.querySelector('.remove').addEventListener('click', () => {
-        services.splice(index, 1);
+        const removed = services.splice(index, 1)[0];
         renderServices();
+        log('info', `Service removed: ${removed.baseUrl || '(empty)'} (total: ${services.length})`);
       });
       servicesEl.appendChild(row);
     });
@@ -294,6 +299,10 @@
     const timeStr = time ? new Date(time).toLocaleTimeString() : new Date().toLocaleTimeString();
     el.innerHTML = `<span class="log-time">${timeStr}</span> ${esc(message)}`;
     return el;
+  }
+
+  function log(level, message) {
+    chrome.runtime.sendMessage({ type: 'LOG', level, message }).catch(() => {});
   }
 
   /* ── Utilities ── */
