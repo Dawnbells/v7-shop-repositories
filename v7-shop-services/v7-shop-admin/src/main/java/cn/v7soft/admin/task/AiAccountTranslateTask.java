@@ -60,6 +60,7 @@ import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 
 /**
  * AI 账号翻译任务编排器。
@@ -275,6 +276,50 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     });
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] accumulateUsageRecord failed: subTaskId={}", subTask.getSubTaskId(), e);
+        }
+    }
+
+    @Override
+    public void saveTranslationCache(AiAccountTranslateSubTask subTask, SubTaskResult result) {
+        try {
+            AiAccountTranslateTaskStatus status = runningTasks.get(subTask.getTaskId());
+            if (status == null || status.getLanguage() == null) return;
+            Language language = status.getLanguage();
+
+            if (subTask.getType() == AiAccountTranslateSubTaskType.TEXT && result.getTranslatedText() != null) {
+                textTranslationCacheRepository.save(TextTranslationCache.builder()
+                        .contentHash(subTask.getContentKey())
+                        .language(language)
+                        .contentType(TranslationContentType.TEXT)
+                        .sourceText(subTask.getContent())
+                        .translatedText(result.getTranslatedText())
+                        .build());
+            } else if (subTask.getType() == AiAccountTranslateSubTaskType.HTML && result.getTranslatedHtml() != null) {
+                String src = subTask.getContent();
+                textTranslationCacheRepository.save(TextTranslationCache.builder()
+                        .contentHash(subTask.getContentKey())
+                        .language(language)
+                        .contentType(TranslationContentType.HTML)
+                        .sourceText(src != null && src.length() > 65535 ? src.substring(0, 65535) : src)
+                        .translatedText(result.getTranslatedHtml())
+                        .build());
+            } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
+                String imageHash = subTask.getImageHash();
+                if (StrUtil.isNotBlank(imageHash)) {
+                    MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
+                    imageTranslationCacheRepository.save(ImageTranslationCache.builder()
+                            .imageHash(imageHash)
+                            .sourceFile(sourceFile)
+                            .language(language)
+                            .translatedFile(result.getTranslatedFile())
+                            .skipped(result.getTranslatedFile() == null)
+                            .build());
+                }
+            }
+        } catch (DataIntegrityViolationException e) {
+            log.debug("[AiAccountTranslateTask] translation cache already exists: subTaskId={}", subTask.getSubTaskId());
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] saveTranslationCache failed: subTaskId={}", subTask.getSubTaskId(), e);
         }
     }
 
@@ -824,9 +869,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     /**
      * 将单个任务的内存状态同步到 DB，并在终态时结算积分。
-     * - 已取消：直接结算并移除
-     * - 子任务全部完成：组装翻译产物 → 标记 COMPLETED
-     * - 子任务有失败：标记 FAILED
+     * - 已取消：通知各 Provider 清理 in-flight → 结算并移除
+     * - 子任务全部完成且有成功结果：组装翻译产物 → 标记 COMPLETED（部分失败也保存已有结果）
+     * - 所有子任务均失败：标记 FAILED
      * - 终态时：调 settleTask 结算积分（解冻 + 扣实际）
      */
     private void syncSingleTaskStatus(AiAccountTranslateTaskStatus status) {

@@ -33,6 +33,9 @@ public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
             }
 
             taskContext.updateUsageRecord(subTask, result);
+            if (!result.isCacheHit()) {
+                taskContext.saveTranslationCache(subTask, result);
+            }
 
             if (result.getTranslatedFile() != null) {
                 status.completeImageSubTask(subTask, result.getTranslatedFile());

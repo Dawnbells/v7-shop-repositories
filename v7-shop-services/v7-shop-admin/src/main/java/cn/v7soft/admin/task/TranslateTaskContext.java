@@ -21,4 +21,7 @@ public interface TranslateTaskContext {
 
     /** 子任务失败/重试时，累加实际 token 用量到 AiTranslateUsageRecord */
     void accumulateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult partialResult);
+
+    /** 子任务完成后，将翻译结果保存到翻译缓存（TEXT/HTML → TextTranslationCache，IMAGE → ImageTranslationCache） */
+    void saveTranslationCache(AiAccountTranslateSubTask subTask, SubTaskResult result);
 }

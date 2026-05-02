@@ -23,4 +23,6 @@ public class SubTaskResult {
     private final int businessCredits;
 
     private final boolean cacheHit;
+    private final boolean failed;
+    private final String failMessage;
 }
