@@ -60,6 +60,21 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/**
+ * AI 账号翻译任务编排器。
+ * <p>
+ * 通过三个定时器驱动任务生命周期：
+ * <ol>
+ *   <li>任务拆接定时器 (executePendingTasks, 60s) — 拉取 PENDING 的 AsyncTask，拆分为子任务入队</li>
+ *   <li>子任务执行定时器 (executeSubTasks, 1s) — 遍历所有账号队列（优先失败队列），
+ *       通过 providerRegistry 获取对应 Provider 并调用 executeSubTask 分发</li>
+ *   <li>任务状态更新定时器 (syncTaskStatus, 5s) — 触发 Provider 过期回收，同步内存状态到 DB</li>
+ * </ol>
+ * <p>
+ * 状态流转：待执行队列(FIFO) / 失败队列(FIFO) → 执行中 → 成功 / 失败队列 / 待执行队尾
+ * <p>
+ * 实现 TranslateTaskContext 接口，供 TranslateTaskCallbackAdapter 回调时访问内部状态。
+ */
 @Slf4j
 @Component
 public class AiAccountTranslateTask implements TranslateTaskContext {
@@ -79,14 +94,19 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
     private final List<TranslateProvider> providers;
 
+    // 按账号隔离的待执行子任务队列（FIFO，先提交先执行）
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> subTaskQueuesByAccount = new ConcurrentHashMap<>();
+    // 按账号隔离的失败子任务队列（FIFO，优先于普通队列被分发）
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> failedSubTaskQueuesByAccount = new ConcurrentHashMap<>();
+    // 运行中的 AsyncTask 状态（内存态），由 syncTaskStatus 定时器周期性写回 DB
     private final ConcurrentMap<Long, AiAccountTranslateTaskStatus> runningTasks = new ConcurrentHashMap<>();
+    // 账号级并发/限流运行时状态
     private final ConcurrentMap<Long, AiAccountRuntimeState> accountRuntimeStates = new ConcurrentHashMap<>();
     private final AtomicBoolean loadingTasks = new AtomicBoolean(false);
     private final AtomicBoolean executingSubTasks = new AtomicBoolean(false);
     private final AtomicBoolean syncingTaskStatus = new AtomicBoolean(false);
 
+    // AiProvider 枚举 -> Provider 实现的映射表，@PostConstruct 时构建
     private Map<AiProvider, TranslateProvider> providerRegistry;
 
     public AiAccountTranslateTask(AsyncTaskRepository asyncTaskRepository,
@@ -230,6 +250,13 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     // --- Sub-task execution ---
 
+    /**
+     * 对单个账号执行子任务分发：
+     * 1. 合并失败队列和普通队列的任务数
+     * 2. 根据账号流控 (CONCURRENCY/RPD_RPM) 预留可执行槽位
+     * 3. 优先从失败队列取任务，其次从普通队列
+     * 4. 通过 providerRegistry 获取对应 Provider 并调用 executeSubTask
+     */
     private void executeAccountSubTasks(Long aiAccountId) {
         AiAccountRuntimeState runtimeState = accountRuntimeStates.computeIfAbsent(aiAccountId, AiAccountRuntimeState::new);
         AiAccount account;

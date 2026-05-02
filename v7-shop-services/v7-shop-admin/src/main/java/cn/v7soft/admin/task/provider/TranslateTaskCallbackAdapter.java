@@ -6,6 +6,16 @@ import cn.v7soft.admin.task.AiAccountTranslateTaskStatus;
 import cn.v7soft.admin.task.TranslateTaskContext;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Provider 和 AiAccountTranslateTask 之间的回调中间类。
+ * <p>
+ * 非 Spring Bean，由 AiAccountTranslateTask 在 @PostConstruct 时创建并传入 TranslateTaskContext。
+ * 所有 Provider 的执行结果（完成/失败/过期）都通过此适配器路由回 AiAccountTranslateTask 的内部状态。
+ * <p>
+ * 重试策略：
+ * - onSubTaskFailed: retryable 且 attemptCount < 3 → 失败队列；否则永久失败
+ * - onSubTaskExpired: attemptCount < 3 → 失败队列；≥ 3 → 重置计数，回待执行队尾
+ */
 @Slf4j
 public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
 

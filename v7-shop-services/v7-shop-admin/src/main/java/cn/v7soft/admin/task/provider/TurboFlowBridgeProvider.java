@@ -41,6 +41,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
+/**
+ * TurboFlow 浏览器插件的 Provider 实现。
+ * <p>
+ * 工作模式为被动分发：executeSubTask 仅将子任务存入内部队列，
+ * 实际执行由 TurboFlow 插件通过 HTTP poll 拉取任务触发。
+ * <p>
+ * 完整流程：
+ * 1. AiAccountTranslateTask 定时器调用 executeSubTask → 子任务入内部队列
+ * 2. TurboFlow 插件调用 pollTask → 从队列取任务，读取图片，分配 assignmentId + lease
+ * 3. 插件完成翻译后调用 completeTask → 保存翻译文件和缓存，通过 callback 通知完成
+ * 4. 插件失败时调用 failTask → 通过 callback 通知失败（adapter 决定重试策略）
+ * 5. syncTaskStatus 定时器调用 reclaimExpiredAssignments → 回收超时的 lease
+ * <p>
+ * TurboFlowBridgeController 直接注入此 Provider，不再依赖 AiAccountTranslateTask。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -54,8 +69,11 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
 
+    // 按账号隔离的内部待 poll 队列，executeSubTask 入队，pollTask 出队
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> internalQueues = new ConcurrentHashMap<>();
+    // assignmentId -> 子任务，跟踪已分发给插件但尚未完成的任务（用于 complete/fail/expire 校验）
     private final ConcurrentMap<String, AiAccountTranslateSubTask> assignments = new ConcurrentHashMap<>();
+    // bridgeId -> 插件在线状态快照，仅用于观测
     private final ConcurrentMap<String, TurboFlowBridgeState> bridgeStates = new ConcurrentHashMap<>();
 
     private volatile TranslateProviderCallback callback;
