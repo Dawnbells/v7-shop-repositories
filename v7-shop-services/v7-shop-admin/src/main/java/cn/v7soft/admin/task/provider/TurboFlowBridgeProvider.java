@@ -2,7 +2,6 @@ package cn.v7soft.admin.task.provider;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Iterator;
@@ -26,14 +25,12 @@ import cn.v7soft.admin.task.AiAccountTranslateSubTask;
 import cn.v7soft.admin.task.AiAccountTranslateSubTaskType;
 import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.dao.entities.primary.AiAccount;
-import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
-import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -47,14 +44,8 @@ import org.springframework.stereotype.Component;
  * 工作模式为被动分发：executeSubTask 仅将子任务存入内部队列，
  * 实际执行由 TurboFlow 插件通过 HTTP poll 拉取任务触发。
  * <p>
- * 完整流程：
- * 1. AiAccountTranslateTask 定时器调用 executeSubTask → 子任务入内部队列
- * 2. TurboFlow 插件调用 pollTask → 从队列取任务，读取图片，分配 assignmentId + lease
- * 3. 插件完成翻译后调用 completeTask → 保存翻译文件和缓存，通过 callback 通知完成
- * 4. 插件失败时调用 failTask → 通过 callback 通知失败（adapter 决定重试策略）
- * 5. syncTaskStatus 定时器调用 reclaimExpiredAssignments → 回收超时的 lease
- * <p>
- * TurboFlowBridgeController 直接注入此 Provider，不再依赖 AiAccountTranslateTask。
+ * 计费职责已迁移到 AiAccountTranslateTask：本 Provider 仅在 SubTaskResult 中回传 token 用量，
+ * 由 TranslateTaskCallbackAdapter -> AiAccountTranslateTask 统一持久化。
  */
 @Slf4j
 @Component
@@ -67,13 +58,9 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final IMultimediaFileService multimediaFileService;
     private final ILanguageService languageService;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
-    private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
 
-    // 按账号隔离的内部待 poll 队列，executeSubTask 入队，pollTask 出队
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> internalQueues = new ConcurrentHashMap<>();
-    // assignmentId -> 子任务，跟踪已分发给插件但尚未完成的任务（用于 complete/fail/expire 校验）
     private final ConcurrentMap<String, AiAccountTranslateSubTask> assignments = new ConcurrentHashMap<>();
-    // bridgeId -> 插件在线状态快照，仅用于观测
     private final ConcurrentMap<String, TurboFlowBridgeState> bridgeStates = new ConcurrentHashMap<>();
 
     private volatile TranslateProviderCallback callback;
@@ -145,9 +132,15 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .findByImageHashAndLanguageId(imageHash, Long.parseLong(subTask.getLanguageId()));
             if (cached.isPresent()) {
                 MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
-                SubTaskResult result = SubTaskResult.builder().translatedFile(translatedFile).build();
+                int promptTokens = 718;
+                int completionTokens = TokenCostCalculator.estimateImageTokens();
+                SubTaskResult result = SubTaskResult.builder()
+                        .translatedFile(translatedFile)
+                        .businessPromptTokens(promptTokens)
+                        .businessCompletionTokens(completionTokens)
+                        .businessCredits(TokenCostCalculator.estimateCredits(0, completionTokens, InvokeMode.STANDARD))
+                        .build();
                 callback.onSubTaskCompleted(subTask, result);
-                saveCacheHitTokenRecord(subTask, sourceFile, translatedFile);
                 return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("cache hit").build();
             }
 
@@ -173,7 +166,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .leaseUntil(leaseUntil)
                     .build();
         } catch (Exception e) {
-            callback.onSubTaskFailed(subTask, "dispatch failed: " + e.getMessage(), true);
+            callback.onSubTaskFailed(subTask, "dispatch failed: " + e.getMessage(), true, null);
             log.error("[TurboFlowBridge] 分发任务失败: taskId={}, subTaskId={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), e);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("dispatch failed: " + e.getMessage()).build();
@@ -203,12 +196,22 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
 
             Language language = resolveLanguage(subTask);
             saveImageTranslationCache(subTask.getImageHash(), sourceFile, language, translatedFile, false);
-            saveImageTokenRecord(subTask, sourceFile, translatedFile, false, request.getElapsedMs());
+
+            int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
+            if (maxDim <= 0) maxDim = 512;
+            int promptTokens = 718;
+            int completionTokens = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
+            int businessCredits = TokenCostCalculator.usdToCredits(
+                    TokenCostCalculator.calculateCost(TranslationContentType.IMAGE, InvokeMode.STANDARD,
+                            promptTokens, completionTokens, 0));
 
             SubTaskResult result = SubTaskResult.builder()
                     .translatedFile(translatedFile)
                     .elapsedMs(request.getElapsedMs())
                     .resultMimeType(request.getResultMimeType())
+                    .businessPromptTokens(promptTokens)
+                    .businessCompletionTokens(completionTokens)
+                    .businessCredits(businessCredits)
                     .build();
             callback.onSubTaskCompleted(subTask, result);
         } catch (Exception e) {
@@ -234,7 +237,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         }
         String message = StrUtil.blankToDefault(request.getMessage(), "TurboFlow task failed");
         boolean retryable = request.getRetryable() == null || Boolean.TRUE.equals(request.getRetryable());
-        callback.onSubTaskFailed(subTask, message, retryable);
+        callback.onSubTaskFailed(subTask, message, retryable, null);
     }
 
     @Override
@@ -295,12 +298,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             return StrUtil.blankToDefault(fallback, "png");
         }
         String lower = mimeType.toLowerCase();
-        if (lower.contains("jpeg")) {
-            return "jpg";
-        }
-        if (lower.contains("webp")) {
-            return "webp";
-        }
+        if (lower.contains("jpeg")) return "jpg";
+        if (lower.contains("webp")) return "webp";
         return "png";
     }
 
@@ -319,9 +318,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private void saveImageTranslationCache(String imageHash, MultimediaFile sourceFile, Language language,
                                            MultimediaFile translatedFile, boolean skipped) {
         try {
-            if (StrUtil.isBlank(imageHash)) {
-                return;
-            }
+            if (StrUtil.isBlank(imageHash)) return;
             imageTranslationCacheRepository.save(ImageTranslationCache.builder()
                     .imageHash(imageHash)
                     .sourceFile(sourceFile)
@@ -334,93 +331,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         }
     }
 
-    private void saveImageTokenRecord(AiAccountTranslateSubTask subTask, MultimediaFile sourceFile,
-                                      MultimediaFile translatedFile, boolean cacheHit, Long elapsedMs) {
-        int maxDim = sourceFile != null ? Math.max(sourceFile.getWidth(), sourceFile.getHeight()) : 512;
-        if (maxDim <= 0) {
-            maxDim = 512;
-        }
-        int promptTokens = 718;
-        int completionTokens = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
-        saveTokenUsageRecord(subTask, TranslationContentType.IMAGE, cacheHit, null, null,
-                sourceFile != null ? sourceFile.getRelativePath() : null,
-                translatedFile != null ? translatedFile.getRelativePath() : null,
-                promptTokens, completionTokens, 0, elapsedMs, translatedFile != null);
-    }
-
-    private void saveCacheHitTokenRecord(AiAccountTranslateSubTask subTask,
-                                         MultimediaFile sourceFile, MultimediaFile translatedFile) {
-        int promptTokens = 718;
-        int completionTokens = TokenCostCalculator.estimateImageTokens();
-        saveTokenUsageRecord(subTask, TranslationContentType.IMAGE, true, null, null,
-                sourceFile != null ? sourceFile.getRelativePath() : null,
-                translatedFile != null ? translatedFile.getRelativePath() : null,
-                promptTokens, completionTokens, 0, null, translatedFile != null);
-    }
-
-    private void saveTokenUsageRecord(AiAccountTranslateSubTask subTask,
-                                      TranslationContentType contentType,
-                                      boolean cacheHit,
-                                      String sourceText,
-                                      String translatedText,
-                                      String sourceImagePath,
-                                      String translatedImagePath,
-                                      int businessPromptTokens,
-                                      int businessCompletionTokens,
-                                      int businessThinkingTokens,
-                                      Long elapsedMs,
-                                      boolean hasImageOutput) {
-        try {
-            Language language = resolveLanguage(subTask);
-            if (aiTokenUsageRecordRepository.existsByTaskIdAndContentHashAndTargetLanguage(
-                    subTask.getTaskId(), subTask.getContentKey(), language.getName())) {
-                return;
-            }
-            BigDecimal businessCost = TokenCostCalculator.calculateCost(
-                    contentType, InvokeMode.STANDARD,
-                    businessPromptTokens, businessCompletionTokens, businessThinkingTokens);
-            AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
-            AiTokenUsageRecord record = AiTokenUsageRecord.builder()
-                    .taskId(subTask.getTaskId())
-                    .aiAccount(account)
-                    .contentType(contentType)
-                    .contentHash(subTask.getContentKey())
-                    .targetLanguage(language.getName())
-                    .cacheHit(cacheHit)
-                    .model(StrUtil.blankToDefault(account.getModel(), "turboflow"))
-                    .invokeMode(InvokeMode.STANDARD)
-                    .actualPromptTokens(0)
-                    .actualCompletionTokens(0)
-                    .actualThinkingTokens(0)
-                    .actualTotalTokens(0)
-                    .businessPromptTokens(businessPromptTokens)
-                    .businessCompletionTokens(businessCompletionTokens)
-                    .businessThinkingTokens(businessThinkingTokens)
-                    .businessTotalTokens(businessPromptTokens + businessCompletionTokens + businessThinkingTokens)
-                    .actualCost(BigDecimal.ZERO)
-                    .businessCost(businessCost)
-                    .businessCredits(TokenCostCalculator.usdToCredits(businessCost))
-                    .elapsedMs(elapsedMs)
-                    .hasImageOutput(hasImageOutput)
-                    .sourceText(sourceText)
-                    .translatedText(translatedText)
-                    .sourceImagePath(sourceImagePath)
-                    .translatedImagePath(translatedImagePath)
-                    .build();
-            record.setOwner(subTask.getOwner());
-            aiTokenUsageRecordRepository.save(record);
-        } catch (DataIntegrityViolationException e) {
-            log.debug("[TurboFlowBridge] token usage already exists: taskId={}, hash={}",
-                    subTask.getTaskId(), subTask.getContentKey());
-        } catch (Exception e) {
-            log.warn("[TurboFlowBridge] save token usage failed: taskId={}, hash={}",
-                    subTask.getTaskId(), subTask.getContentKey(), e);
-        }
-    }
-
     @Getter
     static class TurboFlowBridgeState {
-
         private final Long aiAccountId;
         private final String bridgeId;
         private final String version;

@@ -3,7 +3,6 @@ package cn.v7soft.admin.task;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -19,6 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONUtil;
@@ -30,12 +33,12 @@ import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.service.impl.AiCreditsService;
+import cn.v7soft.admin.task.provider.SubTaskResult;
 import cn.v7soft.admin.task.provider.TranslateProvider;
 import cn.v7soft.admin.task.provider.TranslateProviderCallback;
 import cn.v7soft.admin.task.provider.TranslateTaskCallbackAdapter;
-import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.dao.entities.primary.AiAccount;
-import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
+import cn.v7soft.dao.entities.primary.AiTranslateUsageRecord;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
@@ -46,41 +49,21 @@ import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.entities.primary.TextTranslationCache;
 import cn.v7soft.dao.enums.AiProvider;
-import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
-import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
+import cn.v7soft.dao.repositories.primary.AiTranslateUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 
-/**
- * AI 账号翻译任务编排器。
- * <p>
- * 通过三个定时器驱动任务生命周期：
- * <ol>
- *   <li>任务拆接定时器 (executePendingTasks, 60s) — 拉取 PENDING 的 AsyncTask，拆分为子任务入队</li>
- *   <li>子任务执行定时器 (executeSubTasks, 1s) — 遍历所有账号队列（优先失败队列），
- *       通过 providerRegistry 获取对应 Provider 并调用 executeSubTask 分发</li>
- *   <li>任务状态更新定时器 (syncTaskStatus, 5s) — 触发 Provider 过期回收，同步内存状态到 DB</li>
- * </ol>
- * <p>
- * 状态流转：待执行队列(FIFO) / 失败队列(FIFO) → 执行中 → 成功 / 失败队列 / 待执行队尾
- * <p>
- * 实现 TranslateTaskContext 接口，供 TranslateTaskCallbackAdapter 回调时访问内部状态。
- */
 @Slf4j
 @Component
 public class AiAccountTranslateTask implements TranslateTaskContext {
 
-    private static final int MAX_TASKS_PER_ROUND = 5;
+    private static final int MAX_TASKS_PER_ROUND = 1;
     private static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
 
     private final AsyncTaskRepository asyncTaskRepository;
@@ -92,23 +75,18 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final ICountryService countryService;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
     private final TextTranslationCacheRepository textTranslationCacheRepository;
-    private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
+    private final AiTranslateUsageRecordRepository usageRecordRepository;
     private final AiCreditsService aiCreditsService;
     private final List<TranslateProvider> providers;
 
-    // 按账号隔离的待执行子任务队列（FIFO，先提交先执行）
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> subTaskQueuesByAccount = new ConcurrentHashMap<>();
-    // 按账号隔离的失败子任务队列（FIFO，优先于普通队列被分发）
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> failedSubTaskQueuesByAccount = new ConcurrentHashMap<>();
-    // 运行中的 AsyncTask 状态（内存态），由 syncTaskStatus 定时器周期性写回 DB
     private final ConcurrentMap<Long, AiAccountTranslateTaskStatus> runningTasks = new ConcurrentHashMap<>();
-    // 账号级并发/限流运行时状态
     private final ConcurrentMap<Long, AiAccountRuntimeState> accountRuntimeStates = new ConcurrentHashMap<>();
     private final AtomicBoolean loadingTasks = new AtomicBoolean(false);
     private final AtomicBoolean executingSubTasks = new AtomicBoolean(false);
     private final AtomicBoolean syncingTaskStatus = new AtomicBoolean(false);
 
-    // AiProvider 枚举 -> Provider 实现的映射表，@PostConstruct 时构建
     private Map<AiProvider, TranslateProvider> providerRegistry;
 
     public AiAccountTranslateTask(AsyncTaskRepository asyncTaskRepository,
@@ -120,7 +98,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                   ICountryService countryService,
                                   ImageTranslationCacheRepository imageTranslationCacheRepository,
                                   TextTranslationCacheRepository textTranslationCacheRepository,
-                                  AiTokenUsageRecordRepository aiTokenUsageRecordRepository,
+                                  AiTranslateUsageRecordRepository usageRecordRepository,
                                   AiCreditsService aiCreditsService,
                                   List<TranslateProvider> providers) {
         this.asyncTaskRepository = asyncTaskRepository;
@@ -132,7 +110,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.countryService = countryService;
         this.imageTranslationCacheRepository = imageTranslationCacheRepository;
         this.textTranslationCacheRepository = textTranslationCacheRepository;
-        this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
+        this.usageRecordRepository = usageRecordRepository;
         this.aiCreditsService = aiCreditsService;
         this.providers = providers;
     }
@@ -145,7 +123,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             provider.setCallback(callback);
             providerRegistry.put(provider.getProviderType(), provider);
         }
-
         resetProcessingTasksOnStartup();
     }
 
@@ -163,7 +140,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
         asyncTaskRepository.saveAll(processingTasks);
         log.warn("[AiAccountTranslateTask] reset processing tasks to pending on startup: count={}",
-                processingTasks.size());
+                 processingTasks.size());
     }
 
     // --- TranslateTaskContext implementation ---
@@ -192,33 +169,100 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 .offer(subTask);
     }
 
+    @Override
+    public void updateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult result) {
+        try {
+            usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
+                    .ifPresent(record -> {
+                        record.setBusinessPromptTokens(result.getBusinessPromptTokens());
+                        record.setBusinessCompletionTokens(result.getBusinessCompletionTokens());
+                        record.setBusinessThinkingTokens(result.getBusinessThinkingTokens());
+                        record.setBusinessTotalTokens(result.getBusinessPromptTokens()
+                                + result.getBusinessCompletionTokens() + result.getBusinessThinkingTokens());
+                        record.setActualPromptTokens(result.getActualPromptTokens());
+                        record.setActualCompletionTokens(result.getActualCompletionTokens());
+                        record.setActualThinkingTokens(result.getActualThinkingTokens());
+                        record.setActualTotalTokens(result.getActualPromptTokens()
+                                + result.getActualCompletionTokens() + result.getActualThinkingTokens());
+                        record.setBusinessCredits(result.getBusinessCredits());
+                        record.setElapsedMs(result.getElapsedMs());
+                        if (result.getTranslatedFile() != null) {
+                            record.setTranslatedImagePath(result.getTranslatedFile().getRelativePath());
+                            record.setHasImageOutput(true);
+                        }
+                        if (result.getTranslatedText() != null) {
+                            record.setTranslatedText(result.getTranslatedText());
+                        }
+                        if (result.getTranslatedHtml() != null) {
+                            record.setTranslatedText(result.getTranslatedHtml());
+                        }
+                        record.setAttemptCount(subTask.getAttemptCount().get());
+                        usageRecordRepository.save(record);
+                    });
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] updateUsageRecord failed: subTaskId={}", subTask.getSubTaskId(), e);
+        }
+    }
+
+    @Override
+    public void accumulateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult partialResult) {
+        try {
+            usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
+                    .ifPresent(record -> {
+                        record.setActualPromptTokens(safeAdd(record.getActualPromptTokens(), partialResult.getActualPromptTokens()));
+                        record.setActualCompletionTokens(safeAdd(record.getActualCompletionTokens(), partialResult.getActualCompletionTokens()));
+                        record.setActualThinkingTokens(safeAdd(record.getActualThinkingTokens(), partialResult.getActualThinkingTokens()));
+                        record.setActualTotalTokens(record.getActualPromptTokens()
+                                + record.getActualCompletionTokens() + record.getActualThinkingTokens());
+                        record.setBusinessPromptTokens(safeAdd(record.getBusinessPromptTokens(), partialResult.getBusinessPromptTokens()));
+                        record.setBusinessCompletionTokens(safeAdd(record.getBusinessCompletionTokens(), partialResult.getBusinessCompletionTokens()));
+                        record.setBusinessThinkingTokens(safeAdd(record.getBusinessThinkingTokens(), partialResult.getBusinessThinkingTokens()));
+                        record.setBusinessTotalTokens(record.getBusinessPromptTokens()
+                                + record.getBusinessCompletionTokens() + record.getBusinessThinkingTokens());
+                        record.setBusinessCredits(safeAdd(record.getBusinessCredits(), partialResult.getBusinessCredits()));
+                        record.setAttemptCount(subTask.getAttemptCount().get());
+                        usageRecordRepository.save(record);
+                    });
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] accumulateUsageRecord failed: subTaskId={}", subTask.getSubTaskId(), e);
+        }
+    }
+
+    private int safeAdd(Integer a, int b) {
+        return (a == null ? 0 : a) + b;
+    }
+
     // --- Scheduled timers ---
 
-    @Scheduled(fixedDelay = 60 * 1000, initialDelay = 30 * 1000)
+    @Scheduled(fixedDelay = 5 * 1000, initialDelay = 60 * 1000)
     public void executePendingTasks() {
         if (!loadingTasks.compareAndSet(false, true)) {
             return;
         }
         try {
-            List<AsyncTask> tasks = asyncTaskRepository.findByTaskTypeAndStateOrderByCreateTimeAsc(
+            Optional<AsyncTask> taskOptional = asyncTaskRepository.findByTaskTypeAndStateOrderByCreateTimeAsc(
                     TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE,
                     TaskState.PENDING,
                     PageRequest.of(0, MAX_TASKS_PER_ROUND));
 
-            for (AsyncTask task : tasks) {
-                if (runningTasks.containsKey(task.getId())) {
-                    continue;
-                }
-                if (!aiCreditsService.hasAvailableCredits(task.getOwner().getId())) {
-                    task.setState(TaskState.INSUFFICIENT_CREDITS);
-                    task.setMessage("AI积分不足，请充值后重试");
-                    asyncTaskRepository.save(task);
-                    log.info("[AiAccountTranslateTask] 积分不足，标记 INSUFFICIENT_CREDITS: taskId={}, userId={}",
-                            task.getId(), task.getOwner().getId());
-                    continue;
-                }
-                loadTask(task);
+            if (taskOptional.isEmpty()) {
+                return;
             }
+            AsyncTask task = taskOptional.get();
+            if (runningTasks.containsKey(task.getId())) {
+                task.setState(TaskState.PROCESSING);
+                asyncTaskRepository.save(task);
+                return;
+            }
+            if (!aiCreditsService.hasAvailableCredits(task.getOwner().getId())) {
+                task.setState(TaskState.INSUFFICIENT_CREDITS);
+                task.setMessage("AI积分不足，请充值后重试");
+                asyncTaskRepository.save(task);
+                log.info("[AiAccountTranslateTask] 积分不足，标记 INSUFFICIENT_CREDITS: taskId={}, userId={}",
+                         task.getId(), task.getOwner().getId());
+                return;
+            }
+            loadTask(task);
         } finally {
             loadingTasks.set(false);
         }
@@ -251,7 +295,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             for (TranslateProvider provider : providerRegistry.values()) {
                 provider.reclaimExpiredAssignments();
             }
-
             for (AiAccountTranslateTaskStatus status : runningTasks.values()) {
                 syncSingleTaskStatus(status);
             }
@@ -262,13 +305,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     // --- Sub-task execution ---
 
-    /**
-     * 对单个账号执行子任务分发：
-     * 1. 合并失败队列和普通队列的任务数
-     * 2. 根据账号流控 (CONCURRENCY/RPD_RPM) 预留可执行槽位
-     * 3. 优先从失败队列取任务，其次从普通队列
-     * 4. 通过 providerRegistry 获取对应 Provider 并调用 executeSubTask
-     */
     private void executeAccountSubTasks(Long aiAccountId) {
         AiAccountRuntimeState runtimeState = accountRuntimeStates.computeIfAbsent(aiAccountId, AiAccountRuntimeState::new);
         AiAccount account;
@@ -278,12 +314,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             log.error("[AiAccountTranslateTask] 获取AI账号失败: aiAccountId={}", aiAccountId, e);
             Queue<AiAccountTranslateSubTask> failedQueue = failedSubTaskQueuesByAccount.get(aiAccountId);
             Queue<AiAccountTranslateSubTask> pendingQueue = subTaskQueuesByAccount.get(aiAccountId);
-            if (failedQueue != null) {
-                failQueuedSubTasks(failedQueue, "AI账号不存在或不可用: " + aiAccountId);
-            }
-            if (pendingQueue != null) {
-                failQueuedSubTasks(pendingQueue, "AI账号不存在或不可用: " + aiAccountId);
-            }
+            if (failedQueue != null) failQueuedSubTasks(failedQueue, "AI账号不存在或不可用: " + aiAccountId);
+            if (pendingQueue != null) failQueuedSubTasks(pendingQueue, "AI账号不存在或不可用: " + aiAccountId);
             cleanupAccountState(aiAccountId, runtimeState);
             return;
         }
@@ -317,9 +349,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private AiAccountTranslateSubTask pollFromQueues(Queue<AiAccountTranslateSubTask> failedQueue,
                                                      Queue<AiAccountTranslateSubTask> pendingQueue) {
         AiAccountTranslateSubTask subTask = failedQueue == null ? null : failedQueue.poll();
-        if (subTask != null) {
-            return subTask;
-        }
+        if (subTask != null) return subTask;
         return pendingQueue == null ? null : pendingQueue.poll();
     }
 
@@ -331,9 +361,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         AiAccountTranslateSubTask subTask;
         while ((subTask = queue.poll()) != null) {
             AiAccountTranslateTaskStatus taskStatus = runningTasks.get(subTask.getTaskId());
-            if (taskStatus == null) {
-                continue;
-            }
+            if (taskStatus == null) continue;
             subTask.fail(message);
             taskStatus.failPendingSubTask(subTask, message);
         }
@@ -345,12 +373,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         boolean pendingEmpty = pendingQueue == null || pendingQueue.isEmpty();
         boolean failedEmpty = failedQueue == null || failedQueue.isEmpty();
         if (pendingEmpty && failedEmpty && runtimeState.getInFlightCount() == 0) {
-            if (pendingQueue != null) {
-                subTaskQueuesByAccount.remove(aiAccountId, pendingQueue);
-            }
-            if (failedQueue != null) {
-                failedSubTaskQueuesByAccount.remove(aiAccountId, failedQueue);
-            }
+            if (pendingQueue != null) subTaskQueuesByAccount.remove(aiAccountId, pendingQueue);
+            if (failedQueue != null) failedSubTaskQueuesByAccount.remove(aiAccountId, failedQueue);
             accountRuntimeStates.remove(aiAccountId, runtimeState);
         }
     }
@@ -367,9 +391,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(
                     task.getId(), subTasks.size(), product, language, country, task.getOwner());
             AiAccountTranslateTaskStatus existing = runningTasks.putIfAbsent(task.getId(), status);
-            if (existing != null) {
-                return;
-            }
+            if (existing != null) return;
 
             if (subTasks.isEmpty()) {
                 status.complete();
@@ -377,6 +399,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             }
 
             int totalEstimatedCredits = 0;
+            List<AiTranslateUsageRecord> usageRecords = new ArrayList<>();
+
             for (AiAccountTranslateSubTask subTask : subTasks) {
                 subTask.setOwner(task.getOwner());
                 status.addSubTask(subTask);
@@ -388,10 +412,31 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     status.completeSubTask(subTask);
                     continue;
                 }
-                totalEstimatedCredits += estimateSubTaskCredits(subTask);
+
+                int estimated = estimateSubTaskCredits(subTask);
+                totalEstimatedCredits += estimated;
+
+                AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
+                AiTranslateUsageRecord record = AiTranslateUsageRecord.builder()
+                        .taskId(task.getId())
+                        .subTaskId(subTask.getSubTaskId())
+                        .aiAccount(account)
+                        .contentType(mapContentType(subTask.getType()))
+                        .contentHash(subTask.getContentKey())
+                        .targetLanguage(language.getName())
+                        .model(StrUtil.blankToDefault(account.getModel(), "turboflow"))
+                        .frozenCredits(estimated)
+                        .build();
+                record.setOwner(task.getOwner());
+                usageRecords.add(record);
+
                 subTaskQueuesByAccount
                         .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
                         .offer(subTask);
+            }
+
+            if (!usageRecords.isEmpty()) {
+                usageRecordRepository.saveAll(usageRecords);
             }
 
             if (totalEstimatedCredits > 0) {
@@ -409,13 +454,19 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
+    private TranslationContentType mapContentType(AiAccountTranslateSubTaskType type) {
+        return switch (type) {
+            case TEXT -> TranslationContentType.TEXT;
+            case HTML -> TranslationContentType.HTML;
+            case IMAGE -> TranslationContentType.IMAGE;
+        };
+    }
+
     private int estimateSubTaskCredits(AiAccountTranslateSubTask subTask) {
         try {
             AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
             TranslateProvider provider = providerRegistry.get(account.getProvider());
-            if (provider != null) {
-                return provider.estimateSubTaskCredits(subTask);
-            }
+            if (provider != null) return provider.estimateSubTaskCredits(subTask);
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] 估算子任务积分失败: subTaskId={}", subTask.getSubTaskId(), e);
         }
@@ -429,7 +480,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         collectTextsToTranslate(product).forEach((hash, text) ->
                 subTasks.add(AiAccountTranslateSubTask.text(taskId, hash, text, request)));
 
-        if (product.getIntroduction() != null && !product.getIntroduction().isBlank()) {
+        if (StrUtil.isNotBlank(product.getIntroduction())) {
             String hash = DigestUtil.sha256Hex(product.getIntroduction());
             subTasks.add(AiAccountTranslateSubTask.html(taskId, hash, product.getIntroduction(), request));
         }
@@ -448,9 +499,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         addTextIfPresent(textMap, product.getWaybillProductName());
         if (product.getSpecificationList() != null) {
             for (ProductSpecification spec : product.getSpecificationList()) {
-                if (spec.getAttributes() == null) {
-                    continue;
-                }
+                if (spec.getAttributes() == null) continue;
                 for (ProductSpecificationAttributes attr : spec.getAttributes()) {
                     addTextIfPresent(textMap, attr.getName());
                     addTextIfPresent(textMap, attr.getValue());
@@ -476,9 +525,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         if (product.getSpecificationList() != null) {
             for (ProductSpecification spec : product.getSpecificationList()) {
                 addImageIdIfPresent(imageIds, spec.getSpecificationImage());
-                if (spec.getAttributes() == null) {
-                    continue;
-                }
+                if (spec.getAttributes() == null) continue;
                 for (ProductSpecificationAttributes attr : spec.getAttributes()) {
                     addImageIdIfPresent(imageIds, attr.getMultimediaFile());
                 }
@@ -494,9 +541,34 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     private void addImageIdIfPresent(Set<String> imageIds, MultimediaFile image) {
-        if (image != null && image.getId() != null && !"gif".equalsIgnoreCase(image.getSuffix())) {
-            imageIds.add(String.valueOf(image.getId()));
+        if (image == null || image.getId() == null) return;
+        String suffix = image.getSuffix();
+        if ("gif".equalsIgnoreCase(suffix)) return;
+        if ("webp".equalsIgnoreCase(suffix) && isAnimatedWebp(image)) return;
+        imageIds.add(String.valueOf(image.getId()));
+    }
+
+    private boolean isAnimatedWebp(MultimediaFile image) {
+        try {
+            byte[] data = readImageBytes(image);
+            return isAnimatedWebp(data);
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] check animated webp failed: imageId={}", image.getId(), e);
+            return false;
         }
+    }
+
+    private boolean isAnimatedWebp(byte[] data) {
+        if (data.length < 20) return false;
+        if (data[0] != 'R' || data[1] != 'I' || data[2] != 'F' || data[3] != 'F') return false;
+        if (data[8] != 'W' || data[9] != 'E' || data[10] != 'B' || data[11] != 'P') return false;
+        if (data.length > 20 && data[12] == 'V' && data[13] == 'P' && data[14] == '8' && data[15] == 'X') {
+            return (data[20] & 0x02) != 0;
+        }
+        for (int i = 12; i < data.length - 4; i++) {
+            if (data[i] == 'A' && data[i + 1] == 'N' && data[i + 2] == 'I' && data[i + 3] == 'M') return true;
+        }
+        return false;
     }
 
     // --- Cache & status sync ---
@@ -510,8 +582,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.TEXT);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeTextSubTask(subTask, cached.get().getTranslatedText());
-                    saveCacheHitTokenRecord(subTask, TranslationContentType.TEXT,
-                            subTask.getContent(), cached.get().getTranslatedText(), null, null);
                     return true;
                 }
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
@@ -520,8 +590,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.HTML);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeHtmlSubTask(subTask, cached.get().getTranslatedText());
-                    saveCacheHitTokenRecord(subTask, TranslationContentType.HTML,
-                            subTask.getContent(), cached.get().getTranslatedText(), null, null);
                     return true;
                 }
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
@@ -532,29 +600,20 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
                         .findByImageHashAndLanguageId(imageHash, language.getId());
                 if (cached.isPresent()) {
-                    applyCachedImageSubTask(status, subTask, cached.get(), sourceFile);
+                    MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
+                    if (translatedFile != null) {
+                        status.completeImageSubTask(subTask, translatedFile);
+                    } else {
+                        status.completeSubTask(subTask);
+                    }
                     return true;
                 }
             }
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] cache lookup failed: taskId={}, subTaskId={}",
-                    subTask.getTaskId(), subTask.getSubTaskId(), e);
+                     subTask.getTaskId(), subTask.getSubTaskId(), e);
         }
         return false;
-    }
-
-    private void applyCachedImageSubTask(AiAccountTranslateTaskStatus status,
-                                         AiAccountTranslateSubTask subTask,
-                                         ImageTranslationCache cached,
-                                         MultimediaFile sourceFile) {
-        MultimediaFile translatedFile = cached.isSkipped() ? null : cached.getTranslatedFile();
-        if (translatedFile != null) {
-            status.completeImageSubTask(subTask, translatedFile);
-        } else {
-            status.completeSubTask(subTask);
-        }
-        saveCacheHitTokenRecord(subTask, TranslationContentType.IMAGE, null, null,
-                sourceFile, translatedFile);
     }
 
     private void completeLocalNoopSubTask(AiAccountTranslateSubTask subTask) {
@@ -564,8 +623,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private void syncSingleTaskStatus(AiAccountTranslateTaskStatus status) {
         asyncTaskRepository.findById(status.getTaskId()).ifPresent(task -> {
             if (task.getState() == TaskState.CANCELLED) {
+                settleTask(task);
                 runningTasks.remove(status.getTaskId());
-                asyncTaskService.finalizeBilling(task.getId());
                 return;
             }
 
@@ -579,10 +638,26 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             asyncTaskRepository.save(task);
 
             if (status.isFinished()) {
+                settleTask(task);
                 runningTasks.remove(status.getTaskId());
-                asyncTaskService.finalizeBilling(task.getId());
             }
         });
+    }
+
+    private void settleTask(AsyncTask task) {
+        try {
+            Integer frozenCredits = task.getEstimatedCredits();
+            if (frozenCredits == null || frozenCredits <= 0) {
+                return;
+            }
+            int actualCredits = usageRecordRepository.sumBusinessCreditsByTaskId(task.getId());
+            aiCreditsService.settle(task.getOwner().getId(), frozenCredits, actualCredits);
+            usageRecordRepository.markSettledByTaskId(task.getId());
+            log.info("[AiAccountTranslateTask] settled taskId={}, frozen={}, actual={}",
+                     task.getId(), frozenCredits, actualCredits);
+        } catch (Exception e) {
+            log.error("[AiAccountTranslateTask] settle failed: taskId={}", task.getId(), e);
+        }
     }
 
     private void finalizeAiAccountTranslateStatus(AiAccountTranslateTaskStatus status) {
@@ -601,13 +676,13 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         } catch (Exception e) {
             status.fail("assemble translated product failed: " + e.getMessage());
             log.error("[AiAccountTranslateTask] assemble translated product failed: taskId={}",
-                    status.getTaskId(), e);
+                      status.getTaskId(), e);
         } finally {
             status.markFinalized();
         }
     }
 
-    // --- Utility methods ---
+    // --- Utility ---
 
     private Language resolveLanguage(AiAccountTranslateSubTask subTask) {
         return languageService.getById(Long.parseLong(subTask.getLanguageId()));
@@ -618,83 +693,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
              ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             inputStream.transferTo(outputStream);
             return outputStream.toByteArray();
-        }
-    }
-
-    private void saveCacheHitTokenRecord(AiAccountTranslateSubTask subTask, TranslationContentType contentType,
-                                         String sourceText, String translatedText,
-                                         MultimediaFile sourceFile, MultimediaFile translatedFile) {
-        int promptTokens;
-        int completionTokens;
-        if (contentType == TranslationContentType.IMAGE) {
-            promptTokens = 718;
-            completionTokens = TokenCostCalculator.estimateImageTokens();
-        } else {
-            promptTokens = TokenCostCalculator.estimateTextTokens(sourceText);
-            completionTokens = promptTokens;
-        }
-        saveTokenUsageRecord(subTask, contentType, true, sourceText, translatedText,
-                sourceFile != null ? sourceFile.getRelativePath() : null,
-                translatedFile != null ? translatedFile.getRelativePath() : null,
-                promptTokens, completionTokens, 0, null, translatedFile != null);
-    }
-
-    private void saveTokenUsageRecord(AiAccountTranslateSubTask subTask,
-                                      TranslationContentType contentType,
-                                      boolean cacheHit,
-                                      String sourceText,
-                                      String translatedText,
-                                      String sourceImagePath,
-                                      String translatedImagePath,
-                                      int businessPromptTokens,
-                                      int businessCompletionTokens,
-                                      int businessThinkingTokens,
-                                      Long elapsedMs,
-                                      boolean hasImageOutput) {
-        try {
-            if (aiTokenUsageRecordRepository.existsByTaskIdAndContentHashAndTargetLanguage(
-                    subTask.getTaskId(), subTask.getContentKey(), resolveLanguage(subTask).getName())) {
-                return;
-            }
-            BigDecimal businessCost = TokenCostCalculator.calculateCost(
-                    contentType, InvokeMode.STANDARD,
-                    businessPromptTokens, businessCompletionTokens, businessThinkingTokens);
-            AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
-            AiTokenUsageRecord record = AiTokenUsageRecord.builder()
-                    .taskId(subTask.getTaskId())
-                    .aiAccount(account)
-                    .contentType(contentType)
-                    .contentHash(subTask.getContentKey())
-                    .targetLanguage(resolveLanguage(subTask).getName())
-                    .cacheHit(cacheHit)
-                    .model(StrUtil.blankToDefault(account.getModel(), "turboflow"))
-                    .invokeMode(InvokeMode.STANDARD)
-                    .actualPromptTokens(0)
-                    .actualCompletionTokens(0)
-                    .actualThinkingTokens(0)
-                    .actualTotalTokens(0)
-                    .businessPromptTokens(businessPromptTokens)
-                    .businessCompletionTokens(businessCompletionTokens)
-                    .businessThinkingTokens(businessThinkingTokens)
-                    .businessTotalTokens(businessPromptTokens + businessCompletionTokens + businessThinkingTokens)
-                    .actualCost(BigDecimal.ZERO)
-                    .businessCost(businessCost)
-                    .businessCredits(TokenCostCalculator.usdToCredits(businessCost))
-                    .elapsedMs(elapsedMs)
-                    .hasImageOutput(hasImageOutput)
-                    .sourceText(sourceText)
-                    .translatedText(translatedText)
-                    .sourceImagePath(sourceImagePath)
-                    .translatedImagePath(translatedImagePath)
-                    .build();
-            record.setOwner(subTask.getOwner());
-            aiTokenUsageRecordRepository.save(record);
-        } catch (DataIntegrityViolationException e) {
-            log.debug("[AiAccountTranslateTask] token usage already exists: taskId={}, hash={}",
-                    subTask.getTaskId(), subTask.getContentKey());
-        } catch (Exception e) {
-            log.warn("[AiAccountTranslateTask] save token usage failed: taskId={}, hash={}",
-                    subTask.getTaskId(), subTask.getContentKey(), e);
         }
     }
 }

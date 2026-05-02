@@ -12,20 +12,20 @@ import cn.v7soft.admin.task.AiAccountTranslateSubTask;
  */
 public interface TranslateProviderCallback {
 
-    /** Provider 完成子任务后调用；result 中包含翻译产物（文件/文本/HTML） */
+    /** Provider 完成子任务后调用；result 中包含翻译产物和实际 token 用量 */
     void onSubTaskCompleted(AiAccountTranslateSubTask subTask, SubTaskResult result);
 
     /**
      * Provider 子任务失败后调用。
-     * retryable=true 且未超过最大重试次数时，adapter 会将子任务放入失败队列重试；
-     * 否则标记为永久失败。
+     * retryable=true 且未超过最大重试次数(3)时，adapter 会将子任务放入失败队列重试；
+     * 否则标记为永久失败。partialResult 可为 null（表示失败时无 token 消耗）。
      */
-    void onSubTaskFailed(AiAccountTranslateSubTask subTask, String message, boolean retryable);
+    void onSubTaskFailed(AiAccountTranslateSubTask subTask, String message, boolean retryable, SubTaskResult partialResult);
 
     /**
      * Provider 检测到子任务过期后调用（如 TurboFlow lease 过期）。
-     * 未超过最大重试次数：放入失败队列（优先重试）。
-     * 已超过最大重试次数：重置 attemptCount，放入待执行队列队尾（重新排队）。
+     * 未超过最大重试次数(3)：放入失败队列（优先重试）。
+     * 超过最大重试次数：直接标记 FAILED。
      */
     void onSubTaskExpired(AiAccountTranslateSubTask subTask, String reason);
 

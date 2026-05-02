@@ -9,6 +9,7 @@ import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import lombok.Getter;
+import lombok.Setter;
 
 /**
  * AI 翻译子任务领域对象。
@@ -31,7 +32,9 @@ public class AiAccountTranslateSubTask {
     private final String countryId;
     private final String languageId;
     private final Long aiAccountId;
+    @Setter
     private volatile SystemUser owner;
+    @Setter
     private volatile String imageHash;
     private volatile String assignmentId;
     private volatile String assignedBridgeId;
@@ -120,14 +123,6 @@ public class AiAccountTranslateSubTask {
 
     public void resetAttemptCount() {
         this.attemptCount.set(0);
-    }
-
-    public void setOwner(SystemUser owner) {
-        this.owner = owner;
-    }
-
-    public void setImageHash(String imageHash) {
-        this.imageHash = imageHash;
     }
 
     public MultimediaFile resolveSourceFile(IMultimediaFileService multimediaFileService) {

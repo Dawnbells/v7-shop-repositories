@@ -36,6 +36,6 @@ public class GeminiOfficialProvider implements TranslateProvider {
 
     @Override
     public void executeSubTask(AiAccountTranslateSubTask subTask) {
-        callback.onSubTaskFailed(subTask, "Gemini Official provider not yet implemented", false);
+        callback.onSubTaskFailed(subTask, "Gemini Official provider not yet implemented", false, null);
     }
 }
