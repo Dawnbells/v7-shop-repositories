@@ -65,7 +65,6 @@ public class AiAccountService extends BaseDataRangeService<AiAccount, AiAccountR
         ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(entity.getModel(), "模型不能为空");
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(entity.getProvider(), "AI账号类型不能为空");
 
-        entity.setApiChannel(entity.getProvider().getApiChannel());
         entity.setInvokeMode(entity.getProvider().getInvokeMode());
 
         checkPrice(entity.getTextInputPrice(), entity.getTextInputPriceUnit(), "文本输入");

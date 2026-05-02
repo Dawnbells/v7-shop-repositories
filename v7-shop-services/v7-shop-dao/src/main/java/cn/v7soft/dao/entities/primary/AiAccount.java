@@ -2,7 +2,6 @@ package cn.v7soft.dao.entities.primary;
 
 import cn.v7soft.dao.converter.AiProviderConverter;
 import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
-import cn.v7soft.dao.enums.AiApiChannel;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.AiRateLimitMode;
@@ -33,7 +32,6 @@ import java.math.BigDecimal;
 @SuperBuilder
 @Table(name = "t_ai_accounts", indexes = {
         @Index(name = "idx_ai_account_provider", columnList = "provider"),
-        @Index(name = "idx_ai_account_channel", columnList = "api_channel"),
         @Index(name = "idx_ai_account_priority", columnList = "priority")
 })
 @SQLRestriction("status <> 'DELETED'")
@@ -48,10 +46,6 @@ public class AiAccount extends BaseDataRangeEntity {
     @Convert(converter = AiProviderConverter.class)
     @Column(name = "provider", nullable = false, length = 40)
     private AiProvider provider;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "api_channel", nullable = false, length = 20)
-    private AiApiChannel apiChannel;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "invoke_mode", length = 20)
@@ -142,7 +136,6 @@ public class AiAccount extends BaseDataRangeEntity {
             provider = AiProvider.GEMINI_OFFICIAL_BATCH;
         }
         if (provider != null) {
-            apiChannel = provider.getApiChannel();
             invokeMode = provider.getInvokeMode();
         }
     }

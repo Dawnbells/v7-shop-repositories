@@ -5,10 +5,6 @@ public enum AiProvider {
     GEMINI_OFFICIAL_BATCH,
     GEMINI_OFFICIAL_STANDARD;
 
-    public AiApiChannel getApiChannel() {
-        return AiApiChannel.OFFICIAL;
-    }
-
     public InvokeMode getInvokeMode() {
         return this == GEMINI_OFFICIAL_BATCH ? InvokeMode.BATCH : InvokeMode.STANDARD;
     }
