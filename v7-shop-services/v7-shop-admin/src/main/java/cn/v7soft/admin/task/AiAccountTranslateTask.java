@@ -81,10 +81,10 @@ import lombok.extern.slf4j.Slf4j;
  *   根据账号流控预留槽位 → provider.executeSubTask 分发
  *   TurboFlow: 子任务存入 Provider 内部队列，等待插件 poll
  *   ↓
- * [Provider 回调] onSubTaskCompleted / onSubTaskFailed / onSubTaskExpired
+ * [Provider 回调] onSubTaskCompleted / onSubTaskFailed
  *   ← TranslateTaskCallbackAdapter 中间类 →
  *   完成: updateUsageRecord（写入实际 token）→ 更新 TaskStatus
- *   失败: accumulateUsageRecord（累加 token）→ attemptCount < 3 入失败队列 / ≥ 3 标记 FAILED
+ *   失败: accumulateUsageRecord（累加 token）→ retryable 且 attemptCount < 3 入失败队列 / 否则标记 FAILED
  *   ↓
  * [定时器三] syncTaskStatus (5s)
  *   触发 Provider 回收过期 assignment

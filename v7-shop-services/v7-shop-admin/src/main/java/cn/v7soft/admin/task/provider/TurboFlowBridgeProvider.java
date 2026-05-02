@@ -312,7 +312,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             it.remove();
             log.warn("[TurboFlowBridge] lease expired: taskId={}, subTaskId={}, assignmentId={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), entry.getKey());
-            callback.onSubTaskExpired(subTask, "TurboFlow lease expired");
+            callback.onSubTaskFailed(subTask, "TurboFlow lease expired", true, null);
         }
     }
 

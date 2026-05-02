@@ -22,13 +22,6 @@ public interface TranslateProviderCallback {
      */
     void onSubTaskFailed(AiAccountTranslateSubTask subTask, String message, boolean retryable, SubTaskResult partialResult);
 
-    /**
-     * Provider 检测到子任务过期后调用（如 TurboFlow lease 过期）。
-     * 未超过最大重试次数(3)：放入失败队列（优先重试）。
-     * 超过最大重试次数：直接标记 FAILED。
-     */
-    void onSubTaskExpired(AiAccountTranslateSubTask subTask, String reason);
-
     /** 检查父任务是否仍然存活（未被取消/删除），Provider 在分发前可调用此方法跳过已失效的任务 */
     boolean isTaskActive(Long taskId);
 }

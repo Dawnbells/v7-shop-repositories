@@ -35,7 +35,7 @@ public interface TranslateProvider {
 
     /**
      * 回收过期的子任务分配。由 syncTaskStatus 定时器周期性调用。
-     * 过期子任务通过 callback.onSubTaskExpired 通知，由 adapter 决定重试或重新排队。
+     * Provider 自行决定过期子任务的处理（通过 callback.onSubTaskFailed 重试或标记失败）。
      */
     default void reclaimExpiredAssignments() {
     }

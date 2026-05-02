@@ -10,7 +10,7 @@ import lombok.extern.slf4j.Slf4j;
  * Provider 和 AiAccountTranslateTask 之间的回调中间类。
  * <p>
  * 重试策略（统一）：
- * - onSubTaskFailed / onSubTaskExpired: attemptCount < 3 → 失败队列；>= 3 → 直接 FAILED
+ * - onSubTaskFailed: retryable=true 且 attemptCount < 3 → 失败队列；否则 → 直接 FAILED
  */
 @Slf4j
 public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
@@ -79,25 +79,4 @@ public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
         return taskContext.getTaskStatus(taskId) != null;
     }
 
-    @Override
-    public void onSubTaskExpired(AiAccountTranslateSubTask subTask, String reason) {
-        AiAccountRuntimeState runtimeState = taskContext.getOrCreateRuntimeState(subTask.getAiAccountId());
-        try {
-            AiAccountTranslateTaskStatus status = taskContext.getTaskStatus(subTask.getTaskId());
-            if (subTask.getAttemptCount().get() < MAX_RETRY_ATTEMPTS) {
-                subTask.retry(reason);
-                if (status != null) {
-                    status.retrySubTask(subTask, reason);
-                }
-                taskContext.pushToFailedQueue(subTask);
-            } else {
-                subTask.fail(reason);
-                if (status != null) {
-                    status.failSubTask(subTask, reason);
-                }
-            }
-        } finally {
-            runtimeState.releaseFinishedSlot();
-        }
-    }
 }
