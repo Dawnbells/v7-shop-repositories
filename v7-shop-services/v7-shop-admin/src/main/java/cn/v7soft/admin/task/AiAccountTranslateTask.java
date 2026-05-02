@@ -402,7 +402,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(
                     task.getId(), subTasks.size(),
                     Long.parseLong(request.getProductId()),
-                    language.getId(),
+                    language,
                     Long.parseLong(request.getCountryId()),
                     task.getOwner());
             AiAccountTranslateTaskStatus existing = runningTasks.putIfAbsent(task.getId(), status);
@@ -459,7 +459,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             status.setProcessing("已拆分AI账号翻译子任务: " + subTasks.size());
         } catch (Exception e) {
             log.error("[AiAccountTranslateTask] 拆分任务失败: taskId={}", task.getId(), e);
-            AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(task.getId(), 0, null, null, null, task.getOwner());
+            AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(
+                    task.getId(), 0, null, null, null, task.getOwner());
             status.fail("拆分任务失败: " + e.getMessage());
             runningTasks.put(task.getId(), status);
         }
@@ -639,10 +640,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 return;
             }
             Product product = productService.getByIdWithSpecifications(status.getProductId());
-            Language language = languageService.getById(status.getLanguageId());
             Country country = countryService.getById(status.getCountryId());
             productService.assembleTranslatedProduct(
-                    product, language, country, status.getOwner(),
+                    product, status.getLanguage(), country, status.getOwner(),
                     status.getTranslatedTextMap(), status.getTranslatedHtml(), status.getTranslatedImageMap());
             status.complete();
         } catch (Exception e) {

@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.TaskState;
@@ -21,7 +22,7 @@ public class AiAccountTranslateTaskStatus {
     private final AtomicInteger failedSubTaskCount = new AtomicInteger(0);
     private final ConcurrentMap<String, AiAccountTranslateSubTask> subTasks = new ConcurrentHashMap<>();
     private final Long productId;
-    private final Long languageId;
+    private final Language language;
     private final Long countryId;
     private final SystemUser owner;
     private final ConcurrentMap<String, String> translatedTextMap = new ConcurrentHashMap<>();
@@ -35,11 +36,11 @@ public class AiAccountTranslateTaskStatus {
     private volatile LocalDateTime updateTime = LocalDateTime.now();
 
     public AiAccountTranslateTaskStatus(Long taskId, int totalSubTaskCount,
-                                        Long productId, Long languageId, Long countryId, SystemUser owner) {
+                                        Long productId, Language language, Long countryId, SystemUser owner) {
         this.taskId = taskId;
         this.totalSubTaskCount = totalSubTaskCount;
         this.productId = productId;
-        this.languageId = languageId;
+        this.language = language;
         this.countryId = countryId;
         this.owner = owner;
         this.progress = totalSubTaskCount == 0 ? 100 : 0;
