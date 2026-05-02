@@ -104,6 +104,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.providers = providers;
     }
 
+    /** 启动初始化：构建 Provider 注册表，注入回调适配器，重置残留 PROCESSING 任务 */
     @PostConstruct
     public void initialize() {
         TranslateProviderCallback callback = new TranslateTaskCallbackAdapter(this);
@@ -115,6 +116,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         resetProcessingTasksOnStartup();
     }
 
+    /** 服务重启时将残留的 PROCESSING 任务重置为 PENDING，依靠翻译缓存跳过已完成内容 */
     private void resetProcessingTasksOnStartup() {
         List<AsyncTask> processingTasks = asyncTaskRepository.findByTaskTypeAndState(
                 TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE,
@@ -252,11 +254,13 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 return;
             }
             AsyncTask task = taskOptional.get();
+            // 任务已在内存中运行，同步 DB 状态为 PROCESSING
             if (runningTasks.containsKey(task.getId())) {
                 task.setState(TaskState.PROCESSING);
                 asyncTaskRepository.save(task);
                 return;
             }
+            // 检查用户可用积分（monthly - used - frozen > 0）
             if (!aiCreditsService.hasAvailableCredits(task.getOwner().getId())) {
                 task.setState(TaskState.INSUFFICIENT_CREDITS);
                 task.setMessage("AI积分不足，请充值后重试");
@@ -315,6 +319,18 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     // --- Sub-task execution ---
 
+    /**
+     * 对单个 AI 账号执行子任务分发。
+     * <p>
+     * 流程：
+     * 1. 查询 AiAccount，找不到则将该账号下所有排队子任务标记失败
+     * 2. 通过 providerRegistry 获取对应 Provider
+     * 3. 合并失败队列 + 普通队列的总任务数
+     * 4. 根据账号流控（CONCURRENCY/RPD_RPM）预留可执行槽位
+     * 5. 优先从失败队列取任务，其次从普通队列（FIFO 顺序）
+     * 6. 调用 provider.executeSubTask 分发（对于 TurboFlow，实际是存入 Provider 内部队列等待 poll）
+     * 7. 队列清空且无 in-flight 任务时，清理该账号的运行时状态
+     */
     private void executeAccountSubTasks(Long aiAccountId) {
         AiAccountRuntimeState runtimeState = accountRuntimeStates.computeIfAbsent(aiAccountId, AiAccountRuntimeState::new);
         AiAccount account;
@@ -336,10 +352,12 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             return;
         }
 
+        // 合并两个队列的待处理数，失败队列优先
         Queue<AiAccountTranslateSubTask> failedQueue = failedSubTaskQueuesByAccount.get(aiAccountId);
         Queue<AiAccountTranslateSubTask> pendingQueue = subTaskQueuesByAccount.get(aiAccountId);
         int totalPending = queueSize(failedQueue) + queueSize(pendingQueue);
 
+        // 根据账号流控预留槽位（CONCURRENCY 模式限并发数，RPD_RPM 模式限日/分钟请求数）
         int executableCount = runtimeState.reserveSlots(account, totalPending);
         int unusedReservations = 0;
         for (int i = 0; i < executableCount; i++) {
@@ -356,6 +374,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         cleanupAccountState(aiAccountId, runtimeState);
     }
 
+    /** 优先从失败队列取任务，其次从普通队列（FIFO） */
     private AiAccountTranslateSubTask pollFromQueues(Queue<AiAccountTranslateSubTask> failedQueue,
                                                      Queue<AiAccountTranslateSubTask> pendingQueue) {
         AiAccountTranslateSubTask subTask = failedQueue == null ? null : failedQueue.poll();
@@ -367,6 +386,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         return queue == null ? 0 : queue.size();
     }
 
+    /** 将队列中所有待处理子任务标记为失败（账号不可用等场景） */
     private void failQueuedSubTasks(Queue<AiAccountTranslateSubTask> queue, String message) {
         AiAccountTranslateSubTask subTask;
         while ((subTask = queue.poll()) != null) {
@@ -377,6 +397,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
+    /** 队列清空且无 in-flight 任务时，移除该账号的运行时状态以释放内存 */
     private void cleanupAccountState(Long aiAccountId, AiAccountRuntimeState runtimeState) {
         Queue<AiAccountTranslateSubTask> pendingQueue = subTaskQueuesByAccount.get(aiAccountId);
         Queue<AiAccountTranslateSubTask> failedQueue = failedSubTaskQueuesByAccount.get(aiAccountId);
@@ -502,6 +523,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         return 1;
     }
 
+    /** 从产品中提取所有需要翻译的内容（标题/摘要/规格文本 + 详情 HTML + 图片 ID），构建子任务列表 */
     private List<AiAccountTranslateSubTask> buildSubTasks(Long taskId, TranslateByAIRequest request) {
         Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
         List<AiAccountTranslateSubTask> subTasks = new ArrayList<>();
@@ -602,23 +624,34 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     // --- Status sync & settlement ---
 
+    /**
+     * 将单个任务的内存状态同步到 DB，并在终态时结算积分。
+     * - 已取消：直接结算并移除
+     * - 子任务全部完成：组装翻译产物 → 标记 COMPLETED
+     * - 子任务有失败：标记 FAILED
+     * - 终态时：调 settleTask 结算积分（解冻 + 扣实际）
+     */
     private void syncSingleTaskStatus(AiAccountTranslateTaskStatus status) {
         asyncTaskRepository.findById(status.getTaskId()).ifPresent(task -> {
+            // 外部取消：直接结算冻结积分并清理
             if (task.getState() == TaskState.CANCELLED) {
                 settleTask(task);
                 runningTasks.remove(status.getTaskId());
                 return;
             }
 
+            // 所有子任务完成且无失败 → 组装翻译产物
             if (status.isReadyToFinalize()) {
                 finalizeAiAccountTranslateStatus(status);
             }
 
+            // 同步内存状态到 DB
             task.setState(status.getState());
             task.setProgress(status.getProgress());
             task.setMessage(status.getMessage());
             asyncTaskRepository.save(task);
 
+            // 终态（COMPLETED/FAILED）→ 结算积分并从内存移除
             if (status.isFinished()) {
                 settleTask(task);
                 runningTasks.remove(status.getTaskId());
@@ -649,6 +682,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
+    /** 所有子任务完成后，加载产品数据并组装翻译结果（文本替换 + 图片替换） */
     private void finalizeAiAccountTranslateStatus(AiAccountTranslateTaskStatus status) {
         if (!status.markFinalizing()) {
             return;
