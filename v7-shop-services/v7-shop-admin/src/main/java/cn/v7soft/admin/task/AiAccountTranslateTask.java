@@ -54,6 +54,40 @@ import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * AI 账号翻译任务编排器。
+ * <p>
+ * 完整翻译流程：
+ * <pre>
+ * 用户提交翻译请求 → AsyncTask(PENDING)
+ *   ↓
+ * [定时器一] executePendingTasks (5s)
+ *   检查用户积分 → 不足标记 INSUFFICIENT_CREDITS
+ *   积分充足 → loadTask:
+ *     1. 从产品提取 TEXT/HTML/IMAGE 子任务
+ *     2. 每个子任务估算积分 → 创建 AiTranslateUsageRecord(frozenCredits)
+ *     3. 子任务全部入队（按 AiAccount 分组的 FIFO 队列）
+ *     4. 事务内批量保存 usage records + 冻结积分 + 标记 PROCESSING
+ *   ↓
+ * [定时器二] executeSubTasks (1s)
+ *   遍历所有账号队列（优先失败队列）
+ *   根据账号流控预留槽位 → provider.executeSubTask 分发
+ *   TurboFlow: 子任务存入 Provider 内部队列，等待插件 poll
+ *   ↓
+ * [Provider 回调] onSubTaskCompleted / onSubTaskFailed / onSubTaskExpired
+ *   ← TranslateTaskCallbackAdapter 中间类 →
+ *   完成: updateUsageRecord（写入实际 token）→ 更新 TaskStatus
+ *   失败: accumulateUsageRecord（累加 token）→ attemptCount < 3 入失败队列 / ≥ 3 标记 FAILED
+ *   ↓
+ * [定时器三] syncTaskStatus (5s)
+ *   触发 Provider 回收过期 assignment
+ *   同步内存态到 DB
+ *   所有子任务结束 → finalizeAiAccountTranslateStatus（组装翻译产物）
+ *   终态 → settleTask（SUM(businessCredits) → settle 解冻+扣实际）
+ * </pre>
+ * <p>
+ * 实现 TranslateTaskContext 接口，供 TranslateTaskCallbackAdapter 回调时访问内部状态。
+ */
 @Slf4j
 @Component
 public class AiAccountTranslateTask implements TranslateTaskContext {
@@ -340,8 +374,12 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             log.error("[AiAccountTranslateTask] 获取AI账号失败: aiAccountId={}", aiAccountId, e);
             Queue<AiAccountTranslateSubTask> failedQueue = failedSubTaskQueuesByAccount.get(aiAccountId);
             Queue<AiAccountTranslateSubTask> pendingQueue = subTaskQueuesByAccount.get(aiAccountId);
-            if (failedQueue != null) failQueuedSubTasks(failedQueue, "AI账号不存在或不可用: " + aiAccountId);
-            if (pendingQueue != null) failQueuedSubTasks(pendingQueue, "AI账号不存在或不可用: " + aiAccountId);
+            if (failedQueue != null) {
+                failQueuedSubTasks(failedQueue, "AI账号不存在或不可用: " + aiAccountId);
+            }
+            if (pendingQueue != null) {
+                failQueuedSubTasks(pendingQueue, "AI账号不存在或不可用: " + aiAccountId);
+            }
             cleanupAccountState(aiAccountId, runtimeState);
             return;
         }
@@ -404,8 +442,12 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         boolean pendingEmpty = pendingQueue == null || pendingQueue.isEmpty();
         boolean failedEmpty = failedQueue == null || failedQueue.isEmpty();
         if (pendingEmpty && failedEmpty && runtimeState.getInFlightCount() == 0) {
-            if (pendingQueue != null) subTaskQueuesByAccount.remove(aiAccountId, pendingQueue);
-            if (failedQueue != null) failedSubTaskQueuesByAccount.remove(aiAccountId, failedQueue);
+            if (pendingQueue != null) {
+                subTaskQueuesByAccount.remove(aiAccountId, pendingQueue);
+            }
+            if (failedQueue != null) {
+                failedSubTaskQueuesByAccount.remove(aiAccountId, failedQueue);
+            }
             accountRuntimeStates.remove(aiAccountId, runtimeState);
         }
     }

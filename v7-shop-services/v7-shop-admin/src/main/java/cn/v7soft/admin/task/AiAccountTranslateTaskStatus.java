@@ -12,6 +12,14 @@ import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.TaskState;
 import lombok.Getter;
 
+/**
+ * 单个 AsyncTask 的内存运行时状态，跟踪子任务进度和翻译结果。
+ * <p>
+ * 由 loadTask 创建并存入 runningTasks map，子任务完成时收集翻译产物
+ * （translatedTextMap/translatedHtml/translatedImageMap），
+ * 所有子任务结束后由 finalizeAiAccountTranslateStatus 组装最终翻译结果。
+ * syncTaskStatus 定时器将此状态同步到 DB。
+ */
 @Getter
 public class AiAccountTranslateTaskStatus {
 
@@ -70,29 +78,34 @@ public class AiAccountTranslateTaskStatus {
         setProcessing("TurboFlow image task dispatched");
     }
 
+    /** 子任务执行完成（无特定翻译产物，如 TEXT noop） */
     public void completeSubTask(AiAccountTranslateSubTask subTask) {
         subTask.complete();
         decrementProcessingIfNeeded();
         completedSubTaskCount.incrementAndGet();
         subTasks.put(subTask.getSubTaskId(), subTask);
-        refreshProgress();
+        refreshProgress(); // 更新进度百分比，检查是否全部完成
     }
 
+    /** 文本翻译完成，收集翻译结果到 translatedTextMap（key=contentHash） */
     public void completeTextSubTask(AiAccountTranslateSubTask subTask, String translatedText) {
         translatedTextMap.put(subTask.getContentKey(), translatedText);
         completeSubTask(subTask);
     }
 
+    /** HTML 翻译完成，存储翻译后的 HTML */
     public void completeHtmlSubTask(AiAccountTranslateSubTask subTask, String translatedHtml) {
         this.translatedHtml = translatedHtml;
         completeSubTask(subTask);
     }
 
+    /** 图片翻译完成，收集翻译后的图片文件到 translatedImageMap（key=imageId） */
     public void completeImageSubTask(AiAccountTranslateSubTask subTask, MultimediaFile translatedFile) {
         translatedImageMap.put(subTask.getContent(), translatedFile);
         completeSubTask(subTask);
     }
 
+    /** 子任务重试，减少处理中计数但不增加完成/失败计数（子任务将重新入队） */
     public void retrySubTask(AiAccountTranslateSubTask subTask, String message) {
         decrementProcessingIfNeeded();
         subTasks.put(subTask.getSubTaskId(), subTask);
@@ -100,6 +113,7 @@ public class AiAccountTranslateTaskStatus {
         refreshProgress();
     }
 
+    /** 子任务执行失败（从 PROCESSING 状态转入） */
     public void failSubTask(AiAccountTranslateSubTask subTask, String message) {
         decrementProcessingIfNeeded();
         failedSubTaskCount.incrementAndGet();
@@ -108,6 +122,7 @@ public class AiAccountTranslateTaskStatus {
         refreshProgress();
     }
 
+    /** 子任务在 PENDING 状态直接失败（如账号不可用，未经过 PROCESSING） */
     public void failPendingSubTask(AiAccountTranslateSubTask subTask, String message) {
         failedSubTaskCount.incrementAndGet();
         subTasks.put(subTask.getSubTaskId(), subTask);
@@ -139,14 +154,17 @@ public class AiAccountTranslateTaskStatus {
         } while (!processingSubTaskCount.compareAndSet(current, current - 1));
     }
 
+    /** 重新计算进度百分比，全部结束时判断整体成功/失败 */
     private void refreshProgress() {
         int finished = completedSubTaskCount.get() + failedSubTaskCount.get();
         this.progress = totalSubTaskCount == 0 ? 100 : Math.min(100, finished * 100 / totalSubTaskCount);
         if (finished >= totalSubTaskCount) {
+            // 所有子任务已结束
             if (failedSubTaskCount.get() > 0) {
                 this.state = TaskState.FAILED;
                 this.message = "AI账号翻译子任务失败: " + failedSubTaskCount.get();
             } else {
+                // 全部成功，等待 finalizeAiAccountTranslateStatus 组装产物
                 this.state = TaskState.PROCESSING;
                 this.message = "AI account translate subtasks complete, assembling product";
             }
@@ -154,10 +172,12 @@ public class AiAccountTranslateTaskStatus {
         touch();
     }
 
+    /** 是否处于终态（不再需要同步） */
     public boolean isFinished() {
         return state == TaskState.COMPLETED || state == TaskState.FAILED || state == TaskState.CANCELLED;
     }
 
+    /** 是否可以开始组装翻译产物（所有子任务成功完成，且尚未开始组装） */
     public boolean isReadyToFinalize() {
         int finished = completedSubTaskCount.get() + failedSubTaskCount.get();
         return productId != null
@@ -167,6 +187,7 @@ public class AiAccountTranslateTaskStatus {
                 && !finalized.get();
     }
 
+    /** CAS 标记开始组装，防止并发重复组装 */
     public boolean markFinalizing() {
         return finalizing.compareAndSet(false, true);
     }
