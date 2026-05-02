@@ -401,7 +401,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             for (AiAccountTranslateSubTask subTask : subTasks) {
                 subTask.setOwner(task.getOwner());
                 status.addSubTask(subTask);
-                if (tryCompleteFromCache(status, subTask)) {
+                if (tryCompleteFromCache(status, subTask, language)) {
                     continue;
                 }
                 if (subTask.getType() != AiAccountTranslateSubTaskType.IMAGE) {
@@ -571,9 +571,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     // --- Cache & status sync ---
 
-    private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask) {
+    private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask,
+                                         Language language) {
         try {
-            Language language = resolveLanguage(subTask);
             if (subTask.getType() == AiAccountTranslateSubTaskType.TEXT) {
                 Optional<TextTranslationCache> cached = textTranslationCacheRepository
                         .findByContentHashAndLanguageIdAndContentType(
@@ -684,10 +684,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     // --- Utility ---
-
-    private Language resolveLanguage(AiAccountTranslateSubTask subTask) {
-        return languageService.getById(Long.parseLong(subTask.getLanguageId()));
-    }
 
     private byte[] readImageBytes(MultimediaFile file) throws Exception {
         try (InputStream inputStream = multimediaFileService.download(String.valueOf(file.getId()), 0);
