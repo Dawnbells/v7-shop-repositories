@@ -79,6 +79,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final AtomicBoolean syncingTaskStatus = new AtomicBoolean(false);
 
     private Map<AiProvider, TranslateProvider> providerRegistry;
+    // aiAccountId -> AiAccount/Provider 映射缓存，避免每次估算/分发时重复查 DB
+    private final ConcurrentMap<Long, AiAccount> accountCache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, TranslateProvider> accountProviderCache = new ConcurrentHashMap<>();
 
     public AiAccountTranslateTask(AsyncTaskRepository asyncTaskRepository,
                                   IProductService productService,
@@ -326,9 +329,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             return;
         }
 
-        TranslateProvider provider = providerRegistry.get(account.getProvider());
+        TranslateProvider provider = resolveProvider(aiAccountId);
         if (provider == null) {
-            log.warn("[AiAccountTranslateTask] 未找到对应的 Provider: provider={}", account.getProvider());
+            log.warn("[AiAccountTranslateTask] 未找到对应的 Provider: aiAccountId={}", aiAccountId);
             return;
         }
 
@@ -423,7 +426,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 int estimated = estimateSubTaskCredits(subTask);
                 totalEstimatedCredits += estimated;
 
-                AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
+                AiAccount account = resolveAccount(subTask.getAiAccountId());
                 AiTranslateUsageRecord record = AiTranslateUsageRecord.builder()
                         .taskId(task.getId())
                         .subTaskId(subTask.getSubTaskId())
@@ -470,11 +473,21 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         };
     }
 
+    private AiAccount resolveAccount(Long aiAccountId) {
+        return accountCache.computeIfAbsent(aiAccountId, aiAccountService::getById);
+    }
+
+    private TranslateProvider resolveProvider(Long aiAccountId) {
+        return accountProviderCache.computeIfAbsent(aiAccountId, id ->
+                providerRegistry.get(resolveAccount(id).getProvider()));
+    }
+
     private int estimateSubTaskCredits(AiAccountTranslateSubTask subTask) {
         try {
-            AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
-            TranslateProvider provider = providerRegistry.get(account.getProvider());
-            if (provider != null) return provider.estimateSubTaskCredits(subTask);
+            TranslateProvider provider = resolveProvider(subTask.getAiAccountId());
+            if (provider != null) {
+                return provider.estimateSubTaskCredits(subTask);
+            }
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] 估算子任务积分失败: subTaskId={}", subTask.getSubTaskId(), e);
         }
