@@ -125,14 +125,21 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
         }
 
-        // 非图片任务直接通知完成（TurboFlow 只处理图片翻译）
+        // 非图片任务：TurboFlow 无法处理，返回原文作为译文（避免产物为空）
         if (subTask.getType() != AiAccountTranslateSubTaskType.IMAGE) {
-            callback.onSubTaskCompleted(subTask, SubTaskResult.builder().build());
+            SubTaskResult.SubTaskResultBuilder resultBuilder = SubTaskResult.builder();
+            if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
+                resultBuilder.translatedHtml(subTask.getContent());
+            } else {
+                resultBuilder.translatedText(subTask.getContent());
+            }
+            callback.onSubTaskCompleted(subTask, resultBuilder.build());
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("non-image task skipped").build();
         }
 
-        // 检查父任务是否仍然存活
+        // 检查父任务是否仍然存活；不活跃时通知失败以释放槽位
         if (!callback.isTaskActive(subTask.getTaskId())) {
+            callback.onSubTaskFailed(subTask, "parent task no longer active", false, null);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("task missing").build();
         }
 
@@ -261,7 +268,9 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .build();
             callback.onSubTaskCompleted(subTask, result);
         } catch (Exception e) {
-            assignments.remove(request.getAssignmentId());
+            callback.onSubTaskFailed(subTask, "complete processing failed: " + e.getMessage(), true, null);
+            log.error("[TurboFlowBridge] completeTask 处理失败, 已推入重试队列: assignmentId={}",
+                    request.getAssignmentId(), e);
             throw new IllegalStateException("complete turboflow task failed: " + e.getMessage(), e);
         }
     }

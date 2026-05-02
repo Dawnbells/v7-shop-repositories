@@ -484,6 +484,22 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      */
     private void loadTask(AsyncTask task) {
         try {
+            // 0. 重启恢复：清理上次运行残留的 usage records，解冻冻结积分，避免唯一约束冲突
+            List<AiTranslateUsageRecord> staleRecords = usageRecordRepository.findByTaskId(task.getId());
+            if (!staleRecords.isEmpty()) {
+                Integer prevFrozen = task.getEstimatedCredits();
+                transactionTemplate.executeWithoutResult(txStatus -> {
+                    usageRecordRepository.deleteAll(staleRecords);
+                    if (prevFrozen != null && prevFrozen > 0) {
+                        aiCreditsService.unfreeze(task.getOwner().getId(), prevFrozen);
+                        task.setEstimatedCredits(null);
+                        asyncTaskRepository.save(task);
+                    }
+                });
+                log.warn("[AiAccountTranslateTask] restart recovery: cleaned stale records for taskId={}, count={}",
+                         task.getId(), staleRecords.size());
+            }
+
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
 
             // 1. 构建子任务列表（TEXT/HTML/IMAGE），每个子任务共享同一 AiAccount
@@ -512,7 +528,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 return;
             }
 
-            // 3. 遍历子任务：估算积分、创建 usage record、入队
+            // 3. 遍历子任务：估算积分、创建 usage record（不入队，等事务提交后再投递）
             int totalEstimatedCredits = 0;
             List<AiTranslateUsageRecord> usageRecords = new ArrayList<>();
 
@@ -520,11 +536,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 subTask.setOwner(task.getOwner());
                 status.addSubTask(subTask);
 
-                // 通过 Provider 估算该子任务所需积分
                 int estimated = estimateSubTaskCredits(provider, subTask);
                 totalEstimatedCredits += estimated;
 
-                // 创建计费记录（frozenCredits = 预估值，其余字段后续由回调更新）
                 AiTranslateUsageRecord record = AiTranslateUsageRecord.builder()
                         .taskId(task.getId())
                         .subTaskId(subTask.getSubTaskId())
@@ -537,11 +551,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         .build();
                 record.setOwner(task.getOwner());
                 usageRecords.add(record);
-
-                // 子任务入队，等待 executeSubTasks 定时器分发给 Provider
-                subTaskQueuesByAccount
-                        .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
-                        .offer(subTask);
             }
 
             // 4/5/6 在同一事务中执行，保证 usage records + 积分冻结 + 任务状态的原子性
@@ -556,6 +565,13 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 task.setState(TaskState.PROCESSING);
                 asyncTaskRepository.save(task);
             });
+
+            // 7. 事务提交成功后再将子任务投递到执行队列，避免 usage 记录未落库就被 poll
+            for (AiAccountTranslateSubTask subTask : subTasks) {
+                subTaskQueuesByAccount
+                        .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
+                        .offer(subTask);
+            }
 
             status.setProcessing("已拆分AI账号翻译子任务: " + subTasks.size());
         } catch (Exception e) {
@@ -844,6 +860,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             transactionTemplate.executeWithoutResult(txStatus -> {
                 aiCreditsService.settle(task.getOwner().getId(), task.getEstimatedCredits(), actualCredits);
                 usageRecordRepository.markSettledByTaskId(task.getId());
+                task.setEstimatedCredits(0);
+                asyncTaskRepository.save(task);
             });
             log.info("[AiAccountTranslateTask] settled taskId={}, frozen={}, actual={}",
                      task.getId(), frozenCredits, actualCredits);
