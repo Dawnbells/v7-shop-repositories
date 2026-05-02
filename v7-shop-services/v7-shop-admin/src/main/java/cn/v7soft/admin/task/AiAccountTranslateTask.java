@@ -39,21 +39,17 @@ import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AiTranslateUsageRecord;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
-import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
-import cn.v7soft.dao.entities.primary.TextTranslationCache;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.dao.repositories.primary.AiTranslateUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
-import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
-import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 
@@ -70,8 +66,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final IMultimediaFileService multimediaFileService;
     private final ILanguageService languageService;
     private final ICountryService countryService;
-    private final ImageTranslationCacheRepository imageTranslationCacheRepository;
-    private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final AiTranslateUsageRecordRepository usageRecordRepository;
     private final AiCreditsService aiCreditsService;
     private final List<TranslateProvider> providers;
@@ -92,8 +86,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                   IMultimediaFileService multimediaFileService,
                                   ILanguageService languageService,
                                   ICountryService countryService,
-                                  ImageTranslationCacheRepository imageTranslationCacheRepository,
-                                  TextTranslationCacheRepository textTranslationCacheRepository,
                                   AiTranslateUsageRecordRepository usageRecordRepository,
                                   AiCreditsService aiCreditsService,
                                   List<TranslateProvider> providers) {
@@ -103,8 +95,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.multimediaFileService = multimediaFileService;
         this.languageService = languageService;
         this.countryService = countryService;
-        this.imageTranslationCacheRepository = imageTranslationCacheRepository;
-        this.textTranslationCacheRepository = textTranslationCacheRepository;
         this.usageRecordRepository = usageRecordRepository;
         this.aiCreditsService = aiCreditsService;
         this.providers = providers;
@@ -398,25 +388,25 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     // --- Task loading & splitting ---
 
     /**
-     * 拆分 AsyncTask 为子任务。
-     * 1. 解析参数，构建子任务列表
-     * 2. 缓存命中的子任务直接完成，非 IMAGE 类型跳过
-     * 3. IMAGE 子任务估算积分 → 创建 AiTranslateUsageRecord（frozenCredits）→ 入队
-     * 4. 汇总 totalEstimatedCredits → aiCreditsService.tryFreeze → 写入 AsyncTask.estimatedCredits
+     * 拆分 AsyncTask 为子任务，全部入队由 Provider 统一分发。
+     * 1. 解析参数，构建子任务列表（TEXT/HTML/IMAGE）
+     * 2. 每个子任务估算积分 → 创建 AiTranslateUsageRecord（frozenCredits）→ 入队
+     * 3. 汇总 totalEstimatedCredits → aiCreditsService.tryFreeze → 写入 AsyncTask.estimatedCredits
+     * 缓存查询不在此阶段进行，由 Provider 在执行阶段（如 pollTask）检查缓存。
      */
     private void loadTask(AsyncTask task) {
         try {
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
             List<AiAccountTranslateSubTask> subTasks = buildSubTasks(task.getId(), request);
-            Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
             Language language = languageService.getById(Long.parseLong(request.getLanguageId()));
-            Country country = countryService.getById(Long.parseLong(request.getCountryId()));
             AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(
-                    task.getId(), subTasks.size(), product.getId(), language.getId(), country.getId(), task.getOwner());
+                    task.getId(), subTasks.size(),
+                    Long.parseLong(request.getProductId()),
+                    language.getId(),
+                    Long.parseLong(request.getCountryId()),
+                    task.getOwner());
             AiAccountTranslateTaskStatus existing = runningTasks.putIfAbsent(task.getId(), status);
-            if (existing != null) {
-                return;
-            }
+            if (existing != null) return;
 
             if (subTasks.isEmpty()) {
                 status.complete();
@@ -429,14 +419,6 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             for (AiAccountTranslateSubTask subTask : subTasks) {
                 subTask.setOwner(task.getOwner());
                 status.addSubTask(subTask);
-                if (tryCompleteFromCache(status, subTask, language)) {
-                    continue;
-                }
-                if (subTask.getType() != AiAccountTranslateSubTaskType.IMAGE) {
-                    completeLocalNoopSubTask(subTask);
-                    status.completeSubTask(subTask);
-                    continue;
-                }
 
                 int estimated = estimateSubTaskCredits(subTask);
                 totalEstimatedCredits += estimated;
@@ -467,14 +449,14 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             if (totalEstimatedCredits > 0) {
                 aiCreditsService.tryFreeze(task.getOwner().getId(), totalEstimatedCredits);
                 task.setEstimatedCredits(totalEstimatedCredits);
-                asyncTaskRepository.save(task);
             }
+            task.setState(TaskState.PROCESSING);
+            asyncTaskRepository.save(task);
 
             status.setProcessing("已拆分AI账号翻译子任务: " + subTasks.size());
         } catch (Exception e) {
             log.error("[AiAccountTranslateTask] 拆分任务失败: taskId={}", task.getId(), e);
             AiAccountTranslateTaskStatus status = new AiAccountTranslateTaskStatus(task.getId(), 0, null, null, null, task.getOwner());
-
             status.fail("拆分任务失败: " + e.getMessage());
             runningTasks.put(task.getId(), status);
         }
@@ -597,54 +579,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         return false;
     }
 
-    // --- Cache & status sync ---
-
-    private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask,
-                                         Language language) {
-        try {
-            if (subTask.getType() == AiAccountTranslateSubTaskType.TEXT) {
-                Optional<TextTranslationCache> cached = textTranslationCacheRepository
-                        .findByContentHashAndLanguageIdAndContentType(
-                                subTask.getContentKey(), language.getId(), TranslationContentType.TEXT);
-                if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
-                    status.completeTextSubTask(subTask, cached.get().getTranslatedText());
-                    return true;
-                }
-            } else if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
-                Optional<TextTranslationCache> cached = textTranslationCacheRepository
-                        .findByContentHashAndLanguageIdAndContentType(
-                                subTask.getContentKey(), language.getId(), TranslationContentType.HTML);
-                if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
-                    status.completeHtmlSubTask(subTask, cached.get().getTranslatedText());
-                    return true;
-                }
-            } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
-                MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
-                byte[] imageBytes = readImageBytes(sourceFile);
-                String imageHash = DigestUtil.sha256Hex(imageBytes);
-                subTask.setImageHash(imageHash);
-                Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
-                        .findByImageHashAndLanguageId(imageHash, language.getId());
-                if (cached.isPresent()) {
-                    MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
-                    if (translatedFile != null) {
-                        status.completeImageSubTask(subTask, translatedFile);
-                    } else {
-                        status.completeSubTask(subTask);
-                    }
-                    return true;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("[AiAccountTranslateTask] cache lookup failed: taskId={}, subTaskId={}",
-                     subTask.getTaskId(), subTask.getSubTaskId(), e);
-        }
-        return false;
-    }
-
-    private void completeLocalNoopSubTask(AiAccountTranslateSubTask subTask) {
-        subTask.complete();
-    }
+    // --- Status sync & settlement ---
 
     private void syncSingleTaskStatus(AiAccountTranslateTaskStatus status) {
         asyncTaskRepository.findById(status.getTaskId()).ifPresent(task -> {
