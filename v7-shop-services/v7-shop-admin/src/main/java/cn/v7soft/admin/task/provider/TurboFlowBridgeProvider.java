@@ -84,6 +84,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         return TokenCostCalculator.estimateCredits(textTokens, 0, InvokeMode.STANDARD);
     }
 
+    /** 被动分发：仅将子任务存入内部队列，等待 TurboFlow 插件 poll 时取走执行 */
     @Override
     public void executeSubTask(AiAccountTranslateSubTask subTask) {
         internalQueues
@@ -91,11 +92,18 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 .offer(subTask);
     }
 
+    /**
+     * 插件轮询获取任务。
+     * 流程：鉴权 → 检查插件状态 → 从队列取子任务 → 读图片 → 查缓存 → 分配 assignment → 返回图片数据
+     */
     public TurboFlowBridgeTaskResponse pollTask(String token, TurboFlowBridgePollRequest request) {
+        // 1. 通过 Bearer token 鉴权，找到对应的 AiAccount
         AiAccount account = resolveTurboFlowAccount(token);
         String bridgeId = normalizeBridgeId(request.getBridgeId());
+        // 记录插件在线状态（仅用于观测）
         bridgeStates.put(bridgeId, TurboFlowBridgeState.from(account.getId(), request));
 
+        // 2. 检查插件状态：flow 未连接或正忙则不分发
         if (!Boolean.TRUE.equals(request.getFlowConnected())) {
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("flow not connected").build();
         }
@@ -103,6 +111,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("bridge busy").build();
         }
 
+        // 3. 从该账号的内部队列取一个子任务（FIFO）
         ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue = internalQueues.get(account.getId());
         if (queue == null || queue.isEmpty()) {
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
@@ -113,21 +122,25 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
         }
 
+        // 非图片任务直接通知完成（TurboFlow 只处理图片翻译）
         if (subTask.getType() != AiAccountTranslateSubTaskType.IMAGE) {
             callback.onSubTaskCompleted(subTask, SubTaskResult.builder().build());
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("non-image task skipped").build();
         }
 
+        // 检查父任务是否仍然存活
         if (!callback.isTaskActive(subTask.getTaskId())) {
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("task missing").build();
         }
 
         try {
+            // 4. 读取源图片并计算哈希
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
             byte[] imageBytes = readImageBytes(sourceFile);
             String imageHash = DigestUtil.sha256Hex(imageBytes);
             subTask.setImageHash(imageHash);
 
+            // 5. 二次缓存检查：入队后到 poll 之间，其他任务可能已生成同图同语言的缓存
             Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
                     .findByImageHashAndLanguageId(imageHash, Long.parseLong(subTask.getLanguageId()));
             if (cached.isPresent()) {
@@ -144,11 +157,13 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("cache hit").build();
             }
 
+            // 6. 分配 assignmentId + lease，跟踪该子任务直到 complete/fail/expire
             String assignmentId = UUID.randomUUID().toString();
             LocalDateTime leaseUntil = LocalDateTime.now().plusMinutes(TURBOFLOW_LEASE_MINUTES);
             subTask.dispatch(bridgeId, assignmentId, leaseUntil);
             assignments.put(assignmentId, subTask);
 
+            // 7. 构建响应：图片 Base64 + 目标语言 + lease 信息
             Language language = resolveLanguage(subTask);
 
             return TurboFlowBridgeTaskResponse.builder()
@@ -166,6 +181,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .leaseUntil(leaseUntil)
                     .build();
         } catch (Exception e) {
+            // 分发失败，通知 adapter 进入重试流程
             callback.onSubTaskFailed(subTask, "dispatch failed: " + e.getMessage(), true, null);
             log.error("[TurboFlowBridge] 分发任务失败: taskId={}, subTaskId={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), e);
@@ -173,30 +189,39 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         }
     }
 
+    /**
+     * 插件上报翻译完成。
+     * 验证归属 → 解码翻译图片 → 保存文件和缓存 → 计算 token 用量 → 通过 callback 通知完成
+     */
     public void completeTask(String token, TurboFlowBridgeCompleteRequest request) {
         AiAccount account = resolveTurboFlowAccount(token);
         AiAccountTranslateSubTask subTask = assignments.get(request.getAssignmentId());
         if (subTask == null) {
             throw new IllegalArgumentException("assignment not found or expired");
         }
+        // 三重归属校验：token 对应的账号 + bridgeId + assignmentId 都必须匹配
         if (!account.getId().equals(subTask.getAiAccountId())) {
             throw new IllegalArgumentException("assignment does not belong to account");
         }
         if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
             throw new IllegalArgumentException("assignment does not belong to bridge");
         }
+        // 原子移除 assignment，防止重复 complete
         if (!assignments.remove(request.getAssignmentId(), subTask)) {
             throw new IllegalArgumentException("assignment not found or expired");
         }
         try {
+            // 解码并保存翻译后的图片
             byte[] imageBytes = decodeBase64Image(request.getResultImageBase64());
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
             String suffix = suffixFromMimeType(request.getResultMimeType(), sourceFile.getSuffix());
             MultimediaFile translatedFile = multimediaFileService.saveTranslatedImage(imageBytes, suffix, subTask.getOwner());
 
+            // 保存翻译缓存，供后续相同图片+语言直接命中
             Language language = resolveLanguage(subTask);
             saveImageTranslationCache(subTask.getImageHash(), sourceFile, language, translatedFile, false);
 
+            // 计算业务 token 用量（按图片分辨率档位）
             int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
             if (maxDim <= 0) maxDim = 512;
             int promptTokens = 718;
@@ -205,6 +230,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     TokenCostCalculator.calculateCost(TranslationContentType.IMAGE, InvokeMode.STANDARD,
                             promptTokens, completionTokens, 0));
 
+            // 将翻译结果和 token 用量打包回传给 adapter
             SubTaskResult result = SubTaskResult.builder()
                     .translatedFile(translatedFile)
                     .elapsedMs(request.getElapsedMs())
@@ -220,6 +246,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         }
     }
 
+    /** 插件上报翻译失败。验证归属后通过 callback 通知 adapter（由 adapter 决定重试或标记失败） */
     public void failTask(String token, TurboFlowBridgeFailRequest request) {
         AiAccount account = resolveTurboFlowAccount(token);
         AiAccountTranslateSubTask subTask = assignments.get(request.getAssignmentId());
@@ -240,6 +267,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         callback.onSubTaskFailed(subTask, message, retryable, null);
     }
 
+    /** 回收 lease 过期的 assignment。由 syncTaskStatus 定时器(5s)调用 */
     @Override
     public void reclaimExpiredAssignments() {
         LocalDateTime now = LocalDateTime.now();
@@ -250,6 +278,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             if (!subTask.isLeaseExpired(now)) {
                 continue;
             }
+            // 从 assignments 移除并通知过期
             it.remove();
             log.warn("[TurboFlowBridge] lease expired: taskId={}, subTaskId={}, assignmentId={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), entry.getKey());
@@ -259,6 +288,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
 
     // --- private helpers ---
 
+    /** 通过 Bearer token 查找对应的 TurboFlow AiAccount */
     private AiAccount resolveTurboFlowAccount(String token) {
         if (StrUtil.isBlank(token)) {
             throw new IllegalArgumentException("missing bridge token");

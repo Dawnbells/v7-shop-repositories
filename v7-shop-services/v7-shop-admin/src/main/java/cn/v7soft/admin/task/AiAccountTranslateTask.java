@@ -416,7 +416,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private AiAccountTranslateSubTask pollFromQueues(Queue<AiAccountTranslateSubTask> failedQueue,
                                                      Queue<AiAccountTranslateSubTask> pendingQueue) {
         AiAccountTranslateSubTask subTask = failedQueue == null ? null : failedQueue.poll();
-        if (subTask != null) return subTask;
+        if (subTask != null) {
+            return subTask;
+        }
         return pendingQueue == null ? null : pendingQueue.poll();
     }
 
