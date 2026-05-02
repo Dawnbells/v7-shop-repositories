@@ -164,6 +164,10 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 .offer(subTask);
     }
 
+    /**
+     * 子任务完成时，将 Provider 回传的实际 token 用量写入对应的 AiTranslateUsageRecord。
+     * 由 TranslateTaskCallbackAdapter.onSubTaskCompleted 调用。
+     */
     @Override
     public void updateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult result) {
         try {
@@ -199,6 +203,11 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
+    /**
+     * 子任务失败/重试时，将本次尝试消耗的 token 累加到 AiTranslateUsageRecord。
+     * 跨重试累加，确保最终 businessCredits 反映所有尝试的真实消耗。
+     * 由 TranslateTaskCallbackAdapter.onSubTaskFailed 调用。
+     */
     @Override
     public void accumulateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult partialResult) {
         try {
@@ -229,6 +238,11 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     // --- Scheduled timers ---
 
+    /**
+     * 定时器一：任务拆接。
+     * 拉取 PENDING 的 AsyncTask，检查用户积分后拆分为子任务入队。
+     * 积分不足直接标记 INSUFFICIENT_CREDITS，不做拆解。
+     */
     @Scheduled(fixedDelay = 5 * 1000, initialDelay = 60 * 1000)
     public void executePendingTasks() {
         if (!loadingTasks.compareAndSet(false, true)) {
@@ -263,6 +277,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
+    /** 定时器二：子任务分发。遍历所有账号队列（优先失败队列），通过 Provider 分发。 */
     @Scheduled(fixedDelay = 1000, initialDelay = 35 * 1000)
     public void executeSubTasks() {
         if (!executingSubTasks.compareAndSet(false, true)) {
@@ -281,6 +296,12 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
+    /**
+     * 定时器三：状态同步与结算。
+     * 1. 触发各 Provider 回收过期 assignment
+     * 2. 同步内存态到 DB
+     * 3. 所有子任务完成/失败时，汇总 usage records 的 businessCredits 并调 settle 结算
+     */
     @Scheduled(fixedDelay = 5 * 1000, initialDelay = 40 * 1000)
     public void syncTaskStatus() {
         if (!syncingTaskStatus.compareAndSet(false, true)) {
@@ -376,6 +397,13 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     // --- Task loading & splitting ---
 
+    /**
+     * 拆分 AsyncTask 为子任务。
+     * 1. 解析参数，构建子任务列表
+     * 2. 缓存命中的子任务直接完成，非 IMAGE 类型跳过
+     * 3. IMAGE 子任务估算积分 → 创建 AiTranslateUsageRecord（frozenCredits）→ 入队
+     * 4. 汇总 totalEstimatedCredits → aiCreditsService.tryFreeze → 写入 AsyncTask.estimatedCredits
+     */
     private void loadTask(AsyncTask task) {
         try {
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
@@ -642,6 +670,11 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         });
     }
 
+    /**
+     * 积分结算：解冻预估额 + 扣减实际消耗。
+     * frozenCredits 来自 AsyncTask.estimatedCredits（loadTask 时写入），
+     * actualCredits 来自 SUM(AiTranslateUsageRecord.businessCredits)（Provider 回调时累计写入）。
+     */
     private void settleTask(AsyncTask task) {
         try {
             Integer frozenCredits = task.getEstimatedCredits();
