@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - TurboFlow Bridge</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="page-header">
+    <button id="btn-back" class="btn-back">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+        <path d="M10 2L4 8l6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Back
+    </button>
+    <h1>Server Settings</h1>
+  </header>
+
+  <div class="page-body">
+    <div id="services"></div>
+    <div class="btn-group">
+      <button id="btn-add-service" class="secondary">+ Add Service</button>
+      <button id="btn-save" class="primary">Save</button>
+    </div>
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

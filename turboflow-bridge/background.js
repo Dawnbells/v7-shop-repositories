@@ -7,11 +7,13 @@ import {
   clearTokenCache,
 } from './flow-api.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const FLOW_URL = 'https://labs.google/fx/zh/tools/flow/';
 const SUCCESS_DELAY_MS = 10000;
 const FAILURE_DELAY_MS = 60000;
 const IDLE_DELAY_MS = 10000;
+const MAX_TASK_HISTORY = 200;
+const MAX_LOG_HISTORY = 500;
 
 let bridgeId = null;
 let running = false;
@@ -19,6 +21,9 @@ let currentTask = null;
 let timerId = null;
 let serviceCursor = 0;
 let lastStatus = { connected: false, message: 'Not checked' };
+let nextPollAt = 0;
+let taskHistory = [];
+let logHistory = [];
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
@@ -34,12 +39,12 @@ chrome.tabs.onRemoved.addListener(() => {
 
 chrome.runtime.onInstalled.addListener(() => {
   ensureBridgeId();
-  scheduleLoop(1000);
+  loadPersistedState().then(() => scheduleLoop(1000));
 });
 
 chrome.runtime.onStartup.addListener(() => {
   ensureBridgeId();
-  scheduleLoop(1000);
+  loadPersistedState().then(() => scheduleLoop(1000));
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -70,12 +75,33 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_STATUS') {
-    sendResponse({ running, currentTask, lastStatus });
+    sendResponse({ running, currentTask, lastStatus, nextPollAt });
     return false;
   }
 
   if (msg.type === 'RUN_NOW') {
     scheduleLoop(100);
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (msg.type === 'GET_TASK_HISTORY') {
+    const page = msg.page || 0;
+    const pageSize = msg.pageSize || 20;
+    const start = page * pageSize;
+    const items = taskHistory.slice(start, start + pageSize);
+    sendResponse({ items, total: taskHistory.length, page, pageSize });
+    return false;
+  }
+
+  if (msg.type === 'GET_LOGS') {
+    sendResponse({ logs: logHistory });
+    return false;
+  }
+
+  if (msg.type === 'CLEAR_LOGS') {
+    logHistory = [];
+    persistLogs();
     sendResponse({ ok: true });
     return false;
   }
@@ -92,6 +118,12 @@ async function ensureBridgeId() {
   bridgeId = crypto.randomUUID();
   await chrome.storage.local.set({ bridgeId });
   return bridgeId;
+}
+
+async function loadPersistedState() {
+  const stored = await chrome.storage.local.get(['taskHistory', 'logHistory']);
+  taskHistory = Array.isArray(stored.taskHistory) ? stored.taskHistory : [];
+  logHistory = Array.isArray(stored.logHistory) ? stored.logHistory : [];
 }
 
 async function loadConfig() {
@@ -114,10 +146,30 @@ async function saveConfig(config) {
   await chrome.storage.local.set({ services });
 }
 
+function addTaskHistory(entry) {
+  taskHistory.unshift(entry);
+  if (taskHistory.length > MAX_TASK_HISTORY) taskHistory.length = MAX_TASK_HISTORY;
+  chrome.storage.local.set({ taskHistory }).catch(() => {});
+}
+
+function addLog(level, message) {
+  const entry = { level, message, time: Date.now() };
+  logHistory.unshift(entry);
+  if (logHistory.length > MAX_LOG_HISTORY) logHistory.length = MAX_LOG_HISTORY;
+  broadcast({ type: 'BRIDGE_LOG', ...entry });
+  persistLogs();
+}
+
+function persistLogs() {
+  chrome.storage.local.set({ logHistory }).catch(() => {});
+}
+
 function scheduleLoop(delayMs) {
   if (timerId) clearTimeout(timerId);
+  nextPollAt = Date.now() + delayMs;
+  broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
   timerId = setTimeout(() => runLoop().catch((e) => {
-    broadcast({ type: 'BRIDGE_LOG', level: 'error', message: e.message });
+    addLog('error', e.message);
     scheduleLoop(FAILURE_DELAY_MS);
   }), delayMs);
 }
@@ -138,7 +190,6 @@ async function runLoop() {
       return;
     }
 
-    // Poll reports bridge state and requests work in one request.
     for (let i = 0; i < orderedServices.length; i++) {
       const service = orderedServices[i];
       const task = await pollTask(service, conn);
@@ -164,7 +215,7 @@ async function pollTask(service, conn) {
     currentUrl: null,
     busy: !!currentTask,
   }).catch((e) => {
-    broadcast({ type: 'BRIDGE_LOG', level: 'warn', message: `Poll failed: ${service.baseUrl} ${e.message}` });
+    addLog('warn', `Poll failed: ${service.baseUrl} ${e.message}`);
     return null;
   });
 }
@@ -190,7 +241,16 @@ async function executeTask(service, task) {
       resultUrl: result.resultUrl || null,
       elapsedMs: Date.now() - startedAt,
     });
-    broadcast({ type: 'BRIDGE_LOG', level: 'info', message: `Task completed: ${task.subTaskId}` });
+    const elapsed = Date.now() - startedAt;
+    addLog('info', `Task completed: ${task.subTaskId}`);
+    addTaskHistory({
+      taskId: task.taskId,
+      subTaskId: task.subTaskId,
+      service: service.baseUrl,
+      status: 'completed',
+      elapsedMs: elapsed,
+      time: Date.now(),
+    });
     currentTask = null;
     broadcast({ type: 'TASK_CHANGED', currentTask: null });
     scheduleLoop(SUCCESS_DELAY_MS);
@@ -204,7 +264,17 @@ async function executeTask(service, task) {
       retryable: true,
       elapsedMs: Date.now() - startedAt,
     }).catch(() => {});
-    broadcast({ type: 'BRIDGE_LOG', level: 'error', message: `Task failed: ${e.message}` });
+    const elapsed = Date.now() - startedAt;
+    addLog('error', `Task failed: ${e.message}`);
+    addTaskHistory({
+      taskId: task.taskId,
+      subTaskId: task.subTaskId,
+      service: service.baseUrl,
+      status: 'failed',
+      error: e.message,
+      elapsedMs: elapsed,
+      time: Date.now(),
+    });
     currentTask = null;
     broadcast({ type: 'TASK_CHANGED', currentTask: null });
     scheduleLoop(FAILURE_DELAY_MS);
@@ -338,4 +408,4 @@ function broadcast(message) {
   chrome.runtime.sendMessage(message).catch(() => {});
 }
 
-ensureBridgeId().then(() => scheduleLoop(1000));
+ensureBridgeId().then(() => loadPersistedState()).then(() => scheduleLoop(1000));

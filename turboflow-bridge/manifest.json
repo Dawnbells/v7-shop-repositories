@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TurboFlow Bridge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Image translation via Google Flow - upload an image, auto-translate overlay text using Nano Banana 2",
   "permissions": [
     "sidePanel",
