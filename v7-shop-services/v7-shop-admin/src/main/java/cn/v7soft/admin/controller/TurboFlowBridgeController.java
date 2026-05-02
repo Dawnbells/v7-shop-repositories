@@ -6,7 +6,7 @@ import cn.v7soft.admin.controller.req.TurboFlowBridgeFailRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgePollRequest;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeHeartbeatResponse;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeTaskResponse;
-import cn.v7soft.admin.task.AiAccountTranslateTask;
+import cn.v7soft.admin.task.provider.TurboFlowBridgeProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,26 +19,25 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/turboflow-bridge")
 public class TurboFlowBridgeController {
 
-    private final AiAccountTranslateTask aiAccountTranslateTask;
+    private final TurboFlowBridgeProvider turboFlowBridgeProvider;
 
-    // Bridge APIs use the TurboFlow AI Account apiKey as the Bearer token.
     @PostMapping("/tasks/poll")
     public TurboFlowBridgeTaskResponse poll(HttpServletRequest servletRequest,
                                             @RequestBody TurboFlowBridgePollRequest request) {
-        return aiAccountTranslateTask.pollTurboFlowTask(bearerToken(servletRequest), request);
+        return turboFlowBridgeProvider.pollTask(bearerToken(servletRequest), request);
     }
 
     @PostMapping("/tasks/complete")
     public TurboFlowBridgeHeartbeatResponse complete(HttpServletRequest servletRequest,
                                                      @RequestBody TurboFlowBridgeCompleteRequest request) {
-        aiAccountTranslateTask.completeTurboFlowTask(bearerToken(servletRequest), request);
+        turboFlowBridgeProvider.completeTask(bearerToken(servletRequest), request);
         return TurboFlowBridgeHeartbeatResponse.builder().accepted(true).message("completed").build();
     }
 
     @PostMapping("/tasks/fail")
     public TurboFlowBridgeHeartbeatResponse fail(HttpServletRequest servletRequest,
                                                  @RequestBody TurboFlowBridgeFailRequest request) {
-        aiAccountTranslateTask.failTurboFlowTask(bearerToken(servletRequest), request);
+        turboFlowBridgeProvider.failTask(bearerToken(servletRequest), request);
         return TurboFlowBridgeHeartbeatResponse.builder().accepted(true).message("failed").build();
     }
 
