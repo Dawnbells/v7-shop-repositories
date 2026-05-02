@@ -7,64 +7,106 @@
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-  <header class="header">
-    <div class="header-info">
-      <h1>TurboFlow Bridge</h1>
-      <code id="bridge-id">Loading...</code>
-    </div>
-    <div class="header-actions">
-      <button id="btn-settings" class="btn-icon" title="Settings">
+  <!-- ====== Main View ====== -->
+  <div id="view-main" class="view active">
+    <header class="header">
+      <div class="header-info">
+        <h1>TurboFlow Bridge</h1>
+        <code id="bridge-id">Loading...</code>
+      </div>
+      <div class="header-actions">
+        <button id="btn-settings" class="btn-icon" title="Settings" data-nav="settings">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button id="btn-logs" class="btn-icon" title="Logs" data-nav="logs">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M2 2h12M2 6h8M2 10h10M2 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="status-bar">
+      <span id="status-dot" class="dot disconnected"></span>
+      <span id="status-text">Checking...</span>
+      <button id="btn-open-flow" class="btn-open-flow hidden">Open Flow</button>
+    </section>
+
+    <section class="panel current-task-panel">
+      <div class="section-title">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
-          <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M4 7l2 2 2-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-      </button>
-      <button id="btn-logs" class="btn-icon" title="Logs">
+        CURRENT TASK
+        <span id="countdown" class="countdown"></span>
+      </div>
+      <div id="current-task" class="task-card idle">
+        <span class="task-status-badge idle">Idle</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path d="M2 2h12M2 6h8M2 10h10M2 14h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
+        TASK HISTORY
+      </div>
+      <div id="task-table-wrap">
+        <table class="task-table" id="task-table">
+          <thead>
+            <tr><th>SubTask</th><th>Status</th><th>Time</th><th>Elapsed</th></tr>
+          </thead>
+          <tbody id="task-tbody"></tbody>
+        </table>
+        <div id="task-empty" class="empty-state">No tasks yet</div>
+      </div>
+      <div id="pagination" class="pagination"></div>
+    </section>
+  </div>
+
+  <!-- ====== Settings View ====== -->
+  <div id="view-settings" class="view">
+    <header class="page-header">
+      <button class="btn-back" data-nav="main">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+          <path d="M10 2L4 8l6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
       </button>
+      <h1>Server Settings</h1>
+    </header>
+    <div class="page-body">
+      <div id="services"></div>
+      <div class="btn-group">
+        <button id="btn-add-service" class="secondary">+ Add Service</button>
+        <button id="btn-save" class="primary">Save</button>
+      </div>
+      <div id="toast" class="toast hidden"></div>
     </div>
-  </header>
+  </div>
 
-  <section class="status-bar">
-    <span id="status-dot" class="dot disconnected"></span>
-    <span id="status-text">Checking...</span>
-    <button id="btn-open-flow" class="btn-open-flow hidden">Open Flow</button>
-  </section>
-
-  <section class="panel current-task-panel">
-    <div class="section-title">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/>
-        <path d="M4 7l2 2 2-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      CURRENT TASK
-      <span id="countdown" class="countdown"></span>
+  <!-- ====== Logs View ====== -->
+  <div id="view-logs" class="view">
+    <header class="page-header">
+      <button class="btn-back" data-nav="main">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+          <path d="M10 2L4 8l6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
+      </button>
+      <h1>Logs</h1>
+      <span id="log-count" class="log-count"></span>
+      <button id="btn-clear-logs" class="btn-clear">Clear</button>
+    </header>
+    <div class="logs-container">
+      <div id="logs" class="logs"></div>
     </div>
-    <div id="current-task" class="task-card idle">
-      <span class="task-status-badge idle">Idle</span>
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="section-title">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-      </svg>
-      TASK HISTORY
-    </div>
-    <div id="task-table-wrap">
-      <table class="task-table" id="task-table">
-        <thead>
-          <tr><th>SubTask</th><th>Status</th><th>Time</th><th>Elapsed</th></tr>
-        </thead>
-        <tbody id="task-tbody"></tbody>
-      </table>
-      <div id="task-empty" class="empty-state">No tasks yet</div>
-    </div>
-    <div id="pagination" class="pagination"></div>
-  </section>
+  </div>
 
   <script src="sidepanel.js"></script>
 </body>

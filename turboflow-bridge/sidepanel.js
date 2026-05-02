@@ -1,10 +1,9 @@
 (function () {
+  /* ── DOM refs ── */
   const bridgeIdEl = document.getElementById('bridge-id');
   const statusDot = document.getElementById('status-dot');
   const statusText = document.getElementById('status-text');
   const btnOpenFlow = document.getElementById('btn-open-flow');
-  const btnSettings = document.getElementById('btn-settings');
-  const btnLogs = document.getElementById('btn-logs');
   const currentTaskEl = document.getElementById('current-task');
   const countdownEl = document.getElementById('countdown');
   const taskTbody = document.getElementById('task-tbody');
@@ -12,6 +11,16 @@
   const taskTable = document.getElementById('task-table');
   const paginationEl = document.getElementById('pagination');
 
+  const servicesEl = document.getElementById('services');
+  const btnAddService = document.getElementById('btn-add-service');
+  const btnSave = document.getElementById('btn-save');
+  const toastEl = document.getElementById('toast');
+
+  const logsEl = document.getElementById('logs');
+  const logCountEl = document.getElementById('log-count');
+  const btnClearLogs = document.getElementById('btn-clear-logs');
+
+  /* ── State ── */
   const PAGE_SIZE = 20;
   let currentPage = 0;
   let totalTasks = 0;
@@ -19,10 +28,25 @@
   let autoCheckTimer = null;
   let countdownTimer = null;
   let nextPollAt = 0;
+  let services = [];
+  let logsLoaded = false;
 
+  /* ── SPA Navigation ── */
+  document.querySelectorAll('[data-nav]').forEach((btn) => {
+    btn.addEventListener('click', () => navigate(btn.dataset.nav));
+  });
+
+  function navigate(viewId) {
+    document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+    const target = document.getElementById('view-' + viewId);
+    if (target) target.classList.add('active');
+
+    if (viewId === 'settings') loadSettings();
+    if (viewId === 'logs' && !logsLoaded) loadLogs();
+  }
+
+  /* ── Main View ── */
   btnOpenFlow.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'OPEN_FLOW' }));
-  btnSettings.addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') }));
-  btnLogs.addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('logs.html') }));
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'CONNECTION_CHANGED') {
@@ -34,6 +58,9 @@
     }
     if (msg.type === 'COUNTDOWN_UPDATE') {
       nextPollAt = msg.nextPollAt || 0;
+    }
+    if (msg.type === 'BRIDGE_LOG') {
+      prependLogEntry(msg.level || 'info', msg.message || '', msg.time);
     }
   });
 
@@ -154,52 +181,129 @@
     const totalPages = Math.ceil(totalTasks / PAGE_SIZE);
     if (totalPages <= 1) return;
 
-    const prev = document.createElement('button');
-    prev.textContent = '‹';
-    prev.disabled = currentPage === 0;
-    prev.addEventListener('click', () => { currentPage--; loadTaskHistory(); });
-    paginationEl.appendChild(prev);
+    addPageBtn('‹', currentPage > 0, () => { currentPage--; loadTaskHistory(); });
 
     for (let i = 0; i < totalPages; i++) {
       if (totalPages > 7 && i > 1 && i < totalPages - 2 && Math.abs(i - currentPage) > 1) {
         if (paginationEl.lastChild?.textContent !== '…') {
           const dots = document.createElement('span');
           dots.textContent = '…';
-          dots.style.cssText = 'color: var(--text-muted); font-size: 11px; padding: 0 2px;';
+          dots.style.cssText = 'color:var(--text-muted);font-size:11px;padding:0 2px';
           paginationEl.appendChild(dots);
         }
         continue;
       }
-      const btn = document.createElement('button');
-      btn.textContent = String(i + 1);
-      if (i === currentPage) btn.className = 'active';
-      btn.addEventListener('click', () => { currentPage = i; loadTaskHistory(); });
-      paginationEl.appendChild(btn);
+      const btn = addPageBtn(String(i + 1), true, () => { currentPage = i; loadTaskHistory(); });
+      if (i === currentPage) btn.className += ' active';
     }
 
-    const next = document.createElement('button');
-    next.textContent = '›';
-    next.disabled = currentPage >= totalPages - 1;
-    next.addEventListener('click', () => { currentPage++; loadTaskHistory(); });
-    paginationEl.appendChild(next);
+    addPageBtn('›', currentPage < totalPages - 1, () => { currentPage++; loadTaskHistory(); });
   }
 
+  function addPageBtn(text, enabled, handler) {
+    const btn = document.createElement('button');
+    btn.textContent = text;
+    btn.disabled = !enabled;
+    if (enabled) btn.addEventListener('click', handler);
+    paginationEl.appendChild(btn);
+    return btn;
+  }
+
+  /* ── Settings View ── */
+  btnAddService.addEventListener('click', () => {
+    services.push({ baseUrl: '', token: '', enabled: true });
+    renderServices();
+  });
+  btnSave.addEventListener('click', saveConfig);
+
+  async function loadSettings() {
+    const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
+    services = config.services || [];
+    renderServices();
+  }
+
+  function renderServices() {
+    servicesEl.innerHTML = '';
+    if (services.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No services configured. Click "+ Add Service" to start.';
+      servicesEl.appendChild(empty);
+      return;
+    }
+    services.forEach((service, index) => {
+      const row = document.createElement('div');
+      row.className = 'service-row';
+      row.innerHTML = `
+        <label><input type="checkbox" class="enabled" ${service.enabled !== false ? 'checked' : ''}> Enabled</label>
+        <input class="base-url" placeholder="https://admin.example.com" value="${esc(service.baseUrl || '')}">
+        <input class="token" placeholder="TurboFlow AI Account API Key" type="password" value="${esc(service.token || '')}">
+        <button class="remove">Remove</button>
+      `;
+      row.querySelector('.enabled').addEventListener('change', (e) => service.enabled = e.target.checked);
+      row.querySelector('.base-url').addEventListener('input', (e) => service.baseUrl = e.target.value);
+      row.querySelector('.token').addEventListener('input', (e) => service.token = e.target.value);
+      row.querySelector('.remove').addEventListener('click', () => {
+        services.splice(index, 1);
+        renderServices();
+      });
+      servicesEl.appendChild(row);
+    });
+  }
+
+  async function saveConfig() {
+    await chrome.runtime.sendMessage({ type: 'SAVE_CONFIG', config: { services } });
+    showToast('Settings saved');
+  }
+
+  function showToast(message) {
+    toastEl.textContent = message;
+    toastEl.classList.remove('hidden');
+    setTimeout(() => toastEl.classList.add('hidden'), 2000);
+  }
+
+  /* ── Logs View ── */
+  btnClearLogs.addEventListener('click', async () => {
+    await chrome.runtime.sendMessage({ type: 'CLEAR_LOGS' });
+    logsEl.innerHTML = '';
+    logCountEl.textContent = '0 entries';
+  });
+
+  async function loadLogs() {
+    const result = await chrome.runtime.sendMessage({ type: 'GET_LOGS' });
+    const logs = result.logs || [];
+    logCountEl.textContent = `${logs.length} entries`;
+    logsEl.innerHTML = '';
+    logs.forEach((entry) => {
+      logsEl.appendChild(createLogEntry(entry.level || 'info', entry.message || '', entry.time));
+    });
+    logsLoaded = true;
+  }
+
+  function prependLogEntry(level, message, time) {
+    if (!logsLoaded) return;
+    const el = createLogEntry(level, message, time);
+    logsEl.prepend(el);
+    while (logsEl.children.length > 500) logsEl.lastChild.remove();
+    logCountEl.textContent = `${logsEl.children.length} entries`;
+  }
+
+  function createLogEntry(level, message, time) {
+    const el = document.createElement('div');
+    el.className = 'log ' + level;
+    const timeStr = time ? new Date(time).toLocaleTimeString() : new Date().toLocaleTimeString();
+    el.innerHTML = `<span class="log-time">${timeStr}</span> ${esc(message)}`;
+    return el;
+  }
+
+  /* ── Utilities ── */
   function shortenUrl(url) {
     if (!url) return '-';
-    try {
-      const u = new URL(url);
-      return u.host;
-    } catch {
-      return url.substring(0, 30);
-    }
+    try { return new URL(url).host; } catch { return url.substring(0, 30); }
   }
 
   function esc(value) {
-    return String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   init();
