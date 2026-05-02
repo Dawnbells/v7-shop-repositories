@@ -52,13 +52,15 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
            "AND (u.usedAiCredits + u.frozenAiCredits + :amount) <= u.monthlyAiCredits")
     int freezeCredits(@Param("userId") Long userId, @Param("amount") int amount);
 
-    /** 宽松冻结：只要 available > 0 即允许冻结（允许超额），用于子任务级积分冻结 */
+    /**
+     * 宽松冻结：只要 available > 0 即允许冻结（允许超额），用于子任务级积分冻结
+     */
     @Modifying
     @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits + :amount " +
            "WHERE u.id = :userId " +
            "AND u.monthlyAiCredits > 0 " +
            "AND (u.monthlyAiCredits - u.usedAiCredits - u.frozenAiCredits) > 0")
-    int freezeCreditsIfPositive(@Param("userId") Long userId, @Param("amount") int amount);
+    void freezeCreditsIfPositive(@Param("userId") Long userId, @Param("amount") int amount);
 
     @Modifying
     @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits - :freezeAmount, " +
