@@ -179,6 +179,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                         .businessPromptTokens(promptTokens)
                         .businessCompletionTokens(completionTokens)
                         .businessCredits(businessCredits)
+                        .cacheHit(true)
                         .build();
                 callback.onSubTaskCompleted(subTask, result);
                 return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("cache hit").build();

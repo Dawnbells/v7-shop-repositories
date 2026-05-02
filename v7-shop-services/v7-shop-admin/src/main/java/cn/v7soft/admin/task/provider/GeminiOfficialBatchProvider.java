@@ -155,6 +155,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             for (BatchEntry entry : batch) {
                 callback.onSubTaskFailed(entry.subTask, "batch submit failed: " + e.getMessage(), true, null);
             }
+            // submit 失败说明 Gemini 尚未处理，不计费
         }
     }
 
@@ -211,7 +212,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
                     it.remove();
                     log.warn("[GeminiBatch] batch timed out: jobName={}", ab.jobName);
                     geminiTranslateService.cancelBatchJob(ab.jobName);
-                    failAllEntries(ab, "batch job timed out");
+                    failAllEntries(ab, "batch job timed out", true);
                     cleanupBatchFiles(ab, null);
                 }
             } catch (Exception e) {
@@ -223,14 +224,14 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
     private void processBatchResult(ActiveBatch ab, BatchJob job, String state) {
         if (!DOWNLOADABLE_STATES.contains(state)) {
             log.warn("[GeminiBatch] batch not downloadable: jobName={}, state={}", ab.jobName, state);
-            failAllEntries(ab, "batch ended with state: " + state);
+            failAllEntries(ab, "batch ended with state: " + state, true);
             return;
         }
 
         String resultFileName = job.dest().flatMap(BatchJobDestination::fileName).orElse(null);
         if (resultFileName == null) {
             log.warn("[GeminiBatch] no result file: jobName={}", ab.jobName);
-            failAllEntries(ab, "no result file in batch response");
+            failAllEntries(ab, "no result file in batch response", true);
             return;
         }
 
@@ -240,7 +241,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             resultMap = parseResultJsonl(content);
         } catch (Exception e) {
             log.error("[GeminiBatch] download result failed: jobName={}", ab.jobName, e);
-            failAllEntries(ab, "download result failed: " + e.getMessage());
+            failAllEntries(ab, "download result failed: " + e.getMessage(), true);
             return;
         }
 
@@ -249,14 +250,16 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             BatchEntry entry = e.getValue();
             JsonNode node = resultMap.get(key);
             if (node == null || !node.has("response")) {
-                callback.onSubTaskFailed(entry.subTask, "no result in batch for key: " + key, true, null);
+                callback.onSubTaskFailed(entry.subTask, "no result in batch for key: " + key,
+                        false, buildEstimatedResult(entry));
                 continue;
             }
             try {
                 processEntryResult(entry, node.get("response"));
             } catch (Exception ex) {
                 log.error("[GeminiBatch] process entry failed: key={}", key, ex);
-                callback.onSubTaskFailed(entry.subTask, "process failed: " + ex.getMessage(), true, null);
+                callback.onSubTaskFailed(entry.subTask, "process failed: " + ex.getMessage(),
+                        false, buildEstimatedResult(entry));
             }
         }
     }
@@ -303,26 +306,40 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             }
             case IMAGE -> {
                 byte[] imgBytes = extractImage(responseNode);
-                MultimediaFile translatedFile = null;
-                if (imgBytes != null && entry.sourceFile != null) {
-                    translatedFile = multimediaFileService.saveTranslatedImage(
-                            imgBytes, entry.sourceFile.getSuffix(), subTask.getOwner());
-                }
                 int bizPrompt = 718;
                 int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(entry.imageMaxDim);
                 BigDecimal cost = TokenCostCalculator.calculateCost(
                         TranslationContentType.IMAGE, InvokeMode.BATCH, bizPrompt, bizCompletion, 0);
-                SubTaskResult result = SubTaskResult.builder()
-                        .translatedFile(translatedFile)
-                        .actualPromptTokens(actualPrompt)
-                        .actualCompletionTokens(actualCompletion)
-                        .actualThinkingTokens(actualThinking)
-                        .businessPromptTokens(bizPrompt)
-                        .businessCompletionTokens(bizCompletion)
-                        .businessThinkingTokens(0)
-                        .businessCredits(TokenCostCalculator.usdToCredits(cost))
-                        .build();
-                callback.onSubTaskCompleted(subTask, result);
+                try {
+                    MultimediaFile translatedFile = null;
+                    if (imgBytes != null && entry.sourceFile != null) {
+                        translatedFile = multimediaFileService.saveTranslatedImage(
+                                imgBytes, entry.sourceFile.getSuffix(), subTask.getOwner());
+                    }
+                    SubTaskResult result = SubTaskResult.builder()
+                            .translatedFile(translatedFile)
+                            .actualPromptTokens(actualPrompt)
+                            .actualCompletionTokens(actualCompletion)
+                            .actualThinkingTokens(actualThinking)
+                            .businessPromptTokens(bizPrompt)
+                            .businessCompletionTokens(bizCompletion)
+                            .businessThinkingTokens(0)
+                            .businessCredits(TokenCostCalculator.usdToCredits(cost))
+                            .build();
+                    callback.onSubTaskCompleted(subTask, result);
+                } catch (Exception e) {
+                    log.error("[GeminiBatch] image save failed: subTaskId={}", subTask.getSubTaskId(), e);
+                    SubTaskResult partial = SubTaskResult.builder()
+                            .actualPromptTokens(actualPrompt)
+                            .actualCompletionTokens(actualCompletion)
+                            .actualThinkingTokens(actualThinking)
+                            .businessPromptTokens(bizPrompt)
+                            .businessCompletionTokens(bizCompletion)
+                            .businessThinkingTokens(0)
+                            .businessCredits(TokenCostCalculator.usdToCredits(cost))
+                            .build();
+                    callback.onSubTaskFailed(subTask, "image save failed: " + e.getMessage(), false, partial);
+                }
             }
         }
     }
@@ -375,10 +392,41 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
 
     // ======================== 辅助 ========================
 
-    private void failAllEntries(ActiveBatch ab, String message) {
+    private void failAllEntries(ActiveBatch ab, String message, boolean billable) {
         for (BatchEntry entry : ab.entries.values()) {
-            callback.onSubTaskFailed(entry.subTask, message, true, null);
+            SubTaskResult partial = billable ? buildEstimatedResult(entry) : null;
+            callback.onSubTaskFailed(entry.subTask, message, !billable, partial);
         }
+    }
+
+    private SubTaskResult buildEstimatedResult(BatchEntry entry) {
+        AiAccountTranslateSubTask subTask = entry.subTask;
+        TranslationContentType ct = mapContentType(subTask.getType());
+        int bizPrompt, bizCompletion;
+        if (ct == TranslationContentType.IMAGE) {
+            bizPrompt = 718;
+            bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(
+                    entry.imageMaxDim > 0 ? entry.imageMaxDim : 512);
+        } else {
+            int est = TokenCostCalculator.estimateTextTokens(subTask.getContent());
+            bizPrompt = est;
+            bizCompletion = est;
+        }
+        BigDecimal cost = TokenCostCalculator.calculateCost(ct, InvokeMode.BATCH, bizPrompt, bizCompletion, 0);
+        return SubTaskResult.builder()
+                .businessPromptTokens(bizPrompt)
+                .businessCompletionTokens(bizCompletion)
+                .businessThinkingTokens(0)
+                .businessCredits(TokenCostCalculator.usdToCredits(cost))
+                .build();
+    }
+
+    private static TranslationContentType mapContentType(AiAccountTranslateSubTaskType type) {
+        return switch (type) {
+            case TEXT -> TranslationContentType.TEXT;
+            case HTML -> TranslationContentType.HTML;
+            case IMAGE -> TranslationContentType.IMAGE;
+        };
     }
 
     private void cleanupBatchFiles(ActiveBatch ab, BatchJob job) {

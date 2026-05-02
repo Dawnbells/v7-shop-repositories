@@ -21,4 +21,6 @@ public class SubTaskResult {
     private final int businessCompletionTokens;
     private final int businessThinkingTokens;
     private final int businessCredits;
+
+    private final boolean cacheHit;
 }

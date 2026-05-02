@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.math.BigDecimal;
 import java.util.concurrent.atomic.AtomicReference;
 
+import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
@@ -16,6 +17,7 @@ import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
+import com.google.genai.errors.ApiException;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -88,8 +90,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
             }
         } catch (Exception e) {
             log.error("[GeminiOfficialProvider] subtask failed: subTaskId={}", subTask.getSubTaskId(), e);
-            boolean retryable = cn.v7soft.admin.configurer.TranslationExecutorConfig.isRetryable(e);
-            callback.onSubTaskFailed(subTask, e.getMessage(), retryable, null);
+            boolean billable = isBillableError(e);
+            SubTaskResult partialResult = billable ? buildEstimatedResult(subTask) : null;
+            callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult);
         }
     }
 
@@ -162,28 +165,85 @@ public class GeminiOfficialProvider implements TranslateProvider {
         if (maxDim <= 0) maxDim = 512;
         int bizPrompt = 718;
         int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
-
-        MultimediaFile translatedFile = null;
-        if (resultBytes != null) {
-            translatedFile = multimediaFileService.saveTranslatedImage(
-                    resultBytes, sourceFile.getSuffix(), subTask.getOwner());
-        }
-
         BigDecimal cost = TokenCostCalculator.calculateCost(
                 TranslationContentType.IMAGE, InvokeMode.STANDARD, bizPrompt, bizCompletion, 0);
 
-        SubTaskResult result = SubTaskResult.builder()
-                .translatedFile(translatedFile)
-                .elapsedMs(usage != null ? usage.getElapsedMs() : null)
-                .actualPromptTokens(actualPrompt)
-                .actualCompletionTokens(actualCompletion)
-                .actualThinkingTokens(actualThinking)
+        try {
+            MultimediaFile translatedFile = null;
+            if (resultBytes != null) {
+                translatedFile = multimediaFileService.saveTranslatedImage(
+                        resultBytes, sourceFile.getSuffix(), subTask.getOwner());
+            }
+            SubTaskResult result = SubTaskResult.builder()
+                    .translatedFile(translatedFile)
+                    .elapsedMs(usage != null ? usage.getElapsedMs() : null)
+                    .actualPromptTokens(actualPrompt)
+                    .actualCompletionTokens(actualCompletion)
+                    .actualThinkingTokens(actualThinking)
+                    .businessPromptTokens(bizPrompt)
+                    .businessCompletionTokens(bizCompletion)
+                    .businessThinkingTokens(0)
+                    .businessCredits(TokenCostCalculator.usdToCredits(cost))
+                    .build();
+            callback.onSubTaskCompleted(subTask, result);
+        } catch (Exception e) {
+            log.error("[GeminiOfficialProvider] image post-processing failed: subTaskId={}", subTask.getSubTaskId(), e);
+            SubTaskResult partial = SubTaskResult.builder()
+                    .actualPromptTokens(actualPrompt)
+                    .actualCompletionTokens(actualCompletion)
+                    .actualThinkingTokens(actualThinking)
+                    .businessPromptTokens(bizPrompt)
+                    .businessCompletionTokens(bizCompletion)
+                    .businessThinkingTokens(0)
+                    .businessCredits(TokenCostCalculator.usdToCredits(cost))
+                    .build();
+            callback.onSubTaskFailed(subTask, "image save failed: " + e.getMessage(), false, partial);
+        }
+    }
+
+    /**
+     * 判断异常是否为"可能已产生 API 费用"的错误。
+     * 超限/配额耗尽/鉴权失败 = 非计费；超时/5xx/网络异常 = 可能已计费。
+     */
+    private static boolean isBillableError(Throwable e) {
+        if (e instanceof DailyQuotaExhaustedException) return false;
+        if (e instanceof ApiException ae) {
+            int code = ae.code();
+            if (code == 401 || code == 403) return false;
+            if (code == 429) {
+                String msg = ae.getMessage();
+                return msg == null || !msg.contains("per_day");
+            }
+        }
+        return true;
+    }
+
+    private SubTaskResult buildEstimatedResult(AiAccountTranslateSubTask subTask) {
+        TranslationContentType ct = mapContentType(subTask.getType());
+        int bizPrompt, bizCompletion;
+        if (ct == TranslationContentType.IMAGE) {
+            bizPrompt = 718;
+            bizCompletion = TokenCostCalculator.estimateImageTokens();
+        } else {
+            int est = TokenCostCalculator.estimateTextTokens(subTask.getContent());
+            bizPrompt = est;
+            bizCompletion = est;
+        }
+        BigDecimal cost = TokenCostCalculator.calculateCost(ct, InvokeMode.STANDARD, bizPrompt, bizCompletion, 0);
+        return SubTaskResult.builder()
                 .businessPromptTokens(bizPrompt)
                 .businessCompletionTokens(bizCompletion)
                 .businessThinkingTokens(0)
                 .businessCredits(TokenCostCalculator.usdToCredits(cost))
                 .build();
-        callback.onSubTaskCompleted(subTask, result);
+    }
+
+    private static TranslationContentType mapContentType(AiAccountTranslateSubTaskType type) {
+        return switch (type) {
+            case TEXT -> TranslationContentType.TEXT;
+            case HTML -> TranslationContentType.HTML;
+            case IMAGE -> TranslationContentType.IMAGE;
+        };
     }
 
     private byte[] readImageBytes(MultimediaFile file) throws Exception {

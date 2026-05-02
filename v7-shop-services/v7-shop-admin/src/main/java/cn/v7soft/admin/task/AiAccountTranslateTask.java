@@ -238,6 +238,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         if (result.getTranslatedHtml() != null) {
                             record.setTranslatedText(result.getTranslatedHtml());
                         }
+                        if (result.isCacheHit()) {
+                            record.setCacheHit(true);
+                        }
                         record.setAttemptCount(subTask.getAttemptCount().get());
                         usageRecordRepository.save(record);
                     });
