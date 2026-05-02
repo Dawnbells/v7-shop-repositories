@@ -47,6 +47,47 @@ public class AiCreditsService {
         return true;
     }
 
+    /**
+     * 检查用户是否有可用积分（monthly - used - frozen > 0）。
+     * 管理员、公司管理员、无限额用户（-1）直接返回 true。
+     */
+    public boolean hasAvailableCredits(Long userId) {
+        SystemUser user = systemUserRepository.findById(userId).orElseThrow();
+        if (user.getUserType() == SystemUserType.ADMIN || user.getUserType() == SystemUserType.COMPANY_ADMIN) {
+            return true;
+        }
+        Integer monthly = user.getMonthlyAiCredits();
+        if (monthly == null || monthly == 0) {
+            return false;
+        }
+        if (monthly == -1) {
+            return true;
+        }
+        return (monthly - user.getUsedAiCredits() - user.getFrozenAiCredits()) > 0;
+    }
+
+    /**
+     * 宽松冻结：只要 available > 0 即允许冻结（允许超额），不抛异常。
+     * 管理员、公司管理员、无限额用户（-1）直接返回 true 不冻结。
+     *
+     * @return true=冻结成功或无需冻结, false=积分不足
+     */
+    @Transactional
+    public boolean tryFreeze(Long userId, int estimated) {
+        SystemUser user = systemUserRepository.findById(userId).orElseThrow();
+        if (user.getUserType() == SystemUserType.ADMIN || user.getUserType() == SystemUserType.COMPANY_ADMIN) {
+            return true;
+        }
+        Integer monthly = user.getMonthlyAiCredits();
+        if (monthly == null || monthly == 0) {
+            return false;
+        }
+        if (monthly == -1) {
+            return true;
+        }
+        return systemUserRepository.freezeCreditsIfPositive(userId, estimated) > 0;
+    }
+
     @Transactional
     public void settle(Long userId, int freezeAmount, int actualAmount) {
         systemUserRepository.settleCredits(userId, freezeAmount, actualAmount);

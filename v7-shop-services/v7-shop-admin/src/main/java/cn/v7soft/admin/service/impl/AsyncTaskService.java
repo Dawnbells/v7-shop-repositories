@@ -375,12 +375,14 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     public AsyncTaskResponse retry(Long taskId) {
         AsyncTask oldTask = getById(taskId);
         log.info("[retry] taskId={} 请求重试, 当前状态={}, taskType={}", taskId, oldTask.getState(), oldTask.getTaskType());
-        if (oldTask.getState() != TaskState.FAILED && oldTask.getState() != TaskState.CANCELLED) {
-            throw new IllegalStateException("只有失败或已取消的任务才能重试");
+        if (oldTask.getState() != TaskState.FAILED
+                && oldTask.getState() != TaskState.CANCELLED
+                && oldTask.getState() != TaskState.INSUFFICIENT_CREDITS) {
+            throw new IllegalStateException("只有失败、已取消或积分不足的任务才能重试");
         }
 
         Integer estimated = oldTask.getEstimatedCredits();
-        if (estimated != null) {
+        if (estimated != null && oldTask.getState() != TaskState.INSUFFICIENT_CREDITS) {
             aiCreditsService.freeze(oldTask.getOwner().getId(), estimated);
         }
 

@@ -29,6 +29,7 @@ import cn.v7soft.admin.service.ICountryService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductService;
+import cn.v7soft.admin.service.impl.AiCreditsService;
 import cn.v7soft.admin.task.provider.TranslateProvider;
 import cn.v7soft.admin.task.provider.TranslateProviderCallback;
 import cn.v7soft.admin.task.provider.TranslateTaskCallbackAdapter;
@@ -92,6 +93,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
     private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
+    private final AiCreditsService aiCreditsService;
     private final List<TranslateProvider> providers;
 
     // 按账号隔离的待执行子任务队列（FIFO，先提交先执行）
@@ -119,6 +121,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                   ImageTranslationCacheRepository imageTranslationCacheRepository,
                                   TextTranslationCacheRepository textTranslationCacheRepository,
                                   AiTokenUsageRecordRepository aiTokenUsageRecordRepository,
+                                  AiCreditsService aiCreditsService,
                                   List<TranslateProvider> providers) {
         this.asyncTaskRepository = asyncTaskRepository;
         this.productService = productService;
@@ -130,6 +133,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.imageTranslationCacheRepository = imageTranslationCacheRepository;
         this.textTranslationCacheRepository = textTranslationCacheRepository;
         this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
+        this.aiCreditsService = aiCreditsService;
         this.providers = providers;
     }
 
@@ -203,6 +207,14 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
             for (AsyncTask task : tasks) {
                 if (runningTasks.containsKey(task.getId())) {
+                    continue;
+                }
+                if (!aiCreditsService.hasAvailableCredits(task.getOwner().getId())) {
+                    task.setState(TaskState.INSUFFICIENT_CREDITS);
+                    task.setMessage("AI积分不足，请充值后重试");
+                    asyncTaskRepository.save(task);
+                    log.info("[AiAccountTranslateTask] 积分不足，标记 INSUFFICIENT_CREDITS: taskId={}, userId={}",
+                            task.getId(), task.getOwner().getId());
                     continue;
                 }
                 loadTask(task);
@@ -364,6 +376,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 return;
             }
 
+            int totalEstimatedCredits = 0;
             for (AiAccountTranslateSubTask subTask : subTasks) {
                 subTask.setOwner(task.getOwner());
                 status.addSubTask(subTask);
@@ -375,10 +388,18 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     status.completeSubTask(subTask);
                     continue;
                 }
+                totalEstimatedCredits += estimateSubTaskCredits(subTask);
                 subTaskQueuesByAccount
                         .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
                         .offer(subTask);
             }
+
+            if (totalEstimatedCredits > 0) {
+                aiCreditsService.tryFreeze(task.getOwner().getId(), totalEstimatedCredits);
+                task.setEstimatedCredits(totalEstimatedCredits);
+                asyncTaskRepository.save(task);
+            }
+
             status.setProcessing("已拆分AI账号翻译子任务: " + subTasks.size());
         } catch (Exception e) {
             log.error("[AiAccountTranslateTask] 拆分任务失败: taskId={}", task.getId(), e);
@@ -386,6 +407,19 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             status.fail("拆分任务失败: " + e.getMessage());
             runningTasks.put(task.getId(), status);
         }
+    }
+
+    private int estimateSubTaskCredits(AiAccountTranslateSubTask subTask) {
+        try {
+            AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
+            TranslateProvider provider = providerRegistry.get(account.getProvider());
+            if (provider != null) {
+                return provider.estimateSubTaskCredits(subTask);
+            }
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] 估算子任务积分失败: subTaskId={}", subTask.getSubTaskId(), e);
+        }
+        return 1;
     }
 
     private List<AiAccountTranslateSubTask> buildSubTasks(Long taskId, TranslateByAIRequest request) {

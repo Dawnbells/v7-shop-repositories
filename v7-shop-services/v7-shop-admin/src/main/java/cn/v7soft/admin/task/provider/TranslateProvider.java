@@ -19,6 +19,11 @@ public interface TranslateProvider {
     void setCallback(TranslateProviderCallback callback);
 
     /**
+     * 估算单个子任务所需的积分。在 loadTask 阶段按子任务累加，用于任务级冻结。
+     */
+    int estimateSubTaskCredits(AiAccountTranslateSubTask subTask);
+
+    /**
      * 分发子任务给 Provider 执行。
      * 调用前，AiAccountTranslateTask 已通过 AiAccountRuntimeState.reserveSlots 预留并发槽。
      * Provider 执行完成后，必须通过 callback 的 onSubTaskCompleted/onSubTaskFailed 通知结果，

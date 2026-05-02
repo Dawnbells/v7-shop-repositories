@@ -89,6 +89,15 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     }
 
     @Override
+    public int estimateSubTaskCredits(AiAccountTranslateSubTask subTask) {
+        if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
+            return TokenCostCalculator.estimateCredits(0, TokenCostCalculator.estimateImageTokens(), InvokeMode.STANDARD);
+        }
+        int textTokens = TokenCostCalculator.estimateTextTokens(subTask.getContent());
+        return TokenCostCalculator.estimateCredits(textTokens, 0, InvokeMode.STANDARD);
+    }
+
+    @Override
     public void executeSubTask(AiAccountTranslateSubTask subTask) {
         internalQueues
                 .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
