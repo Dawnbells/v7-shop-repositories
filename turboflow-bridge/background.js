@@ -132,20 +132,13 @@ async function runLoop() {
     lastStatus = { connected: conn.connected, message: conn.reason || 'Connected', projectId: conn.projectId };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
 
-    // 每轮先向所有服务心跳，让服务器知道这个插件是否已连上 Flow 项目。
     const orderedServices = rotateServices(services);
-
-    for (const service of orderedServices) {
-      await heartbeat(service, conn);
-    }
-
-    // 一个插件同一时间只执行一个任务；busy 或未连接 Flow 时只保持心跳。
-    if (!conn.connected || currentTask || orderedServices.length === 0) {
+    if (orderedServices.length === 0) {
       scheduleLoop(IDLE_DELAY_MS);
       return;
     }
 
-    // 多个 service 轮询取任务，拿到任务后立即执行，完成/失败后再安排下一轮。
+    // Poll reports bridge state and requests work in one request.
     for (let i = 0; i < orderedServices.length; i++) {
       const service = orderedServices[i];
       const task = await pollTask(service, conn);
@@ -162,8 +155,8 @@ async function runLoop() {
   }
 }
 
-async function heartbeat(service, conn) {
-  await postJson(service, '/turboflow-bridge/heartbeat', {
+async function pollTask(service, conn) {
+  return postJson(service, '/turboflow-bridge/tasks/poll', {
     bridgeId,
     version: VERSION,
     flowConnected: !!conn.connected,
@@ -171,24 +164,12 @@ async function heartbeat(service, conn) {
     currentUrl: null,
     busy: !!currentTask,
   }).catch((e) => {
-    broadcast({ type: 'BRIDGE_LOG', level: 'warn', message: `Heartbeat failed: ${service.baseUrl} ${e.message}` });
-  });
-}
-
-async function pollTask(service, conn) {
-  return postJson(service, '/turboflow-bridge/tasks/poll', {
-    bridgeId,
-    version: VERSION,
-    flowConnected: true,
-    projectId: conn.projectId || null,
-  }).catch((e) => {
     broadcast({ type: 'BRIDGE_LOG', level: 'warn', message: `Poll failed: ${service.baseUrl} ${e.message}` });
     return null;
   });
 }
 
 async function executeTask(service, task) {
-  // currentTask 是本插件本地锁，也会在心跳里上报 busy 状态。
   currentTask = {
     service: service.baseUrl,
     taskId: task.taskId,
@@ -201,7 +182,6 @@ async function executeTask(service, task) {
   const startedAt = Date.now();
   try {
     const result = await translateImage(task);
-    // 成功回调会携带 assignmentId，服务端用它校验任务归属并释放并发槽。
     await postJson(service, '/turboflow-bridge/tasks/complete', {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -215,7 +195,6 @@ async function executeTask(service, task) {
     broadcast({ type: 'TASK_CHANGED', currentTask: null });
     scheduleLoop(SUCCESS_DELAY_MS);
   } catch (e) {
-    // 失败回调默认 retryable=true；服务端会放入失败优先队列，优先交给下一个插件重试。
     await postJson(service, '/turboflow-bridge/tasks/fail', {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -236,7 +215,6 @@ async function translateImage(task) {
   const conn = await checkConnection();
   if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
 
-  // Flow 的浏览器会话 token 只在页面里可取，插件通过 MAIN world 注入脚本读取。
   const token = await getSessionTokenFromFlow(conn.tabId);
   const mediaId = await uploadImageToFlow(conn.tabId, {
     base64: stripDataUrl(task.imageBase64),

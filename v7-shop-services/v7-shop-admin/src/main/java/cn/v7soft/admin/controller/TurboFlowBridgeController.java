@@ -3,7 +3,6 @@ package cn.v7soft.admin.controller;
 import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeCompleteRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeFailRequest;
-import cn.v7soft.admin.controller.req.TurboFlowBridgeHeartbeatRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgePollRequest;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeHeartbeatResponse;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeTaskResponse;
@@ -22,13 +21,7 @@ public class TurboFlowBridgeController {
 
     private final AiAccountTranslateTask aiAccountTranslateTask;
 
-    // 插件不走后台登录态，使用 TurboFlow AI Account 的 apiKey 作为 Bearer token。
-    @PostMapping("/heartbeat")
-    public TurboFlowBridgeHeartbeatResponse heartbeat(HttpServletRequest servletRequest,
-                                                      @RequestBody TurboFlowBridgeHeartbeatRequest request) {
-        return aiAccountTranslateTask.turboFlowHeartbeat(bearerToken(servletRequest), request);
-    }
-
+    // Bridge APIs use the TurboFlow AI Account apiKey as the Bearer token.
     @PostMapping("/tasks/poll")
     public TurboFlowBridgeTaskResponse poll(HttpServletRequest servletRequest,
                                             @RequestBody TurboFlowBridgePollRequest request) {

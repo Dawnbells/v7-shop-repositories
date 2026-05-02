@@ -33,10 +33,8 @@ import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeCompleteRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeFailRequest;
-import cn.v7soft.admin.controller.req.TurboFlowBridgeHeartbeatRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgePollRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
-import cn.v7soft.admin.controller.resp.TurboFlowBridgeHeartbeatResponse;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeTaskResponse;
 import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.IAsyncTaskService;
@@ -179,24 +177,20 @@ public class AiAccountTranslateTask {
         }
     }
 
-    public TurboFlowBridgeHeartbeatResponse turboFlowHeartbeat(String token, TurboFlowBridgeHeartbeatRequest request) {
-        AiAccount account = resolveTurboFlowAccount(token);
-        String bridgeId = normalizeBridgeId(request.getBridgeId());
-        turboFlowBridgeStates.put(bridgeId, TurboFlowBridgeState.from(account.getId(), request));
-        return TurboFlowBridgeHeartbeatResponse.builder()
-                .accepted(true)
-                .aiAccountId(account.getId())
-                .message("ready")
-                .build();
-    }
-
     public TurboFlowBridgeTaskResponse pollTurboFlowTask(String token, TurboFlowBridgePollRequest request) {
         AiAccount account = resolveTurboFlowAccount(token);
         String bridgeId = normalizeBridgeId(request.getBridgeId());
         turboFlowBridgeStates.put(bridgeId, TurboFlowBridgeState.from(account.getId(), request));
 
-        ConcurrentLinkedDeque<AiAccountTranslateSubTask> failedStack = failedSubTaskStacksByAccount.get(account.getId());
-        ConcurrentLinkedDeque<AiAccountTranslateSubTask> stack = subTaskStacksByAccount.get(account.getId());
+        if (!Boolean.TRUE.equals(request.getFlowConnected())) {
+            return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("flow not connected").build();
+        }
+        if (Boolean.TRUE.equals(request.getBusy())) {
+            return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("bridge busy").build();
+        }
+
+        ConcurrentLinkedDeque<AiAccountTranslateSubTask> failedStack;
+        ConcurrentLinkedDeque<AiAccountTranslateSubTask> stack;
         AiAccountRuntimeState runtimeState = accountRuntimeStates.computeIfAbsent(account.getId(), AiAccountRuntimeState::new);
 
         synchronized (runtimeState) {
@@ -1266,18 +1260,6 @@ public class AiAccountTranslateTask {
             this.lastHeartbeatAt = LocalDateTime.now();
         }
 
-        private static TurboFlowBridgeState from(Long aiAccountId, TurboFlowBridgeHeartbeatRequest request) {
-            return new TurboFlowBridgeState(
-                    aiAccountId,
-                    StrUtil.blankToDefault(request.getBridgeId(), "unknown"),
-                    request.getVersion(),
-                    Boolean.TRUE.equals(request.getFlowConnected()),
-                    request.getProjectId(),
-                    request.getCurrentUrl(),
-                    Boolean.TRUE.equals(request.getBusy()),
-                    request.getAccountInfo());
-        }
-
         private static TurboFlowBridgeState from(Long aiAccountId, TurboFlowBridgePollRequest request) {
             return new TurboFlowBridgeState(
                     aiAccountId,
@@ -1286,7 +1268,7 @@ public class AiAccountTranslateTask {
                     Boolean.TRUE.equals(request.getFlowConnected()),
                     request.getProjectId(),
                     request.getCurrentUrl(),
-                    false,
+                    Boolean.TRUE.equals(request.getBusy()),
                     request.getAccountInfo());
         }
     }

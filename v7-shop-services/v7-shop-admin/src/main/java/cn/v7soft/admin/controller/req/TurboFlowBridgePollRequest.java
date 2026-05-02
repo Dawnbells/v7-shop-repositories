@@ -14,5 +14,6 @@ public class TurboFlowBridgePollRequest {
     private Boolean flowConnected;
     private String projectId;
     private String currentUrl;
+    private Boolean busy;
     private Map<String, Object> accountInfo;
 }
