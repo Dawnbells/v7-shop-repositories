@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
@@ -68,6 +69,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final ICountryService countryService;
     private final AiTranslateUsageRecordRepository usageRecordRepository;
     private final AiCreditsService aiCreditsService;
+    private final TransactionTemplate transactionTemplate;
     private final List<TranslateProvider> providers;
 
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> subTaskQueuesByAccount = new ConcurrentHashMap<>();
@@ -88,6 +90,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                   ICountryService countryService,
                                   AiTranslateUsageRecordRepository usageRecordRepository,
                                   AiCreditsService aiCreditsService,
+                                  TransactionTemplate transactionTemplate,
                                   List<TranslateProvider> providers) {
         this.asyncTaskRepository = asyncTaskRepository;
         this.productService = productService;
@@ -97,6 +100,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.countryService = countryService;
         this.usageRecordRepository = usageRecordRepository;
         this.aiCreditsService = aiCreditsService;
+        this.transactionTemplate = transactionTemplate;
         this.providers = providers;
     }
 
@@ -456,18 +460,18 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         .offer(subTask);
             }
 
-            // 4. 批量保存计费记录
-            usageRecordRepository.saveAll(usageRecords);
-
-            // 5. 冻结积分：宽松模式（available > 0 即可冻结）
-            if (totalEstimatedCredits > 0) {
-                aiCreditsService.tryFreeze(task.getOwner().getId(), totalEstimatedCredits);
-                task.setEstimatedCredits(totalEstimatedCredits);
-            }
-
-            // 6. 标记 AsyncTask 为 PROCESSING 并持久化
-            task.setState(TaskState.PROCESSING);
-            asyncTaskRepository.save(task);
+            // 4/5/6 在同一事务中执行，保证 usage records + 积分冻结 + 任务状态的原子性
+            final int credits = totalEstimatedCredits;
+            final List<AiTranslateUsageRecord> records = usageRecords;
+            transactionTemplate.executeWithoutResult(txStatus -> {
+                usageRecordRepository.saveAll(records);
+                if (credits > 0) {
+                    aiCreditsService.tryFreeze(task.getOwner().getId(), credits);
+                    task.setEstimatedCredits(credits);
+                }
+                task.setState(TaskState.PROCESSING);
+                asyncTaskRepository.save(task);
+            });
 
             status.setProcessing("已拆分AI账号翻译子任务: " + subTasks.size());
         } catch (Exception e) {
@@ -634,8 +638,10 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 return;
             }
             int actualCredits = usageRecordRepository.sumBusinessCreditsByTaskId(task.getId());
-            aiCreditsService.settle(task.getOwner().getId(), frozenCredits, actualCredits);
-            usageRecordRepository.markSettledByTaskId(task.getId());
+            transactionTemplate.executeWithoutResult(txStatus -> {
+                aiCreditsService.settle(task.getOwner().getId(), task.getEstimatedCredits(), actualCredits);
+                usageRecordRepository.markSettledByTaskId(task.getId());
+            });
             log.info("[AiAccountTranslateTask] settled taskId={}, frozen={}, actual={}",
                      task.getId(), frozenCredits, actualCredits);
         } catch (Exception e) {
