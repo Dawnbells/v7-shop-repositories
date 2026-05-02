@@ -22,6 +22,7 @@ public class TurboFlowBridgeController {
 
     private final AiAccountTranslateTask aiAccountTranslateTask;
 
+    // 插件不走后台登录态，使用 TurboFlow AI Account 的 apiKey 作为 Bearer token。
     @PostMapping("/heartbeat")
     public TurboFlowBridgeHeartbeatResponse heartbeat(HttpServletRequest servletRequest,
                                                       @RequestBody TurboFlowBridgeHeartbeatRequest request) {

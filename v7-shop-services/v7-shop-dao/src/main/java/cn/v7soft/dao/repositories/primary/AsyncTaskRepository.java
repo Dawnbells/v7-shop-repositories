@@ -26,6 +26,8 @@ public interface AsyncTaskRepository extends BaseRepository<AsyncTask> {
 
     List<AsyncTask> findByTaskTypeAndStateOrderByCreateTimeAsc(TaskType taskType, TaskState state, Pageable pageable);
 
+    List<AsyncTask> findByTaskTypeAndState(TaskType taskType, TaskState state);
+
     List<AsyncTask> findByStateIn(List<TaskState> states);
 
     Page<AsyncTask> findByStateOrderByCreateTimeDesc(TaskState state, Pageable pageable);

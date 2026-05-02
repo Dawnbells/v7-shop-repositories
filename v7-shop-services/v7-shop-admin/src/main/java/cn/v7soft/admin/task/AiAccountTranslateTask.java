@@ -24,6 +24,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import cn.hutool.core.util.StrUtil;
+import jakarta.annotation.PostConstruct;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -92,14 +93,41 @@ public class AiAccountTranslateTask {
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
     private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
+    // 普通待分发栈：新拆分出的图片任务按账号隔离，poll 时按栈顶分配。
     private final ConcurrentMap<Long, ConcurrentLinkedDeque<AiAccountTranslateSubTask>> subTaskStacksByAccount = new ConcurrentHashMap<>();
+    // 失败优先栈：插件上报失败或 lease 过期的任务进入这里，下一次 poll 优先重试。
+    private final ConcurrentMap<Long, ConcurrentLinkedDeque<AiAccountTranslateSubTask>> failedSubTaskStacksByAccount = new ConcurrentHashMap<>();
+    // 运行中异步任务状态只保存在内存，定时同步到 AsyncTask 表。
     private final ConcurrentMap<Long, AiAccountTranslateTaskStatus> runningTasks = new ConcurrentHashMap<>();
+    // 账号级并发/限流状态，TurboFlow 也用它保证同一账号不会超过配置并发。
     private final ConcurrentMap<Long, AiAccountRuntimeState> accountRuntimeStates = new ConcurrentHashMap<>();
+    // 插件在线状态，仅用于观测；服务重启后可以丢失。
     private final ConcurrentMap<String, TurboFlowBridgeState> turboFlowBridgeStates = new ConcurrentHashMap<>();
+    // assignmentId -> 子任务。只有拿到 assignmentId 的插件才能 complete/fail 对应任务。
     private final ConcurrentMap<String, AiAccountTranslateSubTask> turboFlowAssignments = new ConcurrentHashMap<>();
     private final AtomicBoolean loadingTasks = new AtomicBoolean(false);
     private final AtomicBoolean executingSubTasks = new AtomicBoolean(false);
     private final AtomicBoolean syncingTaskStatus = new AtomicBoolean(false);
+
+    @PostConstruct
+    public void resetProcessingTasksOnStartup() {
+        // assignment 和运行态都在内存中，服务重启后无法继续旧的 PROCESSING 任务。
+        // 重置为 PENDING 后会重新拆分任务；已完成内容依靠翻译缓存跳过重复执行。
+        List<AsyncTask> processingTasks = asyncTaskRepository.findByTaskTypeAndState(
+                TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE,
+                TaskState.PROCESSING);
+        if (processingTasks.isEmpty()) {
+            return;
+        }
+        for (AsyncTask task : processingTasks) {
+            task.setState(TaskState.PENDING);
+            task.setProgress(0);
+            task.setMessage("TurboFlow task reset after server restart");
+        }
+        asyncTaskRepository.saveAll(processingTasks);
+        log.warn("[AiAccountTranslateTask] reset processing TurboFlow tasks to pending on startup: count={}",
+                processingTasks.size());
+    }
 
     @Scheduled(fixedDelay = 60 * 1000, initialDelay = 30 * 1000)
     public void executePendingTasks() {
@@ -167,19 +195,24 @@ public class AiAccountTranslateTask {
         String bridgeId = normalizeBridgeId(request.getBridgeId());
         turboFlowBridgeStates.put(bridgeId, TurboFlowBridgeState.from(account.getId(), request));
 
+        ConcurrentLinkedDeque<AiAccountTranslateSubTask> failedStack = failedSubTaskStacksByAccount.get(account.getId());
         ConcurrentLinkedDeque<AiAccountTranslateSubTask> stack = subTaskStacksByAccount.get(account.getId());
         AiAccountRuntimeState runtimeState = accountRuntimeStates.computeIfAbsent(account.getId(), AiAccountRuntimeState::new);
-        reclaimExpiredTurboFlowAssignments(account.getId(), stack, runtimeState);
-        if (stack == null || stack.isEmpty()) {
-            return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
-        }
 
         synchronized (runtimeState) {
+            // 分发、过期回收、并发占用必须在账号锁内完成，避免多个插件拿到同一个任务。
+            reclaimExpiredTurboFlowAssignments(account.getId(), runtimeState);
+            failedStack = failedSubTaskStacksByAccount.get(account.getId());
+            stack = subTaskStacksByAccount.get(account.getId());
+            if (isEmpty(failedStack) && isEmpty(stack)) {
+                return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
+            }
+
             if (runtimeState.reserveSlots(account, 1) <= 0) {
                 return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("concurrency limit").build();
             }
 
-            AiAccountTranslateSubTask subTask = stack.poll();
+            AiAccountTranslateSubTask subTask = pollTurboFlowSubTask(failedStack, stack);
             if (subTask == null) {
                 runtimeState.releaseFinishedSlot();
                 return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
@@ -205,6 +238,7 @@ public class AiAccountTranslateTask {
                 Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
                         .findByImageHashAndLanguageId(imageHash, Long.parseLong(subTask.getLanguageId()));
                 if (cached.isPresent()) {
+                    // 二次缓存检查：任务入栈后到插件 poll 之间，其他任务可能已经生成了同图同语言缓存。
                     runtimeState.releaseFinishedSlot();
                     applyCachedImageSubTask(status, subTask, cached.get(), sourceFile);
                     return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("cache hit").build();
@@ -212,6 +246,7 @@ public class AiAccountTranslateTask {
 
                 String assignmentId = UUID.randomUUID().toString();
                 LocalDateTime leaseUntil = LocalDateTime.now().plusMinutes(TURBOFLOW_LEASE_MINUTES);
+                // dispatch 后任务进入 PROCESSING，并生成 lease；超时未回调会被放入失败优先栈重试。
                 subTask.dispatch(bridgeId, assignmentId, leaseUntil);
                 turboFlowAssignments.put(assignmentId, subTask);
                 status.dispatchSubTask(subTask);
@@ -232,7 +267,7 @@ public class AiAccountTranslateTask {
                         .build();
             } catch (Exception e) {
                 runtimeState.releaseFinishedSlot();
-                stack.push(subTask);
+                pushTurboFlowSubTask(subTask, true);
                 log.error("[TurboFlowBridge] 分发任务失败: taskId={}, subTaskId={}",
                         subTask.getTaskId(), subTask.getSubTaskId(), e);
                 return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("dispatch failed: " + e.getMessage()).build();
@@ -241,16 +276,23 @@ public class AiAccountTranslateTask {
     }
 
     public void completeTurboFlowTask(String token, TurboFlowBridgeCompleteRequest request) {
-        resolveTurboFlowAccount(token);
-        AiAccountTranslateSubTask subTask = turboFlowAssignments.remove(request.getAssignmentId());
+        AiAccount account = resolveTurboFlowAccount(token);
+        AiAccountTranslateSubTask subTask = turboFlowAssignments.get(request.getAssignmentId());
         if (subTask == null) {
+            throw new IllegalArgumentException("assignment not found or expired");
+        }
+        // 防止多个账号/多个插件串任务：token 对应账号和 bridgeId 都必须匹配 assignment。
+        if (!account.getId().equals(subTask.getAiAccountId())) {
+            throw new IllegalArgumentException("assignment does not belong to account");
+        }
+        if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
+            throw new IllegalArgumentException("assignment does not belong to bridge");
+        }
+        if (!turboFlowAssignments.remove(request.getAssignmentId(), subTask)) {
             throw new IllegalArgumentException("assignment not found or expired");
         }
         AiAccountRuntimeState runtimeState = accountRuntimeStates.computeIfAbsent(subTask.getAiAccountId(), AiAccountRuntimeState::new);
         try {
-            if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
-                throw new IllegalArgumentException("assignment does not belong to bridge");
-            }
             byte[] imageBytes = decodeBase64Image(request.getResultImageBase64());
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
             String suffix = suffixFromMimeType(request.getResultMimeType(), sourceFile.getSuffix());
@@ -273,9 +315,19 @@ public class AiAccountTranslateTask {
     }
 
     public void failTurboFlowTask(String token, TurboFlowBridgeFailRequest request) {
-        resolveTurboFlowAccount(token);
-        AiAccountTranslateSubTask subTask = turboFlowAssignments.remove(request.getAssignmentId());
+        AiAccount account = resolveTurboFlowAccount(token);
+        AiAccountTranslateSubTask subTask = turboFlowAssignments.get(request.getAssignmentId());
         if (subTask == null) {
+            return;
+        }
+        // fail 也必须校验归属，避免错误插件把别的任务重新入队或标记失败。
+        if (!account.getId().equals(subTask.getAiAccountId())) {
+            throw new IllegalArgumentException("assignment does not belong to account");
+        }
+        if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
+            throw new IllegalArgumentException("assignment does not belong to bridge");
+        }
+        if (!turboFlowAssignments.remove(request.getAssignmentId(), subTask)) {
             return;
         }
         AiAccountRuntimeState runtimeState = accountRuntimeStates.computeIfAbsent(subTask.getAiAccountId(), AiAccountRuntimeState::new);
@@ -288,9 +340,8 @@ public class AiAccountTranslateTask {
                 if (status != null) {
                     status.retrySubTask(subTask, message);
                 }
-                subTaskStacksByAccount
-                        .computeIfAbsent(subTask.getAiAccountId(), key -> new ConcurrentLinkedDeque<>())
-                        .push(subTask);
+                // 失败任务不回普通栈，进入失败优先栈，确保下一轮优先分配。
+                pushTurboFlowSubTask(subTask, true);
             } else {
                 subTask.fail(message);
                 if (status != null) {
@@ -536,11 +587,7 @@ public class AiAccountTranslateTask {
     }
 
     private void reclaimExpiredTurboFlowAssignments(Long aiAccountId,
-                                                    ConcurrentLinkedDeque<AiAccountTranslateSubTask> stack,
                                                     AiAccountRuntimeState runtimeState) {
-        if (stack == null) {
-            return;
-        }
         LocalDateTime now = LocalDateTime.now();
         for (AiAccountTranslateTaskStatus status : runningTasks.values()) {
             for (AiAccountTranslateSubTask subTask : status.getSubTasks().values()) {
@@ -553,10 +600,32 @@ public class AiAccountTranslateTask {
                 }
                 subTask.retry("TurboFlow lease expired");
                 status.retrySubTask(subTask, "TurboFlow lease expired");
-                stack.push(subTask);
+                // lease 过期等同于一次可重试失败，也放入失败优先栈。
+                pushTurboFlowSubTask(subTask, true);
                 runtimeState.releaseFinishedSlot();
             }
         }
+    }
+
+    private boolean isEmpty(ConcurrentLinkedDeque<AiAccountTranslateSubTask> stack) {
+        return stack == null || stack.isEmpty();
+    }
+
+    private AiAccountTranslateSubTask pollTurboFlowSubTask(ConcurrentLinkedDeque<AiAccountTranslateSubTask> failedStack,
+                                                           ConcurrentLinkedDeque<AiAccountTranslateSubTask> stack) {
+        // 分配顺序：失败优先栈 -> 普通栈。两者都用 push/poll，表现为栈顶优先。
+        AiAccountTranslateSubTask subTask = failedStack == null ? null : failedStack.poll();
+        if (subTask != null) {
+            return subTask;
+        }
+        return stack == null ? null : stack.poll();
+    }
+
+    private void pushTurboFlowSubTask(AiAccountTranslateSubTask subTask, boolean failedFirst) {
+        ConcurrentMap<Long, ConcurrentLinkedDeque<AiAccountTranslateSubTask>> target =
+                failedFirst ? failedSubTaskStacksByAccount : subTaskStacksByAccount;
+        target.computeIfAbsent(subTask.getAiAccountId(), key -> new ConcurrentLinkedDeque<>())
+                .push(subTask);
     }
 
     private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask) {

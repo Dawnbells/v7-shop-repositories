@@ -42,7 +42,8 @@ public class CompanyTenantInterceptor implements HandlerInterceptor {
         if (path.startsWith("/webjars/") || path.startsWith("/v3/")
                 || path.startsWith("/company/") || path.startsWith("/favicon.ico")
                 || path.startsWith("/error") || path.startsWith("/risk/")
-                || path.startsWith("/doc.html") || path.startsWith("/multimedia/")) {
+                || path.startsWith("/doc.html") || path.startsWith("/multimedia/")
+                || path.startsWith("/turboflow-bridge/")) {
             // 如果请求的是 /webjars/ 或 /v3/ 路径，直接跳过此过滤器
             return true;
         }
