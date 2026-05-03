@@ -14,6 +14,9 @@ import cn.v7soft.dao.tenant.TenantContext;
 public class MultimediaUtil {
 
     public static String resolveAbsolutionPath(Long id) {
+        if (EnvironmentHelper.isDev()) {
+            return "http://127.0.0.1:32006/multimedia/" + id;
+        }
         String imageBaseUrl = TenantContext.getImageBaseUrl();
         return imageBaseUrl + "/" + id;
     }

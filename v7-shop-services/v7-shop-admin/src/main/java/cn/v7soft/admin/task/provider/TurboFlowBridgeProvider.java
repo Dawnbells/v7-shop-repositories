@@ -330,6 +330,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .imageBase64(Base64.getEncoder().encodeToString(imageBytes))
                     .fileName(sourceFile.getName() + "." + sourceFile.getSuffix())
                     .mimeType(toMimeType(sourceFile.getSuffix()))
+                    .model(account.getModel())
                     .targetLanguage(language.getName())
                     .targetLanguageCode(language.getCode())
                     .sourceWidth(sourceFile.getWidth())

@@ -412,6 +412,7 @@ async function translateImage(task) {
     aspectRatio: aspectRatioFor(task.sourceWidth, task.sourceHeight),
     pid: conn.projectId,
     token,
+    model: sanitizeModel(task.model),
   });
 
   const resultUrl = gen.fifeUrl || (gen.mediaId ? getMediaRedirectUrl(gen.mediaId) : null);
@@ -469,19 +470,21 @@ Rules:
 always translate it as overlay text.`;
 }
 
+const SUPPORTED_MODELS = ['GEM_PIX_2', 'NARWHAL', 'IMAGEN_3_5'];
+
+function sanitizeModel(model) {
+  if (model && SUPPORTED_MODELS.includes(model)) return model;
+  return 'NARWHAL';
+}
+
 function aspectRatioFor(width, height) {
   if (!width || !height) return 'IMAGE_ASPECT_RATIO_LANDSCAPE';
   const ratio = width / height;
   const options = [
-    { value: 21 / 9, key: 'IMAGE_ASPECT_RATIO_ULTRAWIDE' },
     { value: 16 / 9, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE' },
-    { value: 5 / 4, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE_FIVE_FOUR' },
     { value: 4 / 3, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE' },
-    { value: 3 / 2, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE_THREE_TWO' },
     { value: 1, key: 'IMAGE_ASPECT_RATIO_SQUARE' },
-    { value: 2 / 3, key: 'IMAGE_ASPECT_RATIO_PORTRAIT_TWO_THREE' },
     { value: 3 / 4, key: 'IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR' },
-    { value: 4 / 5, key: 'IMAGE_ASPECT_RATIO_PORTRAIT_FOUR_FIVE' },
     { value: 9 / 16, key: 'IMAGE_ASPECT_RATIO_PORTRAIT' },
   ];
   return options.reduce((best, item) =>

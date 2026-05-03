@@ -17,6 +17,7 @@ public class TurboFlowBridgeTaskResponse {
     private String imageBase64;
     private String fileName;
     private String mimeType;
+    private String model;
     private String targetLanguage;
     private String targetLanguageCode;
     private Integer sourceWidth;

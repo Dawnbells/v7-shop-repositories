@@ -24,4 +24,8 @@ public class EnvironmentHelper {
     public static String getProperty(String key) {
         return environment.getProperty(key);
     }
+
+    public static boolean isDev() {
+        return environment.getActiveProfiles()[0].equals("dev");
+    }
 }

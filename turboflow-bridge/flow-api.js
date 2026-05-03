@@ -290,7 +290,17 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
   const seed = randomSeed();
   const url = `${API_BASE}/v1/projects/${pid}/flowMedia:batchGenerateImages`;
 
-  const apiAspectRatio = aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE';
+  const SUPPORTED_RATIOS = [
+    'IMAGE_ASPECT_RATIO_SQUARE',
+    'IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR',
+    'IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE',
+    'IMAGE_ASPECT_RATIO_PORTRAIT',
+    'IMAGE_ASPECT_RATIO_LANDSCAPE',
+  ];
+  let apiAspectRatio = aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE';
+  if (!SUPPORTED_RATIOS.includes(apiAspectRatio)) {
+    apiAspectRatio = 'IMAGE_ASPECT_RATIO_LANDSCAPE';
+  }
   const apiModel = model || MODEL_NARWHAL;
 
   const payload = {

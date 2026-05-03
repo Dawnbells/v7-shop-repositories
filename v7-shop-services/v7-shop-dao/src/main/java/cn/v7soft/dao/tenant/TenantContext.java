@@ -2,6 +2,7 @@ package cn.v7soft.dao.tenant;
 
 import java.util.Objects;
 
+import org.hibernate.cfg.Environment;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
