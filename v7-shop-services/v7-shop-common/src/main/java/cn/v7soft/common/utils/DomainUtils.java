@@ -30,7 +30,7 @@ public class DomainUtils {
     @NotNull
     private static String getDomain(HttpServletRequest request) {
         try {
-            String defaultDomain = "htmallcms.com";
+            String defaultDomain = "xyzdwd.com";
             String origin = request.getHeader("Origin");
             String referer = request.getHeader("Referer");
 //            log.debug("origin is " + origin + ", referer is " + referer + ", " + request.getRequestURI());

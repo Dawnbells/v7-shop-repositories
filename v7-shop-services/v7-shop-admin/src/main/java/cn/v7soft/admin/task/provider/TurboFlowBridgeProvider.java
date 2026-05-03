@@ -208,8 +208,16 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
      */
     public TurboFlowBridgeTaskResponse pollTask(String token, TurboFlowBridgePollRequest request) {
         // 1. 通过 Bearer token 鉴权，找到对应的 AiAccount
-        AiAccount account = resolveTurboFlowAccount(token);
         String bridgeId = normalizeBridgeId(request.getBridgeId());
+        Optional<AiAccount> accountOpt = findTurboFlowAccount(token);
+        if (accountOpt.isEmpty()) {
+            log.debug("[TurboFlowBridge] poll rejected: invalid bridge token, bridgeId={}", bridgeId);
+            return TurboFlowBridgeTaskResponse.builder()
+                    .hasTask(false)
+                    .message("invalid bridge token")
+                    .build();
+        }
+        AiAccount account = accountOpt.get();
         // 记录插件在线状态（仅用于观测）
         bridgeStates.put(bridgeId, TurboFlowBridgeState.from(account.getId(), request));
         log.debug("[TurboFlowBridge] poll received: aiAccountId={}, bridgeId={}, flowConnected={}, busy={}",
@@ -479,10 +487,17 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         if (StrUtil.isBlank(token)) {
             throw new IllegalArgumentException("missing bridge token");
         }
+        return findTurboFlowAccount(token)
+                .orElseThrow(() -> new IllegalArgumentException("invalid TurboFlow bridge token"));
+    }
+
+    private Optional<AiAccount> findTurboFlowAccount(String token) {
+        if (StrUtil.isBlank(token)) {
+            return Optional.empty();
+        }
         return aiAccountService.findAvailableAccounts(AiProvider.TURBOFLOW_GEMINI).stream()
                 .filter(account -> token.equals(account.getApiKey()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("invalid TurboFlow bridge token"));
+                .findFirst();
     }
 
     private String normalizeBridgeId(String bridgeId) {

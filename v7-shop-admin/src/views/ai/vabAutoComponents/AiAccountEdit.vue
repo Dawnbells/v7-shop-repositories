@@ -1,9 +1,12 @@
 <template>
-  <vab-dialog v-model="dialogFormVisible" append-to-body class="ai-account-edit-dialog" :title="title" width="960px" @close="close">
+  <vab-dialog v-model="dialogFormVisible" append-to-body class="ai-account-edit-dialog" :title="title" width="980px" @close="close">
     <el-form ref="formRef" class="ai-account-form" label-width="96px" :model="form" :rules="rules">
-      <section class="form-section">
-        <div class="section-title">基础信息</div>
-        <el-row class="form-grid" :gutter="16">
+      <div class="form-card">
+        <div class="card-header">
+          <el-icon class="card-icon"><Connection /></el-icon>
+          <span>基础信息</span>
+        </div>
+        <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="账号名称" prop="name">
               <el-input v-model.trim="form.name" clearable placeholder="例如：Gemini官方翻译账号" />
@@ -23,76 +26,107 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="24">
+          <el-col :span="12">
             <el-form-item label="描述" prop="description">
               <el-input v-model.trim="form.description" clearable placeholder="账号用途说明" />
             </el-form-item>
           </el-col>
         </el-row>
-      </section>
+      </div>
 
-      <section class="form-section">
-        <div class="section-title">接口配置</div>
-        <el-row class="form-grid" :gutter="16">
+      <div class="form-card">
+        <div class="card-header">
+          <el-icon class="card-icon"><Key /></el-icon>
+          <span>接口配置</span>
+        </div>
+        <el-row :gutter="16">
           <el-col :span="24">
             <el-form-item label="API Key" prop="apiKey">
               <el-input v-model.trim="form.apiKey" clearable placeholder="官方或Sub2API提供的API Key" show-password />
             </el-form-item>
           </el-col>
-          <el-col :span="24">
+          <el-col :span="12">
             <el-form-item label="Base URL" prop="baseUrl">
               <el-input v-model.trim="form.baseUrl" clearable :placeholder="baseUrlPlaceholder" />
             </el-form-item>
           </el-col>
-          <el-col :span="24">
+          <el-col :span="12">
             <el-form-item label="User-Agent" prop="userAgent">
               <el-input v-model.trim="form.userAgent" clearable placeholder="不填则使用默认请求头" />
             </el-form-item>
           </el-col>
         </el-row>
-      </section>
+      </div>
 
-      <section class="form-section">
-        <div class="section-title">流控配置</div>
-        <el-row class="form-grid" :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="每日调用上限" prop="dailyLimit">
+      <div class="form-card">
+        <div class="card-header">
+          <el-icon class="card-icon"><Odometer /></el-icon>
+          <span>流控配置</span>
+        </div>
+        <el-row :gutter="16">
+          <el-col :span="8">
+            <el-form-item label="流控模式" prop="rateLimitMode">
+              <el-select v-model="form.rateLimitMode" style="width: 100%">
+                <el-option label="并发限制" value="CONCURRENCY" />
+                <el-option label="RPD / RPM" value="RPD_RPM" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col v-if="form.rateLimitMode === 'CONCURRENCY'" :span="8">
+            <el-form-item label="最大并发" prop="maxConcurrency">
+              <el-input-number v-model="form.maxConcurrency" controls-position="right" :min="1" :precision="0" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col v-if="form.rateLimitMode === 'RPD_RPM'" :span="8">
+            <el-form-item label="每日请求数" prop="requestsPerDay">
+              <el-input-number v-model="form.requestsPerDay" controls-position="right" :min="0" :precision="0" placeholder="RPD" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col v-if="form.rateLimitMode === 'RPD_RPM'" :span="8">
+            <el-form-item label="每分钟请求" prop="requestsPerMinute">
+              <el-input-number v-model="form.requestsPerMinute" controls-position="right" :min="0" :precision="0" placeholder="RPM" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="每日上限" prop="dailyLimit">
               <el-input-number
                 v-model="form.dailyLimit"
                 controls-position="right"
                 :min="0"
                 :precision="0"
-                placeholder="不填则不限制"
+                placeholder="不限"
                 style="width: 100%"
               />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :span="8">
             <el-form-item label="优先级" prop="priority">
               <el-input-number v-model="form.priority" controls-position="right" :min="0" :precision="0" style="width: 100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="Max Concurrency" prop="maxConcurrency">
-              <el-input-number v-model="form.maxConcurrency" controls-position="right" :min="1" :precision="0" style="width: 100%" />
-            </el-form-item>
-          </el-col>
         </el-row>
-      </section>
+      </div>
 
-      <section class="form-section billing-section">
-        <div class="section-title">计费配置</div>
-        <div class="billing-table">
-          <div class="billing-header">
-            <div />
+      <div class="form-card">
+        <div class="card-header">
+          <el-icon class="card-icon"><Coin /></el-icon>
+          <span>计费配置</span>
+          <el-tag class="currency-tag" size="small" type="info">USD</el-tag>
+        </div>
+        <div class="billing-grid">
+          <div class="billing-grid-header">
+            <div class="billing-label-col" />
             <div>输入价格</div>
             <div>输入单位</div>
             <div>输出价格</div>
             <div>输出单位</div>
           </div>
-          <div v-for="item in billingRows" :key="item.name" class="billing-row">
-            <div class="billing-name">{{ item.name }}</div>
-            <div class="billing-cell">
+          <div v-for="item in billingRows" :key="item.name" class="billing-grid-row">
+            <div class="billing-label-col">
+              <span class="billing-dot" :class="item.color" />
+              {{ item.name }}
+            </div>
+            <div class="billing-field">
               <el-form-item label-width="0" :prop="item.inputPrice">
                 <el-input-number
                   v-model="form[item.inputPrice]"
@@ -104,14 +138,14 @@
                 />
               </el-form-item>
             </div>
-            <div class="billing-cell">
+            <div class="billing-field">
               <el-form-item label-width="0" :prop="item.inputUnit">
-                <el-select v-model="form[item.inputUnit]" clearable placeholder="请选择单位" @change="validateBillingPair(item.inputPrice, item.inputUnit)">
+                <el-select v-model="form[item.inputUnit]" clearable placeholder="选择单位" @change="validateBillingPair(item.inputPrice, item.inputUnit)">
                   <el-option v-for="unit in priceUnitOptions" :key="unit.value" :label="unit.label" :value="unit.value" />
                 </el-select>
               </el-form-item>
             </div>
-            <div class="billing-cell">
+            <div class="billing-field">
               <el-form-item label-width="0" :prop="item.outputPrice">
                 <el-input-number
                   v-model="form[item.outputPrice]"
@@ -123,27 +157,28 @@
                 />
               </el-form-item>
             </div>
-            <div class="billing-cell">
+            <div class="billing-field">
               <el-form-item label-width="0" :prop="item.outputUnit">
-                <el-select v-model="form[item.outputUnit]" clearable placeholder="请选择单位" @change="validateBillingPair(item.outputPrice, item.outputUnit)">
+                <el-select v-model="form[item.outputUnit]" clearable placeholder="选择单位" @change="validateBillingPair(item.outputPrice, item.outputUnit)">
                   <el-option v-for="unit in priceUnitOptions" :key="unit.value" :label="unit.label" :value="unit.value" />
                 </el-select>
               </el-form-item>
             </div>
           </div>
         </div>
-      </section>
+      </div>
     </el-form>
     <template #footer>
       <div class="dialog-footer">
-        <el-button @click="dialogFormVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saveLoading" @click="save">保存</el-button>
+        <el-button @click="dialogFormVisible = false">取 消</el-button>
+        <el-button type="primary" :loading="saveLoading" @click="save">保 存</el-button>
       </div>
     </template>
   </vab-dialog>
 </template>
 
 <script lang="ts" setup>
+import { Coin, Connection, Key, Odometer } from '@element-plus/icons-vue'
 import { doEdit } from '/@/api/aiAccount'
 
 defineOptions({
@@ -179,7 +214,10 @@ const defaultForm = () => ({
   videoOutputPrice: undefined,
   videoOutputPriceUnit: undefined,
   billingCurrency: 'USD',
+  rateLimitMode: 'CONCURRENCY',
   dailyLimit: undefined,
+  requestsPerDay: undefined,
+  requestsPerMinute: undefined,
   maxConcurrency: 1,
   priority: 100,
 })
@@ -208,6 +246,7 @@ const billingItems = [
 const billingRows = [
   {
     name: '文本',
+    color: 'dot-text',
     inputPrice: 'textInputPrice',
     inputUnit: 'textInputPriceUnit',
     outputPrice: 'textOutputPrice',
@@ -215,6 +254,7 @@ const billingRows = [
   },
   {
     name: '图片',
+    color: 'dot-image',
     inputPrice: 'imageInputPrice',
     inputUnit: 'imageInputPriceUnit',
     outputPrice: 'imageOutputPrice',
@@ -222,6 +262,7 @@ const billingRows = [
   },
   {
     name: '视频',
+    color: 'dot-video',
     inputPrice: 'videoInputPrice',
     inputUnit: 'videoInputPriceUnit',
     outputPrice: 'videoOutputPrice',
@@ -338,10 +379,10 @@ const save = () => {
 
 <style lang="scss" scoped>
 .ai-account-form {
-  padding: 12px 10px 2px;
+  padding: 4px 6px 0;
 
   :deep(.el-form-item) {
-    margin-bottom: 20px;
+    margin-bottom: 24px;
   }
 
   :deep(.el-input-number .el-input__inner) {
@@ -349,66 +390,101 @@ const save = () => {
   }
 }
 
-.form-section {
-  padding: 10px 0 8px;
+.form-card {
+  padding: 22px 24px 14px;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-extra-light);
+  border-radius: 10px;
 
   & + & {
-    margin-top: 14px;
-    border-top: 1px solid var(--el-border-color-lighter);
-    padding-top: 22px;
+    margin-top: 16px;
+  }
+
+  :deep(.el-row) {
+    row-gap: 8px;
   }
 }
 
-.form-grid {
-  row-gap: 2px;
-}
-
-.section-title {
-  margin-bottom: 18px;
-  color: var(--el-text-color-primary);
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
   font-size: 15px;
   font-weight: 600;
+  color: var(--el-text-color-primary);
 }
 
-.billing-section {
-  padding-bottom: 2px;
+.card-icon {
+  font-size: 17px;
+  color: var(--el-color-primary);
 }
 
-.billing-table {
+.currency-tag {
+  margin-left: auto;
+}
+
+.billing-grid {
   display: grid;
+  gap: 10px;
+}
+
+.billing-grid-header {
+  display: grid;
+  grid-template-columns: 72px 1fr 1fr 1fr 1fr;
   gap: 12px;
-  margin-top: 0;
-}
-
-.billing-header {
-  display: grid;
-  grid-template-columns: 96px minmax(150px, 180px) minmax(190px, 1fr) minmax(150px, 180px) minmax(190px, 1fr);
-  gap: 18px;
-  padding: 0 20px 0 20px;
+  padding: 0 14px;
   color: var(--el-text-color-secondary);
-  font-size: 13px;
-  line-height: 22px;
+  font-size: 12px;
+  line-height: 20px;
 }
 
-.billing-row {
+.billing-grid-row {
   display: grid;
-  grid-template-columns: 96px minmax(150px, 180px) minmax(190px, 1fr) minmax(150px, 180px) minmax(190px, 1fr);
+  grid-template-columns: 72px 1fr 1fr 1fr 1fr;
   align-items: start;
-  gap: 18px;
-  min-height: 74px;
-  padding: 16px 20px;
-  background: var(--el-fill-color-light);
+  gap: 12px;
+  padding: 14px;
+  background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
+  transition: box-shadow 0.2s;
+
+  &:hover {
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.04);
+  }
 }
 
-.billing-name {
+.billing-label-col {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding-top: 8px;
-  color: var(--el-text-color-primary);
   font-weight: 600;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
 }
 
-.billing-cell {
+.billing-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+
+  &.dot-text {
+    background: var(--el-color-primary);
+  }
+
+  &.dot-image {
+    background: var(--el-color-success);
+  }
+
+  &.dot-video {
+    background: var(--el-color-warning);
+  }
+}
+
+.billing-field {
   min-width: 0;
 
   :deep(.el-form-item) {
@@ -428,7 +504,7 @@ const save = () => {
 
   :deep(.el-form-item__error) {
     position: static;
-    padding-top: 6px;
+    padding-top: 4px;
     line-height: 16px;
     white-space: normal;
   }
@@ -442,6 +518,6 @@ const save = () => {
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
 }
 </style>
