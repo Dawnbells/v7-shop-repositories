@@ -419,7 +419,7 @@ Rules:
   Output ONLY the final translated image.
 
 - If uncertain whether some text is overlay text or embedded product/package text,
-leave it unchanged.`;
+always translate it as overlay text.`;
 }
 
 function aspectRatioFor(width, height) {

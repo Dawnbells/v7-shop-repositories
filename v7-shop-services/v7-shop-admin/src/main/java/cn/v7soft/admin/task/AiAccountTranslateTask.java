@@ -28,6 +28,7 @@ import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.service.IAiAccountService;
+import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.ICountryService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
@@ -40,6 +41,7 @@ import cn.v7soft.admin.task.provider.TranslateProviderCallback;
 import cn.v7soft.admin.task.provider.TranslateTaskCallbackAdapter;
 import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
+import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
@@ -53,6 +55,7 @@ import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
+import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
@@ -105,6 +108,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final AsyncTaskRepository asyncTaskRepository;
     private final IProductService productService;
     private final IAiAccountService aiAccountService;
+    private final ICompanyService companyService;
     private final IMultimediaFileService multimediaFileService;
     private final ILanguageService languageService;
     private final ICountryService countryService;
@@ -128,6 +132,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     public AiAccountTranslateTask(AsyncTaskRepository asyncTaskRepository,
                                   IProductService productService,
                                   IAiAccountService aiAccountService,
+                                  ICompanyService companyService,
                                   IMultimediaFileService multimediaFileService,
                                   ILanguageService languageService,
                                   ICountryService countryService,
@@ -140,6 +145,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.asyncTaskRepository = asyncTaskRepository;
         this.productService = productService;
         this.aiAccountService = aiAccountService;
+        this.companyService = companyService;
         this.multimediaFileService = multimediaFileService;
         this.languageService = languageService;
         this.countryService = countryService;
@@ -938,43 +944,53 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      */
     private void syncSingleTaskStatus(AiAccountTranslateTaskStatus status) {
         asyncTaskRepository.findById(status.getTaskId()).ifPresent(task -> {
-            // 外部取消：通知各 Provider 清理 in-flight 子任务并估算费用，然后结算
-            if (task.getState() == TaskState.CANCELLED) {
-                for (TranslateProvider provider : providerRegistry.values()) {
-                    try {
-                        provider.onTaskCancelling(status.getTaskId());
-                    } catch (Exception e) {
-                        log.warn("[AiAccountTranslateTask] onTaskCancelling failed: provider={}, taskId={}",
-                                 provider.getProviderType(), status.getTaskId(), e);
-                    }
-                }
-                settleTask(task);
-                runningTasks.remove(status.getTaskId());
-                return;
-            }
-
-            // 所有子任务结束且有成功的 → 组装翻译产物（部分失败也组装）
-            if (status.isReadyToFinalize()) {
-                log.debug("[AiAccountTranslateTask] task ready to finalize: taskId={}, completed={}, failed={}, total={}",
-                        status.getTaskId(), status.getCompletedSubTaskCount().get(),
-                        status.getFailedSubTaskCount().get(), status.getTotalSubTaskCount());
-                finalizeAiAccountTranslateStatus(status);
-            }
-
-            // 同步内存状态到 DB
-            task.setState(status.getState());
-            task.setProgress(status.getProgress());
-            task.setMessage(status.getMessage());
-            asyncTaskRepository.save(task);
-
-            // 终态（COMPLETED/FAILED）→ 结算积分并从内存移除
-            if (status.isFinished()) {
-                settleTask(task);
-                runningTasks.remove(status.getTaskId());
-                log.debug("[AiAccountTranslateTask] finished task removed from memory: taskId={}, state={}, progress={}",
-                        status.getTaskId(), status.getState(), status.getProgress());
+            Company company = companyService.companyCached(task.getCompanyId());
+            TenantContext.setCurrentTenant(task.getCompanyId(), company);
+            try {
+                syncSingleTaskStatusInner(status, task);
+            } finally {
+                TenantContext.clear();
             }
         });
+    }
+
+    private void syncSingleTaskStatusInner(AiAccountTranslateTaskStatus status, AsyncTask task) {
+        // 外部取消：通知各 Provider 清理 in-flight 子任务并估算费用，然后结算
+        if (task.getState() == TaskState.CANCELLED) {
+            for (TranslateProvider provider : providerRegistry.values()) {
+                try {
+                    provider.onTaskCancelling(status.getTaskId());
+                } catch (Exception e) {
+                    log.warn("[AiAccountTranslateTask] onTaskCancelling failed: provider={}, taskId={}",
+                             provider.getProviderType(), status.getTaskId(), e);
+                }
+            }
+            settleTask(task);
+            runningTasks.remove(status.getTaskId());
+            return;
+        }
+
+        // 所有子任务结束且有成功的 → 组装翻译产物（部分失败也组装）
+        if (status.isReadyToFinalize()) {
+            log.debug("[AiAccountTranslateTask] task ready to finalize: taskId={}, completed={}, failed={}, total={}",
+                    status.getTaskId(), status.getCompletedSubTaskCount().get(),
+                    status.getFailedSubTaskCount().get(), status.getTotalSubTaskCount());
+            finalizeAiAccountTranslateStatus(status);
+        }
+
+        // 同步内存状态到 DB
+        task.setState(status.getState());
+        task.setProgress(status.getProgress());
+        task.setMessage(status.getMessage());
+        asyncTaskRepository.save(task);
+
+        // 终态（COMPLETED/FAILED）→ 结算积分并从内存移除
+        if (status.isFinished()) {
+            settleTask(task);
+            runningTasks.remove(status.getTaskId());
+            log.debug("[AiAccountTranslateTask] finished task removed from memory: taskId={}, state={}, progress={}",
+                    status.getTaskId(), status.getState(), status.getProgress());
+        }
     }
 
     /**
