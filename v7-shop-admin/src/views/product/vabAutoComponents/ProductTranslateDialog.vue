@@ -284,7 +284,7 @@ const save = () => {
           ? `${selectedLang.cname}(${selectedLang.name})`
           : form.languageId
 
-        const taskType = data.taskType || 'PRODUCT_AI_ACCOUNT_TRANSLATE'
+        const taskType = data.taskType || 'PRODUCT_AI_TRANSLATE'
 
         tasksStore.addTask({
           taskId: String(data.id ?? data.taskId),

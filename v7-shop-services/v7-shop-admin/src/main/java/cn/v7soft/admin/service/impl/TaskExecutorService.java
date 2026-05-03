@@ -110,7 +110,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         log.info("[recoverTasks] 发现 {} 个未完成任务，开始恢复", unfinished.size());
         for (AsyncTask task : unfinished) {
             try {
-                if (task.getTaskType() == TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE) {
+                if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE) {
                     log.info("[recoverTasks] 跳过 AI 账号翻译任务（由 AiAccountTranslateTask 处理）: taskId={}", task.getId());
                     continue;
                 }

@@ -166,7 +166,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     /** 服务重启时将残留的 PROCESSING 任务重置为 PENDING，依靠翻译缓存跳过已完成内容 */
     private void resetProcessingTasksOnStartup() {
         List<AsyncTask> processingTasks = asyncTaskRepository.findByTaskTypeAndState(
-                TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE,
+                TaskType.PRODUCT_AI_TRANSLATE,
                 TaskState.PROCESSING);
         if (processingTasks.isEmpty()) {
             return;
@@ -340,7 +340,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
         try {
             List<AsyncTask> pendingTasks = asyncTaskRepository.findByTaskTypeAndStateOrderByCreateTimeAsc(
-                    TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE,
+                    TaskType.PRODUCT_AI_TRANSLATE,
                     TaskState.PENDING,
                     PageRequest.of(0, MAX_TASKS_PER_ROUND));
 

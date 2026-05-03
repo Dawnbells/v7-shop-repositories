@@ -14,9 +14,9 @@ public enum TaskType {
      */
     THIRD_PARTY_ORDER_SYNC,
     /**
-     * 商品指定 AI 账号翻译任务
+     * 商品 AI 翻译任务（指定 AI 账号）
      */
-    PRODUCT_AI_ACCOUNT_TRANSLATE,
+    PRODUCT_AI_TRANSLATE,
     /**
      * 地址库导入任务
      */

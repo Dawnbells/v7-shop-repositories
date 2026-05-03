@@ -377,7 +377,7 @@ const taskTypeLabel = (type: string) => {
     ORDER_DOWNLOAD: '订单下载',
     ORDER_UPLOAD: '订单上传',
     THIRD_PARTY_ORDER_SYNC: '订单同步',
-    PRODUCT_AI_ACCOUNT_TRANSLATE: 'AI账号翻译',
+    PRODUCT_AI_TRANSLATE: 'AI账号翻译',
   }
   return map[type] || type
 }

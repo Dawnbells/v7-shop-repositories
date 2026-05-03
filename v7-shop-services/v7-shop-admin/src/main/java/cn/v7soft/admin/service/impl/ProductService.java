@@ -345,7 +345,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                                                     "同一SPU下该国家和语言已存在商品，不允许重复");
 
         AiAccount selectedAiAccount = requireAiAccount(request);
-        TaskType taskType = TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE;
+        TaskType taskType = TaskType.PRODUCT_AI_TRANSLATE;
 
         String dedupKey = taskType.name() + ":" +
                           request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();

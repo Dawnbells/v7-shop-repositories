@@ -49,7 +49,7 @@ public class AsyncTaskInspector {
 
         for (AsyncTask task : stuckTasks) {
             try {
-                if (task.getTaskType() == TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE) {
+                if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE) {
                     continue;
                 }
 

@@ -281,7 +281,7 @@ const fetchData = async () => {
     const params: any = {
       pageNo: queryForm.pageNo,
       pageSize: queryForm.pageSize,
-      taskTypes: ['PRODUCT_AI_ACCOUNT_TRANSLATE'],
+      taskTypes: ['PRODUCT_AI_TRANSLATE'],
     }
     const { data } = await listAiTranslateTasks(params)
     taskList.value = (data.list || []).map((item: any) => ({

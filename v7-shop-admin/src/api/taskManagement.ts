@@ -54,7 +54,7 @@ export function fetchUnacknowledged(params?: { pageNo?: number; pageSize?: numbe
       pageNo: params?.pageNo ?? 1,
       pageSize: params?.pageSize ?? 50,
       unacknowledgedOnly: true,
-      taskTypes: ['PRODUCT_AI_ACCOUNT_TRANSLATE', 'THIRD_PARTY_ORDER_SYNC'],
+      taskTypes: ['PRODUCT_AI_TRANSLATE', 'THIRD_PARTY_ORDER_SYNC'],
     },
   })
 }
@@ -86,7 +86,7 @@ export function listAiTranslateTasks(data: any) {
     method: 'post',
     data: {
       ...data,
-      taskTypes: ['PRODUCT_AI_ACCOUNT_TRANSLATE'],
+      taskTypes: ['PRODUCT_AI_TRANSLATE'],
     },
   })
 }

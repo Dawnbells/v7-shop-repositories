@@ -162,7 +162,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         if (task.getState() == TaskState.PENDING || task.getState() == TaskState.PROCESSING) {
             task.setMessage("任务已取消");
             updateAsyncTask(task, TaskState.CANCELLED, COMPLETED_OR_FAILED_PROGRESS);
-            if (task.getTaskType() == TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE || originalState == TaskState.PENDING) {
+            if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE || originalState == TaskState.PENDING) {
                 finalizeBilling(task.getId());
             }
         } else {
@@ -233,7 +233,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         newTask = asyncTaskRepository.saveAndFlush(newTask);
 
         log.info("[retry] oldTaskId={} -> newTaskId={}, estimatedCredits={}", taskId, newTask.getId(), estimated);
-        if (newTask.getTaskType() != TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE) {
+        if (newTask.getTaskType() != TaskType.PRODUCT_AI_TRANSLATE) {
             taskExecutorService.submitAsyncTask(newTask.getId());
         }
         return AsyncTaskResponse.convert(newTask);
