@@ -318,6 +318,9 @@ button {
   text-overflow: ellipsis;
   max-width: 120px;
 }
+.task-table tbody td:first-child {
+  overflow: visible;
+}
 .task-table tbody tr:hover td {
   background: var(--bg-elevated);
 }
@@ -663,25 +666,26 @@ input::placeholder { color: var(--text-muted); }
   font-size: 10px;
 }
 
-/* ── Thumbnail Hover Preview (shared) ── */
+/* ── Thumbnail Hover Preview (shared, viewport centered) ── */
 .thumb-preview {
   display: none;
-  position: absolute;
+  position: fixed;
+  top: 50%;
   left: 50%;
-  bottom: calc(100% + 6px);
-  transform: translateX(-50%);
-  z-index: 1000;
-  padding: 4px;
+  transform: translate(-50%, -50%);
+  z-index: 10000;
+  padding: 6px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.6);
 }
 
 .thumb-preview img {
   display: block;
-  max-width: 240px;
-  max-height: 240px;
+  width: 800px;
+  max-width: calc(100vw - 24px);
+  height: auto;
   border-radius: 4px;
 }
 
@@ -694,6 +698,161 @@ input::placeholder { color: var(--text-muted); }
 .td-prompt {
   max-width: 80px;
   cursor: help;
+}
+
+/* ── Test Translate View ── */
+.test-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.test-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.test-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.test-drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  background: var(--bg-input);
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.test-drop-zone:hover,
+.test-drop-zone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.test-drop-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.test-drop-placeholder svg { color: var(--text-muted); }
+
+.test-preview {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+
+select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font: 12px/1.4 'SF Mono', 'Cascadia Code', monospace;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+select:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font: 12px/1.5 'SF Mono', 'Cascadia Code', monospace;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  outline: none;
+  resize: vertical;
+  transition: border-color .15s;
+}
+textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-glow); }
+textarea::placeholder { color: var(--text-muted); }
+
+.test-run-btn {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+}
+.test-run-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.test-status {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+}
+.test-status.running {
+  color: var(--accent);
+  background: rgba(91, 141, 239, .1);
+  border: 1px solid var(--accent);
+}
+.test-status.success {
+  color: var(--green);
+  background: rgba(61, 214, 140, .1);
+  border: 1px solid var(--green);
+}
+.test-status.error {
+  color: var(--red);
+  background: rgba(239, 100, 97, .1);
+  border: 1px solid var(--red);
+  word-break: break-all;
+}
+
+.test-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.test-result-images {
+  display: flex;
+  gap: 8px;
+}
+
+.test-result-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.test-result-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.test-result-col img {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  object-fit: contain;
 }
 
 /* ── Scrollbar ── */

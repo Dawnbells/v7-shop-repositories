@@ -15,6 +15,11 @@
         <code id="bridge-id">Loading...</code>
       </div>
       <div class="header-actions">
+        <button id="btn-test" class="btn-icon" title="Test Translate" data-nav="test">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M3 2l10 6-10 6V2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </button>
         <button id="btn-settings" class="btn-icon" title="Settings" data-nav="settings">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/>
@@ -104,6 +109,82 @@
         <button id="btn-save" class="primary">Save</button>
       </div>
       <div id="toast" class="toast hidden"></div>
+    </div>
+  </div>
+
+  <!-- ====== Test View ====== -->
+  <div id="view-test" class="view">
+    <header class="page-header">
+      <button class="btn-back" data-nav="main">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+          <path d="M10 2L4 8l6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Back
+      </button>
+      <h1>Test Translate</h1>
+    </header>
+    <div class="page-body test-body">
+      <div class="test-field">
+        <label class="test-label">Source Image</label>
+        <div id="test-drop-zone" class="test-drop-zone">
+          <input type="file" id="test-file" accept="image/*" hidden>
+          <div id="test-drop-placeholder" class="test-drop-placeholder">
+            <svg width="28" height="28" viewBox="0 0 16 16" fill="none">
+              <path d="M2 11l3-4 2.5 3L10 7l4 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.2"/>
+            </svg>
+            <span>Click or drag image here</span>
+          </div>
+          <img id="test-preview" class="test-preview hidden" alt="preview">
+        </div>
+      </div>
+      <div class="test-field">
+        <label class="test-label">Aspect Ratio</label>
+        <select id="test-aspect">
+          <option value="auto">Auto (from image)</option>
+          <option value="IMAGE_ASPECT_RATIO_SQUARE">1:1</option>
+          <option value="IMAGE_ASPECT_RATIO_LANDSCAPE_THREE_TWO">3:2</option>
+          <option value="IMAGE_ASPECT_RATIO_PORTRAIT_TWO_THREE">2:3</option>
+          <option value="IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR">3:4</option>
+          <option value="IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE">4:3</option>
+          <option value="IMAGE_ASPECT_RATIO_PORTRAIT_FOUR_FIVE">4:5</option>
+          <option value="IMAGE_ASPECT_RATIO_LANDSCAPE_FIVE_FOUR">5:4</option>
+          <option value="IMAGE_ASPECT_RATIO_PORTRAIT">9:16</option>
+          <option value="IMAGE_ASPECT_RATIO_LANDSCAPE">16:9</option>
+          <option value="IMAGE_ASPECT_RATIO_ULTRAWIDE">21:9</option>
+        </select>
+      </div>
+      <div class="test-field">
+        <label class="test-label">Model</label>
+        <select id="test-model">
+          <option value="GEM_PIX_2">Nano Banana Pro</option>
+          <option value="NARWHAL">Nano Banana 2</option>
+          <option value="IMAGEN_3_5">Imagen 4</option>
+        </select>
+      </div>
+      <div class="test-field">
+        <label class="test-label">Target Language</label>
+        <input id="test-lang" type="text" value="Simplified Chinese" placeholder="e.g. Japanese, Korean...">
+      </div>
+      <div class="test-field">
+        <label class="test-label">Prompt</label>
+        <textarea id="test-prompt" rows="6" placeholder="Leave empty to use default prompt"></textarea>
+      </div>
+      <button id="btn-test-run" class="primary test-run-btn" disabled>Translate</button>
+      <div id="test-status" class="test-status hidden"></div>
+      <div id="test-result" class="test-result hidden">
+        <label class="test-label">Result</label>
+        <div class="test-result-images">
+          <div class="test-result-col">
+            <span class="test-result-tag">Source</span>
+            <img id="test-result-src" alt="source">
+          </div>
+          <div class="test-result-col">
+            <span class="test-result-tag">Translated</span>
+            <img id="test-result-out" alt="result">
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

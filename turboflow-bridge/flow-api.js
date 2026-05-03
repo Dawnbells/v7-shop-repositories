@@ -284,23 +284,14 @@ export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid
 
 // ── Generate image with reference (Nano Banana 2) ──────────────────
 
-export async function generateWithReference(tabId, { prompt, referenceMediaId, aspectRatio, pid, token }) {
+export async function generateWithReference(tabId, { prompt, referenceMediaId, aspectRatio, pid, token, model }) {
   const batchId = uuid();
   const sessionId = ';' + Date.now() + Math.random();
   const seed = randomSeed();
   const url = `${API_BASE}/v1/projects/${pid}/flowMedia:batchGenerateImages`;
 
-  const SUPPORTED_RATIOS = [
-    'IMAGE_ASPECT_RATIO_LANDSCAPE',
-    'IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE',
-    'IMAGE_ASPECT_RATIO_SQUARE',
-    'IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR',
-    'IMAGE_ASPECT_RATIO_PORTRAIT',
-  ];
-  let apiAspectRatio = aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE';
-  if (!SUPPORTED_RATIOS.includes(apiAspectRatio)) {
-    apiAspectRatio = 'IMAGE_ASPECT_RATIO_LANDSCAPE';
-  }
+  const apiAspectRatio = aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE';
+  const apiModel = model || MODEL_NARWHAL;
 
   const payload = {
     clientContext: {
@@ -334,7 +325,7 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
             name: referenceMediaId,
           },
         ],
-        imageModelName: MODEL_NARWHAL,
+        imageModelName: apiModel,
         seed,
         structuredPrompt: {
           parts: [{ text: prompt }],

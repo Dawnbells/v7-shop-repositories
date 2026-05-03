@@ -145,8 +145,10 @@
     const task = activeTask;
     if (!task) return;
     const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
-    const imgHtml = task.sourceThumb
-      ? `<div class="task-thumb-wrap"><img class="task-thumb" src="${task.sourceThumb}" alt="source"><div class="thumb-preview"><img src="${task.sourceThumb}" alt="preview"></div></div>`
+    const thumbSrc = task.sourceThumb || task.sourceImage;
+    const previewSrc = task.sourceImage || task.sourceThumb;
+    const imgHtml = thumbSrc
+      ? `<div class="task-thumb-wrap"><img class="task-thumb" src="${thumbSrc}" alt="source"><div class="thumb-preview"><img src="${previewSrc}" alt="preview"></div></div>`
       : '';
     const promptHtml = task.targetLang
       ? `<div class="task-prompt" title="${escAttr(task.prompt || '')}">${esc(task.targetLang)}</div>`
@@ -201,11 +203,15 @@
       const timeStr = new Date(t.time).toLocaleTimeString();
       const elapsedStr = t.elapsedMs != null ? `${(t.elapsedMs / 1000).toFixed(1)}s` : '-';
       const statusCls = t.status === 'completed' ? 'completed' : 'failed';
-      const sourceThumbHtml = t.sourceThumb
-        ? `<div class="hist-thumb-wrap"><img class="hist-thumb" src="${t.sourceThumb}" alt="src"><div class="thumb-preview"><img src="${t.sourceThumb}" alt="preview"></div></div>`
+      const srcThumb = t.sourceThumb || t.sourceImage;
+      const srcPreview = t.sourceImage || t.sourceThumb;
+      const resThumb = t.resultThumb || t.resultImage;
+      const resPreview = t.resultImage || t.resultThumb;
+      const sourceThumbHtml = srcThumb
+        ? `<div class="hist-thumb-wrap"><img class="hist-thumb" src="${srcThumb}" alt="src"><div class="thumb-preview"><img src="${srcPreview}" alt="preview"></div></div>`
         : '<span class="no-img">-</span>';
-      const resultThumbHtml = t.resultThumb
-        ? `<div class="hist-thumb-wrap"><img class="hist-thumb" src="${t.resultThumb}" alt="res"><div class="thumb-preview"><img src="${t.resultThumb}" alt="preview"></div></div>`
+      const resultThumbHtml = resThumb
+        ? `<div class="hist-thumb-wrap"><img class="hist-thumb" src="${resThumb}" alt="res"><div class="thumb-preview"><img src="${resPreview}" alt="preview"></div></div>`
         : '<span class="no-img">-</span>';
       tr.innerHTML = `
         <td><div class="td-imgs">${sourceThumbHtml}${resultThumbHtml}</div></td>
@@ -372,6 +378,98 @@
   function escAttr(value) {
     return esc(value).replace(/\n/g, '&#10;').replace(/\r/g, '');
   }
+
+  /* ── Test Translate View ── */
+  const testFile = document.getElementById('test-file');
+  const testDropZone = document.getElementById('test-drop-zone');
+  const testDropPlaceholder = document.getElementById('test-drop-placeholder');
+  const testPreview = document.getElementById('test-preview');
+  const testAspect = document.getElementById('test-aspect');
+  const testModel = document.getElementById('test-model');
+  const testLang = document.getElementById('test-lang');
+  const testPrompt = document.getElementById('test-prompt');
+  const btnTestRun = document.getElementById('btn-test-run');
+  const testStatusEl = document.getElementById('test-status');
+  const testResultEl = document.getElementById('test-result');
+  const testResultSrc = document.getElementById('test-result-src');
+  const testResultOut = document.getElementById('test-result-out');
+
+  let testImageData = null;
+
+  testDropZone.addEventListener('click', () => testFile.click());
+  testDropZone.addEventListener('dragover', (e) => { e.preventDefault(); testDropZone.classList.add('dragover'); });
+  testDropZone.addEventListener('dragleave', () => testDropZone.classList.remove('dragover'));
+  testDropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    testDropZone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) loadTestImage(file);
+  });
+  testFile.addEventListener('change', () => {
+    if (testFile.files[0]) loadTestImage(testFile.files[0]);
+  });
+
+  function loadTestImage(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        testImageData = { dataUrl: reader.result, width: img.width, height: img.height, name: file.name, type: file.type };
+        testPreview.src = reader.result;
+        testPreview.classList.remove('hidden');
+        testDropPlaceholder.classList.add('hidden');
+        btnTestRun.disabled = false;
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  btnTestRun.addEventListener('click', async () => {
+    if (!testImageData) return;
+    btnTestRun.disabled = true;
+    testStatusEl.classList.remove('hidden');
+    testStatusEl.className = 'test-status running';
+    testStatusEl.textContent = 'Translating...';
+    testResultEl.classList.add('hidden');
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      const sec = Math.round((Date.now() - startTime) / 1000);
+      testStatusEl.textContent = `Translating... ${sec}s`;
+    }, 1000);
+
+    try {
+      const result = await chrome.runtime.sendMessage({
+        type: 'TEST_TRANSLATE',
+        imageBase64: testImageData.dataUrl,
+        fileName: testImageData.name,
+        mimeType: testImageData.type,
+        width: testImageData.width,
+        height: testImageData.height,
+        aspectRatio: testAspect.value,
+        model: testModel.value,
+        targetLanguage: testLang.value || 'Simplified Chinese',
+        prompt: testPrompt.value || '',
+      });
+      clearInterval(timer);
+      if (result.ok) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        testStatusEl.className = 'test-status success';
+        testStatusEl.textContent = `Done in ${elapsed}s`;
+        testResultSrc.src = testImageData.dataUrl;
+        testResultOut.src = result.resultDataUrl;
+        testResultEl.classList.remove('hidden');
+      } else {
+        testStatusEl.className = 'test-status error';
+        testStatusEl.textContent = 'Failed: ' + (result.error || 'Unknown error');
+      }
+    } catch (e) {
+      clearInterval(timer);
+      testStatusEl.className = 'test-status error';
+      testStatusEl.textContent = 'Error: ' + e.message;
+    }
+    btnTestRun.disabled = false;
+  });
 
   init();
 })();

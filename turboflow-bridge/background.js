@@ -12,7 +12,7 @@ const FLOW_URL = 'https://labs.google/fx/zh/tools/flow/';
 const SUCCESS_DELAY_MS = 10000;
 const FAILURE_DELAY_MS = 60000;
 const IDLE_DELAY_MS = 10000;
-const MAX_TASK_HISTORY = 200;
+const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
 
 let bridgeId = null;
@@ -127,6 +127,47 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     addLog(msg.level || 'info', msg.message || '');
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (msg.type === 'TEST_TRANSLATE') {
+    (async () => {
+      try {
+        const conn = await checkConnection();
+        if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
+        const token = await getSessionTokenFromFlow(conn.tabId);
+        const base64 = msg.imageBase64.startsWith('data:')
+          ? msg.imageBase64.substring(msg.imageBase64.indexOf(',') + 1)
+          : msg.imageBase64;
+        const mediaId = await uploadImageToFlow(conn.tabId, {
+          base64,
+          fileName: msg.fileName || 'test.png',
+          mimeType: msg.mimeType || 'image/png',
+          pid: conn.projectId,
+          token,
+        });
+        const prompt = msg.prompt || buildPrompt({
+          targetLanguage: msg.targetLanguage || 'Simplified Chinese',
+        });
+        const aspectRatio = msg.aspectRatio === 'auto'
+          ? aspectRatioFor(msg.width, msg.height)
+          : msg.aspectRatio;
+        const gen = await generateWithReference(conn.tabId, {
+          prompt,
+          referenceMediaId: mediaId,
+          aspectRatio,
+          pid: conn.projectId,
+          token,
+          model: msg.model || undefined,
+        });
+        const resultUrl = gen.fifeUrl || (gen.mediaId ? getMediaRedirectUrl(gen.mediaId) : null);
+        if (!resultUrl) throw new Error('Flow returned no image url');
+        const image = await fetchImageAsBase64(conn.tabId, resultUrl);
+        sendResponse({ ok: true, resultDataUrl: image.dataUrl });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
   }
 
   return false;
@@ -250,6 +291,7 @@ async function pollTask(service, conn) {
 async function executeTask(service, task) {
   const prompt = buildPrompt(task);
   const targetLang = task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese';
+  const sourceImage = ensureDataUrl(task.imageBase64);
   const sourceThumb = await createThumbnail(task.imageBase64, 64);
   currentTask = {
     service: service.baseUrl,
@@ -258,6 +300,7 @@ async function executeTask(service, task) {
     assignmentId: task.assignmentId,
     startedAt: Date.now(),
     sourceThumb,
+    sourceImage,
     targetLang,
     prompt,
   };
@@ -275,6 +318,7 @@ async function executeTask(service, task) {
       elapsedMs: Date.now() - startedAt,
     });
     const elapsed = Date.now() - startedAt;
+    const resultImage = ensureDataUrl(result.resultDataUrl);
     const resultThumb = await createThumbnail(result.resultDataUrl, 64);
     addLog('info', `Task completed: ${task.subTaskId}`);
     addTaskHistory({
@@ -285,7 +329,9 @@ async function executeTask(service, task) {
       elapsedMs: elapsed,
       time: Date.now(),
       sourceThumb,
+      sourceImage,
       resultThumb,
+      resultImage,
       targetLang,
     });
     currentTask = null;
@@ -312,6 +358,7 @@ async function executeTask(service, task) {
       elapsedMs: elapsed,
       time: Date.now(),
       sourceThumb,
+      sourceImage,
       targetLang,
     });
     currentTask = null;
@@ -426,15 +473,25 @@ function aspectRatioFor(width, height) {
   if (!width || !height) return 'IMAGE_ASPECT_RATIO_LANDSCAPE';
   const ratio = width / height;
   const options = [
+    { value: 21 / 9, key: 'IMAGE_ASPECT_RATIO_ULTRAWIDE' },
     { value: 16 / 9, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE' },
+    { value: 5 / 4, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE_FIVE_FOUR' },
     { value: 4 / 3, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE' },
+    { value: 3 / 2, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE_THREE_TWO' },
     { value: 1, key: 'IMAGE_ASPECT_RATIO_SQUARE' },
+    { value: 2 / 3, key: 'IMAGE_ASPECT_RATIO_PORTRAIT_TWO_THREE' },
     { value: 3 / 4, key: 'IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR' },
+    { value: 4 / 5, key: 'IMAGE_ASPECT_RATIO_PORTRAIT_FOUR_FIVE' },
     { value: 9 / 16, key: 'IMAGE_ASPECT_RATIO_PORTRAIT' },
   ];
   return options.reduce((best, item) =>
     Math.abs(item.value - ratio) < Math.abs(best.value - ratio) ? item : best
   ).key;
+}
+
+function ensureDataUrl(value) {
+  if (!value) return null;
+  return value.startsWith('data:') ? value : 'data:image/png;base64,' + value;
 }
 
 function stripDataUrl(value) {
