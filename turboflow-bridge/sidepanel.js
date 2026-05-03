@@ -19,6 +19,12 @@
   const logsEl = document.getElementById('logs');
   const logCountEl = document.getElementById('log-count');
   const btnClearLogs = document.getElementById('btn-clear-logs');
+  const chkAutoScroll = document.getElementById('chk-auto-scroll');
+  const logsContainer = document.querySelector('.logs-container');
+
+  const statTotalEl = document.getElementById('stat-total');
+  const statSuccessEl = document.getElementById('stat-success');
+  const statFailedEl = document.getElementById('stat-failed');
 
   /* ── State ── */
   const PAGE_SIZE = 20;
@@ -30,6 +36,7 @@
   let nextPollAt = 0;
   let services = [];
   let logsLoaded = false;
+  let autoScrollLogs = true;
 
   /* ── SPA Navigation ── */
   document.querySelectorAll('[data-nav]').forEach((btn) => {
@@ -57,7 +64,10 @@
     }
     if (msg.type === 'TASK_CHANGED') {
       renderCurrentTask(msg.currentTask);
-      if (!msg.currentTask) loadTaskHistory();
+      if (!msg.currentTask) {
+        loadTaskHistory();
+        loadTodayStats();
+      }
     }
     if (msg.type === 'COUNTDOWN_UPDATE') {
       nextPollAt = msg.nextPollAt || 0;
@@ -82,6 +92,7 @@
 
     await doCheck();
     loadTaskHistory();
+    loadTodayStats();
     startCountdownTicker();
   }
 
@@ -268,6 +279,10 @@
   }
 
   /* ── Logs View ── */
+  chkAutoScroll.addEventListener('change', () => {
+    autoScrollLogs = chkAutoScroll.checked;
+  });
+
   btnClearLogs.addEventListener('click', async () => {
     await chrome.runtime.sendMessage({ type: 'CLEAR_LOGS' });
     logsEl.innerHTML = '';
@@ -291,6 +306,7 @@
     logsEl.prepend(el);
     while (logsEl.children.length > 500) logsEl.lastChild.remove();
     logCountEl.textContent = `${logsEl.children.length} entries`;
+    if (autoScrollLogs && logsContainer) logsContainer.scrollTop = 0;
   }
 
   function createLogEntry(level, message, time) {
@@ -303,6 +319,14 @@
 
   function log(level, message) {
     chrome.runtime.sendMessage({ type: 'LOG', level, message }).catch(() => {});
+  }
+
+  /* ── Today Stats ── */
+  async function loadTodayStats() {
+    const result = await chrome.runtime.sendMessage({ type: 'GET_TODAY_STATS' });
+    statTotalEl.textContent = result.total || 0;
+    statSuccessEl.textContent = result.success || 0;
+    statFailedEl.textContent = result.failed || 0;
   }
 
   /* ── Utilities ── */

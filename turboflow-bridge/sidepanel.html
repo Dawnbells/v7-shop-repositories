@@ -35,6 +35,23 @@
       <button id="btn-open-flow" class="btn-open-flow hidden">Open Flow</button>
     </section>
 
+    <section class="panel stats-panel">
+      <div class="stats-row">
+        <div class="stat-item">
+          <span class="stat-value" id="stat-total">0</span>
+          <span class="stat-label">Total</span>
+        </div>
+        <div class="stat-item stat-success">
+          <span class="stat-value" id="stat-success">0</span>
+          <span class="stat-label">Success</span>
+        </div>
+        <div class="stat-item stat-failed">
+          <span class="stat-value" id="stat-failed">0</span>
+          <span class="stat-label">Failed</span>
+        </div>
+      </div>
+    </section>
+
     <section class="panel current-task-panel">
       <div class="section-title">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -101,6 +118,10 @@
       </button>
       <h1>Logs</h1>
       <span id="log-count" class="log-count"></span>
+      <label class="auto-scroll-label" title="Auto scroll to latest log">
+        <input type="checkbox" id="chk-auto-scroll" checked>
+        <span>Auto</span>
+      </label>
       <button id="btn-clear-logs" class="btn-clear">Clear</button>
     </header>
     <div class="logs-container">

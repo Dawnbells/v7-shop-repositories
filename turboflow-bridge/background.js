@@ -97,6 +97,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  if (msg.type === 'GET_TODAY_STATS') {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const ts = todayStart.getTime();
+    let success = 0, failed = 0;
+    for (const t of taskHistory) {
+      if (t.time < ts) break;
+      if (t.status === 'completed') success++;
+      else failed++;
+    }
+    sendResponse({ total: success + failed, success, failed });
+    return false;
+  }
+
   if (msg.type === 'GET_LOGS') {
     sendResponse({ logs: logHistory });
     return false;
