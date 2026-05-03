@@ -81,6 +81,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
         subTask.start();
         subTask.getAttemptCount().incrementAndGet();
         inFlightSubTasks.add(subTask);
+        log.debug("[GeminiOfficialProvider] subtask submitted: taskId={}, subTaskId={}, type={}, attempt={}, inFlight={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(),
+                subTask.getAttemptCount().get(), inFlightSubTasks.size());
         executor.submit(() -> doExecute(subTask));
     }
 
@@ -100,11 +103,15 @@ public class GeminiOfficialProvider implements TranslateProvider {
 
     private void doExecute(AiAccountTranslateSubTask subTask) {
         try {
+            log.debug("[GeminiOfficialProvider] waiting for rate limiter: taskId={}, subTaskId={}, type={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType());
             RateLimiter.waitForPermission(rateLimiter);
 
             Language language = languageService.getById(Long.parseLong(subTask.getLanguageId()));
             String langName = language.getName();
             AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
+            log.debug("[GeminiOfficialProvider] executing subtask: taskId={}, subTaskId={}, type={}, aiAccountId={}, language={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), account.getId(), langName);
 
             SubTaskResult result = switch (subTask.getType()) {
                 case TEXT -> executeText(subTask, langName, account);
@@ -114,8 +121,14 @@ public class GeminiOfficialProvider implements TranslateProvider {
 
             if (inFlightSubTasks.remove(subTask)) {
                 if (result.isFailed()) {
+                    log.debug("[GeminiOfficialProvider] subtask produced failed result: taskId={}, subTaskId={}, type={}, message={}",
+                            subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), result.getFailMessage());
                     callback.onSubTaskFailed(subTask, result.getFailMessage(), false, result);
                 } else {
+                    log.debug("[GeminiOfficialProvider] subtask completed by Gemini: taskId={}, subTaskId={}, type={}, elapsedMs={}, actualTokens={}, businessCredits={}",
+                            subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), result.getElapsedMs(),
+                            result.getActualPromptTokens() + result.getActualCompletionTokens() + result.getActualThinkingTokens(),
+                            result.getBusinessCredits());
                     callback.onSubTaskCompleted(subTask, result);
                 }
             }
@@ -132,6 +145,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
 
     private SubTaskResult executeText(AiAccountTranslateSubTask subTask, String langName, AiAccount account) {
         AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
+        log.debug("[GeminiOfficialProvider] translate text request started: taskId={}, subTaskId={}, targetLanguage={}, textLength={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), langName,
+                subTask.getContent() == null ? 0 : subTask.getContent().length());
         String translated = geminiTranslateService.translateTextRaw(subTask.getContent(), langName, usageRef::set);
 
         GeminiTranslateService.TokenUsage usage = usageRef.get();
@@ -157,6 +173,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
 
     private SubTaskResult executeHtml(AiAccountTranslateSubTask subTask, String langName, AiAccount account) {
         AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
+        log.debug("[GeminiOfficialProvider] translate html request started: taskId={}, subTaskId={}, targetLanguage={}, htmlLength={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), langName,
+                subTask.getContent() == null ? 0 : subTask.getContent().length());
         String translated = geminiTranslateService.translateHtmlRaw(subTask.getContent(), langName, usageRef::set);
 
         GeminiTranslateService.TokenUsage usage = usageRef.get();
@@ -184,6 +203,8 @@ public class GeminiOfficialProvider implements TranslateProvider {
         MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
         byte[] imageBytes = readImageBytes(sourceFile);
         String mimeType = toMimeType(sourceFile.getSuffix());
+        log.debug("[GeminiOfficialProvider] translate image request started: taskId={}, subTaskId={}, targetLanguage={}, imageId={}, mimeType={}, bytes={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), langName, sourceFile.getId(), mimeType, imageBytes.length);
 
         AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
         byte[] resultBytes = geminiTranslateService.translateImageRaw(imageBytes, mimeType, langName, usageRef::set);
@@ -206,6 +227,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 translatedFile = multimediaFileService.saveTranslatedImage(
                         resultBytes, sourceFile.getSuffix(), subTask.getOwner());
             }
+            log.debug("[GeminiOfficialProvider] image post-processing completed: taskId={}, subTaskId={}, sourceImageId={}, translatedFileId={}, skipped={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(),
+                    translatedFile == null ? null : translatedFile.getId(), translatedFile == null);
             return SubTaskResult.builder()
                     .translatedFile(translatedFile)
                     .elapsedMs(usage != null ? usage.getElapsedMs() : null)

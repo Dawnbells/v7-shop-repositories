@@ -119,19 +119,29 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             internalQueues
                     .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
                     .offer(subTask);
+            log.debug("[TurboFlowBridge] image subtask queued for bridge poll: taskId={}, subTaskId={}, aiAccountId={}, queueSize={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getAiAccountId(),
+                    internalQueues.get(subTask.getAiAccountId()).size());
         } else {
             subTask.start();
             subTask.getAttemptCount().incrementAndGet();
+            log.debug("[TurboFlowBridge] text/html subtask submitted to Gemini fallback: taskId={}, subTaskId={}, type={}, attempt={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(),
+                    subTask.getAttemptCount().get());
             executor.submit(() -> executeTextViaGemini(subTask));
         }
     }
 
     private void executeTextViaGemini(AiAccountTranslateSubTask subTask) {
         try {
+            log.debug("[TurboFlowBridge] waiting for rate limiter: taskId={}, subTaskId={}, type={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType());
             RateLimiter.waitForPermission(rateLimiter);
             AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
             Language language = languageService.getById(Long.parseLong(subTask.getLanguageId()));
             String langName = language.getName();
+            log.debug("[TurboFlowBridge] executing text/html via Gemini: taskId={}, subTaskId={}, type={}, aiAccountId={}, language={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), account.getId(), langName);
 
             AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
             String translated;
@@ -164,6 +174,9 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             } else {
                 resultBuilder.translatedText(translated);
             }
+            log.debug("[TurboFlowBridge] text/html Gemini fallback completed: taskId={}, subTaskId={}, type={}, actualTokens={}, businessCredits={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(),
+                    prompt + completion + thinking, TokenCostCalculator.usdToCredits(cost));
             callback.onSubTaskCompleted(subTask, resultBuilder.build());
         } catch (Exception e) {
             log.error("[TurboFlowBridge] text translation failed: subTaskId={}", subTask.getSubTaskId(), e);
@@ -199,23 +212,33 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         String bridgeId = normalizeBridgeId(request.getBridgeId());
         // 记录插件在线状态（仅用于观测）
         bridgeStates.put(bridgeId, TurboFlowBridgeState.from(account.getId(), request));
+        log.debug("[TurboFlowBridge] poll received: aiAccountId={}, bridgeId={}, flowConnected={}, busy={}",
+                account.getId(), bridgeId, request.getFlowConnected(), request.getBusy());
 
         // 2. 检查插件状态：flow 未连接或正忙则不分发
         if (!Boolean.TRUE.equals(request.getFlowConnected())) {
+            log.debug("[TurboFlowBridge] poll skipped because flow is disconnected: aiAccountId={}, bridgeId={}",
+                    account.getId(), bridgeId);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("flow not connected").build();
         }
         if (Boolean.TRUE.equals(request.getBusy())) {
+            log.debug("[TurboFlowBridge] poll skipped because bridge is busy: aiAccountId={}, bridgeId={}",
+                    account.getId(), bridgeId);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("bridge busy").build();
         }
 
         // 3. 从该账号的内部队列取一个子任务（FIFO）
         ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue = internalQueues.get(account.getId());
         if (queue == null || queue.isEmpty()) {
+            log.debug("[TurboFlowBridge] poll found no queued image task: aiAccountId={}, bridgeId={}",
+                    account.getId(), bridgeId);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
         }
 
         AiAccountTranslateSubTask subTask = queue.poll();
         if (subTask == null) {
+            log.debug("[TurboFlowBridge] poll found empty queue after poll: aiAccountId={}, bridgeId={}",
+                    account.getId(), bridgeId);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
         }
 
@@ -228,6 +251,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
 
         // 检查父任务是否仍然存活；不活跃时通知失败以释放槽位
         if (!callback.isTaskActive(subTask.getTaskId())) {
+            log.debug("[TurboFlowBridge] polled subtask parent is inactive: taskId={}, subTaskId={}",
+                    subTask.getTaskId(), subTask.getSubTaskId());
             callback.onSubTaskFailed(subTask, "parent task no longer active", false, null);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("task missing").build();
         }
@@ -238,6 +263,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             byte[] imageBytes = readImageBytes(sourceFile);
             String imageHash = DigestUtil.sha256Hex(imageBytes);
             subTask.setImageHash(imageHash);
+            log.debug("[TurboFlowBridge] source image prepared for bridge dispatch: taskId={}, subTaskId={}, imageId={}, bytes={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageBytes.length);
 
             // 5. 二次缓存检查：入队后到 poll 之间，其他任务可能已生成同图同语言的缓存
             Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
@@ -245,6 +272,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             if (cached.isPresent()) {
                 MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
                 Language language = resolveLanguage(subTask);
+                log.debug("[TurboFlowBridge] image cache hit during bridge poll: taskId={}, subTaskId={}, language={}, skipped={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), language.getName(), cached.get().isSkipped());
 
                 int promptTokens;
                 int completionTokens;
@@ -279,6 +308,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             LocalDateTime leaseUntil = LocalDateTime.now().plusMinutes(TURBOFLOW_LEASE_MINUTES);
             subTask.dispatch(bridgeId, assignmentId, leaseUntil);
             assignments.put(assignmentId, subTask);
+            log.debug("[TurboFlowBridge] assignment created: taskId={}, subTaskId={}, assignmentId={}, bridgeId={}, leaseUntil={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), assignmentId, bridgeId, leaseUntil);
 
             // 7. 构建响应：图片 Base64 + 目标语言 + lease 信息
             Language language = resolveLanguage(subTask);
@@ -316,6 +347,9 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         if (subTask == null) {
             throw new IllegalArgumentException("assignment not found or expired");
         }
+        log.debug("[TurboFlowBridge] complete received: taskId={}, subTaskId={}, assignmentId={}, aiAccountId={}, elapsedMs={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), request.getAssignmentId(),
+                account.getId(), request.getElapsedMs());
         // 三重归属校验：token 对应的账号 + bridgeId + assignmentId 都必须匹配
         if (!account.getId().equals(subTask.getAiAccountId())) {
             throw new IllegalArgumentException("assignment does not belong to account");
@@ -333,6 +367,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
             String suffix = suffixFromMimeType(request.getResultMimeType(), sourceFile.getSuffix());
             MultimediaFile translatedFile = multimediaFileService.saveTranslatedImage(imageBytes, suffix, subTask.getOwner());
+            log.debug("[TurboFlowBridge] translated image saved from bridge result: taskId={}, subTaskId={}, sourceImageId={}, translatedFileId={}, bytes={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), translatedFile.getId(), imageBytes.length);
 
             // 保存翻译缓存，供后续相同图片+语言直接命中
             Language language = resolveLanguage(subTask);
@@ -356,6 +392,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .businessCompletionTokens(completionTokens)
                     .businessCredits(businessCredits)
                     .build();
+            log.debug("[TurboFlowBridge] completion result built: taskId={}, subTaskId={}, promptTokens={}, completionTokens={}, businessCredits={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), promptTokens, completionTokens, businessCredits);
             callback.onSubTaskCompleted(subTask, result);
         } catch (Exception e) {
             callback.onSubTaskFailed(subTask, "complete processing failed: " + e.getMessage(), true, null);
@@ -370,6 +408,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         AiAccount account = resolveTurboFlowAccount(token);
         AiAccountTranslateSubTask subTask = assignments.get(request.getAssignmentId());
         if (subTask == null) {
+            log.debug("[TurboFlowBridge] fail ignored because assignment is missing: assignmentId={}",
+                    request.getAssignmentId());
             return;
         }
         if (!account.getId().equals(subTask.getAiAccountId())) {
@@ -383,6 +423,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         }
         String message = StrUtil.blankToDefault(request.getMessage(), "TurboFlow task failed");
         boolean retryable = request.getRetryable() == null || Boolean.TRUE.equals(request.getRetryable());
+        log.debug("[TurboFlowBridge] fail received: taskId={}, subTaskId={}, assignmentId={}, retryable={}, message={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), request.getAssignmentId(), retryable, message);
         callback.onSubTaskFailed(subTask, message, retryable, null);
     }
 

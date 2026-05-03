@@ -100,9 +100,13 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
         subTask.start();
         subTask.getAttemptCount().incrementAndGet();
         try {
+            log.debug("[GeminiBatch] preparing batch entry: taskId={}, subTaskId={}, type={}, attempt={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(),
+                    subTask.getAttemptCount().get());
             BatchEntry entry = prepareEntry(subTask);
             pendingQueue.offer(entry);
-            log.debug("[GeminiBatch] queued subTask: {}", subTask.getSubTaskId());
+            log.debug("[GeminiBatch] queued subTask: taskId={}, subTaskId={}, type={}, pendingSize={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), pendingQueue.size());
         } catch (Exception e) {
             log.error("[GeminiBatch] failed to prepare batch entry: {}", subTask.getSubTaskId(), e);
             callback.onSubTaskFailed(subTask, "prepare failed: " + e.getMessage(), true, null);
@@ -155,6 +159,13 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             entry.imageMaxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
             if (entry.imageMaxDim <= 0) entry.imageMaxDim = 512;
             entry.sourceFile = sourceFile;
+            log.debug("[GeminiBatch] image batch entry prepared: taskId={}, subTaskId={}, imageId={}, mimeType={}, bytes={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(),
+                    entry.imageMimeType, entry.imageBytes.length);
+        } else {
+            log.debug("[GeminiBatch] text/html batch entry prepared: taskId={}, subTaskId={}, type={}, contentLength={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(),
+                    subTask.getContent() == null ? 0 : subTask.getContent().length());
         }
         return entry;
     }
@@ -168,6 +179,8 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
         boolean shouldFlush = size >= FLUSH_THRESHOLD
                 || (System.currentTimeMillis() - lastFlushTime) > FLUSH_TIMEOUT_MS;
         if (!shouldFlush) return;
+        log.debug("[GeminiBatch] flush triggered: pendingSize={}, threshold={}, timeoutMs={}",
+                size, FLUSH_THRESHOLD, FLUSH_TIMEOUT_MS);
 
         List<BatchEntry> batch = new ArrayList<>();
         while (!pendingQueue.isEmpty() && batch.size() < FLUSH_THRESHOLD * 2) {
@@ -198,8 +211,10 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             jsonl.append(line).append('\n');
             keyMap.put(key, entry);
         }
+        log.debug("[GeminiBatch] jsonl built: entries={}, bytes={}", entries.size(), jsonl.length());
 
         String uploadedFileName = geminiTranslateService.uploadBatchFile(jsonl.toString());
+        log.debug("[GeminiBatch] batch file uploaded: uploadedFileName={}, entries={}", uploadedFileName, entries.size());
         BatchJob job = geminiTranslateService.createBatchJob(uploadedFileName);
         String jobName = job.name().orElseThrow(() -> new RuntimeException("Batch Job 无 name"));
 
@@ -232,6 +247,8 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             try {
                 BatchJob job = geminiTranslateService.getBatchJob(ab.jobName);
                 String state = job.state().map(Object::toString).orElse("UNKNOWN");
+                log.debug("[GeminiBatch] batch polled: jobName={}, state={}, entries={}",
+                        ab.jobName, state, ab.entries.size());
 
                 if (COMPLETED_STATES.contains(state)) {
                     it.remove();
@@ -268,6 +285,8 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
         try {
             String content = geminiTranslateService.downloadBatchResult(resultFileName);
             resultMap = parseResultJsonl(content);
+            log.debug("[GeminiBatch] batch result downloaded: jobName={}, resultFile={}, resultCount={}",
+                    ab.jobName, resultFileName, resultMap.size());
         } catch (Exception e) {
             log.error("[GeminiBatch] download result failed: jobName={}", ab.jobName, e);
             failAllEntries(ab, "download result failed: " + e.getMessage(), true);
@@ -279,11 +298,14 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             BatchEntry entry = e.getValue();
             JsonNode node = resultMap.get(key);
             if (node == null || !node.has("response")) {
+                log.debug("[GeminiBatch] batch result missing entry: jobName={}, key={}", ab.jobName, key);
                 callback.onSubTaskFailed(entry.subTask, "no result in batch for key: " + key,
                         false, buildEstimatedResult(entry));
                 continue;
             }
             try {
+                log.debug("[GeminiBatch] processing batch result entry: jobName={}, key={}, type={}",
+                        ab.jobName, key, entry.subTask.getType());
                 processEntryResult(entry, node.get("response"));
             } catch (Exception ex) {
                 log.error("[GeminiBatch] process entry failed: key={}", key, ex);
@@ -304,6 +326,9 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
         switch (subTask.getType()) {
             case TEXT -> {
                 String translated = extractText(responseNode);
+                log.debug("[GeminiBatch] text result parsed: taskId={}, subTaskId={}, actualTokens={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(),
+                        actualPrompt + actualCompletion + actualThinking);
                 BigDecimal cost = TokenCostCalculator.calculateCost(
                         TranslationContentType.TEXT, account, actualPrompt, actualCompletion, actualThinking);
                 SubTaskResult result = SubTaskResult.builder()
@@ -320,6 +345,9 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             }
             case HTML -> {
                 String translated = extractText(responseNode);
+                log.debug("[GeminiBatch] html result parsed: taskId={}, subTaskId={}, actualTokens={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(),
+                        actualPrompt + actualCompletion + actualThinking);
                 BigDecimal cost = TokenCostCalculator.calculateCost(
                         TranslationContentType.HTML, account, actualPrompt, actualCompletion, actualThinking);
                 SubTaskResult result = SubTaskResult.builder()
@@ -336,6 +364,9 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             }
             case IMAGE -> {
                 byte[] imgBytes = extractImage(responseNode);
+                log.debug("[GeminiBatch] image result parsed: taskId={}, subTaskId={}, hasImage={}, actualTokens={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), imgBytes != null,
+                        actualPrompt + actualCompletion + actualThinking);
                 int bizPrompt = 718;
                 int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(entry.imageMaxDim);
                 BigDecimal cost = TokenCostCalculator.calculateCost(
@@ -346,6 +377,9 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
                         translatedFile = multimediaFileService.saveTranslatedImage(
                                 imgBytes, entry.sourceFile.getSuffix(), subTask.getOwner());
                     }
+                    log.debug("[GeminiBatch] image result saved: taskId={}, subTaskId={}, translatedFileId={}, skipped={}",
+                            subTask.getTaskId(), subTask.getSubTaskId(),
+                            translatedFile == null ? null : translatedFile.getId(), translatedFile == null);
                     SubTaskResult result = SubTaskResult.builder()
                             .translatedFile(translatedFile)
                             .actualPromptTokens(actualPrompt)
