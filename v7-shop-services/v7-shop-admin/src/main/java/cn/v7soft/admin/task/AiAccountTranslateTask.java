@@ -1,6 +1,7 @@
 package cn.v7soft.admin.task;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -241,9 +242,29 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 + result.getActualCompletionTokens() + result.getActualThinkingTokens());
                         record.setBusinessCredits(result.getBusinessCredits());
                         record.setElapsedMs(result.getElapsedMs());
+
+                        // actualCost: 按 AiAccount 配置 + actual tokens 计算（适用所有 Provider）
+                        if (!result.isCacheHit()) {
+                            AiAccount acc = record.getAiAccount();
+                            if (acc != null) {
+                                BigDecimal actualCost = TokenCostCalculator.calculateCost(
+                                        record.getContentType(), acc,
+                                        result.getActualPromptTokens(), result.getActualCompletionTokens(),
+                                        result.getActualThinkingTokens());
+                                record.setActualCost(actualCost);
+                            }
+                        }
+
                         if (result.getTranslatedFile() != null) {
                             record.setTranslatedImagePath(result.getTranslatedFile().getRelativePath());
                             record.setHasImageOutput(true);
+                        }
+                        // 图片子任务：记录原图路径
+                        if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
+                            try {
+                                MultimediaFile sf = subTask.resolveSourceFile(multimediaFileService);
+                                record.setSourceImagePath(sf.getRelativePath());
+                            } catch (Exception ignored) {}
                         }
                         if (result.getTranslatedText() != null) {
                             record.setTranslatedText(result.getTranslatedText());
@@ -837,7 +858,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.TEXT);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeTextSubTask(subTask, cached.get().getTranslatedText());
-                    updateCacheHitUsageRecord(subTask, language.getName(), account);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account, null, null);
                     log.debug("[AiAccountTranslateTask] text cache hit: taskId={}, subTaskId={}, languageId={}",
                             subTask.getTaskId(), subTask.getSubTaskId(), language.getId());
                     return true;
@@ -848,7 +869,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.HTML);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeHtmlSubTask(subTask, cached.get().getTranslatedText());
-                    updateCacheHitUsageRecord(subTask, language.getName(), account);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account, null, null);
                     log.debug("[AiAccountTranslateTask] html cache hit: taskId={}, subTaskId={}, languageId={}",
                             subTask.getTaskId(), subTask.getSubTaskId(), language.getId());
                     return true;
@@ -867,7 +888,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     } else {
                         status.completeSubTask(subTask);
                     }
-                    updateCacheHitUsageRecord(subTask, language.getName(), account);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account, sourceFile, translatedFile);
                     log.debug("[AiAccountTranslateTask] image cache hit: taskId={}, subTaskId={}, languageId={}, skipped={}",
                             subTask.getTaskId(), subTask.getSubTaskId(), language.getId(), cached.get().isSkipped());
                     return true;
@@ -882,21 +903,35 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     /**
      * 缓存命中时，为对应的 AiTokenUsageRecord 写入 businessCredits。
-     * 优先复制上次同 contentHash+targetLanguage 的实际扣费记录；无历史则按预估兜底。
+     * 优先复制上次同 contentHash+targetLanguage 的实际扣费记录（businessCredits > 0）；无有效历史则按预估兜底。
+     * 缓存命中只计 business，不计 actual。
+     *
+     * @param sourceFile     IMAGE 子任务的原图文件（TEXT/HTML 传 null）
+     * @param translatedFile IMAGE 子任务命中缓存后的译图文件（TEXT/HTML 或 skipped 传 null）
      */
     private void updateCacheHitUsageRecord(AiAccountTranslateSubTask subTask, String targetLanguage,
-                                              AiAccount account) {
+                                              AiAccount account,
+                                              MultimediaFile sourceFile, MultimediaFile translatedFile) {
         try {
             usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
                     .ifPresent(record -> {
                         record.setCacheHit(true);
                         String contentHash = record.getContentHash();
 
+                        // 图片路径
+                        if (sourceFile != null) {
+                            record.setSourceImagePath(sourceFile.getRelativePath());
+                        }
+                        if (translatedFile != null) {
+                            record.setTranslatedImagePath(translatedFile.getRelativePath());
+                            record.setHasImageOutput(true);
+                        }
+
                         Optional<AiTokenUsageRecord> historyOpt = usageRecordRepository
                                 .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
                                         contentHash, targetLanguage);
 
-                        if (historyOpt.isPresent()) {
+                        if (historyOpt.isPresent() && historyOpt.get().getBusinessCredits() > 0) {
                             AiTokenUsageRecord history = historyOpt.get();
                             record.setBusinessPromptTokens(history.getBusinessPromptTokens());
                             record.setBusinessCompletionTokens(history.getBusinessCompletionTokens());
@@ -922,7 +957,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                             BigDecimal businessCost = TokenCostCalculator.calculateCost(
                                     contentType, account, bizPrompt, bizCompletion, 0);
                             record.setBusinessCost(businessCost);
-                            record.setBusinessCredits(TokenCostCalculator.usdToCredits(businessCost));
+                            record.setBusinessCredits(Math.max(TokenCostCalculator.usdToCredits(businessCost), 1));
                         }
 
                         usageRecordRepository.save(record);
@@ -994,7 +1029,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     /**
-     * 积分结算：解冻预估额 + 扣减实际消耗。
+     * 积分结算：解冻预估额 + 扣减实际消耗 + 写入结算汇总信息。
      * frozenCredits 来自 AsyncTask.estimatedCredits（loadTask 时写入），
      * actualCredits 来自 SUM(AiTokenUsageRecord.businessCredits)（Provider 回调时累计写入）。
      */
@@ -1005,15 +1040,26 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 return;
             }
             int actualCredits = usageRecordRepository.sumUnsettledBusinessCreditsByTaskId(task.getId());
+            long recordCount = usageRecordRepository.countByTaskId(task.getId());
+            int totalPromptTokens = usageRecordRepository.sumBusinessPromptTokensByTaskId(task.getId());
+            int totalCompletionTokens = usageRecordRepository.sumBusinessCompletionTokensByTaskId(task.getId());
+            int totalThinkingTokens = usageRecordRepository.sumBusinessThinkingTokensByTaskId(task.getId());
+
             transactionTemplate.executeWithoutResult(txStatus -> {
                 aiCreditsService.settle(task.getOwner().getId(), task.getEstimatedCredits(), actualCredits);
                 usageRecordRepository.markSettledByTaskId(task.getId());
                 task.setEstimatedCredits(0);
+                task.setBillingRecordCount(recordCount);
+                task.setBillingActualCredits(actualCredits);
+                task.setBillingTotalPromptTokens(totalPromptTokens);
+                task.setBillingTotalCompletionTokens(totalCompletionTokens);
+                task.setBillingTotalThinkingTokens(totalThinkingTokens);
                 task.setBillingSettled(true);
+                task.setBillingSettledAt(LocalDateTime.now());
                 asyncTaskRepository.save(task);
             });
-            log.info("[AiAccountTranslateTask] settled taskId={}, frozen={}, actual={}",
-                     task.getId(), frozenCredits, actualCredits);
+            log.info("[AiAccountTranslateTask] settled taskId={}, frozen={}, actual={}, records={}, promptTokens={}, completionTokens={}, thinkingTokens={}",
+                     task.getId(), frozenCredits, actualCredits, recordCount, totalPromptTokens, totalCompletionTokens, totalThinkingTokens);
         } catch (Exception e) {
             log.error("[AiAccountTranslateTask] settle failed: taskId={}", task.getId(), e);
         }

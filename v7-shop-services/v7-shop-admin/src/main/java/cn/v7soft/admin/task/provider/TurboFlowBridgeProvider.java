@@ -393,6 +393,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                             promptTokens, completionTokens, 0));
 
             // 将翻译结果和 token 用量打包回传给 adapter
+            // TurboFlow 无真实 API 返回的 actual 数据，按 AiAccount 配置与 business 相同
             SubTaskResult result = SubTaskResult.builder()
                     .translatedFile(translatedFile)
                     .elapsedMs(request.getElapsedMs())
@@ -400,6 +401,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .businessPromptTokens(promptTokens)
                     .businessCompletionTokens(completionTokens)
                     .businessCredits(businessCredits)
+                    .actualPromptTokens(promptTokens)
+                    .actualCompletionTokens(completionTokens)
                     .build();
             log.debug("[TurboFlowBridge] completion result built: taskId={}, subTaskId={}, promptTokens={}, completionTokens={}, businessCredits={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), promptTokens, completionTokens, businessCredits);
