@@ -2,6 +2,7 @@ package cn.v7soft.dao.repositories.primary;
 
 import cn.v7soft.core.repository.BaseRepository;
 import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -16,11 +17,23 @@ public interface AiTokenUsageRecordRepository extends BaseRepository<AiTokenUsag
     @Query("SELECT COUNT(r) FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
     long countByTaskId(@Param("taskId") Long taskId);
 
+    List<AiTokenUsageRecord> findByTaskId(Long taskId);
+
+    Optional<AiTokenUsageRecord> findByTaskIdAndSubTaskId(Long taskId, String subTaskId);
+
     Optional<AiTokenUsageRecord> findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
             String contentHash, String targetLanguage);
 
     @Query("SELECT COALESCE(SUM(r.businessCredits), 0) FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
     int sumBusinessCreditsByTaskId(@Param("taskId") Long taskId);
+
+    @Query("SELECT COALESCE(SUM(r.businessCredits), 0) FROM AiTokenUsageRecord r " +
+           "WHERE r.taskId = :taskId AND r.settled = false")
+    int sumUnsettledBusinessCreditsByTaskId(@Param("taskId") Long taskId);
+
+    @Modifying
+    @Query("UPDATE AiTokenUsageRecord r SET r.settled = true WHERE r.taskId = :taskId")
+    int markSettledByTaskId(@Param("taskId") Long taskId);
 
     @Query("SELECT COUNT(r) > 0 FROM AiTokenUsageRecord r WHERE r.taskId = :taskId")
     boolean existsByTaskId(@Param("taskId") Long taskId);

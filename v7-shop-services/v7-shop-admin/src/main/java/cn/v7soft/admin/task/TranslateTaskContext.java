@@ -16,10 +16,10 @@ public interface TranslateTaskContext {
 
     void pushToPendingQueue(AiAccountTranslateSubTask subTask);
 
-    /** 子任务完成时，更新对应的 AiTranslateUsageRecord（写入实际 token、credits） */
+    /** 子任务完成时，更新对应的 AiTokenUsageRecord（写入实际 token、credits） */
     void updateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult result);
 
-    /** 子任务失败/重试时，累加实际 token 用量到 AiTranslateUsageRecord */
+    /** 子任务失败/重试时，累加实际 token 用量到 AiTokenUsageRecord */
     void accumulateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult partialResult);
 
     /** 子任务完成后，将翻译结果保存到翻译缓存（TEXT/HTML → TextTranslationCache，IMAGE → ImageTranslationCache） */

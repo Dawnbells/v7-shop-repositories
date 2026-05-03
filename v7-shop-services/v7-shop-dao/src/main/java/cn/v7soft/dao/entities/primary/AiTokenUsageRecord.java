@@ -4,6 +4,7 @@ import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
 import cn.v7soft.dao.enums.TranslationContentType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -19,8 +20,8 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @Table(name = "t_ai_token_usage_records",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_atur_task_hash_lang",
-                        columnNames = {"task_id", "content_hash", "target_language"})
+                @UniqueConstraint(name = "uk_atur_task_subtask",
+                        columnNames = {"task_id", "sub_task_id"})
         },
         indexes = {
         @Index(name = "idx_atur_task_id", columnList = "task_id"),
@@ -32,6 +33,9 @@ public class AiTokenUsageRecord extends BaseDataRangeEntity {
 
     @Column(name = "task_id", nullable = false)
     private Long taskId;
+
+    @Column(name = "sub_task_id", length = 200)
+    private String subTaskId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ai_account_id")
@@ -47,56 +51,74 @@ public class AiTokenUsageRecord extends BaseDataRangeEntity {
     @Column(name = "target_language", length = 50)
     private String targetLanguage;
 
+    @Builder.Default
     @Column(name = "cache_hit", nullable = false)
-    private Boolean cacheHit;
+    private Boolean cacheHit = false;
 
     @Column(name = "model", length = 50)
     private String model;
 
+    @Builder.Default
+    @Column(name = "frozen_credits")
+    private Integer frozenCredits = 0;
+
+    @Builder.Default
     @Column(name = "actual_prompt_tokens")
-    private Integer actualPromptTokens;
+    private Integer actualPromptTokens = 0;
 
+    @Builder.Default
     @Column(name = "actual_completion_tokens")
-    private Integer actualCompletionTokens;
+    private Integer actualCompletionTokens = 0;
 
+    @Builder.Default
     @Column(name = "actual_thinking_tokens")
-    private Integer actualThinkingTokens;
+    private Integer actualThinkingTokens = 0;
 
+    @Builder.Default
     @Column(name = "actual_total_tokens")
-    private Integer actualTotalTokens;
+    private Integer actualTotalTokens = 0;
 
+    @Builder.Default
     @Column(name = "business_prompt_tokens")
-    private Integer businessPromptTokens;
+    private Integer businessPromptTokens = 0;
 
+    @Builder.Default
     @Column(name = "business_completion_tokens")
-    private Integer businessCompletionTokens;
+    private Integer businessCompletionTokens = 0;
 
+    @Builder.Default
     @Column(name = "business_thinking_tokens")
-    private Integer businessThinkingTokens;
+    private Integer businessThinkingTokens = 0;
 
+    @Builder.Default
     @Column(name = "business_total_tokens")
-    private Integer businessTotalTokens;
+    private Integer businessTotalTokens = 0;
 
+    @Builder.Default
     @Column(name = "actual_cost", precision = 12, scale = 6)
-    private BigDecimal actualCost;
+    private BigDecimal actualCost = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(name = "business_cost", precision = 12, scale = 6)
-    private BigDecimal businessCost;
+    private BigDecimal businessCost = BigDecimal.ZERO;
+
+    @Builder.Default
+    @Column(name = "business_credits")
+    private Integer businessCredits = 0;
 
     @Column(name = "elapsed_ms")
     private Long elapsedMs;
 
-    /**
-     * 图片翻译结果是否有图片输出（用于区分费用计算方式：图片输出单价 vs 分辨率档位）
-     */
     @Column(name = "has_image_output")
     private Boolean hasImageOutput;
 
-    /**
-     * = CEIL(businessCost * 1000)，整数 Credits，作为扣费依据
-     */
-    @Column(name = "business_credits")
-    private Integer businessCredits;
+    @Builder.Default
+    @Column(name = "attempt_count")
+    private Integer attemptCount = 0;
+
+    @Builder.Default
+    @Column(name = "settled", nullable = false)
+    private Boolean settled = false;
 
     @Column(name = "source_text", columnDefinition = "TEXT")
     private String sourceText;

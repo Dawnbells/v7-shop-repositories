@@ -39,7 +39,7 @@ import cn.v7soft.admin.task.provider.TranslateProvider;
 import cn.v7soft.admin.task.provider.TranslateProviderCallback;
 import cn.v7soft.admin.task.provider.TranslateTaskCallbackAdapter;
 import cn.v7soft.dao.entities.primary.AiAccount;
-import cn.v7soft.dao.entities.primary.AiTranslateUsageRecord;
+import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
@@ -53,7 +53,7 @@ import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
-import cn.v7soft.dao.repositories.primary.AiTranslateUsageRecordRepository;
+import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
@@ -72,7 +72,7 @@ import org.springframework.dao.DataIntegrityViolationException;
  *   检查用户积分 → 不足标记 INSUFFICIENT_CREDITS
  *   积分充足 → loadTask:
  *     1. 从产品提取 TEXT/HTML/IMAGE 子任务
- *     2. 每个子任务估算积分 → 创建 AiTranslateUsageRecord(frozenCredits)
+ *     2. 每个子任务估算积分 → 创建 AiTokenUsageRecord(frozenCredits)
  *     3. 子任务全部入队（按 AiAccount 分组的 FIFO 队列）
  *     4. 事务内批量保存 usage records + 冻结积分 + 标记 PROCESSING
  *   ↓
@@ -108,7 +108,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final IMultimediaFileService multimediaFileService;
     private final ILanguageService languageService;
     private final ICountryService countryService;
-    private final AiTranslateUsageRecordRepository usageRecordRepository;
+    private final AiTokenUsageRecordRepository usageRecordRepository;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
     private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final AiCreditsService aiCreditsService;
@@ -131,7 +131,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                   IMultimediaFileService multimediaFileService,
                                   ILanguageService languageService,
                                   ICountryService countryService,
-                                  AiTranslateUsageRecordRepository usageRecordRepository,
+                                  AiTokenUsageRecordRepository usageRecordRepository,
                                   ImageTranslationCacheRepository imageTranslationCacheRepository,
                                   TextTranslationCacheRepository textTranslationCacheRepository,
                                   AiCreditsService aiCreditsService,
@@ -215,7 +215,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     /**
-     * 子任务完成时，将 Provider 回传的实际 token 用量写入对应的 AiTranslateUsageRecord。
+     * 子任务完成时，将 Provider 回传的实际 token 用量写入对应的 AiTokenUsageRecord。
      * 由 TranslateTaskCallbackAdapter.onSubTaskCompleted 调用。
      */
     @Override
@@ -260,7 +260,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     /**
-     * 子任务失败/重试时，将本次尝试消耗的 token 累加到 AiTranslateUsageRecord。
+     * 子任务失败/重试时，将本次尝试消耗的 token 累加到 AiTokenUsageRecord。
      * 跨重试累加，确保最终 businessCredits 反映所有尝试的真实消耗。
      * 由 TranslateTaskCallbackAdapter.onSubTaskFailed 调用。
      */
@@ -564,7 +564,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     /**
      * 拆分 AsyncTask 为子任务，全部入队由 Provider 统一分发。
      * 1. 解析参数，构建子任务列表（TEXT/HTML/IMAGE）
-     * 2. 每个子任务估算积分 → 创建 AiTranslateUsageRecord（frozenCredits）→ 入队
+     * 2. 每个子任务估算积分 → 创建 AiTokenUsageRecord（frozenCredits）→ 入队
      * 3. 汇总 totalEstimatedCredits → aiCreditsService.tryFreeze → 写入 AsyncTask.estimatedCredits
      * 缓存查询不在此阶段进行，由 Provider 在执行阶段（如 pollTask）检查缓存。
      */
@@ -573,7 +573,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             log.debug("[AiAccountTranslateTask] loadTask started: taskId={}, ownerId={}",
                     task.getId(), task.getOwner() == null ? null : task.getOwner().getId());
             // 0. 重启恢复：清理上次运行残留的 usage records，解冻冻结积分，避免唯一约束冲突
-            List<AiTranslateUsageRecord> staleRecords = usageRecordRepository.findByTaskId(task.getId());
+            List<AiTokenUsageRecord> staleRecords = usageRecordRepository.findByTaskId(task.getId());
             if (!staleRecords.isEmpty()) {
                 Integer prevFrozen = task.getEstimatedCredits();
                 transactionTemplate.executeWithoutResult(txStatus -> {
@@ -629,7 +629,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
             // 3. 遍历子任务：估算积分、创建 usage record（不入队，等事务提交后再投递）
             int totalEstimatedCredits = 0;
-            List<AiTranslateUsageRecord> usageRecords = new ArrayList<>();
+            List<AiTokenUsageRecord> usageRecords = new ArrayList<>();
 
             for (AiAccountTranslateSubTask subTask : subTasks) {
                 subTask.setOwner(task.getOwner());
@@ -640,7 +640,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 log.debug("[AiAccountTranslateTask] subtask estimated: taskId={}, subTaskId={}, type={}, frozenCredits={}",
                         task.getId(), subTask.getSubTaskId(), subTask.getType(), estimated);
 
-                AiTranslateUsageRecord record = AiTranslateUsageRecord.builder()
+                AiTokenUsageRecord record = AiTokenUsageRecord.builder()
                         .taskId(task.getId())
                         .subTaskId(subTask.getSubTaskId())
                         .aiAccount(account)
@@ -656,7 +656,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
             // 4/5/6 在同一事务中执行，保证 usage records + 积分冻结 + 任务状态的原子性
             final int credits = totalEstimatedCredits;
-            final List<AiTranslateUsageRecord> records = usageRecords;
+            final List<AiTokenUsageRecord> records = usageRecords;
             transactionTemplate.executeWithoutResult(txStatus -> {
                 usageRecordRepository.saveAll(records);
                 if (credits > 0) {
@@ -875,7 +875,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     /**
-     * 缓存命中时，为对应的 AiTranslateUsageRecord 写入 businessCredits。
+     * 缓存命中时，为对应的 AiTokenUsageRecord 写入 businessCredits。
      * 优先复制上次同 contentHash+targetLanguage 的实际扣费记录；无历史则按预估兜底。
      */
     private void updateCacheHitUsageRecord(AiAccountTranslateSubTask subTask, String targetLanguage,
@@ -886,12 +886,12 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         record.setCacheHit(true);
                         String contentHash = record.getContentHash();
 
-                        Optional<AiTranslateUsageRecord> historyOpt = usageRecordRepository
+                        Optional<AiTokenUsageRecord> historyOpt = usageRecordRepository
                                 .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
                                         contentHash, targetLanguage);
 
                         if (historyOpt.isPresent()) {
-                            AiTranslateUsageRecord history = historyOpt.get();
+                            AiTokenUsageRecord history = historyOpt.get();
                             record.setBusinessPromptTokens(history.getBusinessPromptTokens());
                             record.setBusinessCompletionTokens(history.getBusinessCompletionTokens());
                             record.setBusinessThinkingTokens(history.getBusinessThinkingTokens());
@@ -980,7 +980,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     /**
      * 积分结算：解冻预估额 + 扣减实际消耗。
      * frozenCredits 来自 AsyncTask.estimatedCredits（loadTask 时写入），
-     * actualCredits 来自 SUM(AiTranslateUsageRecord.businessCredits)（Provider 回调时累计写入）。
+     * actualCredits 来自 SUM(AiTokenUsageRecord.businessCredits)（Provider 回调时累计写入）。
      */
     private void settleTask(AsyncTask task) {
         try {
@@ -988,11 +988,12 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             if (frozenCredits == null || frozenCredits <= 0) {
                 return;
             }
-            int actualCredits = usageRecordRepository.sumBusinessCreditsByTaskId(task.getId());
+            int actualCredits = usageRecordRepository.sumUnsettledBusinessCreditsByTaskId(task.getId());
             transactionTemplate.executeWithoutResult(txStatus -> {
                 aiCreditsService.settle(task.getOwner().getId(), task.getEstimatedCredits(), actualCredits);
                 usageRecordRepository.markSettledByTaskId(task.getId());
                 task.setEstimatedCredits(0);
+                task.setBillingSettled(true);
                 asyncTaskRepository.save(task);
             });
             log.info("[AiAccountTranslateTask] settled taskId={}, frozen={}, actual={}",

@@ -46,9 +46,17 @@ public class DatabaseInitiator implements ApplicationRunner {
             addColumnIfMissing(stmt, database, "t_ai_accounts", "daily_limit", "INT NULL");
             addColumnIfMissing(stmt, database, "t_ai_accounts", "user_agent", "VARCHAR(512) NULL");
             addColumnIfMissing(stmt, database, "t_ai_token_usage_records", "ai_account_id", "BIGINT NULL");
+            addColumnIfMissing(stmt, database, "t_ai_token_usage_records", "sub_task_id", "VARCHAR(200) NULL");
+            addColumnIfMissing(stmt, database, "t_ai_token_usage_records", "frozen_credits", "INT DEFAULT 0");
+            addColumnIfMissing(stmt, database, "t_ai_token_usage_records", "attempt_count", "INT DEFAULT 0");
+            addColumnIfMissing(stmt, database, "t_ai_token_usage_records", "settled", "TINYINT(1) NOT NULL DEFAULT 0");
             if (!indexExists(stmt, database, "t_ai_token_usage_records", "idx_atur_ai_account_create_time")) {
                 stmt.execute("ALTER TABLE t_ai_token_usage_records ADD INDEX idx_atur_ai_account_create_time(ai_account_id, create_time)");
                 log.info("Created INDEX idx_atur_ai_account_create_time on t_ai_token_usage_records");
+            }
+            if (!indexExists(stmt, database, "t_ai_token_usage_records", "uk_atur_task_subtask")) {
+                stmt.execute("ALTER TABLE t_ai_token_usage_records ADD UNIQUE INDEX uk_atur_task_subtask(task_id, sub_task_id)");
+                log.info("Created UNIQUE INDEX uk_atur_task_subtask on t_ai_token_usage_records");
             }
         } catch (Exception e) {
             log.warn("Failed to ensure AI quota columns: {}", e.getMessage());

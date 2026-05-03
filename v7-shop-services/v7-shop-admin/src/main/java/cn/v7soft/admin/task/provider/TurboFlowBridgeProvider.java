@@ -25,14 +25,14 @@ import cn.v7soft.admin.task.AiAccountTranslateSubTask;
 import cn.v7soft.admin.task.AiAccountTranslateSubTaskType;
 import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.dao.entities.primary.AiAccount;
-import cn.v7soft.dao.entities.primary.AiTranslateUsageRecord;
+import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
-import cn.v7soft.dao.repositories.primary.AiTranslateUsageRecordRepository;
+import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import lombok.Getter;
@@ -64,7 +64,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final IMultimediaFileService multimediaFileService;
     private final ILanguageService languageService;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
-    private final AiTranslateUsageRecordRepository usageRecordRepository;
+    private final AiTokenUsageRecordRepository usageRecordRepository;
     private final GeminiTranslateService geminiTranslateService;
     private final ThreadPoolTaskExecutor executor;
     private final RateLimiter rateLimiter;
@@ -74,7 +74,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             IMultimediaFileService multimediaFileService,
             ILanguageService languageService,
             ImageTranslationCacheRepository imageTranslationCacheRepository,
-            AiTranslateUsageRecordRepository usageRecordRepository,
+            AiTokenUsageRecordRepository usageRecordRepository,
             GeminiTranslateService geminiTranslateService,
             @Qualifier("translationExecutor") ThreadPoolTaskExecutor executor,
             RateLimiter geminiRateLimiter) {
@@ -278,11 +278,11 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 int promptTokens;
                 int completionTokens;
                 int businessCredits;
-                Optional<AiTranslateUsageRecord> historyOpt = usageRecordRepository
+                Optional<AiTokenUsageRecord> historyOpt = usageRecordRepository
                         .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
                                 subTask.getContentKey(), language.getName());
                 if (historyOpt.isPresent() && historyOpt.get().getBusinessCredits() > 0) {
-                    AiTranslateUsageRecord history = historyOpt.get();
+                    AiTokenUsageRecord history = historyOpt.get();
                     promptTokens = history.getBusinessPromptTokens();
                     completionTokens = history.getBusinessCompletionTokens();
                     businessCredits = history.getBusinessCredits();
