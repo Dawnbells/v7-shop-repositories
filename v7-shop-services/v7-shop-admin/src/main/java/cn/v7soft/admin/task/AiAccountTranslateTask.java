@@ -50,7 +50,6 @@ import cn.v7soft.dao.entities.primary.TextTranslationCache;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.enums.AiProvider;
-import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
@@ -467,7 +466,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             }
             // 分发前检查缓存，命中则直接完成，不调用 Provider
             AiAccountTranslateTaskStatus status = runningTasks.get(subTask.getTaskId());
-            if (status != null && tryCompleteFromCache(status, subTask, account.getInvokeMode())) {
+            if (status != null && tryCompleteFromCache(status, subTask, account)) {
                 runtimeState.releaseFinishedSlot();
                 continue;
             }
@@ -584,7 +583,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 subTask.setOwner(task.getOwner());
                 status.addSubTask(subTask);
 
-                int estimated = estimateSubTaskCredits(provider, subTask);
+                int estimated = estimateSubTaskCredits(provider, account, subTask);
                 totalEstimatedCredits += estimated;
 
                 AiTranslateUsageRecord record = AiTranslateUsageRecord.builder()
@@ -645,10 +644,10 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         };
     }
 
-    private int estimateSubTaskCredits(TranslateProvider provider, AiAccountTranslateSubTask subTask) {
+    private int estimateSubTaskCredits(TranslateProvider provider, AiAccount account, AiAccountTranslateSubTask subTask) {
         try {
             if (provider != null) {
-                return provider.estimateSubTaskCredits(subTask);
+                return provider.estimateSubTaskCredits(account, subTask);
             }
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] 估算子任务积分失败: subTaskId={}", subTask.getSubTaskId(), e);
@@ -762,7 +761,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      * TEXT/HTML 查 TextTranslationCache，IMAGE 查 ImageTranslationCache。
      */
     private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask,
-                                          InvokeMode invokeMode) {
+                                          AiAccount account) {
         try {
             Language language = status.getLanguage();
             if (language == null) {
@@ -774,7 +773,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.TEXT);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeTextSubTask(subTask, cached.get().getTranslatedText());
-                    updateCacheHitUsageRecord(subTask, language.getName(), invokeMode);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account);
                     return true;
                 }
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
@@ -783,7 +782,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                 subTask.getContentKey(), language.getId(), TranslationContentType.HTML);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
                     status.completeHtmlSubTask(subTask, cached.get().getTranslatedText());
-                    updateCacheHitUsageRecord(subTask, language.getName(), invokeMode);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account);
                     return true;
                 }
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
@@ -800,7 +799,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     } else {
                         status.completeSubTask(subTask);
                     }
-                    updateCacheHitUsageRecord(subTask, language.getName(), invokeMode);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account);
                     return true;
                 }
             }
@@ -816,7 +815,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      * 优先复制上次同 contentHash+targetLanguage 的实际扣费记录；无历史则按预估兜底。
      */
     private void updateCacheHitUsageRecord(AiAccountTranslateSubTask subTask, String targetLanguage,
-                                              InvokeMode invokeMode) {
+                                              AiAccount account) {
         try {
             usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
                     .ifPresent(record -> {
@@ -851,8 +850,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                             record.setBusinessThinkingTokens(0);
                             record.setBusinessTotalTokens(bizPrompt + bizCompletion);
                             BigDecimal businessCost = TokenCostCalculator.calculateCost(
-                                    contentType, invokeMode != null ? invokeMode : InvokeMode.STANDARD,
-                                    bizPrompt, bizCompletion, 0);
+                                    contentType, account, bizPrompt, bizCompletion, 0);
                             record.setBusinessCost(businessCost);
                             record.setBusinessCredits(TokenCostCalculator.usdToCredits(businessCost));
                         }

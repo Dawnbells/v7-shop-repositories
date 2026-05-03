@@ -1,7 +1,6 @@
 package cn.v7soft.dao.entities.primary;
 
 import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
-import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -53,10 +52,6 @@ public class AiTokenUsageRecord extends BaseDataRangeEntity {
 
     @Column(name = "model", length = 50)
     private String model;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "invoke_mode", length = 20)
-    private InvokeMode invokeMode;
 
     @Column(name = "actual_prompt_tokens")
     private Integer actualPromptTokens;

@@ -1,7 +1,6 @@
 package cn.v7soft.admin.controller.req;
 
 import cn.v7soft.core.controller.request.BasePageRequest;
-import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
@@ -22,9 +21,6 @@ public class QueryAiTokenUsageRecordRequest extends BasePageRequest {
 
     @Schema(title = "模型", example = "gemini-2.0-flash")
     private String model;
-
-    @Schema(title = "调用模式", example = "BATCH")
-    private InvokeMode invokeMode;
 
     @Schema(title = "内容类型", example = "TEXT")
     private TranslationContentType contentType;

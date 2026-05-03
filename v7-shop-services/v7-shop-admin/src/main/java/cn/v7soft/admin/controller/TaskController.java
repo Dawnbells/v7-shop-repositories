@@ -8,7 +8,6 @@ import cn.v7soft.admin.controller.req.EditAsyncTaskRequest;
 import cn.v7soft.admin.controller.req.QueryAsyncTaskRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.service.IAsyncTaskService;
-import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.core.controller.request.QueryPageRequest;
@@ -81,12 +80,6 @@ public class TaskController extends BaseDataRangeController<AsyncTask, IAsyncTas
     @Operation(summary = "确认所有已完成任务")
     public void acknowledgeAllCompleted() {
         service.acknowledgeAllCompleted();
-    }
-
-    @PostMapping("/switch-to-direct/{taskId}")
-    @Operation(summary = "切换为即时翻译")
-    public AsyncTaskResponse switchToDirectTranslate(@PathVariable("taskId") Long taskId) {
-        return service.switchToDirectTranslate(taskId);
     }
 
     @PostMapping("/retry/{taskId}")

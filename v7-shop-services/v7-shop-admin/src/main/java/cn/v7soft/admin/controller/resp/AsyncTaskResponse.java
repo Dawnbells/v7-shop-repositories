@@ -50,9 +50,6 @@ public class AsyncTaskResponse extends DataRangeResponse {
     @Schema(title = "记录数")
     private Long recordCount;
 
-    @Schema(title = "调用模式")
-    private String invokeMode;
-
     @Schema(title = "总输入Token")
     private Integer totalPromptTokens;
 
@@ -74,9 +71,6 @@ public class AsyncTaskResponse extends DataRangeResponse {
 
     public static AsyncTaskResponse convert(AsyncTask task) {
         boolean isBatch = task.getBatchJobName() != null && !task.getBatchJobName().isBlank();
-        String mode = task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE ? "BATCH"
-                     : task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE_DIRECT ? "STANDARD"
-                     : null;
         return filling(task, AsyncTaskResponse.builder()
                 .name(task.getName())
                 .taskType(task.getTaskType())
@@ -88,7 +82,6 @@ public class AsyncTaskResponse extends DataRangeResponse {
                 .acknowledged(Boolean.TRUE.equals(task.getAcknowledged()))
                 .inBatchMode(isBatch)
                 .recordCount(task.getBillingRecordCount())
-                .invokeMode(mode)
                 .totalPromptTokens(task.getBillingTotalPromptTokens())
                 .totalCompletionTokens(task.getBillingTotalCompletionTokens())
                 .totalThinkingTokens(task.getBillingTotalThinkingTokens())

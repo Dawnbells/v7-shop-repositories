@@ -4,7 +4,6 @@ import {
   fetchUnacknowledged,
   acknowledgeTask as apiAcknowledgeTask,
   acknowledgeAllCompleted as apiAcknowledgeAllCompleted,
-  switchToDirectTranslate as apiSwitchToDirectTranslate,
   retryTask as apiRetryTask,
 } from '/@/api/taskManagement'
 
@@ -51,8 +50,7 @@ const taskTypeLabelMap: Record<string, string> = {
   ORDER_DOWNLOAD: '订单下载',
   ORDER_UPLOAD: '订单上传',
   THIRD_PARTY_ORDER_SYNC: '第三方订单同步',
-  PRODUCT_AI_TRANSLATE: 'AI批量翻译',
-  PRODUCT_AI_TRANSLATE_DIRECT: 'AI即时翻译',
+  PRODUCT_AI_ACCOUNT_TRANSLATE: 'AI账号翻译',
 }
 
 export const useTasksStore = defineStore('tasks', {
@@ -182,23 +180,6 @@ export const useTasksStore = defineStore('tasks', {
       }
     },
 
-    async switchToDirectTranslate(taskId: string) {
-      try {
-        const res = await apiSwitchToDirectTranslate(taskId)
-        const data = res?.data ?? res
-        const task = this.tasks.find((t) => t.taskId === taskId)
-        if (task) {
-          task.state = data.state ?? 'PENDING'
-          task.progress = data.progress ?? 0
-          task.message = data.message ?? '正在切换为即时翻译...'
-          task.inBatchMode = false
-        }
-        this.ensurePolling()
-      } catch (e) {
-        console.error(`[TasksStore] switchToDirectTranslate ${taskId} failed`, e)
-      }
-    },
-
     async cancelTask(taskId: string) {
       try {
         const res = await apiCancelTask(taskId)
@@ -234,7 +215,7 @@ export const useTasksStore = defineStore('tasks', {
     },
 
     isTranslatingProduct(productId: string, countryId: string, languageId: string): boolean {
-      const translateTypes = new Set(['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_TRANSLATE_DIRECT'])
+      const translateTypes = new Set(['PRODUCT_AI_ACCOUNT_TRANSLATE'])
       return this.activeTasks.some((t) => {
         if (!translateTypes.has(t.taskType)) return false
         return (

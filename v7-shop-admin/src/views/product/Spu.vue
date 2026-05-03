@@ -66,9 +66,6 @@
                 <el-button text type="primary" @click="handleProductTranslate(props.row, row)">
                   复制
                 </el-button>
-                <el-button text type="primary" @click="handleAITranslate(props.row, row)">
-                  翻译
-                </el-button>
                 <el-button text type="primary" @click="handleProductAITranslate(props.row, row)">
                   AI翻译
                 </el-button>
@@ -211,12 +208,8 @@ const handleShare = (row: any) => {
   spuShareEditRef.value.showEdit(row)
 }
 
-const handleAITranslate = (spuRow: any, productRow: any) => {
-  productTranslateRef.value.showEdit(spuRow, productRow)
-}
-
 const handleProductAITranslate = (spuRow: any, productRow: any) => {
-  productTranslateRef.value.showEdit(spuRow, productRow, { ai: true })
+  productTranslateRef.value.showEdit(spuRow, productRow)
 }
 
 const handleDelete = (row: any) => {

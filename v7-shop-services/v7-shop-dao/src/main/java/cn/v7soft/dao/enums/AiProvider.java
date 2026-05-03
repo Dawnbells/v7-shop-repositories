@@ -5,10 +5,6 @@ public enum AiProvider {
     GEMINI_OFFICIAL_BATCH,
     GEMINI_OFFICIAL_STANDARD;
 
-    public InvokeMode getInvokeMode() {
-        return this == GEMINI_OFFICIAL_BATCH ? InvokeMode.BATCH : InvokeMode.STANDARD;
-    }
-
     public boolean isTurboFlow() {
         return this == TURBOFLOW_GEMINI;
     }

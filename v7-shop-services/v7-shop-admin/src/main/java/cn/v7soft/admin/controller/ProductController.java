@@ -104,17 +104,6 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
         return service.submitTranslateByAI(request);
     }
 
-    @Operation(summary = "AI即时翻译（异步任务）")
-    @PostMapping("/translateByAIDirect")
-    public AsyncTaskResponse translateByAIDirect(@Valid @RequestBody TranslateByAIRequest request) {
-        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
-        Long departmentId = loginUser.getDepartmentId();
-        if (!loginUser.isAdmin() && !Objects.equals(departmentId, 1103627419648L)) {
-            ClientResponseEnum.NO_PERMISSION.throwException("暂无权限");
-        }
-        return service.submitTranslateByAIDirect(request);
-    }
-
     @Override
     protected boolean cleanupBeforeDelete(DeleteRequest request) {
         return true;

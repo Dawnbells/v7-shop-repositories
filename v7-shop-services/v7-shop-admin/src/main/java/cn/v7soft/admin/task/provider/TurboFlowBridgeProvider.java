@@ -30,7 +30,6 @@ import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
-import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
 import cn.v7soft.dao.repositories.primary.AiTranslateUsageRecordRepository;
@@ -106,12 +105,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     }
 
     @Override
-    public int estimateSubTaskCredits(AiAccountTranslateSubTask subTask) {
+    public int estimateSubTaskCredits(AiAccount account, AiAccountTranslateSubTask subTask) {
         if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
-            return TokenCostCalculator.estimateCredits(0, TokenCostCalculator.estimateImageTokens(), InvokeMode.STANDARD);
+            return TokenCostCalculator.estimateCredits(0, TokenCostCalculator.estimateImageTokens(), account);
         }
         int textTokens = TokenCostCalculator.estimateTextTokens(subTask.getContent());
-        return TokenCostCalculator.estimateCredits(textTokens, 0, InvokeMode.STANDARD);
+        return TokenCostCalculator.estimateCredits(textTokens, 0, account);
     }
 
     @Override
@@ -130,6 +129,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private void executeTextViaGemini(AiAccountTranslateSubTask subTask) {
         try {
             RateLimiter.waitForPermission(rateLimiter);
+            AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
             Language language = languageService.getById(Long.parseLong(subTask.getLanguageId()));
             String langName = language.getName();
 
@@ -148,7 +148,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             int prompt = usage != null ? safeInt(usage.getPromptTokens()) : 0;
             int completion = usage != null ? safeInt(usage.getCompletionTokens()) : 0;
             int thinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
-            BigDecimal cost = TokenCostCalculator.calculateCost(contentType, InvokeMode.STANDARD, prompt, completion, thinking);
+            BigDecimal cost = TokenCostCalculator.calculateCost(contentType, account, prompt, completion, thinking);
 
             SubTaskResult.SubTaskResultBuilder resultBuilder = SubTaskResult.builder()
                     .elapsedMs(usage != null ? usage.getElapsedMs() : null)
@@ -170,10 +170,11 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             boolean billable = GeminiOfficialProvider.isBillableError(e);
             SubTaskResult partialResult = null;
             if (billable) {
+                AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
                 TranslationContentType ct = subTask.getType() == AiAccountTranslateSubTaskType.HTML
                         ? TranslationContentType.HTML : TranslationContentType.TEXT;
                 int est = TokenCostCalculator.estimateTextTokens(subTask.getContent());
-                BigDecimal cost = TokenCostCalculator.calculateCost(ct, InvokeMode.STANDARD, est, est, 0);
+                BigDecimal cost = TokenCostCalculator.calculateCost(ct, acc, est, est, 0);
                 partialResult = SubTaskResult.builder()
                         .businessPromptTokens(est)
                         .businessCompletionTokens(est)
@@ -259,7 +260,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 } else {
                     promptTokens = 718;
                     completionTokens = TokenCostCalculator.estimateImageTokens();
-                    businessCredits = TokenCostCalculator.estimateCredits(0, completionTokens, InvokeMode.STANDARD);
+                    businessCredits = TokenCostCalculator.estimateCredits(0, completionTokens, account);
                 }
 
                 SubTaskResult result = SubTaskResult.builder()
@@ -343,7 +344,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             int promptTokens = 718;
             int completionTokens = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
             int businessCredits = TokenCostCalculator.usdToCredits(
-                    TokenCostCalculator.calculateCost(TranslationContentType.IMAGE, InvokeMode.STANDARD,
+                    TokenCostCalculator.calculateCost(TranslationContentType.IMAGE, account,
                             promptTokens, completionTokens, 0));
 
             // 将翻译结果和 token 用量打包回传给 adapter

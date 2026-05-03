@@ -3,17 +3,6 @@
     <vab-query-form>
       <vab-query-form-top-panel>
         <el-form inline label-width="70px" :model="queryForm" @submit.prevent>
-          <el-form-item label="调用模式">
-            <el-select
-              v-model="queryForm.invokeMode"
-              clearable
-              placeholder="全部"
-              style="width: 130px"
-            >
-              <el-option label="即时翻译" value="STANDARD" />
-              <el-option label="批量翻译" value="BATCH" />
-            </el-select>
-          </el-form-item>
           <el-form-item>
             <el-button
               :icon="Search"
@@ -178,13 +167,6 @@
         </template>
       </el-table-column>
       <el-table-column align="center" label="提交用户" prop="ownerName" width="100" show-overflow-tooltip />
-      <el-table-column align="center" label="调用模式" width="100">
-        <template #default="{ row }">
-          <el-tag size="small" :type="row.invokeMode === 'BATCH' ? 'success' : 'primary'">
-            {{ invokeModeLabel(row.invokeMode) }}
-          </el-tag>
-        </template>
-      </el-table-column>
       <el-table-column align="center" label="记录数" width="80">
         <template #default="{ row }">
           {{ row.recordCount != null ? row.recordCount : '-' }}
@@ -251,7 +233,6 @@ interface TaskRow {
   id: number
   name: string
   ownerName: string | null
-  invokeMode: string
   recordCount: number | null
   totalPromptTokens: number | null
   totalCompletionTokens: number | null
@@ -272,14 +253,7 @@ const isAdmin = ref(false)
 const queryForm = reactive({
   pageNo: 1,
   pageSize: 20,
-  invokeMode: undefined as string | undefined,
 })
-
-const invokeModeLabel = (mode: string) => {
-  if (mode === 'STANDARD') return '即时翻译'
-  if (mode === 'BATCH') return '批量翻译'
-  return mode || '-'
-}
 
 const contentTypeLabel = (type: string) => {
   if (type === 'TEXT') return '文本'
@@ -301,23 +275,13 @@ const formatNumber = (value: number | undefined | null): string => {
   return value.toLocaleString()
 }
 
-const buildTaskTypes = () => {
-  const mode = queryForm.invokeMode
-  if (mode === 'BATCH') return ['PRODUCT_AI_TRANSLATE']
-  if (mode === 'STANDARD') return ['PRODUCT_AI_TRANSLATE_DIRECT']
-  return undefined
-}
-
 const fetchData = async () => {
   listLoading.value = true
   try {
     const params: any = {
       pageNo: queryForm.pageNo,
       pageSize: queryForm.pageSize,
-    }
-    const taskTypes = buildTaskTypes()
-    if (taskTypes) {
-      params.taskTypes = taskTypes
+      taskTypes: ['PRODUCT_AI_ACCOUNT_TRANSLATE'],
     }
     const { data } = await listAiTranslateTasks(params)
     taskList.value = (data.list || []).map((item: any) => ({

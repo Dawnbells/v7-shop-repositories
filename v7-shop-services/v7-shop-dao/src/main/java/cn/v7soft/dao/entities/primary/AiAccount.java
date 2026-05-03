@@ -5,7 +5,6 @@ import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
 import cn.v7soft.dao.enums.AiBillingPriceUnit;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.AiRateLimitMode;
-import cn.v7soft.dao.enums.InvokeMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -46,10 +45,6 @@ public class AiAccount extends BaseDataRangeEntity {
     @Convert(converter = AiProviderConverter.class)
     @Column(name = "provider", nullable = false, length = 40)
     private AiProvider provider;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "invoke_mode", length = 20)
-    private InvokeMode invokeMode;
 
     @Column(name = "api_key", nullable = false, length = 2048)
     private String apiKey;
@@ -129,14 +124,4 @@ public class AiAccount extends BaseDataRangeEntity {
     @Builder.Default
     @Column(name = "priority", nullable = false)
     private Integer priority = 100;
-
-    @PostLoad
-    private void normalizeMergedProvider() {
-        if (provider == AiProvider.GEMINI_OFFICIAL_STANDARD && invokeMode == InvokeMode.BATCH) {
-            provider = AiProvider.GEMINI_OFFICIAL_BATCH;
-        }
-        if (provider != null) {
-            invokeMode = provider.getInvokeMode();
-        }
-    }
 }

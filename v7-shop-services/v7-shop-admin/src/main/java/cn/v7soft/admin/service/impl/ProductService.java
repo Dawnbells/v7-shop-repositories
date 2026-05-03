@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.http.util.TextUtils;
@@ -29,7 +30,6 @@ import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductSKUService;
 import cn.v7soft.admin.service.IProductService;
-import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.utils.MultimediaUtil;
 import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
@@ -47,7 +47,7 @@ import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.entities.primary.Spu;
 import cn.v7soft.dao.entities.primary.SystemUser;
-import cn.v7soft.dao.enums.InvokeMode;
+import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
@@ -56,11 +56,11 @@ import cn.v7soft.dao.repositories.primary.SpuRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import lombok.extern.slf4j.Slf4j;
 
-import static cn.v7soft.admin.service.impl.TaskExecutorService.IMG_ID_PATTERN;
-
 @Slf4j
 @Service
 public class ProductService extends BaseDataRangeService<Product, ProductRepository> implements IProductService {
+
+    private static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
 
     private final IProductSKUService productSKUService;
     private final ILanguageService languageService;
@@ -68,7 +68,6 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     private final IMultimediaFileService multimediaFileService;
     private final SpuRepository spuRepository;
     private final AsyncTaskRepository asyncTaskRepository;
-    private final ITaskExecutorService taskExecutorService;
     private final TranslateTaskMetrics translateTaskMetrics;
     private final AiCreditsService aiCreditsService;
     private final IAiAccountService aiAccountService;
@@ -76,7 +75,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     public ProductService(ProductRepository repository, IProductSKUService productSKUService,
                           ILanguageService languageService, ICountryService countryService,
                           IMultimediaFileService multimediaFileService, SpuRepository spuRepository,
-                          AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService,
+                          AsyncTaskRepository asyncTaskRepository,
                           TranslateTaskMetrics translateTaskMetrics,
                           AiCreditsService aiCreditsService,
                           IAiAccountService aiAccountService) {
@@ -87,7 +86,6 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         this.multimediaFileService = multimediaFileService;
         this.spuRepository = spuRepository;
         this.asyncTaskRepository = asyncTaskRepository;
-        this.taskExecutorService = taskExecutorService;
         this.translateTaskMetrics = translateTaskMetrics;
         this.aiCreditsService = aiCreditsService;
         this.aiAccountService = aiAccountService;
@@ -346,8 +344,8 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
                                                     "同一SPU下该国家和语言已存在商品，不允许重复");
 
-        AiAccount selectedAiAccount = resolveSelectedAiAccount(request);
-        TaskType taskType = resolveAiTranslateTaskType(selectedAiAccount);
+        AiAccount selectedAiAccount = requireAiAccount(request);
+        TaskType taskType = TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE;
 
         String dedupKey = taskType.name() + ":" +
                           request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
@@ -367,10 +365,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                        : "商品#" + product.getId();
         String taskName = "AI翻译: " + title + " → " + language.getName();
 
-        InvokeMode invokeMode = selectedAiAccount != null
-                                ? selectedAiAccount.getProvider().getInvokeMode()
-                                : InvokeMode.BATCH;
-        Integer estimated = estimateAndFreezeCredits(product, invokeMode);
+        Integer estimated = estimateAndFreezeCredits(product, selectedAiAccount);
 
         AsyncTask asyncTask = AsyncTask.builder()
                 .taskType(taskType)
@@ -384,89 +379,15 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         translateTaskMetrics.recordSubmit();
-        if (taskType != TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE) {
-            taskExecutorService.submitAsyncTask(asyncTask.getId());
-        }
         return AsyncTaskResponse.convert(asyncTask);
     }
 
-    private AiAccount resolveSelectedAiAccount(TranslateByAIRequest request) {
-        if (StrUtil.isBlank(request.getAiAccountId())) {
-            return null;
-        }
+    private AiAccount requireAiAccount(TranslateByAIRequest request) {
+        ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(request.getAiAccountId(), "请选择AI账号");
         AiAccount account = aiAccountService.getById(Long.parseLong(request.getAiAccountId()));
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(account, "AI账号不存在");
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(account.getProvider(), "AI账号类型不能为空");
         return account;
-    }
-
-    private TaskType resolveAiTranslateTaskType(AiAccount account) {
-        if (account == null) {
-            return TaskType.PRODUCT_AI_TRANSLATE;
-        }
-        return switch (account.getProvider()) {
-            case TURBOFLOW_GEMINI -> TaskType.PRODUCT_AI_ACCOUNT_TRANSLATE;
-            case GEMINI_OFFICIAL_BATCH -> TaskType.PRODUCT_AI_TRANSLATE;
-            case GEMINI_OFFICIAL_STANDARD -> TaskType.PRODUCT_AI_TRANSLATE_DIRECT;
-        };
-    }
-
-    @Override
-    @Transactional
-    public AsyncTaskResponse submitTranslateByAIDirect(TranslateByAIRequest request) {
-        Product product = getById(Long.parseLong(request.getProductId()));
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(product, "商品不存在");
-
-        Country country = countryService.getById(Long.valueOf(request.getCountryId()));
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(country, "目标国家不存在");
-
-        Language language = languageService.getById(Long.valueOf(request.getLanguageId()));
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(language, "目标语言不存在");
-
-        boolean languageBelongsToCountry = country.getLanguages() != null
-                                           && country.getLanguages().stream().anyMatch(l -> l.getId().equals(language.getId()));
-        ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(languageBelongsToCountry,
-                                                    "所选语言不属于目标国家支持的语言");
-
-        Product duplicate = repository.findBySameCountryLanguage(
-                product.getSpu().getId(), null, country.getId(), language.getId());
-        ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
-                                                    "同一SPU下该国家和语言已存在商品，不允许重复");
-
-        String dedupKey = "PRODUCT_AI_TRANSLATE_DIRECT:" +
-                          request.getProductId() + ":" + request.getCountryId() + ":" + request.getLanguageId();
-
-        List<AsyncTask> existing = asyncTaskRepository.findByTaskTypeAndDedupKeyAndStateIn(
-                TaskType.PRODUCT_AI_TRANSLATE_DIRECT, dedupKey,
-                List.of(TaskState.PENDING, TaskState.PROCESSING));
-        if (!existing.isEmpty()) {
-            translateTaskMetrics.recordDedupHit();
-            return AsyncTaskResponse.convert(existing.get(0));
-        }
-
-        String parameters = cn.hutool.json.JSONUtil.toJsonStr(request);
-
-        String title = StrUtil.isNotBlank(product.getTitle())
-                       ? product.getTitle()
-                       : "商品#" + product.getId();
-        String taskName = "AI即时翻译: " + title + " → " + language.getName();
-
-        Integer estimated = estimateAndFreezeCredits(product, InvokeMode.STANDARD);
-
-        AsyncTask asyncTask = AsyncTask.builder()
-                .taskType(TaskType.PRODUCT_AI_TRANSLATE_DIRECT)
-                .state(TaskState.PENDING)
-                .progress(0)
-                .parameters(parameters)
-                .name(taskName)
-                .dedupKey(dedupKey)
-                .estimatedCredits(estimated)
-                .build()
-                .fillOwner();
-        asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
-        translateTaskMetrics.recordSubmit();
-        taskExecutorService.submitAsyncTask(asyncTask.getId());
-        return AsyncTaskResponse.convert(asyncTask);
     }
 
     @Override
@@ -609,11 +530,11 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
      * 计算预估 AI Credits 并冻结。如果用户无限制则返回 null。
      * 冻结失败会抛出 InsufficientCreditsException，事务回滚。
      */
-    private Integer estimateAndFreezeCredits(Product product, InvokeMode mode) {
+    private Integer estimateAndFreezeCredits(Product product, AiAccount account) {
         int textEstimateTokens = TokenCostCalculator.getProductTextEstimateTokens(product);
         int imageEstimateTokens = TokenCostCalculator.getProductImageEstimateTokens(product);
 
-        int estimated = TokenCostCalculator.estimateCredits(textEstimateTokens, imageEstimateTokens, mode);
+        int estimated = TokenCostCalculator.estimateCredits(textEstimateTokens, imageEstimateTokens, account);
 
         Long userId = SaSessionUtil.getLoginUser().getLongId();
         boolean frozen = aiCreditsService.freeze(userId, estimated);

@@ -2,7 +2,6 @@ package cn.v7soft.admin.controller.resp;
 
 import cn.v7soft.common.controller.resp.DataRangeResponse;
 import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
-import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -32,9 +31,6 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
 
     @Schema(title = "模型")
     private String model;
-
-    @Schema(title = "调用模式")
-    private InvokeMode invokeMode;
 
     @Schema(title = "业务 Prompt Tokens")
     private Integer businessPromptTokens;
@@ -107,7 +103,6 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
                 .contentType(record.getContentType())
                 .targetLanguage(record.getTargetLanguage())
                 .model(record.getModel())
-                .invokeMode(record.getInvokeMode())
                 .businessPromptTokens(record.getBusinessPromptTokens())
                 .businessCompletionTokens(record.getBusinessCompletionTokens())
                 .businessThinkingTokens(record.getBusinessThinkingTokens())
@@ -135,7 +130,6 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
                 .contentType(record.getContentType())
                 .targetLanguage(record.getTargetLanguage())
                 .model(record.getModel())
-                .invokeMode(record.getInvokeMode())
                 .businessPromptTokens(record.getBusinessPromptTokens())
                 .businessCompletionTokens(record.getBusinessCompletionTokens())
                 .businessThinkingTokens(record.getBusinessThinkingTokens())

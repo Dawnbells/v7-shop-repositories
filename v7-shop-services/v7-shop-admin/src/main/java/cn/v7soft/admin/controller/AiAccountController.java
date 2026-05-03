@@ -47,9 +47,6 @@ public class AiAccountController extends BaseDataRangeController<AiAccount, IAiA
     protected AiAccount convertRequest(@Nullable AiAccount dbEntity, EditAiAccountRequest request) {
         AiAccount entity = Optional.ofNullable(dbEntity).orElse(AiAccount.builder().build());
         BeanUtil.copyProperties(request, entity);
-        if (request.getProvider() != null) {
-            entity.setInvokeMode(request.getProvider().getInvokeMode());
-        }
         entity.setRateLimitMode(request.getRateLimitMode() == null ? AiRateLimitMode.CONCURRENCY : request.getRateLimitMode());
         entity.setMaxConcurrency(request.getMaxConcurrency() == null ? 1 : request.getMaxConcurrency());
         entity.setPriority(request.getPriority() == null ? 100 : request.getPriority());

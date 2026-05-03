@@ -9,16 +9,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
+import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
 import cn.v7soft.admin.task.AiAccountTranslateSubTask;
 import cn.v7soft.admin.task.AiAccountTranslateSubTaskType;
 import cn.v7soft.admin.utils.TokenCostCalculator;
+import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
-import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
 import com.google.genai.errors.ApiException;
 import io.github.resilience4j.ratelimiter.RateLimiter;
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Component;
 public class GeminiOfficialProvider implements TranslateProvider {
 
     private final GeminiTranslateService geminiTranslateService;
+    private final IAiAccountService aiAccountService;
     private final ILanguageService languageService;
     private final IMultimediaFileService multimediaFileService;
     private final ThreadPoolTaskExecutor executor;
@@ -42,11 +44,13 @@ public class GeminiOfficialProvider implements TranslateProvider {
 
     public GeminiOfficialProvider(
             GeminiTranslateService geminiTranslateService,
+            IAiAccountService aiAccountService,
             ILanguageService languageService,
             IMultimediaFileService multimediaFileService,
             @Qualifier("translationExecutor") ThreadPoolTaskExecutor executor,
             RateLimiter geminiRateLimiter) {
         this.geminiTranslateService = geminiTranslateService;
+        this.aiAccountService = aiAccountService;
         this.languageService = languageService;
         this.multimediaFileService = multimediaFileService;
         this.executor = executor;
@@ -64,13 +68,12 @@ public class GeminiOfficialProvider implements TranslateProvider {
     }
 
     @Override
-    public int estimateSubTaskCredits(AiAccountTranslateSubTask subTask) {
-        InvokeMode mode = getProviderType().getInvokeMode();
+    public int estimateSubTaskCredits(AiAccount account, AiAccountTranslateSubTask subTask) {
         if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
-            return TokenCostCalculator.estimateCredits(0, TokenCostCalculator.estimateImageTokens(), mode);
+            return TokenCostCalculator.estimateCredits(0, TokenCostCalculator.estimateImageTokens(), account);
         }
         int textTokens = TokenCostCalculator.estimateTextTokens(subTask.getContent());
-        return TokenCostCalculator.estimateCredits(textTokens, 0, mode);
+        return TokenCostCalculator.estimateCredits(textTokens, 0, account);
     }
 
     @Override
@@ -88,8 +91,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
             AiAccountTranslateSubTask subTask = it.next();
             if (taskId.equals(subTask.getTaskId())) {
                 it.remove();
+                AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
                 callback.onSubTaskFailed(subTask, "task cancelled (Gemini in-flight)",
-                        false, buildEstimatedResult(subTask));
+                        false, buildEstimatedResult(subTask, acc));
             }
         }
     }
@@ -100,11 +104,12 @@ public class GeminiOfficialProvider implements TranslateProvider {
 
             Language language = languageService.getById(Long.parseLong(subTask.getLanguageId()));
             String langName = language.getName();
+            AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
 
             SubTaskResult result = switch (subTask.getType()) {
-                case TEXT -> executeText(subTask, langName);
-                case HTML -> executeHtml(subTask, langName);
-                case IMAGE -> executeImage(subTask, langName);
+                case TEXT -> executeText(subTask, langName, account);
+                case HTML -> executeHtml(subTask, langName, account);
+                case IMAGE -> executeImage(subTask, langName, account);
             };
 
             if (inFlightSubTasks.remove(subTask)) {
@@ -118,13 +123,14 @@ public class GeminiOfficialProvider implements TranslateProvider {
             log.error("[GeminiOfficialProvider] subtask failed: subTaskId={}", subTask.getSubTaskId(), e);
             if (inFlightSubTasks.remove(subTask)) {
                 boolean billable = isBillableError(e);
-                SubTaskResult partialResult = billable ? buildEstimatedResult(subTask) : null;
+                AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
+                SubTaskResult partialResult = billable ? buildEstimatedResult(subTask, acc) : null;
                 callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult);
             }
         }
     }
 
-    private SubTaskResult executeText(AiAccountTranslateSubTask subTask, String langName) {
+    private SubTaskResult executeText(AiAccountTranslateSubTask subTask, String langName, AiAccount account) {
         AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
         String translated = geminiTranslateService.translateTextRaw(subTask.getContent(), langName, usageRef::set);
 
@@ -134,7 +140,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
         int thinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
 
         BigDecimal cost = TokenCostCalculator.calculateCost(
-                TranslationContentType.TEXT, InvokeMode.STANDARD, prompt, completion, thinking);
+                TranslationContentType.TEXT, account, prompt, completion, thinking);
 
         return SubTaskResult.builder()
                 .translatedText(translated)
@@ -149,7 +155,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 .build();
     }
 
-    private SubTaskResult executeHtml(AiAccountTranslateSubTask subTask, String langName) {
+    private SubTaskResult executeHtml(AiAccountTranslateSubTask subTask, String langName, AiAccount account) {
         AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
         String translated = geminiTranslateService.translateHtmlRaw(subTask.getContent(), langName, usageRef::set);
 
@@ -159,7 +165,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
         int thinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
 
         BigDecimal cost = TokenCostCalculator.calculateCost(
-                TranslationContentType.HTML, InvokeMode.STANDARD, prompt, completion, thinking);
+                TranslationContentType.HTML, account, prompt, completion, thinking);
 
         return SubTaskResult.builder()
                 .translatedHtml(translated)
@@ -174,7 +180,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 .build();
     }
 
-    private SubTaskResult executeImage(AiAccountTranslateSubTask subTask, String langName) throws Exception {
+    private SubTaskResult executeImage(AiAccountTranslateSubTask subTask, String langName, AiAccount account) throws Exception {
         MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
         byte[] imageBytes = readImageBytes(sourceFile);
         String mimeType = toMimeType(sourceFile.getSuffix());
@@ -192,7 +198,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
         int bizPrompt = 718;
         int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
         BigDecimal cost = TokenCostCalculator.calculateCost(
-                TranslationContentType.IMAGE, InvokeMode.STANDARD, bizPrompt, bizCompletion, 0);
+                TranslationContentType.IMAGE, account, bizPrompt, bizCompletion, 0);
 
         try {
             MultimediaFile translatedFile = null;
@@ -244,7 +250,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
         return true;
     }
 
-    private SubTaskResult buildEstimatedResult(AiAccountTranslateSubTask subTask) {
+    private SubTaskResult buildEstimatedResult(AiAccountTranslateSubTask subTask, AiAccount account) {
         TranslationContentType ct = mapContentType(subTask.getType());
         int bizPrompt, bizCompletion;
         if (ct == TranslationContentType.IMAGE) {
@@ -255,7 +261,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
             bizPrompt = est;
             bizCompletion = est;
         }
-        BigDecimal cost = TokenCostCalculator.calculateCost(ct, InvokeMode.STANDARD, bizPrompt, bizCompletion, 0);
+        BigDecimal cost = TokenCostCalculator.calculateCost(ct, account, bizPrompt, bizCompletion, 0);
         return SubTaskResult.builder()
                 .businessPromptTokens(bizPrompt)
                 .businessCompletionTokens(bizCompletion)

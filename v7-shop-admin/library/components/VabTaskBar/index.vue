@@ -89,20 +89,6 @@
                 {{ task.message }}
               </div>
               <div v-if="!isFinished(task.state)" class="task-bar-item-actions">
-                <el-button
-                  v-if="
-                    task.taskType === 'PRODUCT_AI_TRANSLATE' &&
-                    task.inBatchMode &&
-                    task.state === 'PROCESSING'
-                  "
-                  link
-                  type="warning"
-                  size="small"
-                  @click="handleSwitchDirect(task.taskId)"
-                >
-                  <el-icon style="margin-right: 2px"><Sort /></el-icon>
-                  加速翻译
-                </el-button>
                 <el-button link type="danger" size="small" @click="handleCancel(task.taskId)">
                   取消任务
                 </el-button>
@@ -204,7 +190,7 @@
 </template>
 
 <script lang="ts" setup>
-import { Close, Sort } from '@element-plus/icons-vue'
+import { Close } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import { useTasksStore, type TaskItem } from '/@/store/modules/tasks'
 import { listTasks, downloadFile } from '/@/api/taskManagement'
@@ -281,23 +267,6 @@ const handleCancel = async (taskId: string) => {
       type: 'warning',
     })
     await tasksStore.cancelTask(taskId)
-  } catch {
-    // noop
-  }
-}
-
-const handleSwitchDirect = async (taskId: string) => {
-  try {
-    await ElMessageBox.confirm(
-      '将取消当前批量翻译任务，改为逐条即时翻译。即时模式速度更快，但会消耗更多 Token。确定切换吗？',
-      '加速翻译',
-      {
-        confirmButtonText: '确定切换',
-        cancelButtonText: '继续等待',
-        type: 'warning',
-      }
-    )
-    await tasksStore.switchToDirectTranslate(taskId)
   } catch {
     // noop
   }
@@ -408,8 +377,7 @@ const taskTypeLabel = (type: string) => {
     ORDER_DOWNLOAD: '订单下载',
     ORDER_UPLOAD: '订单上传',
     THIRD_PARTY_ORDER_SYNC: '订单同步',
-    PRODUCT_AI_TRANSLATE: 'AI批量翻译',
-    PRODUCT_AI_TRANSLATE_DIRECT: 'AI即时翻译',
+    PRODUCT_AI_ACCOUNT_TRANSLATE: 'AI账号翻译',
   }
   return map[type] || type
 }

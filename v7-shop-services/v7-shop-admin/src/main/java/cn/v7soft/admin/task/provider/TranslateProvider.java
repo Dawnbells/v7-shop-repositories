@@ -1,6 +1,7 @@
 package cn.v7soft.admin.task.provider;
 
 import cn.v7soft.admin.task.AiAccountTranslateSubTask;
+import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.enums.AiProvider;
 
 /**
@@ -21,7 +22,7 @@ public interface TranslateProvider {
     /**
      * 估算单个子任务所需的积分。在 loadTask 阶段按子任务累加，用于任务级冻结。
      */
-    int estimateSubTaskCredits(AiAccountTranslateSubTask subTask);
+    int estimateSubTaskCredits(AiAccount account, AiAccountTranslateSubTask subTask);
 
     /**
      * 分发子任务给 Provider 执行。

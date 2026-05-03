@@ -18,16 +18,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.genai.types.BatchJob;
 import com.google.genai.types.BatchJobDestination;
 
+import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
 import cn.v7soft.admin.task.AiAccountTranslateSubTask;
 import cn.v7soft.admin.task.AiAccountTranslateSubTaskType;
 import cn.v7soft.admin.utils.TokenCostCalculator;
+import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
-import cn.v7soft.dao.enums.InvokeMode;
 import cn.v7soft.dao.enums.TranslationContentType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -54,6 +55,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             "JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED");
 
     private final GeminiTranslateService geminiTranslateService;
+    private final IAiAccountService aiAccountService;
     private final ILanguageService languageService;
     private final IMultimediaFileService multimediaFileService;
 
@@ -65,9 +67,11 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
 
     public GeminiOfficialBatchProvider(
             GeminiTranslateService geminiTranslateService,
+            IAiAccountService aiAccountService,
             ILanguageService languageService,
             IMultimediaFileService multimediaFileService) {
         this.geminiTranslateService = geminiTranslateService;
+        this.aiAccountService = aiAccountService;
         this.languageService = languageService;
         this.multimediaFileService = multimediaFileService;
     }
@@ -83,13 +87,12 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
     }
 
     @Override
-    public int estimateSubTaskCredits(AiAccountTranslateSubTask subTask) {
-        InvokeMode mode = getProviderType().getInvokeMode();
+    public int estimateSubTaskCredits(AiAccount account, AiAccountTranslateSubTask subTask) {
         if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
-            return TokenCostCalculator.estimateCredits(0, TokenCostCalculator.estimateImageTokens(), mode);
+            return TokenCostCalculator.estimateCredits(0, TokenCostCalculator.estimateImageTokens(), account);
         }
         int textTokens = TokenCostCalculator.estimateTextTokens(subTask.getContent());
-        return TokenCostCalculator.estimateCredits(textTokens, 0, mode);
+        return TokenCostCalculator.estimateCredits(textTokens, 0, account);
     }
 
     @Override
@@ -292,6 +295,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
 
     private void processEntryResult(BatchEntry entry, JsonNode responseNode) throws Exception {
         AiAccountTranslateSubTask subTask = entry.subTask;
+        AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
         GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(responseNode);
         int actualPrompt = usage != null ? safeInt(usage.getPromptTokens()) : 0;
         int actualCompletion = usage != null ? safeInt(usage.getCompletionTokens()) : 0;
@@ -301,7 +305,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             case TEXT -> {
                 String translated = extractText(responseNode);
                 BigDecimal cost = TokenCostCalculator.calculateCost(
-                        TranslationContentType.TEXT, InvokeMode.BATCH, actualPrompt, actualCompletion, actualThinking);
+                        TranslationContentType.TEXT, account, actualPrompt, actualCompletion, actualThinking);
                 SubTaskResult result = SubTaskResult.builder()
                         .translatedText(translated)
                         .actualPromptTokens(actualPrompt)
@@ -317,7 +321,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             case HTML -> {
                 String translated = extractText(responseNode);
                 BigDecimal cost = TokenCostCalculator.calculateCost(
-                        TranslationContentType.HTML, InvokeMode.BATCH, actualPrompt, actualCompletion, actualThinking);
+                        TranslationContentType.HTML, account, actualPrompt, actualCompletion, actualThinking);
                 SubTaskResult result = SubTaskResult.builder()
                         .translatedHtml(translated)
                         .actualPromptTokens(actualPrompt)
@@ -335,7 +339,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
                 int bizPrompt = 718;
                 int bizCompletion = TokenCostCalculator.imageBusinessCompletionTokens(entry.imageMaxDim);
                 BigDecimal cost = TokenCostCalculator.calculateCost(
-                        TranslationContentType.IMAGE, InvokeMode.BATCH, bizPrompt, bizCompletion, 0);
+                        TranslationContentType.IMAGE, account, bizPrompt, bizCompletion, 0);
                 try {
                     MultimediaFile translatedFile = null;
                     if (imgBytes != null && entry.sourceFile != null) {
@@ -438,7 +442,8 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             bizPrompt = est;
             bizCompletion = est;
         }
-        BigDecimal cost = TokenCostCalculator.calculateCost(ct, InvokeMode.BATCH, bizPrompt, bizCompletion, 0);
+        AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
+        BigDecimal cost = TokenCostCalculator.calculateCost(ct, account, bizPrompt, bizCompletion, 0);
         return SubTaskResult.builder()
                 .businessPromptTokens(bizPrompt)
                 .businessCompletionTokens(bizCompletion)

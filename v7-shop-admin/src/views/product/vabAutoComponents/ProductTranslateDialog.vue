@@ -137,7 +137,7 @@ const rules = reactive<any>({
 let currentProductTitle = ''
 let existingLanguageCountryPairs = new Set<string>()
 
-const dialogTitle = computed(() => (isAiMode.value ? 'AI 翻译' : '翻译'))
+const dialogTitle = computed(() => 'AI 翻译')
 const selectedAiAccount = computed(() => aiAccountOptions.value.find((item: any) => String(item.id) === String(form.aiAccountId)))
 
 const providerLabel = (provider?: string) => {
@@ -212,8 +212,8 @@ const loadLanguagesForCountry = (countryId: string) => {
   languageLoading.value = false
 }
 
-const showEdit = async (spuRow: any, productRow: any, options?: { ai?: boolean }) => {
-  isAiMode.value = Boolean(options?.ai)
+const showEdit = async (spuRow: any, productRow: any) => {
+  isAiMode.value = true
   form.aiAccountId = ''
   form.productId = String(productRow.id)
   form.countryId = ''
@@ -273,9 +273,7 @@ const save = () => {
           languageId: String(form.languageId),
         }
 
-        if (isAiMode.value) {
-          payload.aiAccountId = String(form.aiAccountId)
-        }
+        payload.aiAccountId = String(form.aiAccountId)
 
         const { data }: any = await translateByAI(payload)
 
@@ -286,19 +284,18 @@ const save = () => {
           ? `${selectedLang.cname}(${selectedLang.name})`
           : form.languageId
 
-        const taskType = data.taskType || 'PRODUCT_AI_TRANSLATE'
-        const modeLabel = isAiMode.value ? 'AI翻译' : '翻译'
+        const taskType = data.taskType || 'PRODUCT_AI_ACCOUNT_TRANSLATE'
 
         tasksStore.addTask({
           taskId: String(data.id ?? data.taskId),
           taskType,
           name: data.name || '',
-          label: data.name || `${modeLabel}: ${currentProductTitle} → ${langLabel}`,
+          label: data.name || `AI翻译: ${currentProductTitle} → ${langLabel}`,
           state: data.state || 'PENDING',
           progress: data.progress ?? 0,
           message: data.message || '',
           parameters: {
-            aiAccountId: isAiMode.value ? String(form.aiAccountId) : '',
+            aiAccountId: String(form.aiAccountId),
             productId: form.productId,
             countryId: String(form.countryId),
             languageId: String(form.languageId),

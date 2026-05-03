@@ -54,7 +54,7 @@ export function fetchUnacknowledged(params?: { pageNo?: number; pageSize?: numbe
       pageNo: params?.pageNo ?? 1,
       pageSize: params?.pageSize ?? 50,
       unacknowledgedOnly: true,
-      taskTypes: ['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_TRANSLATE_DIRECT', 'THIRD_PARTY_ORDER_SYNC'],
+      taskTypes: ['PRODUCT_AI_ACCOUNT_TRANSLATE', 'THIRD_PARTY_ORDER_SYNC'],
     },
   })
 }
@@ -73,13 +73,6 @@ export function acknowledgeAllCompleted() {
   })
 }
 
-export function switchToDirectTranslate(taskId: string | number) {
-  return request({
-    url: `/tasks/switch-to-direct/${taskId}`,
-    method: 'post',
-  })
-}
-
 export function retryTask(taskId: string | number) {
   return request({
     url: `/tasks/retry/${taskId}`,
@@ -93,7 +86,7 @@ export function listAiTranslateTasks(data: any) {
     method: 'post',
     data: {
       ...data,
-      taskTypes: ['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_TRANSLATE_DIRECT'],
+      taskTypes: ['PRODUCT_AI_ACCOUNT_TRANSLATE'],
     },
   })
 }

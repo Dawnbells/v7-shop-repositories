@@ -88,8 +88,6 @@ public class AiTokenUsageRecordController extends BaseDataRangeController<AiToke
                 EqualsQueryAttribute.builder().name("taskId").value(request.getTaskId()).build());
         pageRequest.addConstraint(cn.hutool.core.util.StrUtil.isNotBlank(request.getModel()),
                 EqualsQueryAttribute.builder().name("model").value(request.getModel()).build());
-        pageRequest.addConstraint(request.getInvokeMode() != null,
-                EqualsQueryAttribute.builder().name("invokeMode").value(request.getInvokeMode()).build());
         pageRequest.addConstraint(request.getContentType() != null,
                 EqualsQueryAttribute.builder().name("contentType").value(request.getContentType()).build());
         pageRequest.addConstraint(isSuperAdmin && request.getCacheHit() != null,

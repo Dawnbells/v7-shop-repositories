@@ -25,8 +25,6 @@ public interface IAsyncTaskService extends IBaseDataRangeService<AsyncTask> {
 
     void acknowledgeAllCompleted();
 
-    AsyncTaskResponse switchToDirectTranslate(Long taskId);
-
     AsyncTaskResponse retry(Long taskId);
 
     boolean finalizeBilling(Long taskId);

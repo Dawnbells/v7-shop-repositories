@@ -25,11 +25,6 @@ public interface IProductService extends IBaseDataRangeService<Product> {
     AsyncTaskResponse submitTranslateByAI(TranslateByAIRequest request);
 
     /**
-     * 提交即时翻译任务（TaskType = PRODUCT_AI_TRANSLATE_DIRECT）。
-     */
-    AsyncTaskResponse submitTranslateByAIDirect(TranslateByAIRequest request);
-
-    /**
      * 获取 Product 并在事务内预加载 specificationList 及其 attributes，
      * 避免在事务外访问懒加载集合时抛出 LazyInitializationException。
      */
