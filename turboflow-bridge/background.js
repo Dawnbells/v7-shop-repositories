@@ -248,12 +248,18 @@ async function pollTask(service, conn) {
 }
 
 async function executeTask(service, task) {
+  const prompt = buildPrompt(task);
+  const targetLang = task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese';
+  const sourceThumb = await createThumbnail(task.imageBase64, 64);
   currentTask = {
     service: service.baseUrl,
     taskId: task.taskId,
     subTaskId: task.subTaskId,
     assignmentId: task.assignmentId,
     startedAt: Date.now(),
+    sourceThumb,
+    targetLang,
+    prompt,
   };
   broadcast({ type: 'TASK_CHANGED', currentTask });
 
@@ -269,6 +275,7 @@ async function executeTask(service, task) {
       elapsedMs: Date.now() - startedAt,
     });
     const elapsed = Date.now() - startedAt;
+    const resultThumb = await createThumbnail(result.resultDataUrl, 64);
     addLog('info', `Task completed: ${task.subTaskId}`);
     addTaskHistory({
       taskId: task.taskId,
@@ -277,6 +284,9 @@ async function executeTask(service, task) {
       status: 'completed',
       elapsedMs: elapsed,
       time: Date.now(),
+      sourceThumb,
+      resultThumb,
+      targetLang,
     });
     currentTask = null;
     broadcast({ type: 'TASK_CHANGED', currentTask: null });
@@ -301,10 +311,38 @@ async function executeTask(service, task) {
       error: e.message,
       elapsedMs: elapsed,
       time: Date.now(),
+      sourceThumb,
+      targetLang,
     });
     currentTask = null;
     broadcast({ type: 'TASK_CHANGED', currentTask: null });
     scheduleLoop(FAILURE_DELAY_MS);
+  }
+}
+
+async function createThumbnail(base64OrDataUrl, maxSize) {
+  try {
+    const dataUrl = base64OrDataUrl.startsWith('data:')
+      ? base64OrDataUrl
+      : 'data:image/png;base64,' + base64OrDataUrl;
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const bmp = await createImageBitmap(blob);
+    const scale = Math.min(maxSize / bmp.width, maxSize / bmp.height, 1);
+    const w = Math.round(bmp.width * scale);
+    const h = Math.round(bmp.height * scale);
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close();
+    const outBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.6 });
+    const buf = await outBlob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return 'data:image/jpeg;base64,' + btoa(binary);
+  } catch {
+    return null;
   }
 }
 

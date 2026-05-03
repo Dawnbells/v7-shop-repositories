@@ -282,13 +282,6 @@ button {
   font-family: 'SF Mono', 'Cascadia Code', monospace;
 }
 
-.task-detail {
-  width: 100%;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-secondary);
-  word-break: break-all;
-}
 .task-detail .label {
   color: var(--text-muted);
   margin-right: 4px;
@@ -584,6 +577,124 @@ input::placeholder { color: var(--text-muted); }
   transition: opacity .3s ease;
 }
 .toast.hidden { opacity: 0; pointer-events: none; }
+
+/* ── Current Task: Image + Elapsed + Prompt ── */
+.task-elapsed {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+}
+
+.task-detail {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.task-thumb-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.task-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.task-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-prompt {
+  margin-top: 4px;
+  padding: 3px 6px;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+
+/* ── History Thumbnails ── */
+.td-imgs {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.hist-thumb-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.hist-thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.hist-thumb:hover {
+  border-color: var(--accent);
+}
+
+.no-img {
+  display: inline-block;
+  width: 32px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* ── Thumbnail Hover Preview (shared) ── */
+.thumb-preview {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+
+.thumb-preview img {
+  display: block;
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: 4px;
+}
+
+.task-thumb-wrap:hover .thumb-preview,
+.hist-thumb-wrap:hover .thumb-preview {
+  display: block;
+}
+
+/* ── History Prompt Column ── */
+.td-prompt {
+  max-width: 80px;
+  cursor: help;
+}
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 4px; }

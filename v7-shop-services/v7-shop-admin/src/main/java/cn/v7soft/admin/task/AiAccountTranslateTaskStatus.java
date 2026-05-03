@@ -69,13 +69,13 @@ public class AiAccountTranslateTaskStatus {
     public void startSubTask(AiAccountTranslateSubTask subTask) {
         processingSubTaskCount.incrementAndGet();
         subTasks.put(subTask.getSubTaskId(), subTask);
-        setProcessing("正在执行AI账号翻译子任务");
+        setProcessing(buildProgressMessage());
     }
 
     public void dispatchSubTask(AiAccountTranslateSubTask subTask) {
         processingSubTaskCount.incrementAndGet();
         subTasks.put(subTask.getSubTaskId(), subTask);
-        setProcessing("TurboFlow image task dispatched");
+        setProcessing(buildProgressMessage());
     }
 
     /** 子任务执行完成（无特定翻译产物，如 TEXT noop） */
@@ -175,6 +175,8 @@ public class AiAccountTranslateTaskStatus {
                         ? "部分子任务失败(" + failedSubTaskCount.get() + "), 正在组装已完成的翻译"
                         : "翻译子任务全部完成, 正在组装产物";
             }
+        } else {
+            this.message = buildProgressMessage();
         }
         touch();
     }
@@ -201,6 +203,12 @@ public class AiAccountTranslateTaskStatus {
 
     public void markFinalized() {
         finalized.set(true);
+    }
+
+    private String buildProgressMessage() {
+        int completed = completedSubTaskCount.get();
+        int failed = failedSubTaskCount.get();
+        return "正在执行AI翻译任务：" + completed + "/" + failed + "/" + totalSubTaskCount;
     }
 
     private void touch() {

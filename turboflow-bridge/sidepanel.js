@@ -124,20 +124,43 @@
     }
   }
 
+  let elapsedTimer = null;
+  let activeTask = null;
+
   function renderCurrentTask(task) {
+    activeTask = task;
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+
     if (!task) {
       currentTaskEl.className = 'task-card idle';
       currentTaskEl.innerHTML = '<span class="task-status-badge idle">Idle</span>';
       return;
     }
     currentTaskEl.className = 'task-card running';
+    updateCurrentTaskContent();
+    elapsedTimer = setInterval(updateCurrentTaskContent, 1000);
+  }
+
+  function updateCurrentTaskContent() {
+    const task = activeTask;
+    if (!task) return;
     const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
+    const imgHtml = task.sourceThumb
+      ? `<div class="task-thumb-wrap"><img class="task-thumb" src="${task.sourceThumb}" alt="source"><div class="thumb-preview"><img src="${task.sourceThumb}" alt="preview"></div></div>`
+      : '';
+    const promptHtml = task.targetLang
+      ? `<div class="task-prompt" title="${escAttr(task.prompt || '')}">${esc(task.targetLang)}</div>`
+      : '';
     currentTaskEl.innerHTML = `
       <span class="task-status-badge running">Running</span>
+      <span class="task-elapsed">${elapsed}s</span>
       <div class="task-detail">
-        <span class="label">SubTask:</span>${esc(task.subTaskId || '-')}<br>
-        <span class="label">Server:</span>${esc(shortenUrl(task.service))}<br>
-        <span class="label">Elapsed:</span>${elapsed}s
+        ${imgHtml}
+        <div class="task-meta">
+          <div><span class="label">SubTask:</span>${esc(task.subTaskId || '-')}</div>
+          <div><span class="label">Server:</span>${esc(shortenUrl(task.service))}</div>
+          ${promptHtml}
+        </div>
       </div>
     `;
   }
@@ -178,11 +201,18 @@
       const timeStr = new Date(t.time).toLocaleTimeString();
       const elapsedStr = t.elapsedMs != null ? `${(t.elapsedMs / 1000).toFixed(1)}s` : '-';
       const statusCls = t.status === 'completed' ? 'completed' : 'failed';
+      const sourceThumbHtml = t.sourceThumb
+        ? `<div class="hist-thumb-wrap"><img class="hist-thumb" src="${t.sourceThumb}" alt="src"><div class="thumb-preview"><img src="${t.sourceThumb}" alt="preview"></div></div>`
+        : '<span class="no-img">-</span>';
+      const resultThumbHtml = t.resultThumb
+        ? `<div class="hist-thumb-wrap"><img class="hist-thumb" src="${t.resultThumb}" alt="res"><div class="thumb-preview"><img src="${t.resultThumb}" alt="preview"></div></div>`
+        : '<span class="no-img">-</span>';
       tr.innerHTML = `
-        <td title="${esc(t.subTaskId || '')}">${esc((t.subTaskId || '').substring(0, 12))}…</td>
+        <td><div class="td-imgs">${sourceThumbHtml}${resultThumbHtml}</div></td>
         <td><span class="status-tag ${statusCls}">${esc(t.status)}</span></td>
-        <td>${timeStr}</td>
         <td>${elapsedStr}</td>
+        <td>${timeStr}</td>
+        <td class="td-prompt">${t.targetLang ? esc(t.targetLang) : '-'}</td>
       `;
       taskTbody.appendChild(tr);
     });
@@ -337,6 +367,10 @@
 
   function esc(value) {
     return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function escAttr(value) {
+    return esc(value).replace(/\n/g, '&#10;').replace(/\r/g, '');
   }
 
   init();
