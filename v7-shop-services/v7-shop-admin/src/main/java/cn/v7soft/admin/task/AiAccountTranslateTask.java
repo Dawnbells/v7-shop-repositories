@@ -230,62 +230,77 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     public void updateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult result) {
         try {
             usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
-                    .ifPresent(record -> {
-                        record.setBusinessPromptTokens(result.getBusinessPromptTokens());
-                        record.setBusinessCompletionTokens(result.getBusinessCompletionTokens());
-                        record.setBusinessThinkingTokens(result.getBusinessThinkingTokens());
-                        record.setBusinessTotalTokens(result.getBusinessPromptTokens()
-                                + result.getBusinessCompletionTokens() + result.getBusinessThinkingTokens());
-                        record.setActualPromptTokens(result.getActualPromptTokens());
-                        record.setActualCompletionTokens(result.getActualCompletionTokens());
-                        record.setActualThinkingTokens(result.getActualThinkingTokens());
-                        record.setActualTotalTokens(result.getActualPromptTokens()
-                                + result.getActualCompletionTokens() + result.getActualThinkingTokens());
-                        record.setBusinessCredits(result.getBusinessCredits());
-                        record.setElapsedMs(result.getElapsedMs());
-
-                        // actualCost: 按 AiAccount 配置 + actual tokens 计算（适用所有 Provider）
-                        // 注意：record.aiAccount 是 LAZY，回调发生在 Provider 异步线程无 Session，
-                        // 此处必须显式按 ID 重新加载，避免 LazyInitializationException
-                        if (!result.isCacheHit()) {
-                            AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
-                            if (acc != null) {
-                                BigDecimal actualCost = TokenCostCalculator.calculateCost(
-                                        record.getContentType(), acc,
-                                        result.getActualPromptTokens(), result.getActualCompletionTokens(),
-                                        result.getActualThinkingTokens());
-                                record.setActualCost(actualCost);
-                            }
-                        }
-
-                        if (result.getTranslatedFile() != null) {
-                            record.setTranslatedImagePath(result.getTranslatedFile().getRelativePath());
-                            record.setHasImageOutput(true);
-                        }
-                        // 图片子任务：记录原图路径
-                        if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
-                            try {
-                                MultimediaFile sf = subTask.resolveSourceFile(multimediaFileService);
-                                record.setSourceImagePath(sf.getRelativePath());
-                            } catch (Exception ignored) {}
-                        }
-                        if (result.getTranslatedText() != null) {
-                            record.setTranslatedText(result.getTranslatedText());
-                        }
-                        if (result.getTranslatedHtml() != null) {
-                            record.setTranslatedText(result.getTranslatedHtml());
-                        }
-                        if (result.isCacheHit()) {
-                            record.setCacheHit(true);
-                        }
-                        record.setAttemptCount(subTask.getAttemptCount().get());
-                        usageRecordRepository.save(record);
-                        log.debug("[AiAccountTranslateTask] usage record updated: taskId={}, subTaskId={}, type={}, actualTokens={}, businessCredits={}, cacheHit={}",
-                                subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(),
-                                record.getActualTotalTokens(), record.getBusinessCredits(), record.getCacheHit());
-                    });
+                    .ifPresent(record -> applyResultAndSave(record, subTask, result));
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] updateUsageRecord failed: subTaskId={}", subTask.getSubTaskId(), e);
+        }
+    }
+
+    /** 把 SubTaskResult 应用到 record 并保存：写入 token 用量、actualCost、翻译产物、cache 标记。 */
+    private void applyResultAndSave(AiTokenUsageRecord record, AiAccountTranslateSubTask subTask, SubTaskResult result) {
+        applyTokenUsage(record, result);
+        applyActualCost(record, subTask, result);
+        applyTranslatedArtifacts(record, subTask, result);
+        if (result.isCacheHit()) {
+            record.setCacheHit(true);
+        }
+        record.setAttemptCount(subTask.getAttemptCount().get());
+        usageRecordRepository.save(record);
+        log.debug("[AiAccountTranslateTask] usage record updated: taskId={}, subTaskId={}, type={}, actualTokens={}, businessCredits={}, cacheHit={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(),
+                record.getActualTotalTokens(), record.getBusinessCredits(), record.getCacheHit());
+    }
+
+    private void applyTokenUsage(AiTokenUsageRecord record, SubTaskResult result) {
+        record.setBusinessPromptTokens(result.getBusinessPromptTokens());
+        record.setBusinessCompletionTokens(result.getBusinessCompletionTokens());
+        record.setBusinessThinkingTokens(result.getBusinessThinkingTokens());
+        record.setBusinessTotalTokens(result.getBusinessPromptTokens()
+                + result.getBusinessCompletionTokens() + result.getBusinessThinkingTokens());
+        record.setActualPromptTokens(result.getActualPromptTokens());
+        record.setActualCompletionTokens(result.getActualCompletionTokens());
+        record.setActualThinkingTokens(result.getActualThinkingTokens());
+        record.setActualTotalTokens(result.getActualPromptTokens()
+                + result.getActualCompletionTokens() + result.getActualThinkingTokens());
+        record.setBusinessCredits(result.getBusinessCredits());
+        record.setElapsedMs(result.getElapsedMs());
+    }
+
+    /**
+     * 按 AiAccount 配置 + actual tokens 计算 actualCost。
+     * record.aiAccount 是 LAZY，回调在 Provider 异步线程无 Session，必须显式按 ID 重新加载。
+     */
+    private void applyActualCost(AiTokenUsageRecord record, AiAccountTranslateSubTask subTask, SubTaskResult result) {
+        if (result.isCacheHit()) {
+            return;
+        }
+        AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
+        if (acc == null) {
+            return;
+        }
+        BigDecimal actualCost = TokenCostCalculator.calculateCost(
+                record.getContentType(), acc,
+                result.getActualPromptTokens(), result.getActualCompletionTokens(),
+                result.getActualThinkingTokens());
+        record.setActualCost(actualCost);
+    }
+
+    private void applyTranslatedArtifacts(AiTokenUsageRecord record, AiAccountTranslateSubTask subTask, SubTaskResult result) {
+        if (result.getTranslatedFile() != null) {
+            record.setTranslatedImagePath(result.getTranslatedFile().getRelativePath());
+            record.setHasImageOutput(true);
+        }
+        if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
+            try {
+                MultimediaFile sf = subTask.resolveSourceFile(multimediaFileService);
+                record.setSourceImagePath(sf.getRelativePath());
+            } catch (Exception ignored) {}
+        }
+        if (result.getTranslatedText() != null) {
+            record.setTranslatedText(result.getTranslatedText());
+        }
+        if (result.getTranslatedHtml() != null) {
+            record.setTranslatedText(result.getTranslatedHtml());
         }
     }
 
