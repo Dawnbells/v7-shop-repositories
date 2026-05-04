@@ -33,6 +33,8 @@ public class AiAccountTranslateTaskStatus {
     private final Language language;
     private final Long countryId;
     private final SystemUser owner;
+    /** 任务所属公司，用于子任务执行/缓存命中时正确设置 TenantContext */
+    private final Long companyId;
     private final ConcurrentMap<String, String> translatedTextMap = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, MultimediaFile> translatedImageMap = new ConcurrentHashMap<>();
     private final AtomicBoolean finalizing = new AtomicBoolean(false);
@@ -44,13 +46,15 @@ public class AiAccountTranslateTaskStatus {
     private volatile LocalDateTime updateTime = LocalDateTime.now();
 
     public AiAccountTranslateTaskStatus(Long taskId, int totalSubTaskCount,
-                                        Long productId, Language language, Long countryId, SystemUser owner) {
+                                        Long productId, Language language, Long countryId, SystemUser owner,
+                                        Long companyId) {
         this.taskId = taskId;
         this.totalSubTaskCount = totalSubTaskCount;
         this.productId = productId;
         this.language = language;
         this.countryId = countryId;
         this.owner = owner;
+        this.companyId = companyId;
         this.progress = totalSubTaskCount == 0 ? 100 : 0;
         this.message = totalSubTaskCount == 0 ? "没有需要翻译的内容" : null;
     }

@@ -435,25 +435,39 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
-    /** 处理单个 PENDING 任务：检查内存态/积分后调 loadTask 拆分。 */
+    /**
+     * 处理单个 PENDING 任务：检查内存态/积分后调 loadTask 拆分。
+     * <p>
+     * 必须显式设置 TenantContext，否则定时器线程默认 currentTenant=null，
+     * 导致 {@link cn.v7soft.dao.entities.base.BaseTenantEntity#companyId} 默认值为 null，
+     * Hibernate {@code @TenantId} 在 root 模式（isRoot(-1)=true）下不强制覆盖，
+     * 最终 record 写入数据库的 company_id=NULL，settle 时按 companyId 过滤就查不到，
+     * 出现"已结算但 records=0、actualCredits=0"。
+     */
     private void processSinglePendingTask(AsyncTask task) {
         log.debug("[AiAccountTranslateTask] pending translate task picked: taskId={}, ownerId={}",
                 task.getId(), task.getOwner() == null ? null : task.getOwner().getId());
-        if (runningTasks.containsKey(task.getId())) {
-            task.setState(TaskState.PROCESSING);
-            asyncTaskRepository.save(task);
-            log.debug("[AiAccountTranslateTask] pending task already running, db state synced: taskId={}", task.getId());
-            return;
+        Company company = companyService.companyCached(task.getCompanyId());
+        TenantContext.setCurrentTenant(task.getCompanyId(), company);
+        try {
+            if (runningTasks.containsKey(task.getId())) {
+                task.setState(TaskState.PROCESSING);
+                asyncTaskRepository.save(task);
+                log.debug("[AiAccountTranslateTask] pending task already running, db state synced: taskId={}", task.getId());
+                return;
+            }
+            if (!aiCreditsService.hasAvailableCredits(task.getOwner().getId())) {
+                task.setState(TaskState.INSUFFICIENT_CREDITS);
+                task.setMessage("AI积分不足，请充值后重试");
+                asyncTaskRepository.save(task);
+                log.info("[AiAccountTranslateTask] 积分不足，标记 INSUFFICIENT_CREDITS: taskId={}, userId={}",
+                         task.getId(), task.getOwner().getId());
+                return;
+            }
+            loadTask(task);
+        } finally {
+            TenantContext.clear();
         }
-        if (!aiCreditsService.hasAvailableCredits(task.getOwner().getId())) {
-            task.setState(TaskState.INSUFFICIENT_CREDITS);
-            task.setMessage("AI积分不足，请充值后重试");
-            asyncTaskRepository.save(task);
-            log.info("[AiAccountTranslateTask] 积分不足，标记 INSUFFICIENT_CREDITS: taskId={}, userId={}",
-                     task.getId(), task.getOwner().getId());
-            return;
-        }
-        loadTask(task);
     }
 
     /** 定时器二：子任务分发。遍历所有账号队列（优先失败队列），通过 Provider 分发。 */
@@ -573,28 +587,41 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 runtimeState.releaseFinishedSlot();
                 continue;
             }
-            // 分发前检查缓存，命中则直接完成，不调用 Provider
-            if (status != null && tryCompleteFromCache(status, subTask, account)) {
-                log.debug("[AiAccountTranslateTask] subtask completed from cache before provider dispatch: taskId={}, subTaskId={}, type={}",
-                        subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType());
-                runtimeState.releaseFinishedSlot();
-                continue;
+            // 按子任务所属租户设置 TenantContext，保证 cache 查找/record 写入的多租户隔离
+            // 否则 root 模式下 record.companyId 写入 NULL，导致 settle 阶段查不到（已结算+全 0）
+            Long subTaskCompanyId = status == null ? null : status.getCompanyId();
+            Company subTaskCompany = subTaskCompanyId == null ? null : companyService.companyCached(subTaskCompanyId);
+            if (subTaskCompanyId != null) {
+                TenantContext.setCurrentTenant(subTaskCompanyId, subTaskCompany);
             }
-            log.debug("[AiAccountTranslateTask] dispatching subtask to provider: taskId={}, subTaskId={}, type={}, provider={}, aiAccountId={}, attempt={}",
-                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), account.getProvider(),
-                    aiAccountId, subTask.getAttemptCount().get() + 1);
             try {
-                provider.executeSubTask(subTask);
-            } catch (Exception e) {
-                // 防御：provider.executeSubTask 抛异常时不能让 inFlight 槽位泄漏
-                log.error("[AiAccountTranslateTask] provider.executeSubTask threw, releasing slot via fail callback: taskId={}, subTaskId={}",
-                        subTask.getTaskId(), subTask.getSubTaskId(), e);
-                AiAccountRuntimeState rs = accountRuntimeStates.computeIfAbsent(aiAccountId, AiAccountRuntimeState::new);
-                subTask.fail("provider executeSubTask error: " + e.getMessage());
-                if (status != null) {
-                    status.failSubTask(subTask, e.getMessage());
+                // 分发前检查缓存，命中则直接完成，不调用 Provider
+                if (status != null && tryCompleteFromCache(status, subTask, account)) {
+                    log.debug("[AiAccountTranslateTask] subtask completed from cache before provider dispatch: taskId={}, subTaskId={}, type={}",
+                            subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType());
+                    runtimeState.releaseFinishedSlot();
+                    continue;
                 }
-                rs.releaseFinishedSlot();
+                log.debug("[AiAccountTranslateTask] dispatching subtask to provider: taskId={}, subTaskId={}, type={}, provider={}, aiAccountId={}, attempt={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), account.getProvider(),
+                        aiAccountId, subTask.getAttemptCount().get() + 1);
+                try {
+                    provider.executeSubTask(subTask);
+                } catch (Exception e) {
+                    // 防御：provider.executeSubTask 抛异常时不能让 inFlight 槽位泄漏
+                    log.error("[AiAccountTranslateTask] provider.executeSubTask threw, releasing slot via fail callback: taskId={}, subTaskId={}",
+                            subTask.getTaskId(), subTask.getSubTaskId(), e);
+                    AiAccountRuntimeState rs = accountRuntimeStates.computeIfAbsent(aiAccountId, AiAccountRuntimeState::new);
+                    subTask.fail("provider executeSubTask error: " + e.getMessage());
+                    if (status != null) {
+                        status.failSubTask(subTask, e.getMessage());
+                    }
+                    rs.releaseFinishedSlot();
+                }
+            } finally {
+                if (subTaskCompanyId != null) {
+                    TenantContext.clear();
+                }
             }
         }
         if (unusedReservations > 0) {
@@ -726,7 +753,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     Long.parseLong(request.getProductId()),
                     language,
                     Long.parseLong(request.getCountryId()),
-                    task.getOwner());
+                    task.getOwner(),
+                    task.getCompanyId());
             AiAccountTranslateTaskStatus existing = runningTasks.putIfAbsent(task.getId(), status);
             if (existing != null) {
                 log.debug("[AiAccountTranslateTask] loadTask skipped because task already exists in memory: taskId={}",
@@ -766,6 +794,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         .skipped(subTask.isSkipped())
                         .build();
                 record.setOwner(task.getOwner());
+                // 显式落 companyId 兜底：BaseTenantEntity 默认值依赖 TenantContext，
+                // 如果调用栈中遗漏了 setCurrentTenant，会被写入 NULL 导致后续按 companyId 过滤的查询丢数据。
+                record.setCompanyId(task.getCompanyId());
                 // 预填原文/原图，便于前端在翻译完成前展示原始内容
                 prefillSourceArtifacts(record, subTask);
                 usageRecords.add(record);
@@ -804,7 +835,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 log.warn("[AiAccountTranslateTask] 事务已提交但后续操作异常，保留已有状态: taskId={}", task.getId());
             } else {
                 AiAccountTranslateTaskStatus failStatus = new AiAccountTranslateTaskStatus(
-                        task.getId(), 0, null, null, null, task.getOwner());
+                        task.getId(), 0, null, null, null, task.getOwner(), task.getCompanyId());
                 failStatus.fail("拆分任务失败: " + e.getMessage());
                 runningTasks.put(task.getId(), failStatus);
             }
@@ -1004,8 +1035,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         .findByContentHashAndLanguageIdAndContentType(
                                 subTask.getContentKey(), language.getId(), TranslationContentType.TEXT);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
-                    status.completeTextSubTask(subTask, cached.get().getTranslatedText());
-                    updateCacheHitUsageRecord(subTask, language.getName(), account, null, null);
+                    String translatedText = cached.get().getTranslatedText();
+                    status.completeTextSubTask(subTask, translatedText);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account, null, null, translatedText);
                     log.debug("[AiAccountTranslateTask] text cache hit: taskId={}, subTaskId={}, languageId={}",
                             subTask.getTaskId(), subTask.getSubTaskId(), language.getId());
                     return true;
@@ -1015,8 +1047,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         .findByContentHashAndLanguageIdAndContentType(
                                 subTask.getContentKey(), language.getId(), TranslationContentType.HTML);
                 if (cached.isPresent() && StrUtil.isNotBlank(cached.get().getTranslatedText())) {
-                    status.completeHtmlSubTask(subTask, cached.get().getTranslatedText());
-                    updateCacheHitUsageRecord(subTask, language.getName(), account, null, null);
+                    String translatedHtml = cached.get().getTranslatedText();
+                    status.completeHtmlSubTask(subTask, translatedHtml);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account, null, null, translatedHtml);
                     log.debug("[AiAccountTranslateTask] html cache hit: taskId={}, subTaskId={}, languageId={}",
                             subTask.getTaskId(), subTask.getSubTaskId(), language.getId());
                     return true;
@@ -1029,16 +1062,31 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
                         .findByImageHashAndLanguageId(imageHash, language.getId());
                 if (cached.isPresent()) {
-                    MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
+                    ImageTranslationCache cacheEntry = cached.get();
+                    boolean cacheSkipped = cacheEntry.isSkipped();
+                    // ImageTranslationCache.translatedFile 是 @ManyToOne(fetch=LAZY) proxy，
+                    // 直接调用 .getRelativePath() 在定时器线程（无 Session）会抛 LazyInitializationException。
+                    // 通过 proxy.getId()（不触发懒加载）拿到 ID 后用 service 重新加载完整实体。
+                    MultimediaFile translatedFile = null;
+                    if (!cacheSkipped) {
+                        MultimediaFile translatedProxy = cacheEntry.getTranslatedFile();
+                        Long translatedFileId = translatedProxy == null ? null : translatedProxy.getId();
+                        if (translatedFileId != null) {
+                            translatedFile = multimediaFileService.getById(translatedFileId);
+                        }
+                    }
                     if (translatedFile != null) {
                         status.completeImageSubTask(subTask, translatedFile);
                     } else {
                         status.completeSubTask(subTask);
                     }
-                    updateCacheHitUsageRecord(subTask, language.getName(), account, sourceFile, translatedFile);
+                    updateCacheHitUsageRecord(subTask, language.getName(), account,
+                            sourceFile.getRelativePath(),
+                            translatedFile == null ? null : translatedFile.getRelativePath(),
+                            null);
                     log.debug("[AiAccountTranslateTask] image cache hit: taskId={}, subTaskId={}, sourceImageId={}, imageHash={}, languageId={}, cacheSkipped={}",
                             subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash,
-                            language.getId(), cached.get().isSkipped());
+                            language.getId(), cacheSkipped);
                     return true;
                 }
                 log.debug("[AiAccountTranslateTask] image cache miss: taskId={}, subTaskId={}, sourceImageId={}, imageHash={}, languageId={}",
@@ -1055,13 +1103,18 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      * 缓存命中时，为对应的 AiTokenUsageRecord 写入 businessCredits。
      * 优先复制上次同 contentHash+targetLanguage 的实际扣费记录（businessCredits > 0）；无有效历史则按预估兜底。
      * 缓存命中只计 business，不计 actual。
+     * <p>
+     * 入参均为已在调用方解析好的字符串/文本，避免在本方法（脱离 Hibernate Session）触碰 lazy proxy
+     * 触发 LazyInitializationException 导致 record.save 不执行。
      *
-     * @param sourceFile     IMAGE 子任务的原图文件（TEXT/HTML 传 null）
-     * @param translatedFile IMAGE 子任务命中缓存后的译图文件（TEXT/HTML 或 skipped 传 null）
+     * @param sourceImagePath     IMAGE 子任务的原图相对路径（TEXT/HTML 传 null）
+     * @param translatedImagePath IMAGE 子任务命中缓存后的译图相对路径（TEXT/HTML 或 cacheSkipped 传 null）
+     * @param translatedText      TEXT/HTML 子任务命中缓存后的译文（IMAGE 传 null）
      */
     private void updateCacheHitUsageRecord(AiAccountTranslateSubTask subTask, String targetLanguage,
                                               AiAccount account,
-                                              MultimediaFile sourceFile, MultimediaFile translatedFile) {
+                                              String sourceImagePath, String translatedImagePath,
+                                              String translatedText) {
         try {
             usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
                     .ifPresent(record -> {
@@ -1069,12 +1122,16 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         String contentHash = record.getContentHash();
 
                         // 图片路径
-                        if (sourceFile != null) {
-                            record.setSourceImagePath(sourceFile.getRelativePath());
+                        if (sourceImagePath != null) {
+                            record.setSourceImagePath(sourceImagePath);
                         }
-                        if (translatedFile != null) {
-                            record.setTranslatedImagePath(translatedFile.getRelativePath());
+                        if (translatedImagePath != null) {
+                            record.setTranslatedImagePath(translatedImagePath);
                             record.setHasImageOutput(true);
+                        }
+                        // TEXT/HTML 译文：缓存命中时也要落库，否则前端基于 translatedText==null 一直显示"翻译中..."
+                        if (translatedText != null) {
+                            record.setTranslatedText(translatedText);
                         }
 
                         Optional<AiTokenUsageRecord> historyOpt = usageRecordRepository
