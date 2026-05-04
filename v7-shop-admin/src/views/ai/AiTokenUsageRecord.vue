@@ -22,6 +22,7 @@
       v-loading="listLoading"
       border
       :data="taskList"
+      :expand-row-keys="expandedKeys"
       row-key="id"
       size="small"
       stripe
@@ -107,9 +108,10 @@
                 <template #default="{ row: r }">
                   <template v-if="r.contentType === 'IMAGE'">
                     <div class="image-preview-row">
-                      <div v-if="r.sourceImageUrl" class="image-cell">
+                      <div class="image-cell">
                         <span class="image-label">原图</span>
                         <el-image
+                          v-if="r.sourceImageUrl"
                           fit="contain"
                           hide-on-click-modal
                           preview-teleported
@@ -117,39 +119,45 @@
                           :src="r.sourceImageUrl"
                           style="width: 80px; height: 80px"
                         />
+                        <span v-else class="placeholder-box">-</span>
                       </div>
-                      <div v-if="r.sourceImageUrl" class="image-cell">
+                      <div class="image-cell">
                         <span class="image-label">译图</span>
                         <el-image
+                          v-if="r.translatedImageUrl"
                           fit="contain"
                           hide-on-click-modal
                           preview-teleported
-                          :preview-src-list="[r.translatedImageUrl || r.sourceImageUrl]"
-                          :src="r.translatedImageUrl || r.sourceImageUrl"
+                          :preview-src-list="[r.translatedImageUrl]"
+                          :src="r.translatedImageUrl"
                           style="width: 80px; height: 80px"
                         />
+                        <span v-else-if="r.skipped" class="placeholder-box skipped">动图跳过</span>
+                        <span v-else class="placeholder-box translating">翻译中...</span>
                       </div>
-                      <span v-if="!r.sourceImageUrl && !r.translatedImageUrl" class="no-content">
-                        -
-                      </span>
                     </div>
                   </template>
                   <template v-else>
-                    <div v-if="r.sourceText || r.translatedText" class="text-preview">
-                      <div v-if="r.sourceText" class="text-row">
+                    <div class="text-preview">
+                      <div class="text-row">
                         <el-tag effect="plain" size="small" type="info">原文</el-tag>
-                        <el-tooltip :content="r.sourceText" placement="top" :show-after="300">
-                          <span class="text-ellipsis">{{ r.sourceText }}</span>
-                        </el-tooltip>
+                        <template v-if="r.sourceText">
+                          <el-tooltip :content="r.sourceText" placement="top" :show-after="300">
+                            <span class="text-ellipsis">{{ r.sourceText }}</span>
+                          </el-tooltip>
+                        </template>
+                        <span v-else class="text-placeholder">-</span>
                       </div>
-                      <div v-if="r.translatedText" class="text-row">
+                      <div class="text-row">
                         <el-tag effect="plain" size="small" type="success">译文</el-tag>
-                        <el-tooltip :content="r.translatedText" placement="top" :show-after="300">
-                          <span class="text-ellipsis">{{ r.translatedText }}</span>
-                        </el-tooltip>
+                        <template v-if="r.translatedText">
+                          <el-tooltip :content="r.translatedText" placement="top" :show-after="300">
+                            <span class="text-ellipsis">{{ r.translatedText }}</span>
+                          </el-tooltip>
+                        </template>
+                        <span v-else class="text-placeholder translating">翻译中...</span>
                       </div>
                     </div>
-                    <span v-else class="no-content">-</span>
                   </template>
                 </template>
               </el-table-column>
@@ -249,6 +257,8 @@ const taskList = ref<TaskRow[]>([])
 const listLoading = ref(true)
 const total = ref(0)
 const isAdmin = ref(false)
+// 当前已展开的任务行 ID 列表，用于查询/切页后保留展开状态并重新拉取详情
+const expandedKeys = ref<string[]>([])
 
 const queryForm = reactive({
   pageNo: 1,
@@ -275,31 +285,11 @@ const formatNumber = (value: number | undefined | null): string => {
   return value.toLocaleString()
 }
 
-const fetchData = async () => {
-  listLoading.value = true
-  try {
-    const params: any = {
-      pageNo: queryForm.pageNo,
-      pageSize: queryForm.pageSize,
-      taskTypes: ['PRODUCT_AI_TRANSLATE'],
-    }
-    const { data } = await listAiTranslateTasks(params)
-    taskList.value = (data.list || []).map((item: any) => ({
-      ...item,
-      _details: undefined,
-      _detailLoading: false,
-      _detailLoaded: false,
-    }))
-    total.value = data.total || 0
-  } finally {
-    listLoading.value = false
-  }
-}
-
-const handleExpand = async (row: TaskRow, expandedRows: TaskRow[]) => {
-  const isExpanding = expandedRows.some((r) => r.id === row.id)
-  if (!isExpanding || row._detailLoaded) return
-
+/**
+ * 加载某行的子任务详情。封装为独立函数以便 fetchData 后批量刷新已展开行。
+ */
+const loadDetails = async (row: TaskRow, force = false) => {
+  if (!force && row._detailLoaded) return
   row._detailLoading = true
   try {
     const { data } = await fetchRecordPage({
@@ -320,6 +310,44 @@ const handleExpand = async (row: TaskRow, expandedRows: TaskRow[]) => {
   } finally {
     row._detailLoading = false
   }
+}
+
+const fetchData = async () => {
+  listLoading.value = true
+  try {
+    const params: any = {
+      pageNo: queryForm.pageNo,
+      pageSize: queryForm.pageSize,
+      taskTypes: ['PRODUCT_AI_TRANSLATE'],
+    }
+    const { data } = await listAiTranslateTasks(params)
+    const previouslyExpanded = new Set(expandedKeys.value.map((k) => String(k)))
+    taskList.value = (data.list || []).map((item: any) => ({
+      ...item,
+      _details: undefined,
+      _detailLoading: false,
+      _detailLoaded: false,
+    }))
+    total.value = data.total || 0
+    // 重新计算 expandedKeys：仅保留新数据中仍存在的行 ID
+    const remainingExpanded: string[] = []
+    for (const row of taskList.value) {
+      if (previouslyExpanded.has(String(row.id))) {
+        remainingExpanded.push(String(row.id))
+        loadDetails(row, true)
+      }
+    }
+    expandedKeys.value = remainingExpanded
+  } finally {
+    listLoading.value = false
+  }
+}
+
+const handleExpand = async (row: TaskRow, expandedRows: TaskRow[]) => {
+  expandedKeys.value = expandedRows.map((r) => String(r.id))
+  const isExpanding = expandedRows.some((r) => r.id === row.id)
+  if (!isExpanding) return
+  await loadDetails(row)
 }
 
 const handleSizeChange = (value: number) => {
@@ -394,6 +422,41 @@ onBeforeMount(() => {
     white-space: nowrap;
     flex: 1;
     min-width: 0;
+  }
+
+  .text-placeholder {
+    font-size: 13px;
+    color: var(--el-text-color-placeholder);
+    flex: 1;
+    min-width: 0;
+
+    &.translating {
+      color: var(--el-color-primary);
+      font-style: italic;
+    }
+  }
+
+  .placeholder-box {
+    display: flex;
+    width: 80px;
+    height: 80px;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--el-border-color);
+    border-radius: 4px;
+    color: var(--el-text-color-placeholder);
+    font-size: 12px;
+    background-color: var(--el-fill-color-lighter);
+
+    &.translating {
+      color: var(--el-color-primary);
+      font-style: italic;
+    }
+
+    &.skipped {
+      color: var(--el-color-warning);
+      border-color: var(--el-color-warning-light-5);
+    }
   }
 
   .no-content {
