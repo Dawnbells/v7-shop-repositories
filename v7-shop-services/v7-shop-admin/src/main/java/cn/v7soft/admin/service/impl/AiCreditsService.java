@@ -68,31 +68,49 @@ public class AiCreditsService {
 
     /**
      * 宽松冻结：只要 available > 0 即允许冻结（允许超额），不抛异常。
-     * 管理员、公司管理员、无限额用户（-1）直接返回 true 不冻结。
+     * 管理员、公司管理员、禁用(null/0)、无限额(-1)用户直接 return 不冻结。
      */
     @Transactional
     public void tryFreeze(Long userId, int estimated) {
-        SystemUser user = systemUserRepository.findById(userId).orElseThrow();
-        if (user.getUserType() == SystemUserType.ADMIN || user.getUserType() == SystemUserType.COMPANY_ADMIN) {
-            return;
-        }
-        Integer monthly = user.getMonthlyAiCredits();
-        if (monthly == null || monthly == 0) {
-            return;
-        }
-        if (monthly == -1) {
+        if (shouldSkipCreditsOperation(userId)) {
             return;
         }
         systemUserRepository.freezeCreditsIfPositive(userId, estimated);
     }
 
+    /**
+     * 与 tryFreeze 严格对称的 short-circuit：保证 freeze ↔ settle 一对一。
+     * 否则 ADMIN/无限额用户的 SystemUser.frozenAiCredits/usedAiCredits 字段会被污染。
+     */
     @Transactional
     public void settle(Long userId, int freezeAmount, int actualAmount) {
+        if (shouldSkipCreditsOperation(userId)) {
+            return;
+        }
         systemUserRepository.settleCredits(userId, freezeAmount, actualAmount);
     }
 
+    /**
+     * 与 tryFreeze 严格对称的 short-circuit：保证 freeze ↔ unfreeze 一对一。
+     */
     @Transactional
     public void unfreeze(Long userId, int freezeAmount) {
+        if (shouldSkipCreditsOperation(userId)) {
+            return;
+        }
         systemUserRepository.unfreezeCredits(userId, freezeAmount);
+    }
+
+    /**
+     * 与 tryFreeze 入口判断完全一致：ADMIN/COMPANY_ADMIN 或 monthlyAiCredits == null/0/-1 时跳过。
+     * 用于让 settle/unfreeze 与 tryFreeze 严格对称。
+     */
+    private boolean shouldSkipCreditsOperation(Long userId) {
+        SystemUser user = systemUserRepository.findById(userId).orElseThrow();
+        if (user.getUserType() == SystemUserType.ADMIN || user.getUserType() == SystemUserType.COMPANY_ADMIN) {
+            return true;
+        }
+        Integer monthly = user.getMonthlyAiCredits();
+        return monthly == null || monthly == 0 || monthly == -1;
     }
 }
