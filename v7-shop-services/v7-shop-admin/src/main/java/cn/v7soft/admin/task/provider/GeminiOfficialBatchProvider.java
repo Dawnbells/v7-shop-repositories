@@ -1,7 +1,5 @@
 package cn.v7soft.admin.task.provider;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -154,8 +152,8 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
         entry.languageName = language.getName();
         if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
-            entry.imageBytes = readImageBytes(sourceFile);
-            entry.imageMimeType = toMimeType(sourceFile.getSuffix());
+            entry.imageBytes = TranslateProviderSupport.readImageBytes(multimediaFileService, sourceFile);
+            entry.imageMimeType = TranslateProviderSupport.toMimeType(sourceFile.getSuffix());
             entry.imageMaxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
             if (entry.imageMaxDim <= 0) entry.imageMaxDim = 512;
             entry.sourceFile = sourceFile;
@@ -319,9 +317,9 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
         AiAccountTranslateSubTask subTask = entry.subTask;
         AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
         GeminiTranslateService.TokenUsage usage = GeminiTranslateService.extractTokenUsageFromBatchResponse(responseNode);
-        int actualPrompt = usage != null ? safeInt(usage.getPromptTokens()) : 0;
-        int actualCompletion = usage != null ? safeInt(usage.getCompletionTokens()) : 0;
-        int actualThinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
+        int actualPrompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
+        int actualCompletion = usage != null ? TranslateProviderSupport.safeInt(usage.getCompletionTokens()) : 0;
+        int actualThinking = usage != null ? TranslateProviderSupport.safeInt(usage.getThinkingTokens()) : 0;
 
         switch (subTask.getType()) {
             case TEXT -> {
@@ -465,7 +463,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
 
     private SubTaskResult buildEstimatedResult(BatchEntry entry) {
         AiAccountTranslateSubTask subTask = entry.subTask;
-        TranslationContentType ct = mapContentType(subTask.getType());
+        TranslationContentType ct = TranslateProviderSupport.mapContentType(subTask.getType());
         int bizPrompt, bizCompletion;
         if (ct == TranslationContentType.IMAGE) {
             bizPrompt = 718;
@@ -486,14 +484,6 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
                 .build();
     }
 
-    private static TranslationContentType mapContentType(AiAccountTranslateSubTaskType type) {
-        return switch (type) {
-            case TEXT -> TranslationContentType.TEXT;
-            case HTML -> TranslationContentType.HTML;
-            case IMAGE -> TranslationContentType.IMAGE;
-        };
-    }
-
     private void cleanupBatchFiles(ActiveBatch ab, BatchJob job) {
         try {
             if (ab.uploadedFileName != null) {
@@ -509,29 +499,6 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
         } catch (Exception e) {
             log.warn("[GeminiBatch] cleanup failed for jobName={}: {}", ab.jobName, e.getMessage());
         }
-    }
-
-    private byte[] readImageBytes(MultimediaFile file) throws Exception {
-        try (InputStream in = multimediaFileService.download(String.valueOf(file.getId()), 0);
-             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            in.transferTo(out);
-            return out.toByteArray();
-        }
-    }
-
-    private static String toMimeType(String suffix) {
-        if (suffix == null || suffix.isBlank()) return "image/png";
-        return switch (suffix.toLowerCase()) {
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "gif" -> "image/gif";
-            case "webp" -> "image/webp";
-            case "bmp" -> "image/bmp";
-            default -> "image/png";
-        };
-    }
-
-    private static int safeInt(Integer value) {
-        return value != null ? value : 0;
     }
 
     // ======================== 内部数据结构 ========================

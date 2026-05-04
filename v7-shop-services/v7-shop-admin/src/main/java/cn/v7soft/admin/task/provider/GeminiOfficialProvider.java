@@ -1,7 +1,5 @@
 package cn.v7soft.admin.task.provider;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.math.BigDecimal;
 import java.util.Iterator;
 import java.util.Set;
@@ -151,9 +149,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
         String translated = geminiTranslateService.translateTextRaw(subTask.getContent(), langName, usageRef::set);
 
         GeminiTranslateService.TokenUsage usage = usageRef.get();
-        int prompt = usage != null ? safeInt(usage.getPromptTokens()) : 0;
-        int completion = usage != null ? safeInt(usage.getCompletionTokens()) : 0;
-        int thinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
+        int prompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
+        int completion = usage != null ? TranslateProviderSupport.safeInt(usage.getCompletionTokens()) : 0;
+        int thinking = usage != null ? TranslateProviderSupport.safeInt(usage.getThinkingTokens()) : 0;
 
         BigDecimal cost = TokenCostCalculator.calculateCost(
                 TranslationContentType.TEXT, account, prompt, completion, thinking);
@@ -179,9 +177,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
         String translated = geminiTranslateService.translateHtmlRaw(subTask.getContent(), langName, usageRef::set);
 
         GeminiTranslateService.TokenUsage usage = usageRef.get();
-        int prompt = usage != null ? safeInt(usage.getPromptTokens()) : 0;
-        int completion = usage != null ? safeInt(usage.getCompletionTokens()) : 0;
-        int thinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
+        int prompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
+        int completion = usage != null ? TranslateProviderSupport.safeInt(usage.getCompletionTokens()) : 0;
+        int thinking = usage != null ? TranslateProviderSupport.safeInt(usage.getThinkingTokens()) : 0;
 
         BigDecimal cost = TokenCostCalculator.calculateCost(
                 TranslationContentType.HTML, account, prompt, completion, thinking);
@@ -201,8 +199,8 @@ public class GeminiOfficialProvider implements TranslateProvider {
 
     private SubTaskResult executeImage(AiAccountTranslateSubTask subTask, String langName, AiAccount account) throws Exception {
         MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
-        byte[] imageBytes = readImageBytes(sourceFile);
-        String mimeType = toMimeType(sourceFile.getSuffix());
+        byte[] imageBytes = TranslateProviderSupport.readImageBytes(multimediaFileService, sourceFile);
+        String mimeType = TranslateProviderSupport.toMimeType(sourceFile.getSuffix());
         log.debug("[GeminiOfficialProvider] translate image request started: taskId={}, subTaskId={}, targetLanguage={}, imageId={}, mimeType={}, bytes={}",
                 subTask.getTaskId(), subTask.getSubTaskId(), langName, sourceFile.getId(), mimeType, imageBytes.length);
 
@@ -210,9 +208,9 @@ public class GeminiOfficialProvider implements TranslateProvider {
         byte[] resultBytes = geminiTranslateService.translateImageRaw(imageBytes, mimeType, langName, usageRef::set);
 
         GeminiTranslateService.TokenUsage usage = usageRef.get();
-        int actualPrompt = usage != null ? safeInt(usage.getPromptTokens()) : 0;
-        int actualCompletion = usage != null ? safeInt(usage.getCompletionTokens()) : 0;
-        int actualThinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
+        int actualPrompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
+        int actualCompletion = usage != null ? TranslateProviderSupport.safeInt(usage.getCompletionTokens()) : 0;
+        int actualThinking = usage != null ? TranslateProviderSupport.safeInt(usage.getThinkingTokens()) : 0;
 
         int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
         if (maxDim <= 0) maxDim = 512;
@@ -275,7 +273,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
     }
 
     private SubTaskResult buildEstimatedResult(AiAccountTranslateSubTask subTask, AiAccount account) {
-        TranslationContentType ct = mapContentType(subTask.getType());
+        TranslationContentType ct = TranslateProviderSupport.mapContentType(subTask.getType());
         int bizPrompt, bizCompletion;
         if (ct == TranslationContentType.IMAGE) {
             bizPrompt = 718;
@@ -294,34 +292,4 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 .build();
     }
 
-    private static TranslationContentType mapContentType(AiAccountTranslateSubTaskType type) {
-        return switch (type) {
-            case TEXT -> TranslationContentType.TEXT;
-            case HTML -> TranslationContentType.HTML;
-            case IMAGE -> TranslationContentType.IMAGE;
-        };
-    }
-
-    private byte[] readImageBytes(MultimediaFile file) throws Exception {
-        try (InputStream in = multimediaFileService.download(String.valueOf(file.getId()), 0);
-             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            in.transferTo(out);
-            return out.toByteArray();
-        }
-    }
-
-    private static String toMimeType(String suffix) {
-        if (suffix == null || suffix.isBlank()) return "image/png";
-        return switch (suffix.toLowerCase()) {
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "gif" -> "image/gif";
-            case "webp" -> "image/webp";
-            case "bmp" -> "image/bmp";
-            default -> "image/png";
-        };
-    }
-
-    private static int safeInt(Integer value) {
-        return value != null ? value : 0;
-    }
 }

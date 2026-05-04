@@ -1,7 +1,5 @@
 package cn.v7soft.admin.task.provider;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Iterator;
@@ -155,9 +153,9 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             }
 
             GeminiTranslateService.TokenUsage usage = usageRef.get();
-            int prompt = usage != null ? safeInt(usage.getPromptTokens()) : 0;
-            int completion = usage != null ? safeInt(usage.getCompletionTokens()) : 0;
-            int thinking = usage != null ? safeInt(usage.getThinkingTokens()) : 0;
+            int prompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
+            int completion = usage != null ? TranslateProviderSupport.safeInt(usage.getCompletionTokens()) : 0;
+            int thinking = usage != null ? TranslateProviderSupport.safeInt(usage.getThinkingTokens()) : 0;
             BigDecimal cost = TokenCostCalculator.calculateCost(contentType, account, prompt, completion, thinking);
 
             SubTaskResult.SubTaskResultBuilder resultBuilder = SubTaskResult.builder()
@@ -196,10 +194,6 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             }
             callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult);
         }
-    }
-
-    private static int safeInt(Integer value) {
-        return value != null ? value : 0;
     }
 
     /**
@@ -268,7 +262,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         try {
             // 4. 读取源图片并计算哈希
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
-            byte[] imageBytes = readImageBytes(sourceFile);
+            byte[] imageBytes = TranslateProviderSupport.readImageBytes(multimediaFileService, sourceFile);
             String imageHash = DigestUtil.sha256Hex(imageBytes);
             subTask.setImageHash(imageHash);
             log.debug("[TurboFlowBridge] source image prepared for bridge dispatch: taskId={}, subTaskId={}, imageId={}, bytes={}",
@@ -329,7 +323,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .assignmentId(assignmentId)
                     .imageBase64(Base64.getEncoder().encodeToString(imageBytes))
                     .fileName(sourceFile.getName() + "." + sourceFile.getSuffix())
-                    .mimeType(toMimeType(sourceFile.getSuffix()))
+                    .mimeType(TranslateProviderSupport.toMimeType(sourceFile.getSuffix()))
                     .model(account.getModel())
                     .targetLanguage(language.getName())
                     .targetLanguageCode(language.getCode())
@@ -510,22 +504,6 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
 
     private Language resolveLanguage(AiAccountTranslateSubTask subTask) {
         return languageService.getById(Long.parseLong(subTask.getLanguageId()));
-    }
-
-    private byte[] readImageBytes(MultimediaFile file) throws Exception {
-        try (InputStream inputStream = multimediaFileService.download(String.valueOf(file.getId()), 0);
-             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
-            inputStream.transferTo(outputStream);
-            return outputStream.toByteArray();
-        }
-    }
-
-    private String toMimeType(String suffix) {
-        if (StrUtil.isBlank(suffix)) {
-            return "image/png";
-        }
-        String normalized = suffix.toLowerCase();
-        return "image/" + ("jpg".equals(normalized) ? "jpeg" : normalized);
     }
 
     private String suffixFromMimeType(String mimeType, String fallback) {
