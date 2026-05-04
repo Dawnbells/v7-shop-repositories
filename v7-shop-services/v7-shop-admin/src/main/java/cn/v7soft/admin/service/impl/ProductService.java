@@ -31,7 +31,6 @@ import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductSKUService;
 import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.admin.utils.MultimediaUtil;
-import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.enums.ClientResponseEnum;
@@ -47,7 +46,6 @@ import cn.v7soft.dao.entities.primary.ProductSpecification;
 import cn.v7soft.dao.entities.primary.ProductSpecificationAttributes;
 import cn.v7soft.dao.entities.primary.Spu;
 import cn.v7soft.dao.entities.primary.SystemUser;
-import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
@@ -344,7 +342,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
                                                     "同一SPU下该国家和语言已存在商品，不允许重复");
 
-        AiAccount selectedAiAccount = requireAiAccount(request);
+        requireAiAccount(request);
         TaskType taskType = TaskType.PRODUCT_AI_TRANSLATE;
 
         String dedupKey = taskType.name() + ":" +
@@ -365,7 +363,9 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                        : "商品#" + product.getId();
         String taskName = "AI翻译: " + title + " → " + language.getName();
 
-        Integer estimated = estimateAndFreezeCredits(product, selectedAiAccount);
+        // R1：提交时只校验积分可用性，实际冻结由 AiAccountTranslateTask.loadTask 阶段
+        // 按子任务级精算执行，避免重复冻结导致额度永久泄漏
+        requireAvailableCredits();
 
         AsyncTask asyncTask = AsyncTask.builder()
                 .taskType(taskType)
@@ -374,7 +374,6 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .parameters(parameters)
                 .name(taskName)
                 .dedupKey(dedupKey)
-                .estimatedCredits(estimated)
                 .build()
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
@@ -527,18 +526,14 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     }
 
     /**
-     * 计算预估 AI Credits 并冻结。如果用户无限制则返回 null。
-     * 冻结失败会抛出 InsufficientCreditsException，事务回滚。
+     * 校验当前用户是否有可用 AI 积分。无可用积分则抛 InsufficientCreditsException 触发事务回滚。
+     * 不在此处冻结积分：实际冻结由 AiAccountTranslateTask.loadTask 阶段按子任务级精算执行。
      */
-    private Integer estimateAndFreezeCredits(Product product, AiAccount account) {
-        int textEstimateTokens = TokenCostCalculator.getProductTextEstimateTokens(product);
-        int imageEstimateTokens = TokenCostCalculator.getProductImageEstimateTokens(product);
-
-        int estimated = TokenCostCalculator.estimateCredits(textEstimateTokens, imageEstimateTokens, account);
-
+    private void requireAvailableCredits() {
         Long userId = SaSessionUtil.getLoginUser().getLongId();
-        boolean frozen = aiCreditsService.freeze(userId, estimated);
-        return frozen ? estimated : null;
+        if (!aiCreditsService.hasAvailableCredits(userId)) {
+            throw new cn.v7soft.admin.exception.InsufficientCreditsException("AI额度不足，请充值后重试");
+        }
     }
 
     private String lookupTranslation(Map<String, String> translatedTextMap, String original) {

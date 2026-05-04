@@ -214,8 +214,13 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
             throw new IllegalStateException("只有失败、已取消或积分不足的任务才能重试");
         }
 
+        // R1：AI 翻译任务的冻结由新任务的 loadTask 阶段统一执行，retry 不再前置 freeze
+        // 也不复制 estimatedCredits（loadTask 会重新精算并写入），避免双重冻结
         Integer estimated = oldTask.getEstimatedCredits();
-        if (estimated != null && oldTask.getState() != TaskState.INSUFFICIENT_CREDITS) {
+        boolean isAiTranslate = oldTask.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE;
+        if (estimated != null
+                && oldTask.getState() != TaskState.INSUFFICIENT_CREDITS
+                && !isAiTranslate) {
             aiCreditsService.freeze(oldTask.getOwner().getId(), estimated);
         }
 
@@ -234,7 +239,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
                 .parameters(oldTask.getParameters())
                 .name(newName)
                 .dedupKey(oldTask.getDedupKey())
-                .estimatedCredits(estimated)
+                .estimatedCredits(isAiTranslate ? null : estimated)
                 .build();
         newTask.setOwner(oldTask.getOwner());
         newTask.setCompanyId(oldTask.getCompanyId());
