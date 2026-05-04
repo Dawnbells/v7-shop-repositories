@@ -179,7 +179,10 @@
 
   function startCountdownTicker() {
     countdownTimer = setInterval(() => {
-      if (!currentTaskEl.classList.contains('idle') || nextPollAt <= 0) {
+      // 只要 background 维护着 nextPollAt(>0) 就显示倒计时
+      // background 端仅在并发槽位已满时才把 nextPollAt 设为 0,
+      // 因此只要还能接新任务,前端都会看到倒计时,而不局限于完全 Idle
+      if (nextPollAt <= 0) {
         countdownEl.textContent = '';
         return;
       }
