@@ -366,6 +366,16 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         subTask.getTaskId(), subTask.getSubTaskId(), language.getId());
             } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
                 String imageHash = subTask.getImageHash();
+                if (StrUtil.isBlank(imageHash)) {
+                    try {
+                        MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
+                        imageHash = DigestUtil.sha256Hex(readImageBytes(sourceFile));
+                        subTask.setImageHash(imageHash);
+                    } catch (Exception ex) {
+                        log.warn("[AiAccountTranslateTask] image hash for translation cache failed: subTaskId={}, {}",
+                                subTask.getSubTaskId(), ex.getMessage());
+                    }
+                }
                 if (StrUtil.isNotBlank(imageHash)) {
                     MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
                     imageTranslationCacheRepository.save(ImageTranslationCache.builder()
@@ -828,6 +838,10 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
                 if (sourceFile != null) {
                     record.setSourceImagePath(sourceFile.getRelativePath());
+                    byte[] imageBytes = readImageBytes(sourceFile);
+                    String imageHash = DigestUtil.sha256Hex(imageBytes);
+                    subTask.setImageHash(imageHash);
+                    record.setContentHash(imageHash);
                 }
             }
         } catch (Exception e) {

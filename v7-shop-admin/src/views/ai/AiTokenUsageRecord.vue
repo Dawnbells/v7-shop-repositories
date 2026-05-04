@@ -23,7 +23,7 @@
       border
       :data="taskList"
       :expand-row-keys="expandedKeys"
-      row-key="id"
+      :row-key="(row: TaskRow) => String(row.id)"
       size="small"
       stripe
       style="width: 100%"
@@ -155,7 +155,8 @@
                             <span class="text-ellipsis">{{ r.translatedText }}</span>
                           </el-tooltip>
                         </template>
-                        <span v-else class="text-placeholder translating">翻译中...</span>
+                        <span v-else-if="!r.skipped" class="text-placeholder translating">翻译中...</span>
+                        <span v-else class="text-placeholder">-</span>
                       </div>
                     </div>
                   </template>
@@ -307,6 +308,10 @@ const loadDetails = async (row: TaskRow, force = false) => {
     ) {
       isAdmin.value = true
     }
+  } catch (e) {
+    console.error('[AiTokenUsageRecord] loadDetails failed', e)
+    if (!row._details) row._details = []
+    row._detailLoaded = false
   } finally {
     row._detailLoading = false
   }
@@ -322,22 +327,30 @@ const fetchData = async () => {
     }
     const { data } = await listAiTranslateTasks(params)
     const previouslyExpanded = new Set(expandedKeys.value.map((k) => String(k)))
-    taskList.value = (data.list || []).map((item: any) => ({
-      ...item,
-      _details: undefined,
-      _detailLoading: false,
-      _detailLoaded: false,
-    }))
+    const prevById = new Map(taskList.value.map((r) => [r.id, r]))
+    taskList.value = (data.list || []).map((item: any) => {
+      const prev = prevById.get(item.id) as TaskRow | undefined
+      const wasExpanded = previouslyExpanded.has(String(item.id))
+      return {
+        ...item,
+        _details:
+          wasExpanded && prev && Array.isArray(prev._details) ? prev._details : wasExpanded ? [] : undefined,
+        _detailLoading: wasExpanded,
+        _detailLoaded: false,
+      }
+    })
     total.value = data.total || 0
     // 重新计算 expandedKeys：仅保留新数据中仍存在的行 ID
     const remainingExpanded: string[] = []
+    const refreshRows: TaskRow[] = []
     for (const row of taskList.value) {
       if (previouslyExpanded.has(String(row.id))) {
         remainingExpanded.push(String(row.id))
-        loadDetails(row, true)
+        refreshRows.push(row)
       }
     }
     expandedKeys.value = remainingExpanded
+    await Promise.all(refreshRows.map((row) => loadDetails(row, true)))
   } finally {
     listLoading.value = false
   }

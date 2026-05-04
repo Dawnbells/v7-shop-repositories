@@ -118,6 +118,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     @Override
     public void executeSubTask(AiAccountTranslateSubTask subTask) {
         if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
+            if (subTask.isSkipped()) {
+                log.warn("[TurboFlowBridge] skipped image subtask should not be queued; completing via callback: subTaskId={}",
+                        subTask.getSubTaskId());
+                callback.onSubTaskCompleted(subTask, SubTaskResult.builder().build());
+                return;
+            }
             internalQueues
                     .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
                     .offer(subTask);
@@ -287,7 +293,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 int businessCredits;
                 Optional<AiTokenUsageRecord> historyOpt = usageRecordRepository
                         .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
-                                subTask.getContentKey(), language.getName());
+                                imageHash, language.getName());
                 if (historyOpt.isPresent() && historyOpt.get().getBusinessCredits() > 0) {
                     AiTokenUsageRecord history = historyOpt.get();
                     promptTokens = history.getBusinessPromptTokens();
@@ -365,7 +371,16 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             throw new IllegalArgumentException("assignment does not belong to account");
         }
         if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
-            throw new IllegalArgumentException("assignment does not belong to bridge");
+            if (StrUtil.isNotBlank(request.getBridgeId())
+                    && subTask.getAssignedBridgeId() != null
+                    && !request.getBridgeId().equals(subTask.getAssignedBridgeId())) {
+                log.warn("[TurboFlowBridge] complete: bridgeId changed, rebinding: assignmentId={}, oldBridgeId={}, newBridgeId={}",
+                        request.getAssignmentId(), subTask.getAssignedBridgeId(), request.getBridgeId());
+                subTask.rebindAssignedBridge(request.getBridgeId());
+            }
+            if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
+                throw new IllegalArgumentException("assignment does not belong to bridge");
+            }
         }
         // 原子移除 assignment，防止重复 complete
         if (!assignments.remove(request.getAssignmentId(), subTask)) {
@@ -429,7 +444,16 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             throw new IllegalArgumentException("assignment does not belong to account");
         }
         if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
-            throw new IllegalArgumentException("assignment does not belong to bridge");
+            if (StrUtil.isNotBlank(request.getBridgeId())
+                    && subTask.getAssignedBridgeId() != null
+                    && !request.getBridgeId().equals(subTask.getAssignedBridgeId())) {
+                log.warn("[TurboFlowBridge] fail: bridgeId changed, rebinding: assignmentId={}, oldBridgeId={}, newBridgeId={}",
+                        request.getAssignmentId(), subTask.getAssignedBridgeId(), request.getBridgeId());
+                subTask.rebindAssignedBridge(request.getBridgeId());
+            }
+            if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
+                throw new IllegalArgumentException("assignment does not belong to bridge");
+            }
         }
         if (!assignments.remove(request.getAssignmentId(), subTask)) {
             return;

@@ -96,6 +96,16 @@ public class AiAccountTranslateSubTask {
                 && (StrUtil.isBlank(bridgeId) || bridgeId.equals(this.assignedBridgeId));
     }
 
+    /**
+     * 插件端重启后 bridgeId 可能变化；在已校验 assignmentId + token 账号归属后，将分配绑定到当前 bridge，
+     * 以便后续 complete/fail 的 isAssignedTo 校验通过。
+     */
+    public void rebindAssignedBridge(String bridgeId) {
+        if (StrUtil.isNotBlank(bridgeId)) {
+            this.assignedBridgeId = bridgeId;
+        }
+    }
+
     public boolean isLeaseExpired(LocalDateTime now) {
         return state == AiAccountTranslateSubTaskState.PROCESSING
                 && leaseUntil != null
