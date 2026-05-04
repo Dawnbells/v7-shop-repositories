@@ -244,8 +244,10 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         record.setElapsedMs(result.getElapsedMs());
 
                         // actualCost: 按 AiAccount 配置 + actual tokens 计算（适用所有 Provider）
+                        // 注意：record.aiAccount 是 LAZY，回调发生在 Provider 异步线程无 Session，
+                        // 此处必须显式按 ID 重新加载，避免 LazyInitializationException
                         if (!result.isCacheHit()) {
-                            AiAccount acc = record.getAiAccount();
+                            AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
                             if (acc != null) {
                                 BigDecimal actualCost = TokenCostCalculator.calculateCost(
                                         record.getContentType(), acc,
