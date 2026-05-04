@@ -226,9 +226,13 @@
       const resultThumbHtml = resThumb
         ? `<div class="hist-thumb-wrap"><img class="hist-thumb" src="${resThumb}" alt="res"><div class="thumb-preview"><img src="${resPreview}" alt="preview"></div></div>`
         : '<span class="no-img">-</span>';
+      // 失败任务追加自定义 tooltip 显示 error.message；td-status 配合 overflow:visible 让 tooltip 不被裁剪
+      const errorTooltip = t.status === 'failed' && t.error
+        ? `<span class="status-tooltip">${esc(t.error)}</span>`
+        : '';
       tr.innerHTML = `
         <td><div class="td-imgs">${sourceThumbHtml}${resultThumbHtml}</div></td>
-        <td><span class="status-tag ${statusCls}">${esc(t.status)}</span></td>
+        <td class="td-status"><span class="status-tag ${statusCls}">${esc(t.status)}${errorTooltip}</span></td>
         <td>${elapsedStr}</td>
         <td>${timeStr}</td>
         <td class="td-prompt">${t.targetLang ? esc(t.targetLang) : '-'}</td>

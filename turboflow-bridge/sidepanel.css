@@ -339,6 +339,7 @@ button {
 }
 
 .status-tag {
+  position: relative;
   display: inline-block;
   padding: 1px 6px;
   font-size: 9px;
@@ -348,7 +349,41 @@ button {
   letter-spacing: .03em;
 }
 .status-tag.completed { color: var(--green); background: rgba(61, 214, 140, .1); }
-.status-tag.failed { color: var(--red); background: rgba(239, 100, 97, .1); }
+.status-tag.failed { color: var(--red); background: rgba(239, 100, 97, .1); cursor: help; }
+
+/* status 列让 tooltip 不被 td 的 overflow:hidden 裁剪 */
+.task-table tbody td.td-status {
+  overflow: visible;
+}
+
+/* 失败 tooltip：dark 风格弹出层，支持多行长文本 */
+.status-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1000;
+  min-width: 180px;
+  max-width: 240px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .5);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.status-tag.failed:hover .status-tooltip {
+  display: block;
+}
 
 .empty-state {
   padding: 24px;
