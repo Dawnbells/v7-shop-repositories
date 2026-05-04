@@ -23,12 +23,12 @@ public class Sub2ApiImageTranslateTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private static final String API_KEY = "sk-2f17c20fb0da519b01ced7891cef10e948ac948358cc24d669c29da5d6d056a7";
-    private static final String BASE_URL = "http://8.211.56.211:8080";
+    private static final String API_KEY = "proxypal-local";
+    private static final String BASE_URL = "http://localhost:8317/v1";
     private static final String IMAGE_PATH = "C:\\Users\\83850\\Pictures\\商品\\d038beb2a7224402b424a49ddf4f5164.webp";
     private static final String OUTPUT_PATH = "C:\\Users\\83850\\Pictures\\商品\\d038beb2a7224402b424a49ddf4f5164.out.png";
 
-    private static final String MODEL = "gpt-image-2";
+    private static final String MODEL = "";
     private static final String IMAGE_FIELD = "image[]";
     private static final String TARGET_LANGUAGE = "Simplified Chinese";
     private static final String USER_AGENT =

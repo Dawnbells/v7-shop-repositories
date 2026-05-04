@@ -234,6 +234,19 @@ button {
 /* ── Current Task Card ── */
 .current-task-panel { border-color: var(--border); }
 
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-list.idle {
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  min-height: 36px;
+}
+
 .task-card {
   padding: 10px;
   border-radius: var(--radius-sm);
@@ -391,6 +404,25 @@ button {
 }
 .service-row:hover { border-color: var(--text-muted); }
 
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.settings-field label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .service-row label {
   display: flex;
   align-items: center;
@@ -409,6 +441,7 @@ input[type="checkbox"] {
 
 input[type="text"],
 input[type="password"],
+input[type="number"],
 input:not([type]) {
   width: 100%;
   border: 1px solid var(--border);

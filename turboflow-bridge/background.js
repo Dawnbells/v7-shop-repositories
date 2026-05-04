@@ -14,10 +14,12 @@ const FAILURE_DELAY_MS = 60000;
 const IDLE_DELAY_MS = 10000;
 const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
+const DEFAULT_CONCURRENCY = 1;
+const MAX_CONCURRENCY = 5;
 
 let bridgeId = null;
 let running = false;
-let currentTask = null;
+let currentTasks = [];
 let timerId = null;
 let serviceCursor = 0;
 let lastStatus = { connected: false, message: 'Not checked' };
@@ -68,9 +70,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.type === 'SAVE_CONFIG') {
     saveConfig(msg.config || {}).then(async () => {
-      const stored = await chrome.storage.local.get(['services']);
+      const stored = await chrome.storage.local.get(['services', 'concurrency']);
       const count = Array.isArray(stored.services) ? stored.services.length : 0;
-      addLog('info', `Config saved (${count} services)`);
+      addLog('info', `Config saved (${count} services, concurrency ${stored.concurrency || DEFAULT_CONCURRENCY})`);
       scheduleLoop(1000);
       sendResponse({ ok: true });
     });
@@ -78,7 +80,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_STATUS') {
-    sendResponse({ running, currentTask, lastStatus, nextPollAt });
+    sendResponse({ running, currentTask: currentTasks[0] || null, currentTasks: getCurrentTasks(), lastStatus, nextPollAt });
     return false;
   }
 
@@ -192,14 +194,16 @@ async function loadPersistedState() {
 
 async function loadConfig() {
   await ensureBridgeId();
-  const stored = await chrome.storage.local.get(['services']);
+  const stored = await chrome.storage.local.get(['services', 'concurrency']);
   return {
     bridgeId,
     services: Array.isArray(stored.services) ? stored.services : [],
+    concurrency: sanitizeConcurrency(stored.concurrency),
   };
 }
 
 async function saveConfig(config) {
+  const concurrency = sanitizeConcurrency(config.concurrency);
   const services = Array.isArray(config.services)
     ? config.services.map((s) => ({
         baseUrl: (s.baseUrl || '').trim(),
@@ -207,7 +211,13 @@ async function saveConfig(config) {
         enabled: s.enabled !== false,
       })).filter((s) => s.baseUrl && s.token)
     : [];
-  await chrome.storage.local.set({ services });
+  await chrome.storage.local.set({ services, concurrency });
+}
+
+function sanitizeConcurrency(value) {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return DEFAULT_CONCURRENCY;
+  return Math.min(Math.max(n, 1), MAX_CONCURRENCY);
 }
 
 function addTaskHistory(entry) {
@@ -243,6 +253,13 @@ async function runLoop() {
   running = true;
   try {
     const config = await loadConfig();
+    const concurrency = config.concurrency;
+    if (currentTasks.length >= concurrency) {
+      nextPollAt = 0;
+      broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
+      return;
+    }
+
     const services = config.services.filter((s) => s.enabled !== false && s.baseUrl && s.token);
     const conn = await checkConnection().catch((e) => ({ connected: false, reason: e.message }));
     lastStatus = { connected: conn.connected, message: conn.reason || 'Connected', projectId: conn.projectId };
@@ -256,32 +273,47 @@ async function runLoop() {
       return;
     }
 
-    for (let i = 0; i < orderedServices.length; i++) {
-      const service = orderedServices[i];
-      const task = await pollTask(service, conn);
-      if (task?.hasTask) {
-        addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
-        serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
-        await executeTask(service, task);
-        return;
+    let received = 0;
+    while (currentTasks.length < concurrency) {
+      let found = false;
+      for (let i = 0; i < orderedServices.length && currentTasks.length < concurrency; i++) {
+        const service = orderedServices[i];
+        const task = await pollTask(service, conn, concurrency);
+        if (task?.hasTask) {
+          found = true;
+          received++;
+          addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
+          serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
+          executeTask(service, task).catch((e) => addLog('error', `Task runner error: ${e.message}`));
+        }
       }
+      if (!found) break;
     }
 
-    addLog('info', `Poll done, no tasks (${orderedServices.length} services)`);
-    scheduleLoop(IDLE_DELAY_MS);
+    if (received === 0) {
+      addLog('info', `Poll done, no tasks (${orderedServices.length} services)`);
+    } else {
+      addLog('info', `Poll done, received ${received}, running ${currentTasks.length}/${concurrency}`);
+    }
+    if (currentTasks.length < concurrency) {
+      scheduleLoop(IDLE_DELAY_MS);
+    } else {
+      nextPollAt = 0;
+      broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
+    }
   } finally {
     running = false;
   }
 }
 
-async function pollTask(service, conn) {
+async function pollTask(service, conn, concurrency) {
   return postJson(service, '/turboflow-bridge/tasks/poll', {
     bridgeId,
     version: VERSION,
     flowConnected: !!conn.connected,
     projectId: conn.projectId || null,
     currentUrl: null,
-    busy: !!currentTask,
+    busy: currentTasks.length >= concurrency,
   }).catch((e) => {
     addLog('warn', `Poll failed: ${service.baseUrl} ${e.message}`);
     return null;
@@ -292,19 +324,22 @@ async function executeTask(service, task) {
   const prompt = buildPrompt(task);
   const targetLang = task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese';
   const sourceImage = ensureDataUrl(task.imageBase64);
-  const sourceThumb = await createThumbnail(task.imageBase64, 64);
-  currentTask = {
+  const taskState = {
     service: service.baseUrl,
     taskId: task.taskId,
     subTaskId: task.subTaskId,
     assignmentId: task.assignmentId,
     startedAt: Date.now(),
-    sourceThumb,
+    sourceThumb: null,
     sourceImage,
     targetLang,
     prompt,
   };
-  broadcast({ type: 'TASK_CHANGED', currentTask });
+  currentTasks.push(taskState);
+  broadcastTasksChanged();
+  const sourceThumb = await createThumbnail(task.imageBase64, 64);
+  taskState.sourceThumb = sourceThumb;
+  broadcastTasksChanged();
 
   const startedAt = Date.now();
   try {
@@ -334,8 +369,7 @@ async function executeTask(service, task) {
       resultImage,
       targetLang,
     });
-    currentTask = null;
-    broadcast({ type: 'TASK_CHANGED', currentTask: null });
+    removeCurrentTask(task.assignmentId);
     scheduleLoop(SUCCESS_DELAY_MS);
   } catch (e) {
     await postJson(service, '/turboflow-bridge/tasks/fail', {
@@ -361,10 +395,26 @@ async function executeTask(service, task) {
       sourceImage,
       targetLang,
     });
-    currentTask = null;
-    broadcast({ type: 'TASK_CHANGED', currentTask: null });
+    removeCurrentTask(task.assignmentId);
     scheduleLoop(FAILURE_DELAY_MS);
   }
+}
+
+function getCurrentTasks() {
+  return currentTasks.map((task) => ({ ...task }));
+}
+
+function removeCurrentTask(assignmentId) {
+  currentTasks = currentTasks.filter((task) => task.assignmentId !== assignmentId);
+  broadcastTasksChanged();
+}
+
+function broadcastTasksChanged() {
+  broadcast({
+    type: 'TASK_CHANGED',
+    currentTask: currentTasks[0] || null,
+    currentTasks: getCurrentTasks(),
+  });
 }
 
 async function createThumbnail(base64OrDataUrl, maxSize) {

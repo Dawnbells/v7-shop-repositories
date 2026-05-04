@@ -12,6 +12,7 @@
   const paginationEl = document.getElementById('pagination');
 
   const servicesEl = document.getElementById('services');
+  const concurrencyEl = document.getElementById('concurrency');
   const btnAddService = document.getElementById('btn-add-service');
   const btnSave = document.getElementById('btn-save');
   const toastEl = document.getElementById('toast');
@@ -63,8 +64,12 @@
       setConnection(msg.connected, msg.message || (msg.connected ? 'Connected' : 'Disconnected'), msg.projectId);
     }
     if (msg.type === 'TASK_CHANGED') {
-      renderCurrentTask(msg.currentTask);
-      if (!msg.currentTask) {
+      const tasks = Array.isArray(msg.currentTasks)
+        ? msg.currentTasks
+        : (msg.currentTask ? [msg.currentTask] : []);
+      const completedOrFailed = tasks.length < activeTasks.length;
+      renderCurrentTasks(tasks);
+      if (completedOrFailed || tasks.length === 0) {
         loadTaskHistory();
         loadTodayStats();
       }
@@ -83,7 +88,9 @@
 
     const status = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
     if (status) {
-      renderCurrentTask(status.currentTask);
+      renderCurrentTasks(Array.isArray(status.currentTasks)
+        ? status.currentTasks
+        : (status.currentTask ? [status.currentTask] : []));
       nextPollAt = status.nextPollAt || 0;
       if (status.lastStatus) {
         setConnection(status.lastStatus.connected, status.lastStatus.message, status.lastStatus.projectId);
@@ -125,46 +132,49 @@
   }
 
   let elapsedTimer = null;
-  let activeTask = null;
+  let activeTasks = [];
 
-  function renderCurrentTask(task) {
-    activeTask = task;
+  function renderCurrentTasks(tasks) {
+    activeTasks = Array.isArray(tasks) ? tasks : [];
     if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
 
-    if (!task) {
-      currentTaskEl.className = 'task-card idle';
+    if (activeTasks.length === 0) {
+      currentTaskEl.className = 'task-list idle';
       currentTaskEl.innerHTML = '<span class="task-status-badge idle">Idle</span>';
       return;
     }
-    currentTaskEl.className = 'task-card running';
+    currentTaskEl.className = 'task-list running';
     updateCurrentTaskContent();
     elapsedTimer = setInterval(updateCurrentTaskContent, 1000);
   }
 
   function updateCurrentTaskContent() {
-    const task = activeTask;
-    if (!task) return;
-    const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
-    const thumbSrc = task.sourceThumb || task.sourceImage;
-    const previewSrc = task.sourceImage || task.sourceThumb;
-    const imgHtml = thumbSrc
-      ? `<div class="task-thumb-wrap"><img class="task-thumb" src="${thumbSrc}" alt="source"><div class="thumb-preview"><img src="${previewSrc}" alt="preview"></div></div>`
-      : '';
-    const promptHtml = task.targetLang
-      ? `<div class="task-prompt" title="${escAttr(task.prompt || '')}">${esc(task.targetLang)}</div>`
-      : '';
-    currentTaskEl.innerHTML = `
-      <span class="task-status-badge running">Running</span>
-      <span class="task-elapsed">${elapsed}s</span>
-      <div class="task-detail">
-        ${imgHtml}
-        <div class="task-meta">
-          <div><span class="label">SubTask:</span>${esc(task.subTaskId || '-')}</div>
-          <div><span class="label">Server:</span>${esc(shortenUrl(task.service))}</div>
-          ${promptHtml}
+    if (activeTasks.length === 0) return;
+    currentTaskEl.innerHTML = activeTasks.map((task, index) => {
+      const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
+      const thumbSrc = task.sourceThumb || task.sourceImage;
+      const previewSrc = task.sourceImage || task.sourceThumb;
+      const imgHtml = thumbSrc
+        ? `<div class="task-thumb-wrap"><img class="task-thumb" src="${thumbSrc}" alt="source"><div class="thumb-preview"><img src="${previewSrc}" alt="preview"></div></div>`
+        : '';
+      const promptHtml = task.targetLang
+        ? `<div class="task-prompt" title="${escAttr(task.prompt || '')}">${esc(task.targetLang)}</div>`
+        : '';
+      return `
+        <div class="task-card running">
+          <span class="task-status-badge running">Running ${index + 1}</span>
+          <span class="task-elapsed">${elapsed}s</span>
+          <div class="task-detail">
+            ${imgHtml}
+            <div class="task-meta">
+              <div><span class="label">SubTask:</span>${esc(task.subTaskId || '-')}</div>
+              <div><span class="label">Server:</span>${esc(shortenUrl(task.service))}</div>
+              ${promptHtml}
+            </div>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }).join('');
   }
 
   function startCountdownTicker() {
@@ -270,6 +280,7 @@
   async function loadSettings() {
     const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
     services = config.services || [];
+    if (concurrencyEl) concurrencyEl.value = config.concurrency || 1;
     renderServices();
   }
 
@@ -304,7 +315,10 @@
   }
 
   async function saveConfig() {
-    await chrome.runtime.sendMessage({ type: 'SAVE_CONFIG', config: { services } });
+    await chrome.runtime.sendMessage({
+      type: 'SAVE_CONFIG',
+      config: { services, concurrency: concurrencyEl ? concurrencyEl.value : 1 },
+    });
     showToast('Settings saved');
   }
 
