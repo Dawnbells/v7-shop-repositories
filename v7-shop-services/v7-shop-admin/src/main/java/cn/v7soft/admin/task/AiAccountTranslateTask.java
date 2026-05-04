@@ -601,20 +601,26 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         try {
             log.debug("[AiAccountTranslateTask] loadTask started: taskId={}, ownerId={}",
                     task.getId(), task.getOwner() == null ? null : task.getOwner().getId());
-            // 0. 重启恢复：清理上次运行残留的 usage records，解冻冻结积分，避免唯一约束冲突
+            // 0. 重启恢复：清理上次运行残留的 usage records，按已发生的实际消耗 settle
+            //    （不能直接 unfreeze，否则重启前已经回调写入的 businessCredits 会被丢弃，公司白嫖 API 成本）
             List<AiTokenUsageRecord> staleRecords = usageRecordRepository.findByTaskId(task.getId());
             if (!staleRecords.isEmpty()) {
-                Integer prevFrozen = task.getEstimatedCredits();
+                final Integer prevFrozen = task.getEstimatedCredits();
+                final int actualBilled = staleRecords.stream()
+                        .map(AiTokenUsageRecord::getBusinessCredits)
+                        .filter(c -> c != null && c > 0)
+                        .mapToInt(Integer::intValue)
+                        .sum();
                 transactionTemplate.executeWithoutResult(txStatus -> {
-                    usageRecordRepository.deleteAll(staleRecords);
                     if (prevFrozen != null && prevFrozen > 0) {
-                        aiCreditsService.unfreeze(task.getOwner().getId(), prevFrozen);
+                        aiCreditsService.settle(task.getOwner().getId(), prevFrozen, actualBilled);
                         task.setEstimatedCredits(null);
                         asyncTaskRepository.save(task);
                     }
+                    usageRecordRepository.deleteAll(staleRecords);
                 });
-                log.warn("[AiAccountTranslateTask] restart recovery: cleaned stale records for taskId={}, count={}",
-                         task.getId(), staleRecords.size());
+                log.warn("[AiAccountTranslateTask] restart recovery: settled actualBilled={} credits, cleaned {} stale records for taskId={}",
+                         actualBilled, staleRecords.size(), task.getId());
             }
 
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
