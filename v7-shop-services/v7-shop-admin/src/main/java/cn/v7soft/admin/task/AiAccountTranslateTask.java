@@ -375,9 +375,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                             .translatedFile(result.getTranslatedFile())
                             .skipped(result.getTranslatedFile() == null)
                             .build());
-                    log.debug("[AiAccountTranslateTask] image translation cache saved: taskId={}, subTaskId={}, languageId={}, skipped={}",
-                            subTask.getTaskId(), subTask.getSubTaskId(), language.getId(),
-                            result.getTranslatedFile() == null);
+                    log.debug("[AiAccountTranslateTask] image translation cache saved: taskId={}, subTaskId={}, sourceImageId={}, imageHash={}, languageId={}, skipped={}",
+                            subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash,
+                            language.getId(), result.getTranslatedFile() == null);
                 }
             }
         } catch (DataIntegrityViolationException e) {
@@ -552,8 +552,18 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 unusedReservations++;
                 continue;
             }
-            // 分发前检查缓存，命中则直接完成，不调用 Provider
             AiAccountTranslateTaskStatus status = runningTasks.get(subTask.getTaskId());
+            // 跳过的子任务（如动图）：直接标记完成，不扣费、不调用 Provider
+            if (subTask.isSkipped()) {
+                if (status != null) {
+                    completeSkippedSubTask(status, subTask);
+                    log.debug("[AiAccountTranslateTask] skipped subtask completed without provider dispatch: taskId={}, subTaskId={}, reason={}",
+                            subTask.getTaskId(), subTask.getSubTaskId(), subTask.getSkipReason());
+                }
+                runtimeState.releaseFinishedSlot();
+                continue;
+            }
+            // 分发前检查缓存，命中则直接完成，不调用 Provider
             if (status != null && tryCompleteFromCache(status, subTask, account)) {
                 log.debug("[AiAccountTranslateTask] subtask completed from cache before provider dispatch: taskId={}, subTaskId={}, type={}",
                         subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType());
@@ -563,12 +573,45 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             log.debug("[AiAccountTranslateTask] dispatching subtask to provider: taskId={}, subTaskId={}, type={}, provider={}, aiAccountId={}, attempt={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), account.getProvider(),
                     aiAccountId, subTask.getAttemptCount().get() + 1);
-            provider.executeSubTask(subTask);
+            try {
+                provider.executeSubTask(subTask);
+            } catch (Exception e) {
+                // 防御：provider.executeSubTask 抛异常时不能让 inFlight 槽位泄漏
+                log.error("[AiAccountTranslateTask] provider.executeSubTask threw, releasing slot via fail callback: taskId={}, subTaskId={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), e);
+                AiAccountRuntimeState rs = accountRuntimeStates.computeIfAbsent(aiAccountId, AiAccountRuntimeState::new);
+                subTask.fail("provider executeSubTask error: " + e.getMessage());
+                if (status != null) {
+                    status.failSubTask(subTask, e.getMessage());
+                }
+                rs.releaseFinishedSlot();
+            }
         }
         if (unusedReservations > 0) {
             runtimeState.releaseUnusedReservations(unusedReservations);
         }
         cleanupAccountState(aiAccountId, runtimeState);
+    }
+
+    /**
+     * 跳过的子任务（如动图）直接完成：
+     * - 记录任务进度（completedSubTaskCount++，但不写入 translatedImageMap，原图保留）
+     * - 不调用 Provider，不写 ImageTranslationCache
+     * - usage record 已在 loadTask 阶段创建（skipped=true, frozenCredits=0），此处仅打标 elapsedMs/cacheHit 兼容
+     */
+    private void completeSkippedSubTask(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask) {
+        status.completeSubTask(subTask);
+        try {
+            usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
+                    .ifPresent(record -> {
+                        record.setSkipped(true);
+                        record.setElapsedMs(0L);
+                        usageRecordRepository.save(record);
+                    });
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] update skipped usage record failed: subTaskId={}",
+                    subTask.getSubTaskId(), e);
+        }
     }
 
     /** 优先从失败队列取任务，其次从普通队列（FIFO） */
@@ -695,10 +738,11 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 subTask.setOwner(task.getOwner());
                 status.addSubTask(subTask);
 
-                int estimated = estimateSubTaskCredits(provider, account, subTask);
+                // 动图子任务跳过翻译：积分=0、不冻结、不调用 Provider
+                int estimated = subTask.isSkipped() ? 0 : estimateSubTaskCredits(provider, account, subTask);
                 totalEstimatedCredits += estimated;
-                log.debug("[AiAccountTranslateTask] subtask estimated: taskId={}, subTaskId={}, type={}, frozenCredits={}",
-                        task.getId(), subTask.getSubTaskId(), subTask.getType(), estimated);
+                log.debug("[AiAccountTranslateTask] subtask estimated: taskId={}, subTaskId={}, type={}, frozenCredits={}, skipped={}",
+                        task.getId(), subTask.getSubTaskId(), subTask.getType(), estimated, subTask.isSkipped());
 
                 AiTokenUsageRecord record = AiTokenUsageRecord.builder()
                         .taskId(task.getId())
@@ -709,8 +753,11 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         .targetLanguage(language.getName())
                         .model(StrUtil.blankToDefault(account.getModel(), "turboflow"))
                         .frozenCredits(estimated)
+                        .skipped(subTask.isSkipped())
                         .build();
                 record.setOwner(task.getOwner());
+                // 预填原文/原图，便于前端在翻译完成前展示原始内容
+                prefillSourceArtifacts(record, subTask);
                 usageRecords.add(record);
             }
 
@@ -762,6 +809,32 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         };
     }
 
+    /**
+     * 预填 record 的原文/原图路径，让前端在翻译完成前就能展示原始内容。
+     * - TEXT/HTML: 写入 sourceText（HTML 超长截断到 65535）
+     * - IMAGE: 通过 multimediaFileService 加载文件实体填入 sourceImagePath
+     */
+    private void prefillSourceArtifacts(AiTokenUsageRecord record, AiAccountTranslateSubTask subTask) {
+        try {
+            if (subTask.getType() == AiAccountTranslateSubTaskType.TEXT) {
+                record.setSourceText(subTask.getContent());
+            } else if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
+                String html = subTask.getContent();
+                if (html != null && html.length() > 65535) {
+                    html = html.substring(0, 65535);
+                }
+                record.setSourceText(html);
+            } else if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
+                MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
+                if (sourceFile != null) {
+                    record.setSourceImagePath(sourceFile.getRelativePath());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] prefillSourceArtifacts failed: subTaskId={}", subTask.getSubTaskId(), e);
+        }
+    }
+
     private int estimateSubTaskCredits(TranslateProvider provider, AiAccount account, AiAccountTranslateSubTask subTask) {
         try {
             if (provider != null) {
@@ -787,7 +860,14 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
 
         for (String imageId : collectImageIds(product)) {
-            subTasks.add(AiAccountTranslateSubTask.image(taskId, imageId, request));
+            AiAccountTranslateSubTask imageSubTask = AiAccountTranslateSubTask.image(taskId, imageId, request);
+            if (isAnimatedImage(imageId)) {
+                imageSubTask.setSkipped(true);
+                imageSubTask.setSkipReason("animated image (gif / animated webp)");
+                log.debug("[AiAccountTranslateTask] image subtask marked skipped (animated): taskId={}, imageId={}",
+                        taskId, imageId);
+            }
+            subTasks.add(imageSubTask);
         }
 
         return subTasks;
@@ -816,6 +896,11 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
     }
 
+    /**
+     * 收集所有需要拆分子任务的图片 ID（不再做动图过滤）。
+     * 动图（gif / animated webp）也会被加入子任务列表，由 buildSubTasks 标记 skipped=true。
+     * 这样前端可以看到完整的 success/fail/total 计数，但实际不会调用 Provider 翻译。
+     */
     private List<String> collectImageIds(Product product) {
         Set<String> imageIds = new LinkedHashSet<>();
         if (product.getImageFiles() != null) {
@@ -843,10 +928,25 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     private void addImageIdIfPresent(Set<String> imageIds, MultimediaFile image) {
         if (image == null || image.getId() == null) return;
-        String suffix = image.getSuffix();
-        if ("gif".equalsIgnoreCase(suffix)) return;
-        if ("webp".equalsIgnoreCase(suffix) && isAnimatedWebp(image)) return;
         imageIds.add(String.valueOf(image.getId()));
+    }
+
+    /**
+     * 判断给定图片 ID 是否为动图（gif / animated webp）。
+     * 用于 buildSubTasks 阶段标记子任务跳过翻译。失败时保守返回 false（按非动图处理）。
+     */
+    private boolean isAnimatedImage(String imageId) {
+        try {
+            MultimediaFile image = multimediaFileService.getById(Long.parseLong(imageId));
+            if (image == null) return false;
+            String suffix = image.getSuffix();
+            if ("gif".equalsIgnoreCase(suffix)) return true;
+            if ("webp".equalsIgnoreCase(suffix) && isAnimatedWebp(image)) return true;
+            return false;
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] check animated image failed: imageId={}", imageId, e);
+            return false;
+        }
     }
 
     private boolean isAnimatedWebp(MultimediaFile image) {
@@ -922,10 +1022,13 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         status.completeSubTask(subTask);
                     }
                     updateCacheHitUsageRecord(subTask, language.getName(), account, sourceFile, translatedFile);
-                    log.debug("[AiAccountTranslateTask] image cache hit: taskId={}, subTaskId={}, languageId={}, skipped={}",
-                            subTask.getTaskId(), subTask.getSubTaskId(), language.getId(), cached.get().isSkipped());
+                    log.debug("[AiAccountTranslateTask] image cache hit: taskId={}, subTaskId={}, sourceImageId={}, imageHash={}, languageId={}, cacheSkipped={}",
+                            subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash,
+                            language.getId(), cached.get().isSkipped());
                     return true;
                 }
+                log.debug("[AiAccountTranslateTask] image cache miss: taskId={}, subTaskId={}, sourceImageId={}, imageHash={}, languageId={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash, language.getId());
             }
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] cache lookup failed: taskId={}, subTaskId={}",

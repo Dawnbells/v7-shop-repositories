@@ -67,6 +67,9 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String translatedImageUrl;
 
+    @Schema(title = "是否跳过翻译（如动图）")
+    private Boolean skipped;
+
     // ---- ADMIN 专属字段，非 ADMIN 时为 null，序列化时跳过 ----
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -115,6 +118,7 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
                 .translatedText(record.getTranslatedText())
                 .sourceImageUrl(buildImageUrl(imageBaseUrl, record.getSourceImagePath()))
                 .translatedImageUrl(buildImageUrl(imageBaseUrl, record.getTranslatedImagePath()))
+                .skipped(record.getSkipped())
                 .cacheHit(record.getCacheHit())
                 .actualPromptTokens(record.getActualPromptTokens())
                 .actualCompletionTokens(record.getActualCompletionTokens())
@@ -141,6 +145,7 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
                 .translatedText(record.getTranslatedText())
                 .sourceImageUrl(buildImageUrl(imageBaseUrl, record.getSourceImagePath()))
                 .translatedImageUrl(buildImageUrl(imageBaseUrl, record.getTranslatedImagePath()))
+                .skipped(record.getSkipped())
                 .build());
     }
 

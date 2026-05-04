@@ -36,6 +36,11 @@ public class AiAccountTranslateSubTask {
     private volatile SystemUser owner;
     @Setter
     private volatile String imageHash;
+    /** 子任务被跳过翻译（如动图），dispatch 前直接完成，不扣费、不冻结积分、不调用 Provider */
+    @Setter
+    private volatile boolean skipped;
+    @Setter
+    private volatile String skipReason;
     private volatile String assignmentId;
     private volatile String assignedBridgeId;
     private volatile LocalDateTime leaseUntil;

@@ -56,7 +56,11 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class TurboFlowBridgeProvider implements TranslateProvider {
 
-    private static final int TURBOFLOW_LEASE_MINUTES = 10;
+    /**
+     * 任务分配后允许的执行时间。
+     * 已配合 plugin 端 90 秒超时；3 分钟覆盖 plugin 超时 + 网络重试 + sync 周期，保证及时回收。
+     */
+    private static final int TURBOFLOW_LEASE_MINUTES = 3;
 
     private final IAiAccountService aiAccountService;
     private final IMultimediaFileService multimediaFileService;
@@ -265,8 +269,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             byte[] imageBytes = TranslateProviderSupport.readImageBytes(multimediaFileService, sourceFile);
             String imageHash = DigestUtil.sha256Hex(imageBytes);
             subTask.setImageHash(imageHash);
-            log.debug("[TurboFlowBridge] source image prepared for bridge dispatch: taskId={}, subTaskId={}, imageId={}, bytes={}",
-                    subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageBytes.length);
+            log.debug("[TurboFlowBridge] source image prepared for bridge dispatch: taskId={}, subTaskId={}, imageId={}, imageHash={}, bytes={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash, imageBytes.length);
 
             // 5. 二次缓存检查：入队后到 poll 之间，其他任务可能已生成同图同语言的缓存
             Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
@@ -274,8 +278,9 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             if (cached.isPresent()) {
                 MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
                 Language language = resolveLanguage(subTask);
-                log.debug("[TurboFlowBridge] image cache hit during bridge poll: taskId={}, subTaskId={}, language={}, skipped={}",
-                        subTask.getTaskId(), subTask.getSubTaskId(), language.getName(), cached.get().isSkipped());
+                log.debug("[TurboFlowBridge] image cache hit during bridge poll: taskId={}, subTaskId={}, imageId={}, imageHash={}, language={}, cacheSkipped={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash,
+                        language.getName(), cached.get().isSkipped());
 
                 int promptTokens;
                 int completionTokens;
@@ -304,6 +309,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 callback.onSubTaskCompleted(subTask, result);
                 return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("cache hit").build();
             }
+            log.debug("[TurboFlowBridge] image cache miss during bridge poll: taskId={}, subTaskId={}, imageId={}, imageHash={}, languageId={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash, subTask.getLanguageId());
 
             // 6. 分配 assignmentId + lease，跟踪该子任务直到 complete/fail/expire
             String assignmentId = UUID.randomUUID().toString();
@@ -539,8 +546,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .translatedFile(translatedFile)
                     .skipped(skipped)
                     .build());
+            log.debug("[TurboFlowBridge] image cache saved: sourceImageId={}, imageHash={}, languageId={}, translatedFileId={}, skipped={}",
+                    sourceFile.getId(), imageHash, language.getId(),
+                    translatedFile == null ? null : translatedFile.getId(), skipped);
         } catch (DataIntegrityViolationException e) {
-            log.debug("[TurboFlowBridge] image cache already exists: hash={}", imageHash);
+            log.debug("[TurboFlowBridge] image cache already exists: sourceImageId={}, imageHash={}, languageId={}",
+                    sourceFile.getId(), imageHash, language.getId());
         }
     }
 

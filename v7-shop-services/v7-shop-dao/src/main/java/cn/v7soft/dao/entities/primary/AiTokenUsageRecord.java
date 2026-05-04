@@ -55,6 +55,11 @@ public class AiTokenUsageRecord extends BaseDataRangeEntity {
     @Column(name = "cache_hit", nullable = false)
     private Boolean cacheHit = false;
 
+    /** 子任务被跳过翻译（如动图：webp 动图 / gif），不扣费、不冻结积分、不调用 Provider */
+    @Builder.Default
+    @Column(name = "skipped", nullable = false)
+    private Boolean skipped = false;
+
     @Column(name = "model", length = 50)
     private String model;
 
