@@ -212,7 +212,22 @@ public class AiAccountTranslateTaskStatus {
     private String buildProgressMessage() {
         int completed = completedSubTaskCount.get();
         int failed = failedSubTaskCount.get();
-        return "正在执行AI翻译任务：" + completed + "/" + failed + "/" + totalSubTaskCount;
+        int processing = processingSubTaskCount.get();
+        int finished = completed + failed;
+        StringBuilder sb = new StringBuilder("正在执行AI翻译任务：")
+                .append(finished).append('/').append(totalSubTaskCount).append(" 完成");
+        if (failed > 0 || processing > 0) {
+            sb.append(" (");
+            if (failed > 0) {
+                sb.append(failed).append(" 失败");
+                if (processing > 0) sb.append(", ");
+            }
+            if (processing > 0) {
+                sb.append(processing).append(" 进行中");
+            }
+            sb.append(')');
+        }
+        return sb.toString();
     }
 
     private void touch() {
