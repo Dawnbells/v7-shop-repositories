@@ -162,7 +162,15 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         if (task.getState() == TaskState.PENDING || task.getState() == TaskState.PROCESSING) {
             task.setMessage("任务已取消");
             updateAsyncTask(task, TaskState.CANCELLED, COMPLETED_OR_FAILED_PROGRESS);
-            if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE || originalState == TaskState.PENDING) {
+            // R3：AI 翻译 PROCESSING 状态可能存在 in-flight 子任务，
+            // 由 AiAccountTranslateTask.syncTaskStatus 串起 onTaskCancelling → settleTask 顺序，
+            // 确保 in-flight 子任务的 partial businessCredits 先入账再结算，避免漏扣。
+            // PENDING 状态尚未 loadTask 无 in-flight，可立即结算。
+            if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE) {
+                if (originalState == TaskState.PENDING) {
+                    finalizeBilling(task.getId());
+                }
+            } else if (originalState == TaskState.PENDING) {
                 finalizeBilling(task.getId());
             }
         } else {
