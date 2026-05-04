@@ -15,7 +15,7 @@ const IDLE_DELAY_MS = 10000;
 const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
 const DEFAULT_CONCURRENCY = 1;
-const MAX_CONCURRENCY = 5;
+const MAX_CONCURRENCY = 100;
 // 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；超过 90 秒视为挂起，主动 fail 触发 server 端重发。
 const TRANSLATE_TIMEOUT_MS = 90 * 1000;
 // fail 上报失败的重试次数与基础间隔（指数退避）。尽量保证 server 端能及时收到失败信号，避免等到 lease 过期。
@@ -244,13 +244,21 @@ function persistLogs() {
 }
 
 function scheduleLoop(delayMs) {
+  const newPollAt = Date.now() + delayMs;
+  // 如果已有更早的 timer 排队，不重置——避免并发任务陆续完成时反复推迟 poll
+  if (timerId && nextPollAt > 0 && nextPollAt <= newPollAt) {
+    return;
+  }
   if (timerId) clearTimeout(timerId);
-  nextPollAt = Date.now() + delayMs;
+  nextPollAt = newPollAt;
   broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
-  timerId = setTimeout(() => runLoop().catch((e) => {
-    addLog('error', e.message);
-    scheduleLoop(FAILURE_DELAY_MS);
-  }), delayMs);
+  timerId = setTimeout(() => {
+    timerId = null;
+    runLoop().catch((e) => {
+      addLog('error', e.message);
+      scheduleLoop(FAILURE_DELAY_MS);
+    });
+  }, delayMs);
 }
 
 async function runLoop() {
