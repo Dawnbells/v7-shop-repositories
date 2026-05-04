@@ -103,7 +103,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 @Component
 public class AiAccountTranslateTask implements TranslateTaskContext {
 
-    private static final int MAX_TASKS_PER_ROUND = 1;
+    /** 每轮 executePendingTasks 至多拆分的任务数。批量提交场景下 1 太慢（100 任务 ≈ 8 分钟才进执行阶段）。 */
+    private static final int MAX_TASKS_PER_ROUND = 5;
     private static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
 
     private final AsyncTaskRepository asyncTaskRepository;
@@ -396,29 +397,38 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             if (pendingTasks.isEmpty()) {
                 return;
             }
-            AsyncTask task = pendingTasks.get(0);
-            log.debug("[AiAccountTranslateTask] pending translate task picked: taskId={}, ownerId={}",
-                    task.getId(), task.getOwner() == null ? null : task.getOwner().getId());
-            // 任务已在内存中运行，同步 DB 状态为 PROCESSING
-            if (runningTasks.containsKey(task.getId())) {
-                task.setState(TaskState.PROCESSING);
-                asyncTaskRepository.save(task);
-                log.debug("[AiAccountTranslateTask] pending task already running, db state synced: taskId={}", task.getId());
-                return;
+            for (AsyncTask task : pendingTasks) {
+                try {
+                    processSinglePendingTask(task);
+                } catch (Exception e) {
+                    log.error("[AiAccountTranslateTask] processPendingTask failed: taskId={}",
+                              task.getId(), e);
+                }
             }
-            // 检查用户可用积分（monthly - used - frozen > 0）
-            if (!aiCreditsService.hasAvailableCredits(task.getOwner().getId())) {
-                task.setState(TaskState.INSUFFICIENT_CREDITS);
-                task.setMessage("AI积分不足，请充值后重试");
-                asyncTaskRepository.save(task);
-                log.info("[AiAccountTranslateTask] 积分不足，标记 INSUFFICIENT_CREDITS: taskId={}, userId={}",
-                         task.getId(), task.getOwner().getId());
-                return;
-            }
-            loadTask(task);
         } finally {
             loadingTasks.set(false);
         }
+    }
+
+    /** 处理单个 PENDING 任务：检查内存态/积分后调 loadTask 拆分。 */
+    private void processSinglePendingTask(AsyncTask task) {
+        log.debug("[AiAccountTranslateTask] pending translate task picked: taskId={}, ownerId={}",
+                task.getId(), task.getOwner() == null ? null : task.getOwner().getId());
+        if (runningTasks.containsKey(task.getId())) {
+            task.setState(TaskState.PROCESSING);
+            asyncTaskRepository.save(task);
+            log.debug("[AiAccountTranslateTask] pending task already running, db state synced: taskId={}", task.getId());
+            return;
+        }
+        if (!aiCreditsService.hasAvailableCredits(task.getOwner().getId())) {
+            task.setState(TaskState.INSUFFICIENT_CREDITS);
+            task.setMessage("AI积分不足，请充值后重试");
+            asyncTaskRepository.save(task);
+            log.info("[AiAccountTranslateTask] 积分不足，标记 INSUFFICIENT_CREDITS: taskId={}, userId={}",
+                     task.getId(), task.getOwner().getId());
+            return;
+        }
+        loadTask(task);
     }
 
     /** 定时器二：子任务分发。遍历所有账号队列（优先失败队列），通过 Provider 分发。 */
