@@ -16,6 +16,11 @@ const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
 const DEFAULT_CONCURRENCY = 1;
 const MAX_CONCURRENCY = 5;
+// 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；超过 90 秒视为挂起，主动 fail 触发 server 端重发。
+const TRANSLATE_TIMEOUT_MS = 90 * 1000;
+// fail 上报失败的重试次数与基础间隔（指数退避）。尽量保证 server 端能及时收到失败信号，避免等到 lease 过期。
+const FAIL_REPORT_MAX_RETRIES = 3;
+const FAIL_REPORT_RETRY_BASE_MS = 1000;
 
 let bridgeId = null;
 let running = false;
@@ -343,7 +348,7 @@ async function executeTask(service, task) {
 
   const startedAt = Date.now();
   try {
-    const result = await translateImage(task);
+    const result = await runWithTimeout(translateImage(task), TRANSLATE_TIMEOUT_MS, 'translate timeout (90s)');
     await postJson(service, '/turboflow-bridge/tasks/complete', {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -372,16 +377,16 @@ async function executeTask(service, task) {
     removeCurrentTask(task.assignmentId);
     scheduleLoop(SUCCESS_DELAY_MS);
   } catch (e) {
-    await postJson(service, '/turboflow-bridge/tasks/fail', {
+    const elapsed = Date.now() - startedAt;
+    await reportFailWithRetry(service, {
       bridgeId,
       assignmentId: task.assignmentId,
       errorCode: 'FLOW_EXECUTION_FAILED',
       message: e.message,
       stack: e.stack || null,
       retryable: true,
-      elapsedMs: Date.now() - startedAt,
-    }).catch(() => {});
-    const elapsed = Date.now() - startedAt;
+      elapsedMs: elapsed,
+    });
     addLog('error', `Task failed: ${e.message}`);
     addTaskHistory({
       taskId: task.taskId,
@@ -398,6 +403,48 @@ async function executeTask(service, task) {
     removeCurrentTask(task.assignmentId);
     scheduleLoop(FAILURE_DELAY_MS);
   }
+}
+
+/**
+ * 在指定时间内 race 一个 Promise；超时抛 timeoutMessage 错误。
+ * 防止 Flow API 异步链路挂起（fetch 默认无 timeout），导致 currentTasks 永不释放。
+ */
+function runWithTimeout(promise, timeoutMs, timeoutMessage) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
+/**
+ * fail 上报带指数退避重试。
+ * server 端依赖此通知尽快释放 inFlight 槽位并重新排队，否则要等到 lease 过期才回收。
+ */
+async function reportFailWithRetry(service, payload) {
+  for (let attempt = 0; attempt <= FAIL_REPORT_MAX_RETRIES; attempt++) {
+    try {
+      await postJson(service, '/turboflow-bridge/tasks/fail', payload);
+      if (attempt > 0) {
+        addLog('info', `Fail reported on retry ${attempt}: ${payload.assignmentId}`);
+      }
+      return;
+    } catch (err) {
+      if (attempt === FAIL_REPORT_MAX_RETRIES) {
+        addLog('warn', `Fail report giving up after ${attempt + 1} attempts: ${err.message}`);
+        return;
+      }
+      const backoff = FAIL_REPORT_RETRY_BASE_MS * Math.pow(2, attempt);
+      addLog('warn', `Fail report attempt ${attempt + 1} failed (${err.message}), retrying in ${backoff}ms`);
+      await sleep(backoff);
+    }
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getCurrentTasks() {
