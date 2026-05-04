@@ -1034,9 +1034,15 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      * 积分结算：解冻预估额 + 扣减实际消耗 + 写入结算汇总信息。
      * frozenCredits 来自 AsyncTask.estimatedCredits（loadTask 时写入），
      * actualCredits 来自 SUM(AiTokenUsageRecord.businessCredits)（Provider 回调时累计写入）。
+     * <p>
+     * 幂等：取消路径下 AsyncTaskService.finalizeBilling 可能已先结算，本方法须跳过避免双重扣费。
      */
     private void settleTask(AsyncTask task) {
         try {
+            if (Boolean.TRUE.equals(task.getBillingSettled())) {
+                log.debug("[AiAccountTranslateTask] settleTask skipped, already settled: taskId={}", task.getId());
+                return;
+            }
             Integer frozenCredits = task.getEstimatedCredits();
             if (frozenCredits == null || frozenCredits <= 0) {
                 return;
