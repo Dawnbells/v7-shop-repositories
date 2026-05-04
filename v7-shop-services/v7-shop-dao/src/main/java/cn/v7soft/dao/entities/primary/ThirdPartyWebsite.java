@@ -7,6 +7,7 @@ import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
+import org.hibernate.annotations.SQLRestriction;
 
 import java.time.LocalDateTime;
 
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 @SuperBuilder
 @AllArgsConstructor
 @NoArgsConstructor
+@SQLRestriction("status <> 'DELETED'")
 @Table(name = "t_third_party_websites", indexes = {
         @Index(name = "uk_handle", columnList = "handle", unique = true),
         @Index(name = "uk_token", columnList = "token", unique = true)
