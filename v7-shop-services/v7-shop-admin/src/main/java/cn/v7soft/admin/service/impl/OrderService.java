@@ -17,6 +17,7 @@ import org.springframework.web.multipart.MultipartHttpServletRequest;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
+import cn.v7soft.admin.controller.req.attributes.OrderAccessDataRangeAttribute;
 import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
@@ -24,11 +25,11 @@ import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
 import cn.v7soft.admin.service.dto.OrderDownloadDto;
-import cn.v7soft.common.controller.req.attributes.AccessDataRangeAttribute;
 import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.controller.request.QueryPageRequest;
+import cn.v7soft.core.controller.request.attributes.OrQueryAttribute;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
@@ -178,6 +179,16 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<Order> findPaginated(QueryPageRequest<Order> request, SystemUserDto systemUser, ViewMode viewMode) {
+        OrQueryAttribute<Order> or = request.or();
+        or.add(getOrderAccessDataRangeQueryAttribute(systemUser, viewMode));
+        addIgnoreAccessDataRageCondition(or);
+        or.next();
+        return findOriginalPaginated(request);
+    }
+
+    @Override
     @Transactional
     public void applyCheckInfoAndSave(String orderId, OrderCheckInfoDto checkInfo, SystemUserDto owner) {
         Optional<Order> orderOption = Optional.empty();
@@ -232,9 +243,15 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
 
     @Override
     public QueryAttribute getAccessDataRangeQueryAttribute() {
-        if (SaSessionUtil.isCrossDepartment()) {
-            return new AccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, SaSessionUtil.getManageDepartmentIds(), SaSessionUtil.isExcludeDepartment());
+        return getOrderAccessDataRangeQueryAttribute(SaSessionUtil.getLoginUser(), SaSessionUtil.getViewMode());
+    }
+
+    private QueryAttribute getOrderAccessDataRangeQueryAttribute(SystemUserDto systemUser, ViewMode viewMode) {
+        if (Boolean.TRUE.equals(systemUser.getIsCrossDepartment())) {
+            return new OrderAccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS,
+                    systemUser.getManageDepartmentIds(), Boolean.TRUE.equals(systemUser.getIsExcludeDepartment()),
+                    systemUser, viewMode);
         }
-        return super.getAccessDataRangeQueryAttribute();
+        return new OrderAccessDataRangeAttribute(AccessDataRangeLevel.PERSON, List.of(), false, systemUser, viewMode);
     }
 }
