@@ -25,6 +25,9 @@ public class EditRoleRequest extends IdRequest {
     @Schema(title = "是否可管理跨部门员工", example = "false", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Boolean isManageEmployee;
 
+    @Schema(title = "跨部门管理模式：true=排除选中部门", example = "false", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private Boolean isExcludeDepartment;
+
     @NotBlank(message = "角色描述不能为空")
     @Schema(title = "角色描述", example = "负责系统的日常管理工作", requiredMode = Schema.RequiredMode.REQUIRED)
     private String description;

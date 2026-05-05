@@ -83,7 +83,7 @@ public class EmployeeService extends BaseDataRangeService<SystemUser, SystemUser
     @Override
     public QueryAttribute getAccessDataRangeQueryAttribute() {
         if (SaSessionUtil.isCrossDepartment() && SaSessionUtil.isManageEmployee()) {
-            return new SystemUserAccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, SaSessionUtil.getManageDepartmentIds());
+            return new SystemUserAccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, SaSessionUtil.getManageDepartmentIds(), SaSessionUtil.isExcludeDepartment());
         }
         return new SystemUserAccessDataRangeAttribute();
     }

@@ -23,22 +23,32 @@ public class AccessDataRangeAttribute implements QueryAttribute {
 
     private final AccessDataRangeLevel level;
     private final List<Long> specifiedDepartmentIds;
+    private final boolean isExclude;
     private SystemUserDto owner;
     private ViewMode viewMode;
 
     public AccessDataRangeAttribute() {
         level = AccessDataRangeLevel.PERSON;
         specifiedDepartmentIds = Collections.emptyList();
+        isExclude = false;
     }
 
     public AccessDataRangeAttribute(AccessDataRangeLevel level) {
         this.level = level;
         this.specifiedDepartmentIds = Collections.emptyList();
+        this.isExclude = false;
     }
 
     public AccessDataRangeAttribute(AccessDataRangeLevel level, List<Long> specifiedDepartmentIds) {
         this.level = level;
         this.specifiedDepartmentIds = specifiedDepartmentIds != null ? specifiedDepartmentIds : Collections.emptyList();
+        this.isExclude = false;
+    }
+
+    public AccessDataRangeAttribute(AccessDataRangeLevel level, List<Long> specifiedDepartmentIds, boolean isExclude) {
+        this.level = level;
+        this.specifiedDepartmentIds = specifiedDepartmentIds != null ? specifiedDepartmentIds : Collections.emptyList();
+        this.isExclude = isExclude;
     }
 
     public AccessDataRangeAttribute setOwner(SystemUser owner) {
@@ -76,6 +86,9 @@ public class AccessDataRangeAttribute implements QueryAttribute {
         }
         if (level == AccessDataRangeLevel.SPECIFIED_DEPARTMENTS) {
             if (specifiedDepartmentIds.isEmpty()) {
+                if (isExclude) {
+                    return criteriaBuilder.conjunction();
+                }
                 return new AccessDataRangeAttribute().setOwner(user).setViewMode(vm)
                         .toPredicate(root, query, criteriaBuilder);
             }
@@ -83,7 +96,7 @@ public class AccessDataRangeAttribute implements QueryAttribute {
             for (Long deptId : specifiedDepartmentIds) {
                 in.value(deptId);
             }
-            return in;
+            return isExclude ? criteriaBuilder.not(in) : in;
         }
         if (userType == SystemUserType.DEEP_DEPARTMENT_MANAGER || level == AccessDataRangeLevel.DEEP_DEPARTMENT) {
             // 深度部门 管理员-可以管理所有子部门

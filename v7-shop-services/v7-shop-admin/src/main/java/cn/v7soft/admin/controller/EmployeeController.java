@@ -52,6 +52,10 @@ import cn.v7soft.dao.enums.SystemUserType;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import jakarta.validation.Valid;
 
 @RestController
@@ -192,7 +196,18 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
             if (Boolean.TRUE.equals(loginUser.getIsCrossDepartment())) {
                 List<Long> deptIds = loginUser.getManageDepartmentIds();
                 if (deptIds != null && !deptIds.isEmpty()) {
-                    request.add(InAttribute.<Long>builder().name("department.id").value(deptIds).build());
+                    if (Boolean.TRUE.equals(loginUser.getIsExcludeDepartment())) {
+                        request.add(new QueryAttribute() {
+                            @Override
+                            public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> cq, CriteriaBuilder cb) {
+                                CriteriaBuilder.In<Object> in = cb.in(root.get("department").get("id"));
+                                for (Long id : deptIds) { in.value(id); }
+                                return cb.not(in);
+                            }
+                        });
+                    } else {
+                        request.add(InAttribute.<Long>builder().name("department.id").value(deptIds).build());
+                    }
                 }
             } else {
                 request.or().add(new SystemUserAccessDataRangeAttribute()).next();

@@ -29,6 +29,12 @@
           员工管理
         </el-checkbox>
       </el-form-item>
+      <el-form-item v-if="form.isCrossDepartment" label="部门模式">
+        <el-radio-group v-model="form.isExcludeDepartment">
+          <el-radio :value="false">包含选中部门</el-radio>
+          <el-radio :value="true">排除选中部门</el-radio>
+        </el-radio-group>
+      </el-form-item>
       <el-form-item v-if="form.isCrossDepartment" label="管理部门">
         <el-tree-select
           ref="deptTreeRef"
@@ -76,6 +82,7 @@ const form = reactive<any>({
   systemUserType: 'EMPLOYEE',
   isCrossDepartment: false,
   isManageEmployee: false,
+  isExcludeDepartment: false,
   manageDepartmentIds: [],
 })
 const rules = reactive<any>({
@@ -128,6 +135,7 @@ const onCrossDepartmentChange = (val: boolean) => {
   } else {
     form.manageDepartmentIds = []
     form.isManageEmployee = false
+    form.isExcludeDepartment = false
   }
 }
 
@@ -157,6 +165,7 @@ const close = () => {
     id: undefined,
     isCrossDepartment: false,
     isManageEmployee: false,
+    isExcludeDepartment: false,
     manageDepartmentIds: [],
   })
   emit('fetch-data')

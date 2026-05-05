@@ -22,21 +22,31 @@ public class SystemUserAccessDataRangeAttribute implements QueryAttribute {
 
     private final AccessDataRangeLevel level;
     private final List<Long> specifiedDepartmentIds;
+    private final boolean isExclude;
     private SystemUserDto owner;
 
     public SystemUserAccessDataRangeAttribute() {
         level = AccessDataRangeLevel.PERSON;
         specifiedDepartmentIds = Collections.emptyList();
+        isExclude = false;
     }
 
     public SystemUserAccessDataRangeAttribute(AccessDataRangeLevel level) {
         this.level = level;
         this.specifiedDepartmentIds = Collections.emptyList();
+        this.isExclude = false;
     }
 
     public SystemUserAccessDataRangeAttribute(AccessDataRangeLevel level, List<Long> specifiedDepartmentIds) {
         this.level = level;
         this.specifiedDepartmentIds = specifiedDepartmentIds != null ? specifiedDepartmentIds : Collections.emptyList();
+        this.isExclude = false;
+    }
+
+    public SystemUserAccessDataRangeAttribute(AccessDataRangeLevel level, List<Long> specifiedDepartmentIds, boolean isExclude) {
+        this.level = level;
+        this.specifiedDepartmentIds = specifiedDepartmentIds != null ? specifiedDepartmentIds : Collections.emptyList();
+        this.isExclude = isExclude;
     }
 
     public SystemUserAccessDataRangeAttribute setOwner(SystemUser owner) {
@@ -63,6 +73,9 @@ public class SystemUserAccessDataRangeAttribute implements QueryAttribute {
         }
         if (level == AccessDataRangeLevel.SPECIFIED_DEPARTMENTS) {
             if (specifiedDepartmentIds.isEmpty()) {
+                if (isExclude) {
+                    return criteriaBuilder.conjunction();
+                }
                 return new SystemUserAccessDataRangeAttribute().setOwner(user)
                         .toPredicate(root, query, criteriaBuilder);
             }
@@ -70,8 +83,10 @@ public class SystemUserAccessDataRangeAttribute implements QueryAttribute {
             for (Long deptId : specifiedDepartmentIds) {
                 in.value(deptId);
             }
+            if (isExclude) {
+                return criteriaBuilder.not(in);
+            }
             if (user.getUserType() == SystemUserType.DEPARTMENT_MANAGER) {
-                // 只能管理自己所在的部门
                 in.value(user.getDepartmentId());
             }
             return in;

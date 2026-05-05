@@ -32,6 +32,9 @@ public class RoleResponse extends IdResponse {
     @Schema(title = "是否可管理跨部门员工")
     private Boolean isManageEmployee;
 
+    @Schema(title = "跨部门管理模式：true=排除选中部门")
+    private Boolean isExcludeDepartment;
+
     @Builder.Default
     @Schema(title = "角色路由列表", example = "[]")
     private List<Long> systemRouterIds = new ArrayList<>();

@@ -46,6 +46,10 @@ public class SaSessionUtil {
         return Boolean.TRUE.equals(getLoginUser().getIsManageEmployee());
     }
 
+    public static boolean isExcludeDepartment() {
+        return Boolean.TRUE.equals(getLoginUser().getIsExcludeDepartment());
+    }
+
     public static void refreshUserSession(SystemUser user) {
         SaSession session = StpUtil.getSessionByLoginId(user.getId(), false);
         if (session != null) {

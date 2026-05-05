@@ -90,7 +90,7 @@ public abstract class BaseDataRangeService<T extends IBaseDataRangeEntity, M ext
     public Page<T> findPaginated(QueryPageRequest<T> request, SystemUserDto systemUser, ViewMode viewMode) {
         OrQueryAttribute<T> or = request.or();
         if (Boolean.TRUE.equals(systemUser.getIsCrossDepartment())) {
-            or.add(new AccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, systemUser.getManageDepartmentIds()).setOwner(systemUser).setViewMode(viewMode));
+            or.add(new AccessDataRangeAttribute(AccessDataRangeLevel.SPECIFIED_DEPARTMENTS, systemUser.getManageDepartmentIds(), Boolean.TRUE.equals(systemUser.getIsExcludeDepartment())).setOwner(systemUser).setViewMode(viewMode));
         } else {
             or.add(new AccessDataRangeAttribute().setOwner(systemUser).setViewMode(viewMode));
         }

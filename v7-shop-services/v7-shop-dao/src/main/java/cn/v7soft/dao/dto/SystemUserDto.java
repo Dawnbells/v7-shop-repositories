@@ -72,6 +72,10 @@ public class SystemUserDto extends IdDto {
      * 是否可管理跨部门员工
      */
     private Boolean isManageEmployee;
+    /**
+     * 跨部门管理模式：true=排除选中部门，false/null=包含选中部门
+     */
+    private Boolean isExcludeDepartment;
 
     public static SystemUserDto convert(SystemUser user) {
         Department department = user.getDepartment();
@@ -103,6 +107,10 @@ public class SystemUserDto extends IdDto {
                 .stream()
                 .anyMatch(role -> Boolean.TRUE.equals(role.getIsManageEmployee()));
 
+        boolean isExcludeDepartment = user.getRoles().stream()
+                .filter(role -> Boolean.TRUE.equals(role.getIsCrossDepartment()))
+                .anyMatch(role -> Boolean.TRUE.equals(role.getIsExcludeDepartment()));
+
         List<Long> assignableRoles = user.getRoles().stream()
                 .flatMap(role -> role.getAssignableRoles().stream()) // 扁平化角色的 assignableRoles
                 .map(Role::getId)
@@ -123,6 +131,7 @@ public class SystemUserDto extends IdDto {
                 .isCrossDepartment(isCrossDepartment)
                 .manageDepartmentIds(manageDepartmentIds)
                 .isManageEmployee(isManageEmployee)
+                .isExcludeDepartment(isExcludeDepartment)
                 .build();
     }
 

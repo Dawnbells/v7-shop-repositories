@@ -53,18 +53,29 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
         }).toList();
         SystemUserDto loginUser = SaSessionUtil.getLoginUser();
         if (!loginUser.isAdmin()) {
-            List<Long> visibleDepartmentIds = new ArrayList<>(loginUser.getAccessDepartmentIds());
             boolean forEmployee = request != null && Boolean.TRUE.equals(request.getForEmployeeManagement());
             boolean showCrossDepartment = Boolean.TRUE.equals(loginUser.getIsCrossDepartment())
                     && loginUser.getManageDepartmentIds() != null
                     && (!forEmployee || Boolean.TRUE.equals(loginUser.getIsManageEmployee()));
-            if (showCrossDepartment) {
-                visibleDepartmentIds.addAll(loginUser.getManageDepartmentIds());
+            if (showCrossDepartment && Boolean.TRUE.equals(loginUser.getIsExcludeDepartment())) {
+                List<Long> allDeptIds = collectAllDepartmentIds(list);
+                List<Long> excludedIds = loginUser.getManageDepartmentIds();
+                List<Long> visibleDepartmentIds = new ArrayList<>(loginUser.getAccessDepartmentIds());
+                allDeptIds.stream().filter(id -> !excludedIds.contains(id)).forEach(visibleDepartmentIds::add);
+                list = list.stream()
+                        .map(item -> filterDepartmentTree(item, visibleDepartmentIds))
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+            } else {
+                List<Long> visibleDepartmentIds = new ArrayList<>(loginUser.getAccessDepartmentIds());
+                if (showCrossDepartment) {
+                    visibleDepartmentIds.addAll(loginUser.getManageDepartmentIds());
+                }
+                list = list.stream()
+                        .map(item -> filterDepartmentTree(item, visibleDepartmentIds))
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
             }
-            list = list.stream()
-                    .map(item -> filterDepartmentTree(item, visibleDepartmentIds))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
         }
         if (request != null && Boolean.TRUE.equals(request.getIsPrivateDomain())) {
             list = list.stream()
@@ -120,6 +131,17 @@ public class DepartmentController extends BaseDataRangeController<Department, ID
                 && children.stream().noneMatch(DepartmentResponse::isDisabled);
         root.setDisabled(!allChildrenAccessible);
         return root;
+    }
+
+    private static List<Long> collectAllDepartmentIds(List<DepartmentResponse> tree) {
+        List<Long> ids = new ArrayList<>();
+        for (DepartmentResponse node : tree) {
+            ids.add(Long.parseLong(node.getId()));
+            if (node.getChildren() != null) {
+                ids.addAll(collectAllDepartmentIds(node.getChildren()));
+            }
+        }
+        return ids;
     }
 
     private List<DepartmentResponse> deepConvertChildren(Department department, StatusEnum status) {

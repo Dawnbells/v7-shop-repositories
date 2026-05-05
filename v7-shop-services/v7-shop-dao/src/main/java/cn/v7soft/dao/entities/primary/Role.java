@@ -52,6 +52,12 @@ public class Role extends BaseDataRangeEntity {
     private Boolean isManageEmployee;
 
     /**
+     * 跨部门管理模式：true=排除选中部门，false/null=包含选中部门
+     */
+    @Column(name = "is_exclude_department")
+    private Boolean isExcludeDepartment;
+
+    /**
      * 跨部门管理的部门列表
      */
     @Builder.Default
