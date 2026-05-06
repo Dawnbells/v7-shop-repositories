@@ -85,9 +85,16 @@ public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, 
     @Transactional
     public boolean doSynchronizeOrderFromExternalSystem(EditTemporaryOrderRequest request, boolean updateExisting) {
 //        log.debug("sync order: {}", JSONUtil.toJsonPrettyStr(request));
-        SystemUser owner = systemUserRepository.findByUserName(request.getContextInfo().getSalesPerson())
-                .orElse(systemUserRepository.findByDeletedUserNames(request.getContextInfo().getSalesPerson())
-                        .orElse(SystemUser.builder().id(1L).name("系统").build()));
+        Long salesUid = request.getContextInfo().getSalesUid();
+        SystemUser owner = null;
+        if (salesUid != null && salesUid > 0) {
+            owner = systemUserRepository.findById(salesUid).orElse(null);
+        }
+        if (owner == null) {
+            owner = systemUserRepository.findByUserName(request.getContextInfo().getSalesPerson())
+                    .orElse(systemUserRepository.findByDeletedUserNames(request.getContextInfo().getSalesPerson())
+                            .orElse(SystemUser.builder().id(1L).name("系统").build()));
+        }
 
         Company company = this.companyService.companyCached(request.getCompanyId());
         TenantContext.setCurrentTenant(company.getId(), company);

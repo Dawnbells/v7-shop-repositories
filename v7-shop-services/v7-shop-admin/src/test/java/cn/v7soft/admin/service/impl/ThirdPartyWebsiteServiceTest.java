@@ -523,6 +523,31 @@ class ThirdPartyWebsiteServiceTest {
                     isNull()
             );
         }
+
+        @Test
+        @DisplayName("超长数字订单ID不应抛NumberFormatException，应选取较大者")
+        void shouldHandleOverflowOrderId() {
+            JSONArray orders = new JSONArray();
+            JSONObject o1 = new JSONObject();
+            o1.set("id", "21075117319644722430357079");
+            o1.set("created_at", "2026-05-06T10:00:00+08:00");
+            orders.add(o1);
+
+            JSONObject o2 = new JSONObject();
+            o2.set("id", "9999999999999999999");
+            o2.set("created_at", "2026-05-06T12:00:00+08:00");
+            orders.add(o2);
+
+            service.updateLastSyncInfo(100L, orders, true);
+
+            verify(repository).updateSyncInfo(
+                    eq(100L),
+                    any(LocalDateTime.class),
+                    eq(true),
+                    argThat(t -> t != null && t.getHour() == 12),
+                    eq("21075117319644722430357079")
+            );
+        }
     }
 
     // ==================== 辅助方法 ====================

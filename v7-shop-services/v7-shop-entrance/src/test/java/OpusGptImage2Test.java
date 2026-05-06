@@ -19,9 +19,8 @@ import org.junit.jupiter.api.Test;
 
 public class OpusGptImage2Test {
 
-    private static final String API_KEY = "proxypal-local";
-//    private static final String BASE_URL = "http://8.211.56.211:8080";
-    private static final String BASE_URL = "http://localhost:8317";
+    private static final String API_KEY = "agt_codex_xMqFobrPYaXCb5xuVDGDYBlbdd5UTKHk";
+    private static final String BASE_URL = "http://127.0.0.1:10296/v1";
     private static final String MODEL = "gpt-image-2";
     private static final String USER_AGENT =
             "codex-tui/0.125.0 (Windows 10.0.26100; x86_64) WarpTerminal (codex-tui; 0.125.0)";

@@ -55,6 +55,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -177,7 +178,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         if (StrUtil.isNotBlank(pageInfo)) {
             builder.queryParam("page_info", pageInfo);
         } else {
-            builder.queryParam("sort_condition", "created_at:asc,id:asc");
+            builder.queryParam("sort_condition", "order_at:asc,id:asc");
             if (request.getCreateAtMin() != null) {
                 builder.queryParam("created_at_min", LocalDateTimeUtils.formatZone8(request.getCreateAtMin()));
             }
@@ -867,12 +868,28 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         String lastOrderId = null;
 
         if (hasNewOrders && orders != null && !orders.isEmpty()) {
-            JSONObject lastOrder = orders.getJSONObject(orders.size() - 1);
-            lastOrderId = lastOrder.getStr("id");
-            orderTime = parseShoplineDateTime(lastOrder.getStr("created_at"));
+            for (int i = 0; i < orders.size(); i++) {
+                JSONObject order = orders.getJSONObject(i);
+                String orderId = order.getStr("id");
+                if (orderId != null && (lastOrderId == null || compareShoplineOrderId(orderId, lastOrderId) > 0)) {
+                    lastOrderId = orderId;
+                }
+                LocalDateTime createdAt = parseShoplineDateTime(order.getStr("created_at"));
+                if (createdAt != null && (orderTime == null || createdAt.isAfter(orderTime))) {
+                    orderTime = createdAt;
+                }
+            }
         }
 
         repository.updateSyncInfo(websiteId, LocalDateTime.now(), hasNewOrders, orderTime, lastOrderId);
+    }
+
+    private static int compareShoplineOrderId(String a, String b) {
+        try {
+            return new BigInteger(a).compareTo(new BigInteger(b));
+        } catch (NumberFormatException e) {
+            return a.compareTo(b);
+        }
     }
 
     /**
