@@ -6,6 +6,7 @@ import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.tenant.TenantContext;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @RequiredArgsConstructor
@@ -27,12 +29,18 @@ public class ShoplineOrderSyncExecutor {
     private static final long MIN_SYNC_INTERVAL_SECONDS = 60;
 
     private final IThirdPartyWebsiteService thirdPartyWebsiteService;
+    private final AtomicInteger threadCounter = new AtomicInteger(0);
     private final ExecutorService syncPool = Executors.newFixedThreadPool(MAX_CONCURRENCY,
             r -> {
-                Thread t = new Thread(r, "shopline-sync");
+                Thread t = new Thread(r, "shopline-sync-" + threadCounter.incrementAndGet());
                 t.setDaemon(true);
                 return t;
             });
+
+    @PreDestroy
+    public void shutdown() {
+        syncPool.shutdownNow();
+    }
 
     /**
      * 扫描所有 VALID 且已认证的商城，按条件决定是否同步：

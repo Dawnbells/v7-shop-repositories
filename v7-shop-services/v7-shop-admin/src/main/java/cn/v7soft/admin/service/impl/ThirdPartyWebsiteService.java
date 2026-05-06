@@ -177,7 +177,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         if (StrUtil.isNotBlank(pageInfo)) {
             builder.queryParam("page_info", pageInfo);
         } else {
-            builder.queryParam("sort_condition", "order_at:asc,id:asc");
+            builder.queryParam("sort_condition", "created_at:asc,id:asc");
             if (request.getCreateAtMin() != null) {
                 builder.queryParam("created_at_min", LocalDateTimeUtils.formatZone8(request.getCreateAtMin()));
             }
@@ -341,22 +341,21 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         for (int i = 0; i < orders.size(); i++) {
             JSONObject order = orders.getJSONObject(i);
             try {
+                String originOrderId = order.getStr("id");
+                if (!updateExisting && StrUtil.isNotBlank(originOrderId)
+                        && temporaryOrderService.findByOriginOrderId(originOrderId).isPresent()) {
+                    skippedCount++;
+                    continue;
+                }
                 if (convertShoplineOrderToTemporary(website, owner, order, updateExisting)) {
                     createdCount++;
                 }
                 successCount++;
             } catch (Exception e) {
-                String orderId = order.getStr("id");
-                String orderName = order.getStr("name");
-                String msg = e.getMessage();
-                if (msg != null && msg.contains("已存在相同的原始订单ID")) {
-                    skippedCount++;
-                } else {
-                    failedCount++;
-                    log.error("Shopline order sync failed: websiteId={}, handle={}, syncMode={}, orderIndex={}/{}, orderId={}, orderName={}, createdAt={}, financialStatus={}, fulfillmentStatus={}",
-                            website.getId(), website.getHandle(), syncMode, i, orders.size(), orderId, orderName,
-                            order.getStr("created_at"), order.getStr("financial_status"), order.getStr("fulfillment_status"), e);
-                }
+                failedCount++;
+                log.error("Shopline order sync failed: websiteId={}, handle={}, syncMode={}, orderIndex={}/{}, orderId={}, orderName={}, createdAt={}, financialStatus={}, fulfillmentStatus={}",
+                        website.getId(), website.getHandle(), syncMode, i, orders.size(), order.getStr("id"), order.getStr("name"),
+                        order.getStr("created_at"), order.getStr("financial_status"), order.getStr("fulfillment_status"), e);
             }
         }
         return ShoplineOrderLoadResult.builder()
@@ -382,7 +381,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         request.setFromUrl(StrUtil.blankToDefault(order.getStr("landing_site"), ""));
         request.setPlatform(WebsiteTypeEnum.SHOPLINE);
         request.setOriginOrderId(order.getStr("id"));
-        request.setOrderTime(parseShoplineDateTime(order.getStr("created_at")));
+        LocalDateTime orderTime = parseShoplineDateTime(order.getStr("created_at"));
+        request.setOrderTime(orderTime != null ? orderTime : LocalDateTime.now());
 
         request.setDeliveryInfo(buildDeliveryInfo(order));
         request.setFinancialInfo(buildFinancialInfo(order, moneyKey));
@@ -772,7 +772,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     private final Retry shoplineRetry = Retry.of("shopline-api", RetryConfig.custom()
             .maxAttempts(SHOPLINE_MAX_RETRIES)
             .waitDuration(SHOPLINE_RETRY_WAIT)
-            .retryOnException(e -> e instanceof HttpClientErrorException.TooManyRequests)
+            .retryOnException(e -> e instanceof HttpClientErrorException.TooManyRequests
+                    || e instanceof ResourceAccessException)
             .build());
 
     private RateLimiter getRateLimiter(String handle) {
@@ -865,15 +866,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         LocalDateTime orderTime = null;
         String lastOrderId = null;
 
-        if (hasNewOrders && orders != null) {
-            for (int i = 0; i < orders.size(); i++) {
-                JSONObject o = orders.getJSONObject(i);
-                LocalDateTime createdAt = parseShoplineDateTime(o.getStr("created_at"));
-                if (createdAt != null && (orderTime == null || createdAt.isAfter(orderTime))) {
-                    orderTime = createdAt;
-                    lastOrderId = o.getStr("id");
-                }
-            }
+        if (hasNewOrders && orders != null && !orders.isEmpty()) {
+            JSONObject lastOrder = orders.getJSONObject(orders.size() - 1);
+            lastOrderId = lastOrder.getStr("id");
+            orderTime = parseShoplineDateTime(lastOrder.getStr("created_at"));
         }
 
         repository.updateSyncInfo(websiteId, LocalDateTime.now(), hasNewOrders, orderTime, lastOrderId);
@@ -920,13 +916,14 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
 
     private LocalDateTime parseShoplineDateTime(String dateStr) {
         if (StrUtil.isBlank(dateStr)) {
-            return LocalDateTime.now();
+            return null;
         }
         try {
             OffsetDateTime odt = OffsetDateTime.parse(dateStr, ISO_OFFSET);
             return odt.toLocalDateTime();
-        } catch (Exception ignored) {
-            return LocalDateTime.now();
+        } catch (Exception e) {
+            log.warn("Failed to parse Shopline datetime: {}", dateStr, e);
+            return null;
         }
     }
 
