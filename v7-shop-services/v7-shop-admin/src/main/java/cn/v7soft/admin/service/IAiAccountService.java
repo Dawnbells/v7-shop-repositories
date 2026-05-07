@@ -10,6 +10,8 @@ public interface IAiAccountService extends IBaseDataRangeService<AiAccount> {
 
     List<AiAccount> findAvailableAccounts(AiProvider provider);
 
+    List<AiAccount> findAvailableAccountsByApiKey(AiProvider provider, String apiKey);
+
     boolean hasDailyQuota(AiAccount account, int requestedCalls);
 
     void checkDailyQuota(AiAccount account, int requestedCalls);

@@ -36,6 +36,11 @@ public class AiAccountService extends BaseDataRangeService<AiAccount, AiAccountR
     }
 
     @Override
+    public List<AiAccount> findAvailableAccountsByApiKey(AiProvider provider, String apiKey) {
+        return repository.findByProviderAndApiKeyAndStatusOrderByPriorityAscIdAsc(provider, apiKey, StatusEnum.VALID);
+    }
+
+    @Override
     public boolean hasDailyQuota(AiAccount account, int requestedCalls) {
         if (account == null) {
             return false;

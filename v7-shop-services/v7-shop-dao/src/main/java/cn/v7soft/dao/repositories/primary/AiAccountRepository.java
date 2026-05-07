@@ -15,4 +15,7 @@ public interface AiAccountRepository extends BaseRepository<AiAccount> {
     AiAccount findBySameName(@Param("name") String name, @Param("id") Long id);
 
     List<AiAccount> findByProviderAndStatusOrderByPriorityAscIdAsc(AiProvider provider, StatusEnum status);
+
+    List<AiAccount> findByProviderAndApiKeyAndStatusOrderByPriorityAscIdAsc(
+            AiProvider provider, String apiKey, StatusEnum status);
 }

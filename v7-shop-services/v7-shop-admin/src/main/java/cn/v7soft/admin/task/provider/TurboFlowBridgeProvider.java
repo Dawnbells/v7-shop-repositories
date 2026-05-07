@@ -3,6 +3,7 @@ package cn.v7soft.admin.task.provider;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -211,46 +212,48 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
      * 流程：鉴权 → 检查插件状态 → 从队列取子任务 → 读图片 → 查缓存 → 分配 assignment → 返回图片数据
      */
     public TurboFlowBridgeTaskResponse pollTask(String token, TurboFlowBridgePollRequest request) {
-        // 1. 通过 Bearer token 鉴权，找到对应的 AiAccount
+        // 1. 通过 Bearer token 鉴权，找到所有匹配的 AiAccount
         String bridgeId = normalizeBridgeId(request.getBridgeId());
-        Optional<AiAccount> accountOpt = findTurboFlowAccount(token);
-        if (accountOpt.isEmpty()) {
+        List<AiAccount> accounts = findAllTurboFlowAccounts(token);
+        if (accounts.isEmpty()) {
             log.debug("[TurboFlowBridge] poll rejected: invalid bridge token, bridgeId={}", bridgeId);
             return TurboFlowBridgeTaskResponse.builder()
                     .hasTask(false)
                     .message("invalid bridge token")
                     .build();
         }
-        AiAccount account = accountOpt.get();
         // 记录插件在线状态（仅用于观测）
-        bridgeStates.put(bridgeId, TurboFlowBridgeState.from(account.getId(), request));
-        log.debug("[TurboFlowBridge] poll received: aiAccountId={}, bridgeId={}, flowConnected={}, busy={}",
-                account.getId(), bridgeId, request.getFlowConnected(), request.getBusy());
+        bridgeStates.put(bridgeId, TurboFlowBridgeState.from(accounts.get(0).getId(), request));
+        log.debug("[TurboFlowBridge] poll received: bridgeId={}, matchedAccounts={}, flowConnected={}, busy={}",
+                bridgeId, accounts.size(), request.getFlowConnected(), request.getBusy());
 
         // 2. 检查插件状态：flow 未连接或正忙则不分发
         if (!Boolean.TRUE.equals(request.getFlowConnected())) {
-            log.debug("[TurboFlowBridge] poll skipped because flow is disconnected: aiAccountId={}, bridgeId={}",
-                    account.getId(), bridgeId);
+            log.debug("[TurboFlowBridge] poll skipped because flow is disconnected: bridgeId={}", bridgeId);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("flow not connected").build();
         }
         if (Boolean.TRUE.equals(request.getBusy())) {
-            log.debug("[TurboFlowBridge] poll skipped because bridge is busy: aiAccountId={}, bridgeId={}",
-                    account.getId(), bridgeId);
+            log.debug("[TurboFlowBridge] poll skipped because bridge is busy: bridgeId={}", bridgeId);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("bridge busy").build();
         }
 
-        // 3. 从该账号的内部队列取一个子任务（FIFO）
-        ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue = internalQueues.get(account.getId());
-        if (queue == null || queue.isEmpty()) {
-            log.debug("[TurboFlowBridge] poll found no queued image task: aiAccountId={}, bridgeId={}",
-                    account.getId(), bridgeId);
-            return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
+        // 3. 遍历所有匹配账号的队列，取第一个有任务的（FIFO）
+        AiAccountTranslateSubTask subTask = null;
+        AiAccount account = null;
+        for (AiAccount acc : accounts) {
+            ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue = internalQueues.get(acc.getId());
+            if (queue != null) {
+                AiAccountTranslateSubTask candidate = queue.poll();
+                if (candidate != null) {
+                    subTask = candidate;
+                    account = acc;
+                    break;
+                }
+            }
         }
-
-        AiAccountTranslateSubTask subTask = queue.poll();
         if (subTask == null) {
-            log.debug("[TurboFlowBridge] poll found empty queue after poll: aiAccountId={}, bridgeId={}",
-                    account.getId(), bridgeId);
+            log.debug("[TurboFlowBridge] poll found no queued image task: bridgeId={}, checkedAccounts={}",
+                    bridgeId, accounts.size());
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
         }
 
@@ -358,18 +361,22 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
      * 验证归属 → 解码翻译图片 → 保存文件和缓存 → 计算 token 用量 → 通过 callback 通知完成
      */
     public void completeTask(String token, TurboFlowBridgeCompleteRequest request) {
-        AiAccount account = resolveTurboFlowAccount(token);
+        List<AiAccount> accounts = findAllTurboFlowAccounts(token);
+        if (accounts.isEmpty()) {
+            throw new IllegalArgumentException("invalid TurboFlow bridge token");
+        }
         AiAccountTranslateSubTask subTask = assignments.get(request.getAssignmentId());
         if (subTask == null) {
             throw new IllegalArgumentException("assignment not found or expired");
         }
+        // 从匹配的账号中找出拥有该 subtask 的账号
+        AiAccount account = accounts.stream()
+                .filter(a -> a.getId().equals(subTask.getAiAccountId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("assignment does not belong to account"));
         log.debug("[TurboFlowBridge] complete received: taskId={}, subTaskId={}, assignmentId={}, aiAccountId={}, elapsedMs={}",
                 subTask.getTaskId(), subTask.getSubTaskId(), request.getAssignmentId(),
                 account.getId(), request.getElapsedMs());
-        // 三重归属校验：token 对应的账号 + bridgeId + assignmentId 都必须匹配
-        if (!account.getId().equals(subTask.getAiAccountId())) {
-            throw new IllegalArgumentException("assignment does not belong to account");
-        }
         if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
             if (StrUtil.isNotBlank(request.getBridgeId())
                     && subTask.getAssignedBridgeId() != null
@@ -433,16 +440,21 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
 
     /** 插件上报翻译失败。验证归属后通过 callback 通知 adapter（由 adapter 决定重试或标记失败） */
     public void failTask(String token, TurboFlowBridgeFailRequest request) {
-        AiAccount account = resolveTurboFlowAccount(token);
+        List<AiAccount> accounts = findAllTurboFlowAccounts(token);
+        if (accounts.isEmpty()) {
+            throw new IllegalArgumentException("invalid TurboFlow bridge token");
+        }
         AiAccountTranslateSubTask subTask = assignments.get(request.getAssignmentId());
         if (subTask == null) {
             log.debug("[TurboFlowBridge] fail ignored because assignment is missing: assignmentId={}",
                     request.getAssignmentId());
             return;
         }
-        if (!account.getId().equals(subTask.getAiAccountId())) {
-            throw new IllegalArgumentException("assignment does not belong to account");
-        }
+        // 从匹配的账号中找出拥有该 subtask 的账号
+        accounts.stream()
+                .filter(a -> a.getId().equals(subTask.getAiAccountId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("assignment does not belong to account"));
         if (!subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
             if (StrUtil.isNotBlank(request.getBridgeId())
                     && subTask.getAssignedBridgeId() != null
@@ -511,22 +523,11 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
 
     // --- private helpers ---
 
-    /** 通过 Bearer token 查找对应的 TurboFlow AiAccount */
-    private AiAccount resolveTurboFlowAccount(String token) {
+    private List<AiAccount> findAllTurboFlowAccounts(String token) {
         if (StrUtil.isBlank(token)) {
-            throw new IllegalArgumentException("missing bridge token");
+            return List.of();
         }
-        return findTurboFlowAccount(token)
-                .orElseThrow(() -> new IllegalArgumentException("invalid TurboFlow bridge token"));
-    }
-
-    private Optional<AiAccount> findTurboFlowAccount(String token) {
-        if (StrUtil.isBlank(token)) {
-            return Optional.empty();
-        }
-        return aiAccountService.findAvailableAccounts(AiProvider.TURBOFLOW_GEMINI).stream()
-                .filter(account -> token.equals(account.getApiKey()))
-                .findFirst();
+        return aiAccountService.findAvailableAccountsByApiKey(AiProvider.TURBOFLOW_GEMINI, token);
     }
 
     private String normalizeBridgeId(String bridgeId) {
