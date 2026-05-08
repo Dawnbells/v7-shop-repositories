@@ -5,6 +5,7 @@ import cn.hutool.json.JSONObject;
 import cn.v7soft.admin.controller.req.EditTemporaryOrderRequest;
 import cn.v7soft.admin.controller.req.TemporaryOrderContextInfoRequest;
 import cn.v7soft.admin.service.*;
+import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Country;
@@ -434,13 +435,13 @@ class ThirdPartyWebsiteServiceTest {
         }
 
         @Test
-        @DisplayName("空字符串应返回当前时间")
-        void shouldReturnNowForBlankString() throws Exception {
+        @DisplayName("空字符串应返回 null（由调用方做 fallback）")
+        void shouldReturnNullForBlankString() throws Exception {
             var method = ThirdPartyWebsiteService.class.getDeclaredMethod("parseShoplineDateTime", String.class);
             method.setAccessible(true);
             var result = method.invoke(service, "");
 
-            assertNotNull(result);
+            assertNull(result);
         }
     }
 
@@ -470,36 +471,50 @@ class ThirdPartyWebsiteServiceTest {
     class UpdateLastSyncInfo {
 
         @Test
-        @DisplayName("有新订单时应传递最大订单时间和ID")
-        void shouldPassLatestOrderTimeAndId() {
-            JSONArray orders = new JSONArray();
-            JSONObject o1 = new JSONObject();
-            o1.set("id", "ORDER-001");
-            o1.set("created_at", "2025-06-01T10:00:00+08:00");
-            orders.add(o1);
+        @DisplayName("createdCount > 0 时 hasNewOrders 为 true，cursor 直接从 result 取")
+        void shouldWriteCursorFromResult() {
+            ShoplineOrderLoadResult result = ShoplineOrderLoadResult.builder()
+                    .createdCount(2)
+                    .cursorOrderId("ORDER-002")
+                    .cursorOrderTime(LocalDateTime.of(2025, 6, 1, 12, 0))
+                    .build();
 
-            JSONObject o2 = new JSONObject();
-            o2.set("id", "ORDER-002");
-            o2.set("created_at", "2025-06-01T12:00:00+08:00");
-            orders.add(o2);
-
-            service.updateLastSyncInfo(100L, orders, true);
+            service.updateLastSyncInfo(100L, result);
 
             verify(repository).updateSyncInfo(
                     eq(100L),
                     any(LocalDateTime.class),
                     eq(true),
-                    argThat(t -> t != null && t.getHour() == 12),
+                    eq(LocalDateTime.of(2025, 6, 1, 12, 0)),
                     eq("ORDER-002")
             );
         }
 
         @Test
-        @DisplayName("无新订单时orderTime和orderId应为null")
-        void shouldPassNullOrderInfoWhenNoNewOrders() {
-            JSONArray orders = new JSONArray();
+        @DisplayName("createdCount == 0 但有 cursor（全 skipped）时 hasNewOrders=false 但 cursor 推进")
+        void shouldAdvanceCursorEvenWhenCreatedCountZero() {
+            ShoplineOrderLoadResult result = ShoplineOrderLoadResult.builder()
+                    .createdCount(0)
+                    .skippedCount(2)
+                    .cursorOrderId("ORDER-100")
+                    .cursorOrderTime(LocalDateTime.of(2025, 6, 1, 13, 0))
+                    .build();
 
-            service.updateLastSyncInfo(100L, orders, false);
+            service.updateLastSyncInfo(100L, result);
+
+            verify(repository).updateSyncInfo(
+                    eq(100L),
+                    any(LocalDateTime.class),
+                    eq(false),
+                    eq(LocalDateTime.of(2025, 6, 1, 13, 0)),
+                    eq("ORDER-100")
+            );
+        }
+
+        @Test
+        @DisplayName("result 为 null 时 hasNewOrders=false 且 cursor 为 null")
+        void shouldHandleNullResult() {
+            service.updateLastSyncInfo(100L, null);
 
             verify(repository).updateSyncInfo(
                     eq(100L),
@@ -511,9 +526,13 @@ class ThirdPartyWebsiteServiceTest {
         }
 
         @Test
-        @DisplayName("orders为null且无新订单时不应抛异常")
-        void shouldHandleNullOrders() {
-            service.updateLastSyncInfo(100L, null, false);
+        @DisplayName("result 中 cursor 为 null 时应传递 null（由 repository 的 COALESCE 保留旧值）")
+        void shouldPassNullCursorWhenResultHasNoCursor() {
+            ShoplineOrderLoadResult result = ShoplineOrderLoadResult.builder()
+                    .createdCount(0)
+                    .build();
+
+            service.updateLastSyncInfo(100L, result);
 
             verify(repository).updateSyncInfo(
                     eq(100L),
@@ -523,30 +542,125 @@ class ThirdPartyWebsiteServiceTest {
                     isNull()
             );
         }
+    }
+
+    // ==================== convertAndSaveOrders 游标策略测试 ====================
+
+    @Nested
+    @DisplayName("convertAndSaveOrders 游标策略")
+    class ConvertCursor {
+
+        private JSONObject buildBareOrder(String id, String createdAt) {
+            JSONObject order = new JSONObject();
+            order.set("id", id);
+            order.set("created_at", createdAt);
+            JSONObject clientDetails = new JSONObject();
+            clientDetails.set("user_agent", "Mozilla/5.0");
+            order.set("client_details", clientDetails);
+            return order;
+        }
 
         @Test
-        @DisplayName("超长数字订单ID不应抛NumberFormatException，应选取较大者")
-        void shouldHandleOverflowOrderId() {
+        @DisplayName("全部 created：游标推进到最大 id 与最大 created_at")
+        void shouldAdvanceCursorWhenAllCreated() {
+            ThirdPartyWebsiteDto websiteDto = buildWebsiteDto();
             JSONArray orders = new JSONArray();
-            JSONObject o1 = new JSONObject();
-            o1.set("id", "21075117319644722430357079");
-            o1.set("created_at", "2026-05-06T10:00:00+08:00");
-            orders.add(o1);
+            orders.add(buildBareOrder("10", "2026-01-01T10:00:00+08:00"));
+            orders.add(buildBareOrder("30", "2026-01-01T12:00:00+08:00"));
+            orders.add(buildBareOrder("20", "2026-01-01T11:00:00+08:00"));
 
-            JSONObject o2 = new JSONObject();
-            o2.set("id", "9999999999999999999");
-            o2.set("created_at", "2026-05-06T12:00:00+08:00");
-            orders.add(o2);
+            when(temporaryOrderService.findByOriginOrderId(anyString())).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), anyBoolean())).thenReturn(true);
 
-            service.updateLastSyncInfo(100L, orders, true);
+            ShoplineOrderLoadResult result = invokeConvertAndSaveOrdersAuto(websiteDto, orders);
 
-            verify(repository).updateSyncInfo(
-                    eq(100L),
-                    any(LocalDateTime.class),
-                    eq(true),
-                    argThat(t -> t != null && t.getHour() == 12),
-                    eq("21075117319644722430357079")
-            );
+            assertEquals("30", result.getCursorOrderId());
+            assertNotNull(result.getCursorOrderTime());
+            assertEquals(12, result.getCursorOrderTime().getHour());
+            assertEquals(3, result.getCreatedCount());
+            assertEquals(0, result.getFailedCount());
+        }
+
+        @Test
+        @DisplayName("全部 skipped：游标仍推进（避免反复拉同一批）")
+        void shouldAdvanceCursorWhenAllSkipped() {
+            ThirdPartyWebsiteDto websiteDto = buildWebsiteDto();
+            JSONArray orders = new JSONArray();
+            orders.add(buildBareOrder("10", "2026-01-01T10:00:00+08:00"));
+            orders.add(buildBareOrder("30", "2026-01-01T12:00:00+08:00"));
+
+            when(temporaryOrderService.findByOriginOrderId(anyString()))
+                    .thenReturn(Optional.of(cn.v7soft.dao.entities.primary.TemporaryOrder.builder().build()));
+
+            ShoplineOrderLoadResult result = invokeConvertAndSaveOrdersAuto(websiteDto, orders);
+
+            assertEquals("30", result.getCursorOrderId());
+            assertEquals(0, result.getCreatedCount());
+            assertEquals(2, result.getSkippedCount());
+            assertEquals(0, result.getFailedCount());
+            verify(temporaryOrderService, never()).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+        }
+
+        @Test
+        @DisplayName("中间出现失败单：立即终止本页，剩余订单留待下轮（游标停在失败单前）")
+        void shouldStopAtFailureAndSkipRemaining() {
+            ThirdPartyWebsiteDto websiteDto = buildWebsiteDto();
+            JSONArray orders = new JSONArray();
+            orders.add(buildBareOrder("10", "2026-01-01T10:00:00+08:00"));
+            orders.add(buildBareOrder("20", "2026-01-01T11:00:00+08:00"));
+            orders.add(buildBareOrder("30", "2026-01-01T12:00:00+08:00"));
+
+            when(temporaryOrderService.findByOriginOrderId(anyString())).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), anyBoolean()))
+                    .thenReturn(true)
+                    .thenThrow(new RuntimeException("模拟转换失败"));
+
+            ShoplineOrderLoadResult result = invokeConvertAndSaveOrdersAuto(websiteDto, orders);
+
+            assertEquals("10", result.getCursorOrderId());
+            assertNotNull(result.getCursorOrderTime());
+            assertEquals(10, result.getCursorOrderTime().getHour());
+            assertEquals(1, result.getCreatedCount());
+            assertEquals(1, result.getFailedCount());
+            // 第三单（id=30）未被处理
+            verify(temporaryOrderService, times(2)).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+        }
+
+        @Test
+        @DisplayName("第一单就失败：立即终止，游标保持 null")
+        void shouldKeepCursorNullWhenFirstFails() {
+            ThirdPartyWebsiteDto websiteDto = buildWebsiteDto();
+            JSONArray orders = new JSONArray();
+            orders.add(buildBareOrder("10", "2026-01-01T10:00:00+08:00"));
+            orders.add(buildBareOrder("20", "2026-01-01T11:00:00+08:00"));
+
+            when(temporaryOrderService.findByOriginOrderId(anyString())).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), anyBoolean()))
+                    .thenThrow(new RuntimeException("模拟转换失败"));
+
+            ShoplineOrderLoadResult result = invokeConvertAndSaveOrdersAuto(websiteDto, orders);
+
+            assertNull(result.getCursorOrderId());
+            assertNull(result.getCursorOrderTime());
+            assertEquals(1, result.getFailedCount());
+            // 第二单未被处理
+            verify(temporaryOrderService, times(1)).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+        }
+
+        @Test
+        @DisplayName("超长数字 ID：按 BigInteger 大小比较（不被字符串长度误导）")
+        void shouldCompareOverflowOrderIdAsBigInteger() {
+            ThirdPartyWebsiteDto websiteDto = buildWebsiteDto();
+            JSONArray orders = new JSONArray();
+            orders.add(buildBareOrder("21075117319644722430357079", "2026-05-06T10:00:00+08:00"));
+            orders.add(buildBareOrder("9999999999999999999", "2026-05-06T12:00:00+08:00"));
+
+            when(temporaryOrderService.findByOriginOrderId(anyString())).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), anyBoolean())).thenReturn(true);
+
+            ShoplineOrderLoadResult result = invokeConvertAndSaveOrdersAuto(websiteDto, orders);
+
+            assertEquals("21075117319644722430357079", result.getCursorOrderId());
         }
     }
 
@@ -558,6 +672,20 @@ class ThirdPartyWebsiteServiceTest {
                     "convertAndSaveOrders", ThirdPartyWebsiteDto.class, JSONArray.class, SyncMode.class, String.class);
             method.setAccessible(true);
             method.invoke(service, website, orders, SyncMode.MANUAL, null);
+        } catch (Exception e) {
+            if (e.getCause() instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new RuntimeException(e);
+        }
+    }
+
+    private ShoplineOrderLoadResult invokeConvertAndSaveOrdersAuto(ThirdPartyWebsiteDto website, JSONArray orders) {
+        try {
+            var method = ThirdPartyWebsiteService.class.getDeclaredMethod(
+                    "convertAndSaveOrders", ThirdPartyWebsiteDto.class, JSONArray.class, SyncMode.class, String.class);
+            method.setAccessible(true);
+            return (ShoplineOrderLoadResult) method.invoke(service, website, orders, SyncMode.AUTO, null);
         } catch (Exception e) {
             if (e.getCause() instanceof RuntimeException re) {
                 throw re;

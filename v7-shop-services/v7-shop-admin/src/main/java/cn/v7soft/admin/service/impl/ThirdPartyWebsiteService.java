@@ -222,7 +222,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             pageResult = convertAndSaveOrders(websiteDto, orders, syncMode, nextPageInfoFromHeader);
         }
         if (isAutoSync) {
-            self.updateLastSyncInfo(request.getIdLongValue(), orders, pageResult.getCreatedCount() > 0);
+            self.updateLastSyncInfo(request.getIdLongValue(), pageResult);
         }
 
         return pageResult;
@@ -339,25 +339,51 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         int skippedCount = 0;
         int createdCount = 0;
         boolean updateExisting = syncMode == SyncMode.MANUAL;
+
+        // 保守策略游标：仅记录已成功处理（created/skipped）的最大 id；
+        // 一旦遇到失败单立即终止本页处理，剩余订单留待下一轮重新拉取，
+        // 既能避免失败单被游标跳过造成永久漏单，也能避免系统性故障下的连锁失败。
+        String cursorOrderId = null;
+        LocalDateTime cursorOrderTime = null;
+        boolean abortedByFailure = false;
+        int processedIndex = 0;
+
         for (int i = 0; i < orders.size(); i++) {
             JSONObject order = orders.getJSONObject(i);
+            String originOrderId = order.getStr("id");
             try {
-                String originOrderId = order.getStr("id");
                 if (!updateExisting && StrUtil.isNotBlank(originOrderId)
                         && temporaryOrderService.findByOriginOrderId(originOrderId).isPresent()) {
                     skippedCount++;
-                    continue;
+                } else {
+                    if (convertShoplineOrderToTemporary(website, owner, order, updateExisting)) {
+                        createdCount++;
+                    }
+                    successCount++;
                 }
-                if (convertShoplineOrderToTemporary(website, owner, order, updateExisting)) {
-                    createdCount++;
-                }
-                successCount++;
             } catch (Exception e) {
                 failedCount++;
+                abortedByFailure = true;
                 log.error("Shopline order sync failed: websiteId={}, handle={}, syncMode={}, orderIndex={}/{}, orderId={}, orderName={}, createdAt={}, financialStatus={}, fulfillmentStatus={}",
                         website.getId(), website.getHandle(), syncMode, i, orders.size(), order.getStr("id"), order.getStr("name"),
                         order.getStr("created_at"), order.getStr("financial_status"), order.getStr("fulfillment_status"), e);
+                break;
             }
+            processedIndex = i + 1;
+
+            if (originOrderId != null && (cursorOrderId == null || compareShoplineOrderId(originOrderId, cursorOrderId) > 0)) {
+                cursorOrderId = originOrderId;
+            }
+            LocalDateTime createdAt = parseShoplineDateTime(order.getStr("created_at"));
+            if (createdAt != null && (cursorOrderTime == null || createdAt.isAfter(cursorOrderTime))) {
+                cursorOrderTime = createdAt;
+            }
+        }
+
+        if (abortedByFailure) {
+            int remaining = orders.size() - processedIndex - 1;
+            log.warn("Shopline order sync aborted by failure: websiteId={}, handle={}, syncMode={}, created={}, skipped={}, failed={}, remainingForNextRound={}, cursorOrderId={}",
+                    website.getId(), website.getHandle(), syncMode, createdCount, skippedCount, failedCount, remaining, cursorOrderId);
         }
         return ShoplineOrderLoadResult.builder()
                 .nextPageInfo(nextPageInfo)
@@ -366,6 +392,8 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 .failedCount(failedCount)
                 .skippedCount(skippedCount)
                 .createdCount(createdCount)
+                .cursorOrderId(cursorOrderId)
+                .cursorOrderTime(cursorOrderTime)
                 .build();
     }
     private boolean convertShoplineOrderToTemporary(ThirdPartyWebsiteDto website, SystemUserDto owner, JSONObject order, boolean updateExisting) {
@@ -863,24 +891,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     }
 
     @Transactional
-    public void updateLastSyncInfo(Long websiteId, JSONArray orders, boolean hasNewOrders) {
-        LocalDateTime orderTime = null;
-        String lastOrderId = null;
-
-        if (hasNewOrders && orders != null && !orders.isEmpty()) {
-            for (int i = 0; i < orders.size(); i++) {
-                JSONObject order = orders.getJSONObject(i);
-                String orderId = order.getStr("id");
-                if (orderId != null && (lastOrderId == null || compareShoplineOrderId(orderId, lastOrderId) > 0)) {
-                    lastOrderId = orderId;
-                }
-                LocalDateTime createdAt = parseShoplineDateTime(order.getStr("created_at"));
-                if (createdAt != null && (orderTime == null || createdAt.isAfter(orderTime))) {
-                    orderTime = createdAt;
-                }
-            }
-        }
-
+    public void updateLastSyncInfo(Long websiteId, ShoplineOrderLoadResult result) {
+        boolean hasNewOrders = result != null && result.getCreatedCount() > 0;
+        LocalDateTime orderTime = result != null ? result.getCursorOrderTime() : null;
+        String lastOrderId = result != null ? result.getCursorOrderId() : null;
         repository.updateSyncInfo(websiteId, LocalDateTime.now(), hasNewOrders, orderTime, lastOrderId);
     }
 
