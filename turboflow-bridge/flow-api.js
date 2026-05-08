@@ -380,14 +380,46 @@ export function getMediaRedirectUrl(mediaId) {
 
 // ── Fetch image as base64 from the Flow tab context ────────────────
 
-export async function fetchImageAsBase64(tabId, imageUrl) {
+async function fetchViaFetchApi(tabId, imageUrl, timeoutMs) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
-    func: async (url) => {
+    func: async (url, tMs) => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), tMs);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (!res.ok) return { error: 'HTTP ' + res.status };
+        const blob = await res.blob();
+        return await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve({ success: true, dataUrl: reader.result, size: blob.size });
+          reader.onerror = () => resolve({ error: 'FileReader failed' });
+          reader.readAsDataURL(blob);
+        });
+      } catch (e) {
+        return { error: e.name === 'AbortError' ? `fetch timed out (${tMs / 1000}s)` : e.message };
+      }
+    },
+    args: [imageUrl, timeoutMs],
+  });
+
+  const result = results?.[0]?.result;
+  if (!result || result.error) {
+    throw new Error('fetch failed: ' + (result?.error || 'unknown'));
+  }
+  return result;
+}
+
+async function fetchViaImageElement(tabId, imageUrl, timeoutMs) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async (url, tMs) => {
       try {
         return await new Promise((resolve) => {
-          const timeout = setTimeout(() => resolve({ error: 'Image load timed out (30s)' }), 30000);
+          const timeout = setTimeout(() => resolve({ error: `Image load timed out (${tMs / 1000}s)` }), tMs);
           const img = new Image();
           img.crossOrigin = 'anonymous';
           img.onload = () => {
@@ -420,14 +452,22 @@ export async function fetchImageAsBase64(tabId, imageUrl) {
         return { error: e.message };
       }
     },
-    args: [imageUrl],
+    args: [imageUrl, timeoutMs],
   });
 
   const result = results?.[0]?.result;
   if (!result || result.error) {
-    throw new Error('Failed to fetch image: ' + (result?.error || 'unknown'));
+    throw new Error('Image element failed: ' + (result?.error || 'unknown'));
   }
   return result;
+}
+
+export async function fetchImageAsBase64(tabId, imageUrl, timeoutMs = 60000) {
+  try {
+    return await fetchViaFetchApi(tabId, imageUrl, timeoutMs);
+  } catch (fetchErr) {
+    return await fetchViaImageElement(tabId, imageUrl, timeoutMs);
+  }
 }
 
 // ── Full connection check ──────────────────────────────────────────

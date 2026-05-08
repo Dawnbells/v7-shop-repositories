@@ -16,8 +16,8 @@ const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
 const DEFAULT_CONCURRENCY = 1;
 const MAX_CONCURRENCY = 100;
-// 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；超过 90 秒视为挂起，主动 fail 触发 server 端重发。
-const TRANSLATE_TIMEOUT_MS = 90 * 1000;
+// 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；网速慢时下载重试可达 120 秒，总预算 180 秒。
+const TRANSLATE_TIMEOUT_MS = 180 * 1000;
 // fail 上报失败的重试次数与基础间隔（指数退避）。尽量保证 server 端能及时收到失败信号，避免等到 lease 过期。
 const FAIL_REPORT_MAX_RETRIES = 3;
 const FAIL_REPORT_RETRY_BASE_MS = 1000;
@@ -356,7 +356,7 @@ async function executeTask(service, task) {
 
   const startedAt = Date.now();
   try {
-    const result = await runWithTimeout(translateImage(task), TRANSLATE_TIMEOUT_MS, 'translate timeout (90s)');
+    const result = await runWithTimeout(translateImage(task), TRANSLATE_TIMEOUT_MS, 'translate timeout (180s)');
     await postJson(service, '/turboflow-bridge/tasks/complete', {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -523,7 +523,17 @@ async function translateImage(task) {
   const resultUrl = gen.fifeUrl || (gen.mediaId ? getMediaRedirectUrl(gen.mediaId) : null);
   if (!resultUrl) throw new Error('Flow returned no image url');
 
-  const image = await fetchImageAsBase64(conn.tabId, resultUrl);
+  let image;
+  let lastErr;
+  for (const timeout of [60000, 120000]) {
+    try {
+      image = await fetchImageAsBase64(conn.tabId, resultUrl, timeout);
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (!image) throw lastErr;
   return { resultUrl, resultDataUrl: image.dataUrl };
 }
 
