@@ -9,6 +9,7 @@ import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.ISystemSettingsService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
 import cn.v7soft.admin.service.ssl.ISslCertificateRequester;
+import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.admin.service.ssl.SslResult;
 import cn.v7soft.admin.service.ssl.UnsupportedSslCertificateRequester;
 import cn.v7soft.common.utils.SslCertificateUtil;
@@ -38,6 +39,7 @@ public class CertificateRequestListener {
     private final ITopLevelDomainService topLevelDomainService;
     private final ICloudPlatformAccountService cloudPlatformAccountService;
     private final IFrontServerService frontServerService;
+    private final PlaceholderCertHolder placeholderCertHolder;
 
     @EventListener
     @Async("certificateRequestAsyncExecutor")
@@ -82,7 +84,7 @@ public class CertificateRequestListener {
         } finally {
             log.debug("handle certificate finally push");
             if (domain != null) {
-                UnsupportedSslCertificateRequester.builder().build().checkAndWriteDefault(domain);
+                UnsupportedSslCertificateRequester.builder().placeholderCertHolder(placeholderCertHolder).build().checkAndWriteDefault(domain);
 
                 Process process = Runtime.getRuntime().exec("sh /scripts/push.sh");
                 String sslPushMsg = IoUtil.read(process.getInputStream(), Charsets.UTF_8);

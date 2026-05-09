@@ -27,6 +27,7 @@ import cn.v7soft.admin.service.IThemeCustomService;
 import cn.v7soft.admin.service.IWebsiteService;
 import cn.v7soft.admin.service.dto.SubDomainDto;
 import cn.v7soft.admin.service.ssl.ISslCertificateRequester;
+import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.admin.utils.NginxConfigWriter;
 import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.core.enums.ClientResponseEnum;
@@ -79,9 +80,10 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     private final ThemeEditorProperty themeEditorProperty;
     private final ProductRepository productRepository;
     private final PixelAccountRepository pixelAccountRepository;
+    private final PlaceholderCertHolder placeholderCertHolder;
     private SubDomainService subDomainService;
 
-    public SubDomainService(SubDomainRepository repository, IThemeCustomService themeCustomService, IWebsiteService websiteService, IFrontServerService frontServerService, ICloudPlatformAccountService cloudPlatformAccountService, SubDomainSpuPixelRepository subDomainSpuPixelRepository, SubDomainSpuLandingPageRepository subDomainSpuLandingPageRepository, ISpuService spuService, ThemeEditorProperty themeEditorProperty, ProductRepository productRepository, PixelAccountRepository pixelAccountRepository) {
+    public SubDomainService(SubDomainRepository repository, IThemeCustomService themeCustomService, IWebsiteService websiteService, IFrontServerService frontServerService, ICloudPlatformAccountService cloudPlatformAccountService, SubDomainSpuPixelRepository subDomainSpuPixelRepository, SubDomainSpuLandingPageRepository subDomainSpuLandingPageRepository, ISpuService spuService, ThemeEditorProperty themeEditorProperty, ProductRepository productRepository, PixelAccountRepository pixelAccountRepository, PlaceholderCertHolder placeholderCertHolder) {
         super(repository);
         this.themeCustomService = themeCustomService;
         this.websiteService = websiteService;
@@ -93,6 +95,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         this.themeEditorProperty = themeEditorProperty;
         this.productRepository = productRepository;
         this.pixelAccountRepository = pixelAccountRepository;
+        this.placeholderCertHolder = placeholderCertHolder;
     }
 
     @Override
@@ -150,6 +153,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         TopLevelDomain topLevelDomain = subDomain.getParentDomain();
 
         // 检查域名证书是否正常
+        placeholderCertHolder.ensureWritten(topLevelDomain);
         SslCertificateUtil.valid(topLevelDomain);
         LocalDateTime expiryDate = SslCertificateUtil.getExpiryDate(topLevelDomain);
         ServiceResponseEnum.ERR_NO_SSL.assertTrue(expiryDate != null && expiryDate.isAfter(LocalDateTime.now()));
@@ -208,6 +212,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
             subDomain.setAnalyzeSuccess(false);
         }
 
+        placeholderCertHolder.ensureWritten(topLevelDomain);
         boolean writeNginx = NginxConfigWriter.writeNginx(
                 frontServer.getName(), topLevelDomain.getName(),
                 topLevelDomain.getNginxConfigType(), String.valueOf(topLevelDomain.getCompanyId()));

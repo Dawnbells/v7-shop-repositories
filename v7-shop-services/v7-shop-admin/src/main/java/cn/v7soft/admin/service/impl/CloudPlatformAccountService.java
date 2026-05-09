@@ -3,6 +3,7 @@ package cn.v7soft.admin.service.impl;
 import cn.v7soft.admin.service.ssl.AliyunSslCertificateRequester;
 import cn.v7soft.admin.service.ssl.GcoreSslCertificateRequester;
 import cn.v7soft.admin.service.ssl.ISslCertificateRequester;
+import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.admin.service.ssl.UnsupportedSslCertificateRequester;
 import cn.v7soft.admin.service.ICloudPlatformAccountService;
 import cn.v7soft.common.controller.req.attributes.AccessDataRangeAttribute;
@@ -17,8 +18,11 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class CloudPlatformAccountService extends BaseDataRangeService<CloudPlatformAccount, CloudPlatformAccountRepository> implements ICloudPlatformAccountService {
-    public CloudPlatformAccountService(CloudPlatformAccountRepository repository) {
+    private final PlaceholderCertHolder placeholderCertHolder;
+
+    public CloudPlatformAccountService(CloudPlatformAccountRepository repository, PlaceholderCertHolder placeholderCertHolder) {
         super(repository);
+        this.placeholderCertHolder = placeholderCertHolder;
     }
 
     @Override
@@ -35,7 +39,7 @@ public class CloudPlatformAccountService extends BaseDataRangeService<CloudPlatf
         if (cloudPlatformAccount.getCloudPlatform() == CloudPlatform.ALIYUN) {
             return AliyunSslCertificateRequester.builder().build();
         }
-        return UnsupportedSslCertificateRequester.builder().build();
+        return UnsupportedSslCertificateRequester.builder().placeholderCertHolder(placeholderCertHolder).build();
     }
 
     @Override

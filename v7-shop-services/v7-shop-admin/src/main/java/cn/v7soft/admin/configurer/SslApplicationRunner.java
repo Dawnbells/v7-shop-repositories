@@ -2,6 +2,7 @@ package cn.v7soft.admin.configurer;
 
 import cn.v7soft.admin.events.CertificateRequestPublisher;
 import cn.v7soft.admin.service.ITopLevelDomainService;
+import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import cn.v7soft.dao.enums.CertificateRequestStatus;
 import lombok.AllArgsConstructor;
@@ -20,6 +21,7 @@ import java.util.List;
 public class SslApplicationRunner implements ApplicationRunner {
    private final ITopLevelDomainService topLevelDomainService;
    private final CertificateRequestPublisher certificateRequestPublisher;
+   private final PlaceholderCertHolder placeholderCertHolder;
     @Override
     public void run(ApplicationArguments args) throws Exception {
         List<TopLevelDomain> allQueueOrRequesting = topLevelDomainService.findAllQueueOrRequesting();
@@ -27,6 +29,7 @@ public class SslApplicationRunner implements ApplicationRunner {
             return;
         }
         for (TopLevelDomain topLevelDomain: allQueueOrRequesting) {
+            placeholderCertHolder.ensureWritten(topLevelDomain);
             if (topLevelDomain.getCertificateRequestStatus() != CertificateRequestStatus.QUEUE) {
                 topLevelDomain.setCertificateRequestStatus(CertificateRequestStatus.QUEUE);
                 topLevelDomainService.saveAndFlush(topLevelDomain);

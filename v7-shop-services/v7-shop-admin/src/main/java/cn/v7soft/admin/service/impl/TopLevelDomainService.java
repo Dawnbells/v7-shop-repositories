@@ -23,6 +23,7 @@ import cn.v7soft.admin.controller.resp.GetCertificateResp;
 import cn.v7soft.admin.dao.ITopLevelDomainDao;
 import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
+import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.admin.utils.NginxConfigWriter;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.SslCertificateUtil;
@@ -51,11 +52,14 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
     private SubDomainService subDomainService;
     private final ITopLevelDomainDao topLevelDomainDao;
     private final IFrontServerService frontServerService;
+    private final PlaceholderCertHolder placeholderCertHolder;
 
-    public TopLevelDomainService(TopLevelDomainRepository repository, ITopLevelDomainDao topLevelDomainDao, IFrontServerService frontServerService) {
+    public TopLevelDomainService(TopLevelDomainRepository repository, ITopLevelDomainDao topLevelDomainDao,
+                                 IFrontServerService frontServerService, PlaceholderCertHolder placeholderCertHolder) {
         super(repository);
         this.topLevelDomainDao = topLevelDomainDao;
         this.frontServerService = frontServerService;
+        this.placeholderCertHolder = placeholderCertHolder;
     }
 
     @Lazy
@@ -188,8 +192,7 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
         String privkeyPemPath = targetDir + "privkey.pem";
         log.debug("fullChainPath = " + fullChainPemPath);
         log.debug("privkeyPemPath = " + privkeyPemPath);
-        SslCertificateUtil.writeFullChain(domain, request.getFullChain());
-        SslCertificateUtil.writePrivateKey(domain, request.getPrivateKey());
+        placeholderCertHolder.writePemPair(targetDir, request.getFullChain(), request.getPrivateKey());
         SSLCertificate sslCertificate = domain.getSslCertificate();
         if (sslCertificate == null) {
             sslCertificate = SSLCertificate.builder().build();
@@ -244,6 +247,7 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
             TopLevelDomain topLevelDomain = getById(id);
             String domain = topLevelDomain.getName();
             // 检查域名证书是否正常
+            placeholderCertHolder.ensureWritten(topLevelDomain);
             SslCertificateUtil.valid(topLevelDomain);
             String companyId = String.valueOf(topLevelDomain.getCompanyId());
             for (FrontServer frontServer : frontServerService.listFrontServers()) {

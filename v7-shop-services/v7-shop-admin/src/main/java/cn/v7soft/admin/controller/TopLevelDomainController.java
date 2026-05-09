@@ -28,6 +28,7 @@ import cn.v7soft.admin.events.CertificateRequestPublisher;
 import cn.v7soft.admin.service.ICloudPlatformAccountService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
 import cn.v7soft.admin.service.dns.impl.DnsServiceFactory;
+import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.common.dto.SSLCertificateInfo;
 import cn.v7soft.common.utils.SslCertificateUtil;
@@ -62,13 +63,16 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
     private final CertificateRequestPublisher certificateRequestPublisher;
     private final ICloudPlatformAccountService cloudPlatformAccountService;
     private final DnsServiceFactory dnsServiceFactory;
+    private final PlaceholderCertHolder placeholderCertHolder;
 
     protected TopLevelDomainController(ITopLevelDomainService service, CertificateRequestPublisher certificateRequestPublisher,
-                                       ICloudPlatformAccountService cloudPlatformAccountService, DnsServiceFactory dnsServiceFactory) {
+                                       ICloudPlatformAccountService cloudPlatformAccountService, DnsServiceFactory dnsServiceFactory,
+                                       PlaceholderCertHolder placeholderCertHolder) {
         super(service);
         this.certificateRequestPublisher = certificateRequestPublisher;
         this.cloudPlatformAccountService = cloudPlatformAccountService;
         this.dnsServiceFactory = dnsServiceFactory;
+        this.placeholderCertHolder = placeholderCertHolder;
     }
 
     @Override
@@ -144,6 +148,7 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
     protected TopLevelDomain doEditOperate(EditTopLevelDomainRequest request) {
         TopLevelDomain topLevelDomain = super.doEditOperate(request);
         if (topLevelDomain.getCertificateRequestStatus() == CertificateRequestStatus.IDLE) {
+            placeholderCertHolder.ensureWritten(topLevelDomain);
             topLevelDomain.setCertificateRequestStatus(CertificateRequestStatus.QUEUE);
             service.saveAndFlush(topLevelDomain);
             certificateRequestPublisher.requestCertificate(topLevelDomain.getId());
@@ -161,6 +166,7 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
     @SaCheckPermission("top-level-domain.renew_certificate")
     public void renewCertificate(@Valid @RequestBody IdRequest request) {
         TopLevelDomain topLevelDomain = service.getById(request.getIdLongValue());
+        placeholderCertHolder.ensureWritten(topLevelDomain);
         topLevelDomain.setCertificateRequestStatus(CertificateRequestStatus.QUEUE);
         service.saveAndFlush(topLevelDomain);
         certificateRequestPublisher.requestCertificate(topLevelDomain.getId());

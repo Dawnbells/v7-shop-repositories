@@ -1,6 +1,9 @@
 package cn.v7soft.admin.service.ssl;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -79,10 +82,7 @@ public abstract class BaseSslCertificateRequester implements ISslCertificateRequ
 
                 SslCertificateUtil.valid(domain, fullChain, privateKey);
 
-                FileUtil.del(targetDir + "fullchain.pem");
-                FileUtil.del(targetDir + "privkey.pem");
-                FileUtil.writeUtf8String(fullChain, targetDir + "fullchain.pem");
-                FileUtil.writeUtf8String(privateKey, targetDir + "privkey.pem");
+                writePemPair(targetDir, fullChain, privateKey);
             } else {
                 // 使用正则表达式提取 JSON
                 String jsonPattern = "\\{\\s*\"type\":\\s*\"[^\"]+\",\\s*\"detail\":\\s*\"[^\"]+\",\\s*\"status\":\\s*\\d+\\s*}";
@@ -119,6 +119,24 @@ public abstract class BaseSslCertificateRequester implements ISslCertificateRequ
 
     @NotNull
     protected abstract String getIniContent(CloudPlatformAccount cloudPlatformAccount);
+
+    private void writePemPair(String targetDir, String fullChain, String privateKey) throws Exception {
+        Path dir = Path.of(targetDir);
+        Files.createDirectories(dir);
+        atomicWrite(dir.resolve("fullchain.pem"), fullChain);
+        atomicWrite(dir.resolve("privkey.pem"), privateKey);
+    }
+
+    private void atomicWrite(Path target, String content) throws Exception {
+        Path temp = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".tmp");
+        try {
+            Files.writeString(temp, content, StandardCharsets.UTF_8);
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (Exception e) {
+            Files.deleteIfExists(temp);
+            throw e;
+        }
+    }
 
     @Override
     public boolean analyzeDomain(TopLevelDomain topLevelDomain, String subName, String cnameRecord) {
