@@ -28,6 +28,7 @@ dependencies {
     implementation("javax.xml.bind:jaxb-api:2.3.1")
     implementation("javax.activation:activation:1.1.1")
     implementation("org.glassfish.jaxb:jaxb-runtime:2.3.3")
+    implementation("org.bouncycastle:bcpkix-jdk15on:1.70")
     implementation("com.aliyun.oss:aliyun-sdk-oss:3.17.4")
     implementation("org.pcap4j:pcap4j-core:1.8.1")
     /* imageIO */

@@ -6,20 +6,44 @@ import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.GeneralName;
+import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.cert.X509v3CertificateBuilder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.util.io.pem.PemObject;
+import org.bouncycastle.util.io.pem.PemWriter;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.StringWriter;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.concurrent.TimeUnit;
+import java.security.PrivateKey;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.SecureRandom;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.security.spec.ECGenParameterSpec;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
 
 @Slf4j
 @Component
 public class PlaceholderCertHolder {
     private static final String FULLCHAIN_FILE = "fullchain.pem";
     private static final String PRIVKEY_FILE = "privkey.pem";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Getter
     private String fullchain;
@@ -28,27 +52,15 @@ public class PlaceholderCertHolder {
 
     @PostConstruct
     public void init() {
-        Path tempDir = null;
         try {
-            tempDir = Files.createTempDirectory("placeholder-cert-");
-            Path keyPath = tempDir.resolve(PRIVKEY_FILE);
-            Path certPath = tempDir.resolve(FULLCHAIN_FILE);
-
-            runOpenSsl(tempDir, "genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:prime256v1",
-                    "-out", keyPath.toString());
-            runOpenSsl(tempDir, "req", "-new", "-x509", "-key", keyPath.toString(), "-out", certPath.toString(),
-                    "-days", "36500", "-subj", "/CN=placeholder.invalid");
-
-            fullchain = Files.readString(certPath, StandardCharsets.UTF_8);
-            privkey = Files.readString(keyPath, StandardCharsets.UTF_8);
+            KeyPair keyPair = generateKeyPair();
+            X509Certificate certificate = generateCertificate(keyPair);
+            fullchain = toPem(certificate);
+            privkey = toPkcs8Pem(keyPair.getPrivate());
             SslCertificateUtil.valid(fullchain, privkey);
             log.info("placeholder ssl certificate initialized");
         } catch (Exception e) {
             throw new IllegalStateException("failed to initialize placeholder ssl certificate", e);
-        } finally {
-            if (tempDir != null) {
-                FileUtil.del(tempDir.toFile());
-            }
         }
     }
 
@@ -80,7 +92,7 @@ public class PlaceholderCertHolder {
     public void writePemPair(String targetDir, String fullchainContent, String privkeyContent) {
         try {
             Path dir = Path.of(targetDir);
-            Files.createDirectories(dir);
+            java.nio.file.Files.createDirectories(dir);
             atomicWrite(dir.resolve(FULLCHAIN_FILE), fullchainContent);
             atomicWrite(dir.resolve(PRIVKEY_FILE), privkeyContent);
         } catch (IOException e) {
@@ -89,32 +101,60 @@ public class PlaceholderCertHolder {
     }
 
     private void atomicWrite(Path target, String content) throws IOException {
-        Path temp = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".tmp");
+        Path temp = java.nio.file.Files.createTempFile(target.getParent(), target.getFileName().toString(), ".tmp");
         try {
-            Files.writeString(temp, content, StandardCharsets.UTF_8);
-            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            java.nio.file.Files.writeString(temp, content, StandardCharsets.UTF_8);
+            java.nio.file.Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
-            Files.deleteIfExists(temp);
+            java.nio.file.Files.deleteIfExists(temp);
             throw e;
         }
     }
 
-    private void runOpenSsl(Path tempDir, String... args) throws IOException, InterruptedException {
-        String[] command = new String[args.length + 1];
-        command[0] = "openssl";
-        System.arraycopy(args, 0, command, 1, args.length);
-        Process process = new ProcessBuilder(command)
-                .directory(tempDir.toFile())
-                .redirectErrorStream(true)
-                .start();
-        boolean completed = process.waitFor(30, TimeUnit.SECONDS);
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        if (!completed) {
-            process.destroyForcibly();
-            throw new IllegalStateException("openssl command timed out: " + String.join(" ", command));
+    private KeyPair generateKeyPair() throws Exception {
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
         }
-        if (process.exitValue() != 0) {
-            throw new IllegalStateException("openssl command failed: " + String.join(" ", command) + ", output: " + output);
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"), SECURE_RANDOM);
+        return generator.generateKeyPair();
+    }
+
+    private X509Certificate generateCertificate(KeyPair keyPair) throws Exception {
+        Instant now = Instant.now();
+        Date notBefore = Date.from(now.minus(1, ChronoUnit.DAYS));
+        Date notAfter = Date.from(now.plus(36500, ChronoUnit.DAYS));
+        X500Name subject = new X500Name("CN=placeholder.invalid");
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                subject,
+                new BigInteger(160, SECURE_RANDOM),
+                notBefore,
+                notAfter,
+                subject,
+                keyPair.getPublic());
+        builder.addExtension(
+                Extension.subjectAlternativeName,
+                false,
+                new GeneralNames(new GeneralName(GeneralName.dNSName, "placeholder.invalid")));
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withECDSA").build(keyPair.getPrivate());
+        return new JcaX509CertificateConverter()
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .getCertificate(builder.build(signer));
+    }
+
+    private String toPem(Object object) throws IOException {
+        StringWriter stringWriter = new StringWriter();
+        try (JcaPEMWriter pemWriter = new JcaPEMWriter(stringWriter)) {
+            pemWriter.writeObject(object);
         }
+        return stringWriter.toString();
+    }
+
+    private String toPkcs8Pem(PrivateKey privateKey) throws IOException {
+        StringWriter stringWriter = new StringWriter();
+        try (PemWriter pemWriter = new PemWriter(stringWriter)) {
+            pemWriter.writeObject(new PemObject("PRIVATE KEY", privateKey.getEncoded()));
+        }
+        return stringWriter.toString();
     }
 }

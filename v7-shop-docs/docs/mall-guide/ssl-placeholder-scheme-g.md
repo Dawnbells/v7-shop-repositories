@@ -28,7 +28,7 @@
 
 | 阶段 | 行为 |
 |------|------|
-| **应用启动** | 在容器/进程内调用 `openssl req -x509 …` 生成**一次**自签证书（ECDSA P-256，建议 `CN=placeholder.invalid`，有效期如 36500 天），将 **fullchain PEM** 与 **privkey PEM** 以字符串形式保存在**内存**（如 Spring `@Component` 单例字段）。**不写**固定 `_placeholder` 目录（可选：启动失败时仍可将临时文件删净）。 |
+| **应用启动** | 在 JVM 内使用 BouncyCastle 生成**一次**自签证书（ECDSA P-256，`CN=placeholder.invalid`，有效期如 36500 天），将 **fullchain PEM** 与 **privkey PEM** 以字符串形式保存在**内存**（如 Spring `@Component` 单例字段）。**不写**固定 `_placeholder` 目录，也不依赖 `openssl` 子进程或临时证书文件。 |
 | **创建一级域名**（保存成功且需要走证书路径时） | 若目标目录下尚无有效 PEM（或校验失败），将内存中的两段 PEM **写入** `/www/certs/{companyId}/{apex}/fullchain.pem` 与 `privkey.pem`。随后将状态置为 **`QUEUE`**（与现有一致），触发异步申请真实证书。 |
 | **真实证书申请成功** | 将 Let’s Encrypt 产出的文件 **原子覆盖** 上述两个路径（推荐 `mv` / 先写临时文件再 `rename`），再执行既有 **`push.sh`** 等流程。 |
 | **申请失败 / 重试** | 路径上仍为占位 PEM；状态回到可重试的 **`IDLE`** 或失败态（与现有产品语义一致），由既有补偿或人工触发再次入队。 |
@@ -40,8 +40,8 @@
 
 ### 2.3 运行环境
 
-- Admin 服务运行在 Docker（如 `openjdk:…-bookworm`）中时，镜像需具备 **`openssl` 可执行文件**（当前基础镜像 + certbot 依赖已通常自带；若精简镜像，建议在 `Dockerfile` 中 `apt-get install -y openssl` 显式声明）。
-- 启动时执行一次 `openssl` 子进程生成 PEM，失败应打明确错误日志并可选择**阻止应用启动**（避免后续大量创建域名写占位失败）。
+- Admin 服务通过 JVM + BouncyCastle 在内存中生成占位 PEM，不要求镜像额外安装 **`openssl` 可执行文件**。
+- 启动时执行一次内存证书生成，失败应打明确错误日志并可选择**阻止应用启动**（避免后续大量创建域名写占位失败）。
 
 ---
 
@@ -72,7 +72,7 @@
 
 | 模块 | 职责 |
 |------|------|
-| **新增 `PlaceholderCertHolder`（或等价 Bean）** | `@PostConstruct`：调用 `openssl` 生成临时文件，读入内存字符串后删除临时文件；提供 `writeToCompanyDomain(Long companyId, String apex)` 或 `getPemPair()`。 |
+| **新增 `PlaceholderCertHolder`（或等价 Bean）** | `@PostConstruct`：使用 BouncyCastle 生成 EC P-256 KeyPair 与自签 X.509 证书，转为内存 PEM 字符串；提供 `writeToCompanyDomain(Long companyId, String apex)` 或 `getPemPair()`。 |
 | **`SslApplicationRunner` 或等价启动逻辑** | 确保在受理证书请求前，`PlaceholderCertHolder` 已完成初始化。 |
 | **`TopLevelDomainService` / `TopLevelDomainController`** | 创建或更新一级域名、且需要证书路径时：若目标 PEM 缺失或 `SslCertificateUtil.valid` 失败，则调用 `PlaceholderCertHolder` 写入占位；再按现有逻辑置 `QUEUE` 并发布事件。 |
 | **`CertificateRequestListener` + `BaseSslCertificateRequester`** | 成功后将 LE 结果 **原子写入** 同路径，覆盖占位；失败不删占位，避免 Nginx 断档。 |
