@@ -1,5 +1,5 @@
 <template>
-  <div :class="['wang-editor-container']">
+  <div :class="['wang-editor-container']" @mouseleave="hideImgAiBtn">
     <toolbar :editor="editorRef" style="border-bottom: 1px solid var(--el-border-color)" />
     <editor
       v-model="html"
@@ -9,6 +9,34 @@
       @on-change="handleChange"
       @on-focus="handleFocus"
       @on-blur="handleBlur"
+    />
+    <div
+      v-if="imgAiBtnVisible"
+      class="img-ai-btn"
+      :style="imgAiBtnStyle"
+      @click.stop="openImgTranslateDialog"
+    >
+      <svg
+        fill="none"
+        height="12"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="12"
+      >
+        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+        <path d="M2 17l10 5 10-5" />
+        <path d="M2 12l10 5 10-5" />
+      </svg>
+    </div>
+    <ai-translate-prompt-dialog
+      ref="imgDialogRef"
+      :language-id="languageId"
+      :source="currentImgSource"
+      type="image"
+      @apply="onImgTranslated"
     />
     <file-chooser ref="fileChooserRef" />
   </div>
@@ -34,6 +62,10 @@ const props = defineProps({
   isProduct: {
     type: Boolean,
     default: true,
+  },
+  languageId: {
+    type: String,
+    default: '',
   },
 })
 const userStore = useUserStore()
@@ -159,6 +191,85 @@ const insertPlaceholder = async (text: string): Promise<boolean> => {
   return true
 }
 
+// ========== 富文本内嵌图片 AI 翻译 ==========
+const imgAiBtnVisible = ref(false)
+const imgAiBtnStyle = ref<Record<string, string>>({})
+const imgDialogRef = ref<any>(null)
+const currentImgSource = ref<any>({ id: '', absolutionPath: '' })
+let currentHoveredImg: HTMLImageElement | null = null
+let imgLeaveTimer: ReturnType<typeof setTimeout> | null = null
+
+const extractFileIdFromSrc = (src: string): string => {
+  const match = src.match(/\/multimedia\/(\d+)/)
+  return match ? match[1] : ''
+}
+
+const onEditorMouseOver = (e: MouseEvent) => {
+  const target = e.target as HTMLElement
+  if (target.tagName === 'IMG') {
+    if (imgLeaveTimer) {
+      clearTimeout(imgLeaveTimer)
+      imgLeaveTimer = null
+    }
+    const img = target as HTMLImageElement
+    currentHoveredImg = img
+    const containerEl = img.closest('.wang-editor-container')
+    if (!containerEl) return
+    const containerRect = containerEl.getBoundingClientRect()
+    const imgRect = img.getBoundingClientRect()
+    imgAiBtnStyle.value = {
+      top: `${imgRect.top - containerRect.top + 4}px`,
+      left: `${imgRect.left - containerRect.left + 4}px`,
+    }
+    currentImgSource.value = {
+      id: extractFileIdFromSrc(img.src),
+      multimediaFileId: extractFileIdFromSrc(img.src),
+      absolutionPath: img.src,
+    }
+    imgAiBtnVisible.value = true
+  }
+}
+
+const hideImgAiBtn = () => {
+  imgLeaveTimer = setTimeout(() => {
+    imgAiBtnVisible.value = false
+    currentHoveredImg = null
+  }, 300)
+}
+
+const openImgTranslateDialog = () => {
+  if (!props.languageId) return
+  imgDialogRef.value?.open()
+}
+
+const onImgTranslated = (result: any) => {
+  if (!result || !result.absolutionPath || !currentHoveredImg) return
+  currentHoveredImg.src = result.absolutionPath
+  const editor = editorRef.value as any
+  if (editor) {
+    try {
+      editor.emit?.('change')
+    } catch {
+      // force update model
+    }
+    html.value = editor.getHtml?.() || html.value
+  }
+  imgAiBtnVisible.value = false
+}
+
+const setupEditorMouseListeners = () => {
+  nextTick(() => {
+    const container = document.querySelector('.wang-editor-content')
+    if (container) {
+      container.addEventListener('mouseover', onEditorMouseOver as any)
+    }
+  })
+}
+
+watch(editorRef, (editor) => {
+  if (editor) setupEditorMouseListeners()
+})
+
 defineExpose({
   insertPlaceholder,
 })
@@ -166,11 +277,38 @@ defineExpose({
 onBeforeUnmount(() => {
   const editor = editorRef.value
   if (editor) editor.destroy()
+  const container = document.querySelector('.wang-editor-content')
+  if (container) {
+    container.removeEventListener('mouseover', onEditorMouseOver as any)
+  }
 })
 </script>
 
 <style lang="scss">
+.img-ai-btn {
+  position: absolute;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: #fff;
+  cursor: pointer;
+  background: var(--el-color-primary);
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  opacity: 0.9;
+  transition: opacity 0.2s, transform 0.2s;
+
+  &:hover {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
 .wang-editor-container {
+  position: relative;
   width: 100% !important;
   height: 100% !important;
   padding: 0px !important;

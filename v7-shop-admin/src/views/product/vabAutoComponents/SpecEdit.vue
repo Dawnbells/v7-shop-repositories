@@ -29,13 +29,20 @@
                 >
                   <plus />
                 </el-icon>
-                <el-image
+                <ai-translate-wrapper
                   v-else
-                  class="sku-image"
-                  :src="`${specifications.values[index].image.absolutionPath}`"
-                  style="width: 60px; height: 60px"
-                  @click="chooseSkuImage(specifications.values[index])"
-                />
+                  :language-id="languageId"
+                  :source="specifications.values[index].image"
+                  type="image"
+                  @apply="(v) => (specifications.values[index].image = { ...specifications.values[index].image, ...v })"
+                >
+                  <el-image
+                    class="sku-image"
+                    :src="`${specifications.values[index].image.absolutionPath}`"
+                    style="width: 60px; height: 60px"
+                    @click="chooseSkuImage(specifications.values[index])"
+                  />
+                </ai-translate-wrapper>
               </div>
               <div
                 v-if="showDeletes[index]"
@@ -49,13 +56,20 @@
                 </el-icon>
               </div>
             </div>
-            <el-input
-              v-model="specifications.values[index].value"
-              class="specification-input"
-              placeholder="请输入规格值"
-              :rules="[{ required: true, message: '规格值不能为空', trigger: 'blur' }]"
-              size="large"
-            />
+            <ai-translate-wrapper
+              :language-id="languageId"
+              :source="specifications.values[index].value"
+              type="text"
+              @apply="(v) => (specifications.values[index].value = v)"
+            >
+              <el-input
+                v-model="specifications.values[index].value"
+                class="specification-input"
+                placeholder="请输入规格值"
+                :rules="[{ required: true, message: '规格值不能为空', trigger: 'blur' }]"
+                size="large"
+              />
+            </ai-translate-wrapper>
           </div>
         </el-form-item>
       </el-form>
@@ -70,6 +84,13 @@
 
 <script setup lang="ts">
 import { Delete, Plus } from '@element-plus/icons-vue'
+
+defineProps({
+  languageId: {
+    type: String,
+    default: '',
+  },
+})
 
 const editSpecDialog = ref<boolean>(false)
 const fileChooserRef = ref<any>(null)

@@ -13,18 +13,39 @@
           <el-col :span="18">
             <el-card header="商品信息">
               <el-form-item label="商品标题" prop="title">
-                <el-input v-model.trim="form.title" clearable maxlength="500" show-word-limit />
+                <ai-translate-wrapper
+                  :language-id="form.languageId"
+                  :source="form.title"
+                  type="text"
+                  @apply="(v) => (form.title = v)"
+                >
+                  <el-input v-model.trim="form.title" clearable maxlength="500" show-word-limit />
+                </ai-translate-wrapper>
               </el-form-item>
               <el-form-item label="商品摘要" prop="summary">
-                <el-input v-model.trim="form.summary" clearable maxlength="250" show-word-limit />
+                <ai-translate-wrapper
+                  :language-id="form.languageId"
+                  :source="form.summary"
+                  type="text"
+                  @apply="(v) => (form.summary = v)"
+                >
+                  <el-input v-model.trim="form.summary" clearable maxlength="250" show-word-limit />
+                </ai-translate-wrapper>
               </el-form-item>
               <el-form-item label="面单品名" prop="waybillProductName">
-                <el-input
-                  v-model.trim="form.waybillProductName"
-                  clearable
-                  maxlength="250"
-                  show-word-limit
-                />
+                <ai-translate-wrapper
+                  :language-id="form.languageId"
+                  :source="form.waybillProductName"
+                  type="text"
+                  @apply="(v) => (form.waybillProductName = v)"
+                >
+                  <el-input
+                    v-model.trim="form.waybillProductName"
+                    clearable
+                    maxlength="250"
+                    show-word-limit
+                  />
+                </ai-translate-wrapper>
               </el-form-item>
               <el-form-item label="中文品名" prop="merchandise">
                 <el-autocomplete
@@ -39,7 +60,14 @@
                 />
               </el-form-item>
               <el-form-item label="商品描述" prop="introduction">
-                <product-wang-editor v-model="form.introduction" />
+                <ai-translate-wrapper
+                  :language-id="form.languageId"
+                  :source="form.introduction"
+                  type="html"
+                  @apply="(v) => (form.introduction = v)"
+                >
+                  <product-wang-editor v-model="form.introduction" :language-id="form.languageId" />
+                </ai-translate-wrapper>
               </el-form-item>
             </el-card>
             <el-card header="商品图片/视频">
@@ -50,20 +78,27 @@
                     :key="image.name"
                     class="image-wrapper image-item-card el-space__item"
                   >
-                    <el-image
-                      class="el-upload--picture-card"
-                      fit="fill"
-                      :src="`${image.absolutionPath}`"
-                      style="
-                        width: 120px !important;
-                        height: 120px !important;
-                        cursor: pointer;
-                        border: 1px solid #d9d9d9;
-                      "
-                      @click="chooseFormSkuImage(index)"
-                      @mouseenter="showDeleteButton(index)"
-                      @mouseleave="hideDeleteButton(index)"
-                    />
+                    <ai-translate-wrapper
+                      :language-id="form.languageId"
+                      :source="image"
+                      type="image"
+                      @apply="(v) => onApplySkuImage(index, v)"
+                    >
+                      <el-image
+                        class="el-upload--picture-card"
+                        fit="fill"
+                        :src="`${image.absolutionPath}`"
+                        style="
+                          width: 120px !important;
+                          height: 120px !important;
+                          cursor: pointer;
+                          border: 1px solid #d9d9d9;
+                        "
+                        @click="chooseFormSkuImage(index)"
+                        @mouseenter="showDeleteButton(index)"
+                        @mouseleave="hideDeleteButton(index)"
+                      />
+                    </ai-translate-wrapper>
                     <div
                       v-if="image.showDelete"
                       class="delete-icon"
@@ -473,11 +508,18 @@
                         >
                           <plus />
                         </el-icon>
-                        <el-image
+                        <ai-translate-wrapper
                           v-else
-                          :src="`${row.skuImage.absolutionPath}`"
-                          @click="chooseSkuImage(row)"
-                        />
+                          :language-id="form.languageId"
+                          :source="row.skuImage"
+                          type="image"
+                          @apply="(v) => (row.skuImage = { ...row.skuImage, ...v })"
+                        >
+                          <el-image
+                            :src="`${row.skuImage.absolutionPath}`"
+                            @click="chooseSkuImage(row)"
+                          />
+                        </ai-translate-wrapper>
                       </div>
                     </template>
                   </el-table-column>
@@ -986,7 +1028,7 @@
       </template>
     </vab-dialog>
     <file-chooser ref="fileChooserRef" :z-index="5000" />
-    <spec-edit ref="specEditRef" @update-specifications="updateSpecifications" />
+    <spec-edit ref="specEditRef" :language-id="form.languageId" @update-specifications="updateSpecifications" />
     <cloak-info-edit ref="cloakInfoEditRef" @update-cloak-infos="handleUpdateCloakInfos" />
   </div>
 </template>
@@ -1476,6 +1518,12 @@ const hideDeleteButton = (index: number) => {
 
 const deleteImage = (index: number) => {
   form.skuImages.splice(index, 1)
+}
+
+const onApplySkuImage = (index: number, translated: any) => {
+  if (translated && translated.id) {
+    form.skuImages[index] = { ...form.skuImages[index], ...translated }
+  }
 }
 
 const save = () => {

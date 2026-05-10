@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Objects;
 
 import org.jetbrains.annotations.Nullable;
+import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,13 +13,19 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import cn.v7soft.admin.controller.req.AiTranslateHtmlRequest;
+import cn.v7soft.admin.controller.req.AiTranslateImageRequest;
+import cn.v7soft.admin.controller.req.AiTranslateTextRequest;
 import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.QueryProductRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
+import cn.v7soft.admin.controller.resp.AiTranslateImageResponse;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
+import cn.v7soft.admin.service.IAiTranslateService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductService;
 import cn.v7soft.common.controller.BaseDataRangeController;
@@ -38,11 +45,14 @@ import jakarta.validation.Valid;
 public class ProductController extends BaseDataRangeController<Product, IProductService, ProductResponse, QueryProductRequest, EditProductRequest> {
 
     private final IMultimediaFileService multimediaFileService;
+    private final IAiTranslateService aiTranslateService;
 
     protected ProductController(IProductService service,
-                                IMultimediaFileService multimediaFileService) {
+                                IMultimediaFileService multimediaFileService,
+                                IAiTranslateService aiTranslateService) {
         super(service);
         this.multimediaFileService = multimediaFileService;
+        this.aiTranslateService = aiTranslateService;
     }
 
     @Override
@@ -102,6 +112,39 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
             ClientResponseEnum.NO_PERMISSION.throwException("暂无权限");
         }
         return service.submitTranslateByAI(request);
+    }
+
+    @Operation(summary = "AI实时翻译文本（SSE流式）")
+    @PostMapping(value = "/ai-translate/text-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter aiTranslateTextStream(@Valid @RequestBody AiTranslateTextRequest request) {
+        checkAiTranslatePermission();
+        SseEmitter emitter = new SseEmitter(300_000L);
+        aiTranslateService.streamText(request, emitter);
+        return emitter;
+    }
+
+    @Operation(summary = "AI实时翻译HTML（SSE流式）")
+    @PostMapping(value = "/ai-translate/html-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter aiTranslateHtmlStream(@Valid @RequestBody AiTranslateHtmlRequest request) {
+        checkAiTranslatePermission();
+        SseEmitter emitter = new SseEmitter(300_000L);
+        aiTranslateService.streamHtml(request, emitter);
+        return emitter;
+    }
+
+    @Operation(summary = "AI实时翻译图片")
+    @PostMapping("/ai-translate/image")
+    public AiTranslateImageResponse aiTranslateImage(@Valid @RequestBody AiTranslateImageRequest request) throws Exception {
+        checkAiTranslatePermission();
+        return aiTranslateService.translateImage(request);
+    }
+
+    private void checkAiTranslatePermission() {
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        Long departmentId = loginUser.getDepartmentId();
+        if (!loginUser.isAdmin() && !Objects.equals(departmentId, 1103627419648L)) {
+            ClientResponseEnum.NO_PERMISSION.throwException("暂无权限");
+        }
     }
 
     @Override
