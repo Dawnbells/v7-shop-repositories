@@ -100,7 +100,9 @@ export function clearTokenCache() {
 
 // ── Project ID ─────────────────────────────────────────────────────
 
+// 对齐 nano-b `Ue()`：projectId 全局缓存，首次提取后复用；reload / 新建 project / tab 关闭时清空。
 export async function getProjectId(tabId) {
+  if (projectId) return projectId;
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -111,6 +113,10 @@ export async function getProjectId(tabId) {
   });
   projectId = results?.[0]?.result || null;
   return projectId;
+}
+
+export function clearProjectIdCache() {
+  projectId = null;
 }
 
 // ── reCAPTCHA ──────────────────────────────────────────────────────
@@ -175,7 +181,10 @@ async function reloadFlowPage(tabId) {
     await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
     await sleep(RECAPTCHA_SETTLE_MS);
     const token = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
-    return !!token;
+    if (!token) return false;
+    // 对齐 nano-b：reload 成功后再补 3s 让 grecaptcha 完全 settle，避免后续首个调用又踩到风控
+    await sleep(3000);
+    return true;
   } catch {
     return false;
   }
@@ -226,7 +235,10 @@ async function createNewProject(tabId) {
     await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
     await sleep(RECAPTCHA_SETTLE_MS);
     const token = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
-    return !!token;
+    if (!token) return false;
+    // 对齐 nano-b：新建 project 后再补 5s 让 grecaptcha 完全 settle（比 reload 更激进，需更长冷却）
+    await sleep(5000);
+    return true;
   } catch {
     return false;
   }
@@ -275,9 +287,15 @@ function deepClone(obj) {
 }
 
 async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATION', retryCount = 0) {
+  // 风控恢复期间所有 callFlowApi 调用先等恢复完成，避免 4 并发持续打 grecaptcha 加剧风控。
+  // 对齐 nano-b `je` 开头 `if (Q && n===0) await Q` 的门闩语义。
+  if (recoveryPromise) {
+    try { await recoveryPromise; } catch {}
+  }
+
   const recaptchaToken = await getRecaptchaToken(tabId, action);
   if (!recaptchaToken) {
-    throw new Error('Failed to obtain reCAPTCHA token — try refreshing the Flow page');
+    throw new Error('No reCAPTCHA token — try refreshing the Flow page');
   }
 
   // Deep-clone to avoid mutating the caller's payload on retries
@@ -378,11 +396,19 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
         return callFlowApi(tabId, url, payload, freshToken, action, 1);
       }
     }
-    // On 429: rate limited, wait and retry once
-    if (result.status === 429 && retryCount < 2) {
-      const backoff = 3000 * Math.pow(2, retryCount) + Math.random() * 1000;
-      await sleep(backoff);
-      return callFlowApi(tabId, url, payload, token, action, retryCount + 1);
+    // On 429: 先判 daily quota（账号级硬性限制，重试只会加重风控），其余走限速重试。
+    // 对齐 nano-b je 的 429 + DAILY_QUOTA_REACHED/RESOURCE_EXHAUSTED 早停语义。
+    if (result.status === 429) {
+      const errText = result.errText || result.error || '';
+      if (errText.includes('DAILY_QUOTA_REACHED') || errText.includes('RESOURCE_EXHAUSTED')) {
+        throw new Error('DAILY_QUOTA_REACHED — daily generation limit reached. Try again in a few hours.');
+      }
+      // 重试次数对齐 nano-b lt 调度器：最多 3 次（retryCount < 3）
+      if (retryCount < 3) {
+        const backoff = 3000 * Math.pow(2, retryCount) + Math.random() * 1000;
+        await sleep(backoff);
+        return callFlowApi(tabId, url, payload, token, action, retryCount + 1);
+      }
     }
     throw new Error(result.error);
   }
@@ -468,7 +494,8 @@ export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid
 
 export async function generateWithReference(tabId, { prompt, referenceMediaId, aspectRatio, pid, token, model }) {
   const batchId = uuid();
-  const sessionId = ';' + Date.now() + Math.random();
+  // 对齐 nano-b mt 中的 sessionId 生成方式 `";"+Date.now()+r`（r 是任务索引），单任务流场景下 r=0 即可
+  const sessionId = ';' + Date.now() + '0';
   const seed = randomSeed();
   const url = `${API_BASE}/v1/projects/${pid}/flowMedia:batchGenerateImages`;
 
@@ -494,7 +521,6 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
       projectId: pid,
       tool: 'PINHOLE',
       sessionId,
-      userPaygateTier: 'PAYGATE_TIER_NOT_PAID',
     },
     mediaGenerationContext: { batchId },
     useNewMedia: true,
@@ -508,7 +534,6 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
           projectId: pid,
           tool: 'PINHOLE',
           sessionId,
-          userPaygateTier: 'PAYGATE_TIER_NOT_PAID',
         },
         imageAspectRatio: apiAspectRatio,
         imageInputs: [

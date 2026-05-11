@@ -5,7 +5,9 @@ import {
   getMediaRedirectUrl,
   fetchImageAsBase64,
   clearTokenCache,
+  clearProjectIdCache,
   resetRecoveryState,
+  getSessionToken,
 } from './flow-api.js';
 
 const VERSION = '1.1.0';
@@ -15,8 +17,9 @@ const STAGGER_STEP_MS = 250;
 const CONCURRENCY = 4;
 const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
-// 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；网速慢时下载重试可达 120 秒，总预算 180 秒。
-const TRANSLATE_TIMEOUT_MS = 180 * 1000;
+// 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；网速慢时下载重试可达 120 秒；
+// 4 并发场景下任务内 sleep(250*i) 错峰最多 0.75 秒；总预算放宽到 300 秒。
+const TRANSLATE_TIMEOUT_MS = 300 * 1000;
 // fail 上报失败的重试次数与基础间隔（指数退避）。尽量保证 server 端能及时收到失败信号，避免等到 lease 过期。
 const FAIL_REPORT_MAX_RETRIES = 3;
 const FAIL_REPORT_RETRY_BASE_MS = 1000;
@@ -27,7 +30,10 @@ const FAIL_REPORT_RETRY_BASE_MS = 1000;
  */
 function classifyErrorCode(message) {
   const text = (message || '').toLowerCase();
-  if (text.includes('recaptcha blocked')) return 'RECAPTCHA_BLOCKED';
+  // 每日额度耗尽是账号级硬性限制，重试只会加重风控，需走 pausePoll 等账号自然恢复
+  if (text.includes('daily_quota_reached') || text.includes('resource_exhausted')) return 'DAILY_QUOTA_REACHED';
+  // reCAPTCHA 风控：包含 callFlowApi 抛出的 'reCAPTCHA blocked' 和 'No reCAPTCHA token' 两种
+  if (text.includes('recaptcha blocked') || text.includes('no recaptcha token')) return 'RECAPTCHA_BLOCKED';
   if (text.includes('blocked by google (403)') || text.includes('access denied (403)')) return 'GOOGLE_BLOCKED';
   if (text.includes('timeout') || text.includes('timed out')) return 'TIMEOUT';
   // Flow tab 被关闭/导航走时，in-flight 的 fetch/executeScript 会抛 'Failed to fetch'、'Script execution failed' 等
@@ -44,6 +50,7 @@ function classifyErrorCode(message) {
  */
 function friendlyErrorMessage(errorCode, rawMessage) {
   if (errorCode === 'FLOW_DISCONNECTED') return 'Flow tab unavailable (closed / navigated away)';
+  if (errorCode === 'DAILY_QUOTA_REACHED') return '⚠️ Google 账号每日额度已用尽，需等几小时自然恢复';
   return rawMessage;
 }
 
@@ -277,6 +284,7 @@ chrome.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
 
 chrome.tabs.onRemoved.addListener(() => {
   clearTokenCache();
+  clearProjectIdCache();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -403,7 +411,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       try {
         const conn = await checkConnection();
         if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
-        const token = await getSessionTokenFromFlow(conn.tabId);
+        const token = await getSessionToken(conn.tabId);
+        if (!token) throw new Error('Failed to get Flow session token');
         const base64 = msg.imageBase64.startsWith('data:')
           ? msg.imageBase64.substring(msg.imageBase64.indexOf(',') + 1)
           : msg.imageBase64;
@@ -638,8 +647,8 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    // 任务成功完成 → 清零 reCAPTCHA 恢复计数
-    resetRecoveryState();
+    // 不再在每任务成功后清零 reCAPTCHA 恢复计数：对齐 nano-b 仅在批次开始/resumePoll 时清零的粒度，
+    // 避免反复风控期间恢复预算被打穿（每次成功就回血 3 次，会让总恢复尝试远超 MAX_TOTAL_RECOVERY）。
     scheduleLoop(POLL_INTERVAL_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
@@ -669,10 +678,12 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    // RECAPTCHA_BLOCKED / GOOGLE_BLOCKED 都是 Google 风控，自动重试也会失败 → 暂停 poll 等用户介入；
+    // RECAPTCHA_BLOCKED / GOOGLE_BLOCKED / DAILY_QUOTA_REACHED 都是账号级问题，自动重试无意义 → 暂停 poll；
     // 其它错误（FLOW_DISCONNECTED 由 watchdog 兜底，TIMEOUT 等可能自动恢复）走 500ms 后重试。
     if (errorCode === 'RECAPTCHA_BLOCKED' || errorCode === 'GOOGLE_BLOCKED') {
       pausePoll('⚠️ Google 风控触发 — 关闭并重开 Flow 标签页后点 Run Now');
+    } else if (errorCode === 'DAILY_QUOTA_REACHED') {
+      pausePoll('⚠️ Google 账号每日额度已用尽 — 等几小时后点 Run Now');
     } else {
       scheduleLoop(POLL_INTERVAL_MS);
     }
@@ -768,7 +779,8 @@ async function translateImage(task, conn) {
   // 由调用方（executeTask）传入已 check 过的 conn，避免重复触发 grecaptcha/getSessionToken。
   if (!conn || !conn.tabId || !conn.projectId) throw new Error('Flow is not connected');
 
-  const token = await getSessionTokenFromFlow(conn.tabId);
+  const token = await getSessionToken(conn.tabId);
+  if (!token) throw new Error('Failed to get Flow session token');
   const mediaId = await uploadImageToFlow(conn.tabId, {
     base64: stripDataUrl(task.imageBase64),
     fileName: task.fileName || 'source.png',
@@ -801,21 +813,6 @@ async function translateImage(task, conn) {
   }
   if (!image) throw lastErr;
   return { resultUrl, resultDataUrl: image.dataUrl };
-}
-
-async function getSessionTokenFromFlow(tabId) {
-  const result = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: async () => {
-      const res = await fetch('/fx/api/auth/session', { credentials: 'include' });
-      const json = await res.json();
-      return json.access_token || null;
-    },
-  });
-  const token = result?.[0]?.result;
-  if (!token) throw new Error('Failed to get Flow session token');
-  return token;
 }
 
 function buildPrompt(task) {
