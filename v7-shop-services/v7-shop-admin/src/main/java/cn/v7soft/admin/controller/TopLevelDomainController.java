@@ -149,9 +149,11 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
         TopLevelDomain topLevelDomain = super.doEditOperate(request);
         if (topLevelDomain.getCertificateRequestStatus() == CertificateRequestStatus.IDLE) {
             placeholderCertHolder.ensureWritten(topLevelDomain);
-            topLevelDomain.setCertificateRequestStatus(CertificateRequestStatus.QUEUE);
-            service.saveAndFlush(topLevelDomain);
-            certificateRequestPublisher.requestCertificate(topLevelDomain.getId());
+            if (topLevelDomain.getCloudPlatformAccount() != null) {
+                topLevelDomain.setCertificateRequestStatus(CertificateRequestStatus.QUEUE);
+                service.saveAndFlush(topLevelDomain);
+                certificateRequestPublisher.requestCertificate(topLevelDomain.getId());
+            }
         }
         return topLevelDomain;
     }
@@ -166,6 +168,7 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
     @SaCheckPermission("top-level-domain.renew_certificate")
     public void renewCertificate(@Valid @RequestBody IdRequest request) {
         TopLevelDomain topLevelDomain = service.getById(request.getIdLongValue());
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(topLevelDomain.getCloudPlatformAccount(), "未绑定云平台账户，无法续期证书");
         placeholderCertHolder.ensureWritten(topLevelDomain);
         topLevelDomain.setCertificateRequestStatus(CertificateRequestStatus.QUEUE);
         service.saveAndFlush(topLevelDomain);

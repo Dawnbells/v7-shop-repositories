@@ -1,9 +1,12 @@
 package cn.v7soft.admin.events;
 
-import cn.v7soft.admin.events.event.CertificateRequestEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
+import cn.v7soft.admin.events.event.CertificateRequestEvent;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Component
 public class CertificateRequestPublisher {
     private final ApplicationEventPublisher publisher;
@@ -17,7 +20,6 @@ public class CertificateRequestPublisher {
     }
 
     public void requestCertificate(long domainId, String server) {
-        CertificateRequestEvent event = new CertificateRequestEvent(this, domainId, server);
-        publisher.publishEvent(event);
+        publisher.publishEvent(new CertificateRequestEvent(this, domainId, server));
     }
 }

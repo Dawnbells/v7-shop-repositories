@@ -5,7 +5,6 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.events.event.CertificateRequestEvent;
 import cn.v7soft.admin.service.ICloudPlatformAccountService;
-import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.ISystemSettingsService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
 import cn.v7soft.admin.service.ssl.ISslCertificateRequester;
@@ -38,13 +37,13 @@ public class CertificateRequestListener {
     private final ISystemSettingsService systemSettingsService;
     private final ITopLevelDomainService topLevelDomainService;
     private final ICloudPlatformAccountService cloudPlatformAccountService;
-    private final IFrontServerService frontServerService;
     private final PlaceholderCertHolder placeholderCertHolder;
 
     @EventListener
     @Async("certificateRequestAsyncExecutor")
     public void handleCertificateRequest(CertificateRequestEvent event) throws IOException {
         TopLevelDomain domain = null;
+        boolean shouldPushCertificateChange = false;
         try {
             domain = topLevelDomainService.getById(event.getDomainId());
             if (domain.getCloudPlatformAccount() == null) {
@@ -61,13 +60,7 @@ public class CertificateRequestListener {
             SslResult sslResult = certificateRequester.handleRequestSslCertificate(domain, sslServer);
             log.debug("sslResult = " + JSONUtil.toJsonStr(sslResult));
 
-            if (sslResult.isSuccess()) {
-                domain.setCertificateRequestStatus(CertificateRequestStatus.FINISH);
-            } else {
-                domain.setCertificateRequestStatus(CertificateRequestStatus.ERROR);
-            }
-
-            domain.setSslCertificate(SSLCertificate.builder()
+            SSLCertificate sslCertificate = SSLCertificate.builder()
                     .isCompleted(sslResult.isCompleted())
                     .isSuccess(sslResult.isSuccess())
                     .isError(sslResult.isError())
@@ -76,9 +69,17 @@ public class CertificateRequestListener {
                     .sslPushMsg("")
                     .errLog(sslResult.getErrLog())
                     .certificateExpiryDate(SslCertificateUtil.getExpiryDate(domain))
-                    .build());
+                    .build();
+            domain.setSslCertificate(sslCertificate);
 
+            if (sslResult.isSuccess()) {
+                domain.setCertificateRequestStatus(CertificateRequestStatus.FINISH);
+            } else {
+                domain.setCertificateRequestStatus(CertificateRequestStatus.ERROR);
+            }
             topLevelDomainService.saveAndFlush(domain);
+
+            shouldPushCertificateChange = sslResult.isSuccess();
         } catch (Throwable t) {
             log.error("handle certificate request error: ", t);
         } finally {
@@ -86,15 +87,16 @@ public class CertificateRequestListener {
             if (domain != null) {
                 UnsupportedSslCertificateRequester.builder().placeholderCertHolder(placeholderCertHolder).build().checkAndWriteDefault(domain);
 
-                Process process = Runtime.getRuntime().exec("sh /scripts/push.sh");
-                String sslPushMsg = IoUtil.read(process.getInputStream(), Charsets.UTF_8);
-                log.debug("ssl push msg = " + sslPushMsg);
-                SSLCertificate sslCertificate = domain.getSslCertificate();
-                if (sslCertificate == null) {
-                    sslCertificate = SSLCertificate.builder().build();
+                if (shouldPushCertificateChange) {
+                    String sslPushMsg = executePushScript();
+                    log.debug("ssl push msg = " + sslPushMsg);
+                    SSLCertificate sslCertificate = domain.getSslCertificate();
+                    if (sslCertificate == null) {
+                        sslCertificate = SSLCertificate.builder().build();
+                    }
+                    sslCertificate.setSslPushMsg(sslPushMsg);
+                    domain.setSslCertificate(sslCertificate);
                 }
-                sslCertificate.setSslPushMsg(sslPushMsg);
-                domain.setSslCertificate(sslCertificate);
                 if (domain.getCertificateRequestStatus() == CertificateRequestStatus.QUEUE) {
                     domain.setCertificateRequestStatus(CertificateRequestStatus.IDLE);
                 } else if (domain.getCertificateRequestStatus() == CertificateRequestStatus.REQUESTING) {
@@ -103,5 +105,10 @@ public class CertificateRequestListener {
                 topLevelDomainService.saveAndFlush(domain);
             }
         }
+    }
+
+    protected String executePushScript() throws IOException {
+        Process process = Runtime.getRuntime().exec("sh /scripts/push.sh");
+        return IoUtil.read(process.getInputStream(), Charsets.UTF_8);
     }
 }
