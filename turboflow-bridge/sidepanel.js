@@ -4,6 +4,7 @@
   const statusDot = document.getElementById('status-dot');
   const statusText = document.getElementById('status-text');
   const btnOpenFlow = document.getElementById('btn-open-flow');
+  const btnRunNow = document.getElementById('btn-run-now');
   const currentTaskEl = document.getElementById('current-task');
   const countdownEl = document.getElementById('countdown');
   const taskTbody = document.getElementById('task-tbody');
@@ -32,6 +33,7 @@
   let currentPage = 0;
   let totalTasks = 0;
   let connected = false;
+  let paused = false;
   let autoCheckTimer = null;
   let countdownTimer = null;
   let nextPollAt = 0;
@@ -59,9 +61,37 @@
     log('info', 'Opening Google Flow tab');
   });
 
+  // Google 风控触发后 pollPaused=true，需要用户显式 Run Now 才能恢复。
+  // 30 分钟冷却内点击会先弹 confirm 提示再次确认，避免反复触发加重风控。
+  btnRunNow.addEventListener('click', async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'RUN_NOW' });
+    if (response?.ok) {
+      log('info', 'Run Now sent');
+      return;
+    }
+    if (response?.requireConfirm) {
+      const remainingMin = Math.ceil((response.remainingMs || 0) / 60000);
+      const ok = window.confirm(
+        `⚠️ Google 风控冷却中，建议再等约 ${remainingMin} 分钟。\n\n` +
+        `若现在强制恢复，可能加重风控甚至触发临时封禁。\n\n` +
+        `确定要强制恢复吗？`
+      );
+      if (ok) {
+        const forced = await chrome.runtime.sendMessage({ type: 'RUN_NOW', force: true });
+        if (forced?.ok) log('warn', 'Force-resumed by user (cooldown bypassed)');
+      }
+    }
+  });
+
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'CONNECTION_CHANGED') {
       setConnection(msg.connected, msg.message || (msg.connected ? 'Connected' : 'Disconnected'), msg.projectId);
+    }
+    if (msg.type === 'BRIDGE_PAUSED') {
+      setPaused(true);
+    }
+    if (msg.type === 'BRIDGE_RESUMED') {
+      setPaused(false);
     }
     if (msg.type === 'TASK_CHANGED') {
       const tasks = Array.isArray(msg.currentTasks)
@@ -82,6 +112,14 @@
     }
   });
 
+  function setPaused(value) {
+    paused = !!value;
+    btnRunNow.classList.toggle('hidden', !paused);
+    if (paused) {
+      btnOpenFlow.classList.add('hidden');
+    }
+  }
+
   async function init() {
     const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
     bridgeIdEl.textContent = config.bridgeId || '-';
@@ -95,6 +133,7 @@
       if (status.lastStatus) {
         setConnection(status.lastStatus.connected, status.lastStatus.message, status.lastStatus.projectId);
       }
+      setPaused(!!status.paused);
     }
 
     await doCheck();
@@ -118,7 +157,8 @@
     statusText.textContent = isConnected && projectId
       ? `Connected (${projectId.substring(0, 8)}…)`
       : message;
-    btnOpenFlow.classList.toggle('hidden', !!isConnected);
+    // paused 状态下隐藏 Open Flow 按钮，由 Run Now 主导
+    btnOpenFlow.classList.toggle('hidden', !!isConnected || paused);
     manageAutoCheck();
   }
 
