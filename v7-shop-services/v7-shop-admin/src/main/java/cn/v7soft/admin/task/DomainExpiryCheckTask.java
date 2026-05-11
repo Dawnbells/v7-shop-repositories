@@ -367,10 +367,11 @@ public class DomainExpiryCheckTask {
                 for (File confFile : confFiles) {
                     String domainName = confFile.getName().replace(".conf", "");
                     if (!validDomainNames.contains(domainName)) {
-                        NginxConfigWriter.deleteNginx(serverName, domainName);
-                        nginxCleaned++;
-                        serverHasCleanup = true;
-                        log.info("[DomainExpiryCheck] 清理孤立nginx配置: {}/{}", serverName, confFile.getName());
+                        if (NginxConfigWriter.deleteNginxIfExists(serverName, domainName)) {
+                            nginxCleaned++;
+                            serverHasCleanup = true;
+                            log.info("[DomainExpiryCheck] 清理孤立nginx配置: {}/{}", serverName, confFile.getName());
+                        }
                     }
                 }
 

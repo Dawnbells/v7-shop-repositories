@@ -13,6 +13,15 @@ public class NginxConfigWriter {
         FileUtil.del(path);
     }
 
+    public static boolean deleteNginxIfExists(String serverName, String domain) {
+        String path = buildPath(serverName, domain);
+        if (!FileUtil.exist(path)) {
+            return false;
+        }
+        FileUtil.del(path);
+        return true;
+    }
+
     public static boolean existsNginxConfig(String serverName, String domain) {
         return FileUtil.exist(buildPath(serverName, domain));
     }
@@ -20,10 +29,15 @@ public class NginxConfigWriter {
     public static boolean writeNginx(String serverName, String domain, NginxConfigType nginxConfigType, String companyId) {
         String path = buildPath(serverName, domain);
         try {
-            FileUtil.del(path);
             nginxConfigType = nginxConfigType == null ? NginxConfigType.THYMELEAF : nginxConfigType;
             String template = nginxConfigType == NginxConfigType.NUXT_MALL ? NGINX_CONFIG_NUXT_TEMPLATE : NGINX_CONFIG_TEMPLATE;
             String nginxConfig = String.format(template, domain, companyId, nginxConfigType.getUpstream());
+            if (FileUtil.exist(path)) {
+                String existing = FileUtil.readUtf8String(path);
+                if (nginxConfig.equals(existing)) {
+                    return false;
+                }
+            }
             FileUtil.writeUtf8String(nginxConfig, path);
             return true;
         } catch (Exception e) {

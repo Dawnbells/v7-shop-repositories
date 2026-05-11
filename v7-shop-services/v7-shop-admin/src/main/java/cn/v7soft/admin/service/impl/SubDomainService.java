@@ -264,8 +264,9 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
             if (count <= 0) {
                 log.info("该顶级域名在服务器上无其他活跃子域名，删除nginx配置: domain={}, server={}",
                         parentDomain.getName(), frontServer.getName());
-                NginxConfigWriter.deleteNginx(frontServer.getName(), parentDomain.getName());
-                frontServerService.pushAndRefresh(frontServer.getId());
+                if (NginxConfigWriter.deleteNginxIfExists(frontServer.getName(), parentDomain.getName())) {
+                    frontServerService.pushAndRefresh(frontServer.getId());
+                }
             }
         }
     }

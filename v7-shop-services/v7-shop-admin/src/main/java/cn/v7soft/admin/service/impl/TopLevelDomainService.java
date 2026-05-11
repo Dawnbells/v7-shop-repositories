@@ -135,8 +135,7 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
         try {
             for (FrontServer frontServer : frontServerService.listFrontServers()) {
                 String serverName = frontServer.getName();
-                if (NginxConfigWriter.existsNginxConfig(serverName, domainName)) {
-                    NginxConfigWriter.deleteNginx(serverName, domainName);
+                if (NginxConfigWriter.deleteNginxIfExists(serverName, domainName)) {
                     frontServerService.pushAndRefresh(frontServer.getId());
                     log.info("已删除域名 {} 在服务器 {} 上的nginx配置", domainName, serverName);
                 }
