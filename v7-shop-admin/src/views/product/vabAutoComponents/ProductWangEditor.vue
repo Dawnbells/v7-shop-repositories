@@ -213,26 +213,49 @@ const buildImgSource = (img: HTMLImageElement) => {
   }
 }
 
+const updateImgAiBtnPosition = (img: HTMLImageElement) => {
+  const containerEl = img.closest('.wang-editor-container')
+  const contentEl = document.querySelector('.wang-editor-content') as HTMLElement | null
+  if (!containerEl || !contentEl) return false
+  const containerRect = containerEl.getBoundingClientRect()
+  const imgRect = img.getBoundingClientRect()
+  const contentRect = contentEl.getBoundingClientRect()
+  if (imgRect.bottom < contentRect.top || imgRect.top > contentRect.bottom) {
+    return false
+  }
+  const btnSize = 22
+  const margin = 4
+  let top = imgRect.top - containerRect.top + margin
+  const left = imgRect.left - containerRect.left + margin
+  const minTop = contentRect.top - containerRect.top + margin
+  const maxTop = contentRect.bottom - containerRect.top - btnSize - margin
+  if (top < minTop) top = minTop
+  if (top > maxTop) top = maxTop
+  imgAiBtnStyle.value = {
+    top: `${top}px`,
+    left: `${left}px`,
+  }
+  return true
+}
+
 const onEditorMouseOver = (e: MouseEvent) => {
   const target = e.target as HTMLElement
-  if (target.tagName === 'IMG') {
-    if (imgLeaveTimer) {
-      clearTimeout(imgLeaveTimer)
-      imgLeaveTimer = null
-    }
-    const img = target as HTMLImageElement
-    currentHoveredImg = img
-    const containerEl = img.closest('.wang-editor-container')
-    if (!containerEl) return
-    const containerRect = containerEl.getBoundingClientRect()
-    const imgRect = img.getBoundingClientRect()
-    imgAiBtnStyle.value = {
-      top: `${imgRect.top - containerRect.top + 4}px`,
-      left: `${imgRect.left - containerRect.left + 4}px`,
-    }
-    currentImgSource.value = buildImgSource(img)
-    imgAiBtnVisible.value = true
+  if (target.tagName !== 'IMG') return
+  if (imgLeaveTimer) {
+    clearTimeout(imgLeaveTimer)
+    imgLeaveTimer = null
   }
+  const img = target as HTMLImageElement
+  currentHoveredImg = img
+  if (!updateImgAiBtnPosition(img)) return
+  currentImgSource.value = buildImgSource(img)
+  imgAiBtnVisible.value = true
+}
+
+const onEditorScroll = () => {
+  if (!imgAiBtnVisible.value || !currentHoveredImg) return
+  const ok = updateImgAiBtnPosition(currentHoveredImg)
+  if (!ok) imgAiBtnVisible.value = false
 }
 
 const hideImgAiBtn = () => {
@@ -276,6 +299,7 @@ const setupEditorMouseListeners = () => {
     const container = document.querySelector('.wang-editor-content')
     if (container) {
       container.addEventListener('mouseover', onEditorMouseOver as any)
+      container.addEventListener('scroll', onEditorScroll, { passive: true })
     }
   })
 }
@@ -294,6 +318,7 @@ onBeforeUnmount(() => {
   const container = document.querySelector('.wang-editor-content')
   if (container) {
     container.removeEventListener('mouseover', onEditorMouseOver as any)
+    container.removeEventListener('scroll', onEditorScroll)
   }
 })
 </script>
