@@ -198,6 +198,7 @@ const imgAiBtnVisible = ref(false)
 const imgAiBtnStyle = ref<Record<string, string>>({})
 const imgDialogRef = ref<any>(null)
 const currentImgSource = ref<any>({ id: '', absolutionPath: '' })
+const pendingReplaceSrc = ref('')
 let currentHoveredImg: HTMLImageElement | null = null
 let imgLeaveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -243,21 +244,30 @@ const hideImgAiBtn = () => {
 
 const openImgTranslateDialog = () => {
   if (!props.languageId) return
+  pendingReplaceSrc.value = currentHoveredImg?.src || ''
   imgDialogRef.value?.open()
 }
 
 const onImgTranslated = (result: any) => {
-  if (!result || !result.absolutionPath || !currentHoveredImg) return
-  currentHoveredImg.src = result.absolutionPath
+  if (!result || !result.absolutionPath || !pendingReplaceSrc.value) return
   const editor = editorRef.value as any
-  if (editor) {
-    try {
-      editor.emit?.('change')
-    } catch {
-      // force update model
+  if (!editor) return
+
+  const currentHtml = editor.getHtml?.() || html.value || ''
+  const doc = new DOMParser().parseFromString(currentHtml, 'text/html')
+  let replaced = false
+  doc.querySelectorAll('img').forEach((img) => {
+    if (img.getAttribute('src') === pendingReplaceSrc.value) {
+      img.setAttribute('src', result.absolutionPath)
+      replaced = true
     }
-    html.value = editor.getHtml?.() || html.value
+  })
+  if (replaced) {
+    const newHtml = doc.body.innerHTML
+    editor.setHtml?.(newHtml)
+    html.value = newHtml
   }
+  pendingReplaceSrc.value = ''
   imgAiBtnVisible.value = false
 }
 
