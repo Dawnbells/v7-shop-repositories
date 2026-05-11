@@ -115,10 +115,29 @@ function startConnectionWatchdog() {
 }
 
 /**
+ * 安全调用 chrome.action.* API。
+ * MV3 中 chrome.action 仅在 manifest 声明 "action" 字段时存在；某些 chromium 衍生浏览器即便声明了也可能 undefined。
+ * 这里统一兜底，确保任何 badge/title 调用不会因 chrome.action 缺失抛 TypeError。
+ */
+function safeAction(fn) {
+  try {
+    if (!chrome.action) return;
+    const result = fn(chrome.action);
+    if (result && typeof result.catch === 'function') {
+      result.catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * 进入暂停态：清掉待执行 timer、设置 action badge 强提示、广播状态给 sidepanel。
  * 触发条件：reCAPTCHA 恢复机制穷尽后仍失败（errorCode === RECAPTCHA_BLOCKED）。
+ * 幂等：并发场景下多个 in-flight 任务可能同时调用，重复调用时仅刷新 reason，不重复广播日志。
  */
 function pausePoll(reason) {
+  const alreadyPaused = pollPaused;
   pollPaused = true;
   pauseReason = reason;
   nextPollAt = 0;
@@ -126,8 +145,11 @@ function pausePoll(reason) {
     clearTimeout(timerId);
     timerId = null;
   }
-  chrome.action.setBadgeText({ text: '!' }).catch(() => {});
-  chrome.action.setBadgeBackgroundColor({ color: '#d32f2f' }).catch(() => {});
+  if (alreadyPaused) {
+    return;
+  }
+  safeAction((action) => action.setBadgeText({ text: '!' }));
+  safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
   lastStatus = { connected: false, message: reason };
   broadcast({ type: 'BRIDGE_PAUSED', reason });
   broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: reason, projectId: null });
@@ -144,7 +166,7 @@ function resumePoll() {
   pollPaused = false;
   pauseReason = null;
   resetRecoveryState();
-  chrome.action.setBadgeText({ text: '' }).catch(() => {});
+  safeAction((action) => action.setBadgeText({ text: '' }));
   broadcast({ type: 'BRIDGE_RESUMED' });
   addLog('info', '✅ Poll resumed by user');
   return true;
