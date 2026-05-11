@@ -645,12 +645,8 @@ export async function checkConnection() {
     return { connected: false, reason: 'No project open. Create or open a project in Flow.' };
   }
 
-  // 真的试调一次 grecaptcha.enterprise.execute：风控触发时即便对象存在也无法拿 token，
-  // 提前在这里拦下，避免后续 executeTask 消耗任务名额。
-  const recaptchaToken = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
-  if (!recaptchaToken) {
-    return { connected: false, reason: 'reCAPTCHA blocked or not loaded. Refresh the Flow page; disable VPN if active.' };
-  }
-
+  // 不再在此处主动调 grecaptcha.enterprise.execute 做预检——4 并发场景下短时累计调用过多会触发风控。
+  // 对齐 nano-b：每个任务只在 callFlowApi 内消耗 1 次 reCAPTCHA token。
+  // 风控真正触发时由 callFlowApi 的 403 路径走三层恢复（reload Flow / 新建 project）兜底。
   return { connected: true, tabId, projectId: pid };
 }

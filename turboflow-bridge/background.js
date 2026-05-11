@@ -74,8 +74,9 @@ let flowTabAvailable = false;
 let watchdogTimer = null;
 
 /**
- * 轻量级 Flow tab 存活探测：仅查 chrome.tabs，不调 grecaptcha（避免高频消耗 reCAPTCHA token）。
- * grecaptcha 风控由 runLoop 内的 checkConnection 二次校验。
+ * 轻量级 Flow tab 存活探测：仅查 chrome.tabs，不调 grecaptcha。
+ * grecaptcha 风控由 callFlowApi 内部 1 次 token 申请 + 403 路径的三层恢复兜底，
+ * 对齐 nano-b：每任务仅消耗 1 次 reCAPTCHA token。
  */
 async function probeFlowTabAvailable() {
   try {
@@ -556,7 +557,7 @@ async function runLoop() {
         const staggerIndex = currentTasks.length; // 当前已占槽位 0..3，对齐 nano-b 的 250*i 错峰
         addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
         serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
-        executeTask(service, task, staggerIndex).catch((e) => addLog('error', `Task runner error: ${e.message}`));
+        executeTask(service, task, staggerIndex, conn).catch((e) => addLog('error', `Task runner error: ${e.message}`));
         break;
       }
     }
@@ -582,7 +583,7 @@ async function pollTask(service, conn, concurrency) {
   });
 }
 
-async function executeTask(service, task, staggerIndex = 0) {
+async function executeTask(service, task, staggerIndex = 0, conn = null) {
   const prompt = buildPrompt(task);
   const targetLang = task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese';
   const sourceImage = ensureDataUrl(task.imageBase64);
@@ -610,7 +611,7 @@ async function executeTask(service, task, staggerIndex = 0) {
 
   const startedAt = Date.now();
   try {
-    const result = await runWithTimeout(translateImage(task), TRANSLATE_TIMEOUT_MS, 'translate timeout (180s)');
+    const result = await runWithTimeout(translateImage(task, conn), TRANSLATE_TIMEOUT_MS, 'translate timeout (180s)');
     await postJson(service, '/turboflow-bridge/tasks/complete', {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -763,9 +764,9 @@ async function createThumbnail(base64OrDataUrl, maxSize) {
   }
 }
 
-async function translateImage(task) {
-  const conn = await checkConnection();
-  if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
+async function translateImage(task, conn) {
+  // 由调用方（executeTask）传入已 check 过的 conn，避免重复触发 grecaptcha/getSessionToken。
+  if (!conn || !conn.tabId || !conn.projectId) throw new Error('Flow is not connected');
 
   const token = await getSessionTokenFromFlow(conn.tabId);
   const mediaId = await uploadImageToFlow(conn.tabId, {
