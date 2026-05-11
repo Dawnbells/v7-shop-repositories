@@ -63,10 +63,11 @@ let logHistory = [];
 let pollPaused = false;
 let pauseReason = null;
 let pausedAt = 0;
+let autoReopenTimer = null;
 
-// 暂停后强制冷却时长：Google 账号级风控（如 "Unusual activity"）通常需要小时级冷却，
-// 短时间内反复 Run Now 只会加重风控。30 分钟是社区经验的最小安全窗口。
-const PAUSE_MIN_COOLDOWN_MS = 30 * 60 * 1000;
+// 1 小时强制冷静期：Google 账号级风控通常需要小时级冷却。冷静期内主动关闭 Flow tab 让账号完全离线，
+// 倒计时结束后自动重开 Flow tab 触发 watchdog 自动恢复 poll。
+const PAUSE_MIN_COOLDOWN_MS = 60 * 60 * 1000;
 
 // Flow 标签页可用性看门狗：每秒探测，标签关闭 → 立即阻断 poll；重新打开 → 自动恢复
 const FLOW_URL_RE = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
@@ -180,8 +181,59 @@ function safeAction(fn) {
 }
 
 /**
- * 进入暂停态：清掉待执行 timer、设置 action badge 强提示、广播状态给 sidepanel。
- * 触发条件：reCAPTCHA 恢复机制穷尽后仍失败（errorCode === RECAPTCHA_BLOCKED）。
+ * 关闭所有 Flow 标签页：冷静期内让 Google 完全看不到该用户的扩展活动。
+ */
+async function closeFlowTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
+    const targets = tabs.filter((t) => t.url && FLOW_URL_RE.test(t.url));
+    for (const t of targets) {
+      if (t.id) {
+        await chrome.tabs.remove(t.id).catch(() => {});
+      }
+    }
+    if (targets.length > 0) {
+      addLog('warn', `🔌 已关闭 ${targets.length} 个 Flow 标签页（冷静期）`);
+    }
+  } catch (e) {
+    addLog('warn', 'closeFlowTabs failed: ' + (e.message || e));
+  }
+}
+
+/**
+ * 计划在冷静期结束时主动重开 Flow 标签页。
+ * watchdog 检测到新 tab 后会自动尝试 resumePoll（此时 cooldown 已过，可成功）。
+ */
+function scheduleAutoReopenFlow() {
+  if (autoReopenTimer) {
+    clearTimeout(autoReopenTimer);
+    autoReopenTimer = null;
+  }
+  const elapsed = Date.now() - pausedAt;
+  const remaining = PAUSE_MIN_COOLDOWN_MS - elapsed;
+  if (remaining <= 0) {
+    autoReopenFlow();
+    return;
+  }
+  autoReopenTimer = setTimeout(autoReopenFlow, remaining);
+  const minutes = Math.ceil(remaining / 60000);
+  addLog('info', `⏱️ ${minutes} 分钟后将自动重开 Flow 标签页并恢复 poll`);
+}
+
+async function autoReopenFlow() {
+  autoReopenTimer = null;
+  if (!pollPaused) return;
+  addLog('info', '⏱️ 冷静期结束，主动打开 Flow 标签页');
+  try {
+    await chrome.tabs.create({ url: FLOW_URL });
+  } catch (e) {
+    addLog('warn', 'autoReopenFlow failed: ' + (e.message || e));
+  }
+}
+
+/**
+ * 进入暂停态：清掉待执行 timer、关闭 Flow tab、设置 action badge 强提示、广播状态给 sidepanel。
+ * 触发条件：reCAPTCHA 恢复机制穷尽后仍失败（errorCode === RECAPTCHA_BLOCKED / GOOGLE_BLOCKED）。
  * 幂等：并发场景下多个 in-flight 任务可能同时调用，重复调用时仅刷新 reason，不重复广播日志。
  */
 function pausePoll(reason) {
@@ -204,6 +256,9 @@ function pausePoll(reason) {
   broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: reason, projectId: null });
   broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt: 0 });
   addLog('error', '⛔ Poll paused: ' + reason);
+  // 1 小时硬冷静期：关闭 Flow tab + 计划自动重开
+  closeFlowTabs();
+  scheduleAutoReopenFlow();
 }
 
 /**
@@ -218,17 +273,38 @@ function resumePoll(force = false) {
   if (!force && elapsed < PAUSE_MIN_COOLDOWN_MS) {
     const remainingMin = Math.ceil((PAUSE_MIN_COOLDOWN_MS - elapsed) / 60000);
     addLog('warn',
-      `⏳ Google 风控冷却中：建议再等 ${remainingMin} 分钟。短时强制恢复可能加重风控甚至触发临时封禁。`);
+      `⏳ Google 风控冷静期中：还需 ${remainingMin} 分钟。短时强制恢复可能加重风控甚至触发临时封禁。`);
     return false;
   }
   pollPaused = false;
   pauseReason = null;
   pausedAt = 0;
+  if (autoReopenTimer) {
+    clearTimeout(autoReopenTimer);
+    autoReopenTimer = null;
+  }
   resetRecoveryState();
   safeAction((action) => action.setBadgeText({ text: '' }));
   broadcast({ type: 'BRIDGE_RESUMED' });
   addLog('info', force ? '✅ Poll force-resumed by user' : '✅ Poll auto-resumed after cooldown');
+  // 冷静期内 Flow tab 已被 closeFlowTabs 关闭；恢复时主动打开，watchdog 会接管后续
+  ensureFlowTabOpen();
   return true;
+}
+
+/**
+ * 如果当前没有可用的 Flow tab（如冷静期内被关闭），主动打开一个。
+ */
+async function ensureFlowTabOpen() {
+  try {
+    const ok = await probeFlowTabAvailable();
+    if (!ok) {
+      await chrome.tabs.create({ url: FLOW_URL });
+      addLog('info', '🔄 已打开 Flow 标签页');
+    }
+  } catch (e) {
+    addLog('warn', 'ensureFlowTabOpen failed: ' + (e.message || e));
+  }
 }
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});

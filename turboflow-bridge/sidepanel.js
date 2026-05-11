@@ -117,7 +117,32 @@
     btnRunNow.classList.toggle('hidden', !paused);
     if (paused) {
       btnOpenFlow.classList.add('hidden');
+      refreshCooldownLabel();
+    } else {
+      btnRunNow.textContent = 'Run Now';
     }
+  }
+
+  /**
+   * 倒计时刷新：从 GET_STATUS 拿剩余冷却毫秒，更新按钮文本为 "Run Now (X 分钟)"。
+   * 每秒由 countdownTimer 触发。
+   */
+  async function refreshCooldownLabel() {
+    if (!paused) return;
+    try {
+      const status = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
+      if (!status?.paused) {
+        setPaused(false);
+        return;
+      }
+      const remaining = status.cooldownRemainingMs || 0;
+      if (remaining > 0) {
+        const min = Math.ceil(remaining / 60000);
+        btnRunNow.textContent = `Run Now (${min} min)`;
+      } else {
+        btnRunNow.textContent = 'Run Now';
+      }
+    } catch {}
   }
 
   async function init() {
@@ -224,11 +249,15 @@
       // 因此只要还能接新任务,前端都会看到倒计时,而不局限于完全 Idle
       if (nextPollAt <= 0) {
         countdownEl.textContent = '';
-        return;
+      } else {
+        const remaining = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
+        countdownEl.textContent = `next poll ${remaining}s`;
       }
-      const remaining = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
-      countdownEl.textContent = `next poll ${remaining}s`;
-    }, 500);
+      // 暂停态：每秒刷新 Run Now 按钮的冷却剩余时间
+      if (paused) {
+        refreshCooldownLabel();
+      }
+    }, 1000);
   }
 
   async function loadTaskHistory() {
