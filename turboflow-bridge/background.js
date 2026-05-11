@@ -562,9 +562,10 @@ async function executeTask(service, task) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    if (errorCode === 'RECAPTCHA_BLOCKED') {
-      // 插件端恢复机制已穷尽 → 暂停 poll 并强提示，等用户在 sidepanel 点 Run Now 重新发起
-      pausePoll('⚠️ reCAPTCHA blocked — close & reopen Flow tab, then click Run Now');
+    // RECAPTCHA_BLOCKED / GOOGLE_BLOCKED 都是 Google 风控，自动重试也会失败 → 暂停 poll 等用户介入；
+    // 其它错误（FLOW_DISCONNECTED 由 watchdog 兜底，TIMEOUT 等可能自动恢复）走常规 60s 后重试。
+    if (errorCode === 'RECAPTCHA_BLOCKED' || errorCode === 'GOOGLE_BLOCKED') {
+      pausePoll('⚠️ Google 风控触发 — 关闭并重开 Flow 标签页后点 Run Now');
     } else {
       scheduleLoop(FAILURE_DELAY_MS);
     }
