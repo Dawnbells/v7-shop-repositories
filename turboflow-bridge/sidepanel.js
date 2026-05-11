@@ -13,7 +13,6 @@
   const paginationEl = document.getElementById('pagination');
 
   const servicesEl = document.getElementById('services');
-  const concurrencyEl = document.getElementById('concurrency');
   const btnAddService = document.getElementById('btn-add-service');
   const btnSave = document.getElementById('btn-save');
   const toastEl = document.getElementById('toast');
@@ -356,7 +355,6 @@
   async function loadSettings() {
     const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
     services = config.services || [];
-    if (concurrencyEl) concurrencyEl.value = config.concurrency || 1;
     renderServices();
   }
 
@@ -393,7 +391,7 @@
   async function saveConfig() {
     await chrome.runtime.sendMessage({
       type: 'SAVE_CONFIG',
-      config: { services, concurrency: concurrencyEl ? concurrencyEl.value : 1 },
+      config: { services },
     });
     showToast('Settings saved');
   }

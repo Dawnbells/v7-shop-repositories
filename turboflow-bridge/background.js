@@ -10,13 +10,11 @@ import {
 
 const VERSION = '1.1.0';
 const FLOW_URL = 'https://labs.google/fx/zh/tools/flow/';
-const SUCCESS_DELAY_MS = 10000;
-const FAILURE_DELAY_MS = 60000;
-const IDLE_DELAY_MS = 10000;
+const POLL_INTERVAL_MS = 500;
+const STAGGER_STEP_MS = 250;
+const CONCURRENCY = 4;
 const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
-const DEFAULT_CONCURRENCY = 1;
-const MAX_CONCURRENCY = 100;
 // 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；网速慢时下载重试可达 120 秒，总预算 180 秒。
 const TRANSLATE_TIMEOUT_MS = 180 * 1000;
 // fail 上报失败的重试次数与基础间隔（指数退避）。尽量保证 server 端能及时收到失败信号，避免等到 lease 过期。
@@ -74,45 +72,6 @@ const FLOW_URL_RE = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
 const WATCHDOG_INTERVAL_MS = 1000;
 let flowTabAvailable = false;
 let watchdogTimer = null;
-
-// 自适应并发：任意任务失败 → 实际并发降到 1（保护性退避），连续 N 次成功后逐步升回用户配置值。
-// 目的是在 Google 风控波动时避免反复 burst 多请求，让系统自愈。
-const RECOVERY_SUCCESS_THRESHOLD = 3;
-let configuredConcurrency = 1;      // 用户在 sidepanel 设置的目标值
-let effectiveConcurrency = 0;       // 实际生效，0 表示首次循环时同步到 configured
-let consecutiveSuccessCount = 0;
-
-/**
- * 任务成功路径调用：累计连续成功次数，达到阈值后将 effectiveConcurrency 升 1。
- */
-function onTaskSuccess() {
-  consecutiveSuccessCount++;
-  if (effectiveConcurrency === 0) {
-    effectiveConcurrency = configuredConcurrency;
-    return;
-  }
-  if (effectiveConcurrency < configuredConcurrency
-      && consecutiveSuccessCount >= RECOVERY_SUCCESS_THRESHOLD) {
-    effectiveConcurrency++;
-    consecutiveSuccessCount = 0;
-    addLog('info', `📈 并发逐步恢复到 ${effectiveConcurrency}/${configuredConcurrency}`);
-  }
-}
-
-/**
- * 任务失败路径调用：清零成功计数，将 effectiveConcurrency 强制降到 1。
- * 短时间内连续失败往往与账号/网络状态相关，降并发是保护性退避。
- */
-function onTaskFailure() {
-  consecutiveSuccessCount = 0;
-  if (effectiveConcurrency !== 1) {
-    const prev = effectiveConcurrency;
-    effectiveConcurrency = 1;
-    if (prev > 1) {
-      addLog('warn', `📉 检测到失败，并发临时降为 1（连续 ${RECOVERY_SUCCESS_THRESHOLD} 次成功后恢复）`);
-    }
-  }
-}
 
 /**
  * 轻量级 Flow tab 存活探测：仅查 chrome.tabs，不调 grecaptcha（避免高频消耗 reCAPTCHA token）。
@@ -355,9 +314,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.type === 'SAVE_CONFIG') {
     saveConfig(msg.config || {}).then(async () => {
-      const stored = await chrome.storage.local.get(['services', 'concurrency']);
+      const stored = await chrome.storage.local.get(['services']);
       const count = Array.isArray(stored.services) ? stored.services.length : 0;
-      addLog('info', `Config saved (${count} services, concurrency ${stored.concurrency || DEFAULT_CONCURRENCY})`);
+      addLog('info', `Config saved (${count} services)`);
       scheduleLoop(1000);
       sendResponse({ ok: true });
     });
@@ -501,16 +460,14 @@ async function loadPersistedState() {
 
 async function loadConfig() {
   await ensureBridgeId();
-  const stored = await chrome.storage.local.get(['services', 'concurrency']);
+  const stored = await chrome.storage.local.get(['services']);
   return {
     bridgeId,
     services: Array.isArray(stored.services) ? stored.services : [],
-    concurrency: sanitizeConcurrency(stored.concurrency),
   };
 }
 
 async function saveConfig(config) {
-  const concurrency = sanitizeConcurrency(config.concurrency);
   const services = Array.isArray(config.services)
     ? config.services.map((s) => ({
         baseUrl: (s.baseUrl || '').trim(),
@@ -518,13 +475,7 @@ async function saveConfig(config) {
         enabled: s.enabled !== false,
       })).filter((s) => s.baseUrl && s.token)
     : [];
-  await chrome.storage.local.set({ services, concurrency });
-}
-
-function sanitizeConcurrency(value) {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n)) return DEFAULT_CONCURRENCY;
-  return Math.min(Math.max(n, 1), MAX_CONCURRENCY);
+  await chrome.storage.local.set({ services });
 }
 
 function addTaskHistory(entry) {
@@ -566,7 +517,7 @@ function scheduleLoop(delayMs) {
     timerId = null;
     runLoop().catch((e) => {
       addLog('error', e.message);
-      scheduleLoop(FAILURE_DELAY_MS);
+      scheduleLoop(POLL_INTERVAL_MS);
     });
   }, delayMs);
 }
@@ -574,70 +525,46 @@ function scheduleLoop(delayMs) {
 async function runLoop() {
   if (running) return;
   running = true;
+  let scheduleNext = true;
   try {
-    const config = await loadConfig();
-    configuredConcurrency = config.concurrency;
-    // 首次进入或用户调小配置时，effectiveConcurrency 同步到用户配置
-    if (effectiveConcurrency === 0 || effectiveConcurrency > configuredConcurrency) {
-      effectiveConcurrency = configuredConcurrency;
-    }
-    const concurrency = effectiveConcurrency;
-    if (currentTasks.length >= concurrency) {
+    if (currentTasks.length >= CONCURRENCY) {
       nextPollAt = 0;
       broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
+      scheduleNext = false;
       return;
     }
 
+    const config = await loadConfig();
     const services = config.services.filter((s) => s.enabled !== false && s.baseUrl && s.token);
     const conn = await checkConnection().catch((e) => ({ connected: false, reason: e.message }));
     lastStatus = { connected: conn.connected, message: conn.reason || 'Connected', projectId: conn.projectId };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
-    addLog(conn.connected ? 'info' : 'warn', `Flow: ${conn.connected ? 'connected' : conn.reason || 'disconnected'}`);
 
-    // bridge 自行决定能力：未连接（Flow tab 未就绪 / grecaptcha 不可用 等）就不发起 poll，
-    // 由 watchdog 或下一次 scheduleLoop 重新检查；服务端不再做这层筛选，按 FIFO 派发
     if (!conn.connected) {
-      scheduleLoop(IDLE_DELAY_MS);
+      return;
+    }
+    if (services.length === 0) {
       return;
     }
 
+    // 单次 tick 至多启动 1 个任务（对齐 nano-b lt 调度器每 tick 至多 g() 一次）
     const orderedServices = rotateServices(services);
-    if (orderedServices.length === 0) {
-      addLog('warn', 'No enabled services, idle');
-      scheduleLoop(IDLE_DELAY_MS);
-      return;
-    }
-
-    let received = 0;
-    while (currentTasks.length < concurrency) {
-      let found = false;
-      for (let i = 0; i < orderedServices.length && currentTasks.length < concurrency; i++) {
-        const service = orderedServices[i];
-        const task = await pollTask(service, conn, concurrency);
-        if (task?.hasTask) {
-          found = true;
-          received++;
-          addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
-          serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
-          executeTask(service, task).catch((e) => addLog('error', `Task runner error: ${e.message}`));
-        }
+    for (let i = 0; i < orderedServices.length; i++) {
+      const service = orderedServices[i];
+      const task = await pollTask(service, conn, CONCURRENCY);
+      if (task?.hasTask) {
+        const staggerIndex = currentTasks.length; // 当前已占槽位 0..3，对齐 nano-b 的 250*i 错峰
+        addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
+        serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
+        executeTask(service, task, staggerIndex).catch((e) => addLog('error', `Task runner error: ${e.message}`));
+        break;
       }
-      if (!found) break;
-    }
-
-    if (received === 0) {
-      addLog('info', `Poll done, no tasks (${orderedServices.length} services)`);
-    } else {
-      addLog('info', `Poll done, received ${received}, running ${currentTasks.length}/${concurrency}`);
-    }
-    if (currentTasks.length < concurrency) {
-      scheduleLoop(IDLE_DELAY_MS);
-    } else {
-      nextPollAt = 0;
-      broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
     }
   } finally {
     running = false;
+    if (scheduleNext) {
+      scheduleLoop(POLL_INTERVAL_MS);
+    }
   }
 }
 
@@ -655,7 +582,7 @@ async function pollTask(service, conn, concurrency) {
   });
 }
 
-async function executeTask(service, task) {
+async function executeTask(service, task, staggerIndex = 0) {
   const prompt = buildPrompt(task);
   const targetLang = task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese';
   const sourceImage = ensureDataUrl(task.imageBase64);
@@ -675,6 +602,11 @@ async function executeTask(service, task) {
   const sourceThumb = await createThumbnail(task.imageBase64, 64);
   taskState.sourceThumb = sourceThumb;
   broadcastTasksChanged();
+
+  // 对齐 nano-b 任务内 await ae(250 * i) 错峰
+  if (staggerIndex > 0) {
+    await sleep(STAGGER_STEP_MS * staggerIndex);
+  }
 
   const startedAt = Date.now();
   try {
@@ -705,10 +637,9 @@ async function executeTask(service, task) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    // 任务成功完成 → 清零 reCAPTCHA 恢复计数 + 累计成功，逐步升回并发
+    // 任务成功完成 → 清零 reCAPTCHA 恢复计数
     resetRecoveryState();
-    onTaskSuccess();
-    scheduleLoop(SUCCESS_DELAY_MS);
+    scheduleLoop(POLL_INTERVAL_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
     const errorCode = classifyErrorCode(e.message);
@@ -737,14 +668,12 @@ async function executeTask(service, task) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    // 任意失败 → 并发临时降为 1，让系统在风控波动期自愈
-    onTaskFailure();
     // RECAPTCHA_BLOCKED / GOOGLE_BLOCKED 都是 Google 风控，自动重试也会失败 → 暂停 poll 等用户介入；
-    // 其它错误（FLOW_DISCONNECTED 由 watchdog 兜底，TIMEOUT 等可能自动恢复）走常规 60s 后重试。
+    // 其它错误（FLOW_DISCONNECTED 由 watchdog 兜底，TIMEOUT 等可能自动恢复）走 500ms 后重试。
     if (errorCode === 'RECAPTCHA_BLOCKED' || errorCode === 'GOOGLE_BLOCKED') {
       pausePoll('⚠️ Google 风控触发 — 关闭并重开 Flow 标签页后点 Run Now');
     } else {
-      scheduleLoop(FAILURE_DELAY_MS);
+      scheduleLoop(POLL_INTERVAL_MS);
     }
   }
 }

@@ -14,25 +14,6 @@ const MAX_PAGE_RELOAD = 2;
 const PAGE_LOAD_TIMEOUT_MS = 30 * 1000;
 const RECAPTCHA_SETTLE_MS = 5 * 1000;
 
-// 全局 API 调用节流：concurrency 较高时强制每两次 fetch 之间至少有 MIN_API_INTERVAL_MS + 抖动；
-// 避免短时间 burst 多个 grecaptcha+API 请求被 Google 风控识别为非人类行为。
-const MIN_API_INTERVAL_MS = 300;
-const API_INTERVAL_JITTER_MS = 200;
-let nextApiSlotAt = 0;
-
-/**
- * 简单令牌桶节流：每次调用 reserve 下一个时间槽并 sleep 到该时间。
- * 并发场景下，N 个调用会被错开为 0、~300ms、~600ms...，整体形成 ~300-500ms 的"自然节奏"。
- */
-async function throttleApiCall() {
-  const now = Date.now();
-  const myTurn = Math.max(now, nextApiSlotAt);
-  nextApiSlotAt = myTurn + MIN_API_INTERVAL_MS + Math.random() * API_INTERVAL_JITTER_MS;
-  if (myTurn > now) {
-    await sleep(myTurn - now);
-  }
-}
-
 let cachedToken = null;
 let tokenTimestamp = 0;
 let flowTabId = null;
@@ -315,7 +296,6 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
 
   const bodyStr = JSON.stringify(payloadCopy);
 
-  await throttleApiCall();
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -413,7 +393,6 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
 // ── Upload image to Flow ───────────────────────────────────────────
 
 export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid, token }, retryCount = 0) {
-  await throttleApiCall();
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -582,40 +561,13 @@ export function getMediaRedirectUrl(mediaId) {
 }
 
 // ── Fetch image as base64 from the Flow tab context ────────────────
+//
+// 对齐 nano-b：图片字节通过 Flow tab 内 Image+canvas+toBlob('image/png') 取出。
+// Image.crossOrigin='anonymous' 绕开 Google CDN 的 CORS 限制，比直接 fetch() 更稳。
+// 与 nano-b 的差异：nano-b 返回 blob URL 由 background 再 fetch 下载到磁盘；
+// bridge 需要把图片 base64 上报到自己的后端，所以这里通过 readAsDataURL 直接拿到 dataUrl。
 
-async function fetchViaFetchApi(tabId, imageUrl, timeoutMs) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: async (url, tMs) => {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), tMs);
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timer);
-        if (!res.ok) return { error: 'HTTP ' + res.status };
-        const blob = await res.blob();
-        return await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve({ success: true, dataUrl: reader.result, size: blob.size });
-          reader.onerror = () => resolve({ error: 'FileReader failed' });
-          reader.readAsDataURL(blob);
-        });
-      } catch (e) {
-        return { error: e.name === 'AbortError' ? `fetch timed out (${tMs / 1000}s)` : e.message };
-      }
-    },
-    args: [imageUrl, timeoutMs],
-  });
-
-  const result = results?.[0]?.result;
-  if (!result || result.error) {
-    throw new Error('fetch failed: ' + (result?.error || 'unknown'));
-  }
-  return result;
-}
-
-async function fetchViaImageElement(tabId, imageUrl, timeoutMs) {
+export async function fetchImageAsBase64(tabId, imageUrl, timeoutMs = 60000) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -660,17 +612,9 @@ async function fetchViaImageElement(tabId, imageUrl, timeoutMs) {
 
   const result = results?.[0]?.result;
   if (!result || result.error) {
-    throw new Error('Image element failed: ' + (result?.error || 'unknown'));
+    throw new Error('Failed to fetch image: ' + (result?.error || 'unknown'));
   }
   return result;
-}
-
-export async function fetchImageAsBase64(tabId, imageUrl, timeoutMs = 60000) {
-  try {
-    return await fetchViaFetchApi(tabId, imageUrl, timeoutMs);
-  } catch (fetchErr) {
-    return await fetchViaImageElement(tabId, imageUrl, timeoutMs);
-  }
 }
 
 // ── Full connection check ──────────────────────────────────────────
