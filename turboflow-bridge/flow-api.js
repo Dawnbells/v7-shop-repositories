@@ -14,6 +14,25 @@ const MAX_PAGE_RELOAD = 2;
 const PAGE_LOAD_TIMEOUT_MS = 30 * 1000;
 const RECAPTCHA_SETTLE_MS = 5 * 1000;
 
+// 全局 API 调用节流：concurrency 较高时强制每两次 fetch 之间至少有 MIN_API_INTERVAL_MS + 抖动；
+// 避免短时间 burst 多个 grecaptcha+API 请求被 Google 风控识别为非人类行为。
+const MIN_API_INTERVAL_MS = 300;
+const API_INTERVAL_JITTER_MS = 200;
+let nextApiSlotAt = 0;
+
+/**
+ * 简单令牌桶节流：每次调用 reserve 下一个时间槽并 sleep 到该时间。
+ * 并发场景下，N 个调用会被错开为 0、~300ms、~600ms...，整体形成 ~300-500ms 的"自然节奏"。
+ */
+async function throttleApiCall() {
+  const now = Date.now();
+  const myTurn = Math.max(now, nextApiSlotAt);
+  nextApiSlotAt = myTurn + MIN_API_INTERVAL_MS + Math.random() * API_INTERVAL_JITTER_MS;
+  if (myTurn > now) {
+    await sleep(myTurn - now);
+  }
+}
+
 let cachedToken = null;
 let tokenTimestamp = 0;
 let flowTabId = null;
@@ -296,6 +315,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
 
   const bodyStr = JSON.stringify(payloadCopy);
 
+  await throttleApiCall();
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -393,6 +413,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
 // ── Upload image to Flow ───────────────────────────────────────────
 
 export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid, token }, retryCount = 0) {
+  await throttleApiCall();
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
