@@ -62,6 +62,11 @@ let logHistory = [];
 // reCAPTCHA 恢复全部失败时进入暂停：停止主动 poll，需用户在 sidepanel 点 Run Now 显式恢复。
 let pollPaused = false;
 let pauseReason = null;
+let pausedAt = 0;
+
+// 暂停后强制冷却时长：Google 账号级风控（如 "Unusual activity"）通常需要小时级冷却，
+// 短时间内反复 Run Now 只会加重风控。30 分钟是社区经验的最小安全窗口。
+const PAUSE_MIN_COOLDOWN_MS = 30 * 60 * 1000;
 
 // Flow 标签页可用性看门狗：每秒探测，标签关闭 → 立即阻断 poll；重新打开 → 自动恢复
 const FLOW_URL_RE = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
@@ -85,7 +90,7 @@ async function probeFlowTabAvailable() {
 /**
  * 启动每秒一次的 Flow tab 看门狗。
  * - 关闭 → 终止 pending timer + 广播 disconnected + scheduleLoop 在此后被短路
- * - 重新打开 → 自动 scheduleLoop(100) 触发完整 checkConnection 流程
+ * - 重新打开 → 尝试 resumePoll（受冷却限制）+ scheduleLoop(100) 触发完整 checkConnection 流程
  */
 function startConnectionWatchdog() {
   if (watchdogTimer) return;
@@ -96,6 +101,10 @@ function startConnectionWatchdog() {
     if (ok) {
       addLog('info', '✅ Flow tab detected');
       broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: 'Verifying Flow connection...', projectId: null });
+      // 暂停态下尝试自动恢复：30 分钟冷却内 resumePoll 会返回 false 并写 warn 日志，提醒用户继续等待
+      if (pollPaused) {
+        resumePoll(false);
+      }
       scheduleLoop(100);
     } else {
       const reason = 'Flow tab closed — open Google Flow to resume';
@@ -148,6 +157,7 @@ function pausePoll(reason) {
   if (alreadyPaused) {
     return;
   }
+  pausedAt = Date.now();
   safeAction((action) => action.setBadgeText({ text: '!' }));
   safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
   lastStatus = { connected: false, message: reason };
@@ -158,17 +168,27 @@ function pausePoll(reason) {
 }
 
 /**
- * 用户显式恢复：清掉暂停状态、清 badge、重置 reCAPTCHA 恢复计数。
- * 由 RUN_NOW 等消息触发。
+ * 恢复 poll。
+ * - force=false：受 PAUSE_MIN_COOLDOWN_MS 限制，避免短时反复 Run Now 加重 Google 风控
+ * - force=true：强制恢复（例如用户在 sidepanel 显式确认后）
+ * 返回是否真的恢复成功。
  */
-function resumePoll() {
+function resumePoll(force = false) {
   if (!pollPaused) return false;
+  const elapsed = Date.now() - pausedAt;
+  if (!force && elapsed < PAUSE_MIN_COOLDOWN_MS) {
+    const remainingMin = Math.ceil((PAUSE_MIN_COOLDOWN_MS - elapsed) / 60000);
+    addLog('warn',
+      `⏳ Google 风控冷却中：建议再等 ${remainingMin} 分钟。短时强制恢复可能加重风控甚至触发临时封禁。`);
+    return false;
+  }
   pollPaused = false;
   pauseReason = null;
+  pausedAt = 0;
   resetRecoveryState();
   safeAction((action) => action.setBadgeText({ text: '' }));
   broadcast({ type: 'BRIDGE_RESUMED' });
-  addLog('info', '✅ Poll resumed by user');
+  addLog('info', force ? '✅ Poll force-resumed by user' : '✅ Poll auto-resumed after cooldown');
   return true;
 }
 
@@ -230,6 +250,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_STATUS') {
+    const cooldownRemainingMs = pollPaused
+      ? Math.max(0, PAUSE_MIN_COOLDOWN_MS - (Date.now() - pausedAt))
+      : 0;
     sendResponse({
       running,
       currentTask: currentTasks[0] || null,
@@ -238,13 +261,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       nextPollAt,
       paused: pollPaused,
       pauseReason,
+      pausedAt: pollPaused ? pausedAt : 0,
+      cooldownRemainingMs,
     });
     return false;
   }
 
   if (msg.type === 'RUN_NOW') {
-    // 用户主动触发 → 总是先尝试退出暂停态，再 schedule 一次立即 poll
-    resumePoll();
+    // 用户主动触发：尊重冷却时间，msg.force=true 时强制（即用户在 confirm 对话框中明确确认）
+    const wasPaused = pollPaused;
+    const resumed = resumePoll(msg.force === true);
+    if (wasPaused && !resumed) {
+      const elapsed = Date.now() - pausedAt;
+      const remainingMs = Math.max(0, PAUSE_MIN_COOLDOWN_MS - elapsed);
+      sendResponse({ ok: false, requireConfirm: true, remainingMs, pauseReason });
+      return false;
+    }
     scheduleLoop(100);
     sendResponse({ ok: true });
     return false;
