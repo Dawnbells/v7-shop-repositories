@@ -74,6 +74,45 @@ const WATCHDOG_INTERVAL_MS = 1000;
 let flowTabAvailable = false;
 let watchdogTimer = null;
 
+// 自适应并发：任意任务失败 → 实际并发降到 1（保护性退避），连续 N 次成功后逐步升回用户配置值。
+// 目的是在 Google 风控波动时避免反复 burst 多请求，让系统自愈。
+const RECOVERY_SUCCESS_THRESHOLD = 3;
+let configuredConcurrency = 1;      // 用户在 sidepanel 设置的目标值
+let effectiveConcurrency = 0;       // 实际生效，0 表示首次循环时同步到 configured
+let consecutiveSuccessCount = 0;
+
+/**
+ * 任务成功路径调用：累计连续成功次数，达到阈值后将 effectiveConcurrency 升 1。
+ */
+function onTaskSuccess() {
+  consecutiveSuccessCount++;
+  if (effectiveConcurrency === 0) {
+    effectiveConcurrency = configuredConcurrency;
+    return;
+  }
+  if (effectiveConcurrency < configuredConcurrency
+      && consecutiveSuccessCount >= RECOVERY_SUCCESS_THRESHOLD) {
+    effectiveConcurrency++;
+    consecutiveSuccessCount = 0;
+    addLog('info', `📈 并发逐步恢复到 ${effectiveConcurrency}/${configuredConcurrency}`);
+  }
+}
+
+/**
+ * 任务失败路径调用：清零成功计数，将 effectiveConcurrency 强制降到 1。
+ * 短时间内连续失败往往与账号/网络状态相关，降并发是保护性退避。
+ */
+function onTaskFailure() {
+  consecutiveSuccessCount = 0;
+  if (effectiveConcurrency !== 1) {
+    const prev = effectiveConcurrency;
+    effectiveConcurrency = 1;
+    if (prev > 1) {
+      addLog('warn', `📉 检测到失败，并发临时降为 1（连续 ${RECOVERY_SUCCESS_THRESHOLD} 次成功后恢复）`);
+    }
+  }
+}
+
 /**
  * 轻量级 Flow tab 存活探测：仅查 chrome.tabs，不调 grecaptcha（避免高频消耗 reCAPTCHA token）。
  * grecaptcha 风控由 runLoop 内的 checkConnection 二次校验。
@@ -461,7 +500,12 @@ async function runLoop() {
   running = true;
   try {
     const config = await loadConfig();
-    const concurrency = config.concurrency;
+    configuredConcurrency = config.concurrency;
+    // 首次进入或用户调小配置时，effectiveConcurrency 同步到用户配置
+    if (effectiveConcurrency === 0 || effectiveConcurrency > configuredConcurrency) {
+      effectiveConcurrency = configuredConcurrency;
+    }
+    const concurrency = effectiveConcurrency;
     if (currentTasks.length >= concurrency) {
       nextPollAt = 0;
       broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
@@ -585,8 +629,9 @@ async function executeTask(service, task) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    // 任务成功完成 → 清零 reCAPTCHA 恢复计数，避免上一次偶发风控影响后续任务
+    // 任务成功完成 → 清零 reCAPTCHA 恢复计数 + 累计成功，逐步升回并发
     resetRecoveryState();
+    onTaskSuccess();
     scheduleLoop(SUCCESS_DELAY_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
@@ -616,6 +661,8 @@ async function executeTask(service, task) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
+    // 任意失败 → 并发临时降为 1，让系统在风控波动期自愈
+    onTaskFailure();
     // RECAPTCHA_BLOCKED / GOOGLE_BLOCKED 都是 Google 风控，自动重试也会失败 → 暂停 poll 等用户介入；
     // 其它错误（FLOW_DISCONNECTED 由 watchdog 兜底，TIMEOUT 等可能自动恢复）走常规 60s 后重试。
     if (errorCode === 'RECAPTCHA_BLOCKED' || errorCode === 'GOOGLE_BLOCKED') {
