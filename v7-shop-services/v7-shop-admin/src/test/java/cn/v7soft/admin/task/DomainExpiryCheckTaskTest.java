@@ -26,6 +26,7 @@ import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.SSLCertificate;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
+import cn.v7soft.dao.enums.CertificateRequestStatus;
 import cn.v7soft.dao.repositories.primary.TopLevelDomainRepository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,7 +82,7 @@ class DomainExpiryCheckTaskTest {
         domain.setCompanyId(companyId);
         setId(domain, 1L);
 
-        sslUtilMock.when(() -> SslCertificateUtil.getExpiryDate(domain)).thenReturn(certExpiry);
+        sslUtilMock.when(() -> SslCertificateUtil.getRealExpiryDate(domain)).thenReturn(certExpiry);
 
         return domain;
     }
@@ -307,5 +308,37 @@ class DomainExpiryCheckTaskTest {
 
         verify(noticeService).createNotice(
                 eq("域名即将被删除"), contains("证书已过期"), eq("DOMAIN"), eq(100L));
+    }
+
+    @Test
+    @DisplayName("证书未设置且申请进行中(QUEUE)时不进入删除流程")
+    void shouldNotEnterDeletionFlowWhenCertMissingButRequestQueued() {
+        TopLevelDomain domain = buildDomain("queued.com", 1L,
+                null, LocalDateTime.now().plusDays(365));
+        domain.setCertificateRequestStatus(CertificateRequestStatus.QUEUE);
+        when(topLevelDomainRepository.findAllValidDomains()).thenReturn(List.of(domain));
+        setupTransactionTemplate();
+        setupCompany(1L);
+
+        task.checkDomainExpiry();
+
+        verifyNoInteractions(noticeService);
+        assertEquals(0, domain.getDeletionNoticeCount());
+    }
+
+    @Test
+    @DisplayName("证书未设置且申请进行中(REQUESTING)时不进入删除流程")
+    void shouldNotEnterDeletionFlowWhenCertMissingButRequesting() {
+        TopLevelDomain domain = buildDomain("requesting.com", 1L,
+                null, LocalDateTime.now().plusDays(365));
+        domain.setCertificateRequestStatus(CertificateRequestStatus.REQUESTING);
+        when(topLevelDomainRepository.findAllValidDomains()).thenReturn(List.of(domain));
+        setupTransactionTemplate();
+        setupCompany(1L);
+
+        task.checkDomainExpiry();
+
+        verifyNoInteractions(noticeService);
+        assertEquals(0, domain.getDeletionNoticeCount());
     }
 }

@@ -4,7 +4,7 @@ alwaysApply: true
 
 # Git Commit 规则
 
-格式：Conventional Commits，中文描述。
+格式：Conventional Commits，中文描述 + 每行子项描述。
 示例：`feat(ad): 新增广告配置功能`
 
 人工确认：未收到明确提交指令（如"提交"/"commit"/"帮我提交"）前，禁止任何 git 操作。

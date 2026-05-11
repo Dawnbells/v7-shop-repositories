@@ -28,24 +28,70 @@ import java.util.List;
 
 @Slf4j
 public class SslCertificateUtil {
+    public static final String PLACEHOLDER_DNS_NAME = "placeholder.invalid";
+
     static {
         // 注册 BouncyCastle 提供程序
         Security.addProvider(new BouncyCastleProvider());
     }
 
     public static LocalDateTime getExpiryDate(TopLevelDomain domain) {
-        try {
-            String path = "/www/certs/" + domain.getCompanyId() + "/" + domain.getName() + "/fullchain.pem";
-            FileInputStream fis = new FileInputStream(path);
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            X509Certificate certificate = (X509Certificate) cf.generateCertificate(fis);
-            // 提取证书的过期时间
-            Date notAfter = certificate.getNotAfter();
-            return LocalDateTimeUtil.of(notAfter);
-        } catch (Exception e) {
-            e.printStackTrace();
+        X509Certificate certificate = loadCertificate(domain);
+        if (certificate == null) {
             return null;
         }
+        return LocalDateTimeUtil.of(certificate.getNotAfter());
+    }
+
+    /**
+     * 返回真实证书的有效期。占位证书或证书缺失时返回 null。
+     * 用于巡检和申请失败路径，避免占位证书的 100 年有效期污染业务数据。
+     */
+    public static LocalDateTime getRealExpiryDate(TopLevelDomain domain) {
+        X509Certificate certificate = loadCertificate(domain);
+        if (certificate == null || isPlaceholder(certificate)) {
+            return null;
+        }
+        return LocalDateTimeUtil.of(certificate.getNotAfter());
+    }
+
+    /**
+     * 判断磁盘上的证书文件是否为占位证书（CN/SAN 命中 placeholder.invalid）。
+     */
+    public static boolean isPlaceholderCertificate(TopLevelDomain domain) {
+        X509Certificate certificate = loadCertificate(domain);
+        return certificate != null && isPlaceholder(certificate);
+    }
+
+    private static X509Certificate loadCertificate(TopLevelDomain domain) {
+        String path = "/www/certs/" + domain.getCompanyId() + "/" + domain.getName() + "/fullchain.pem";
+        try (FileInputStream fis = new FileInputStream(path)) {
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            return (X509Certificate) cf.generateCertificate(fis);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static boolean isPlaceholder(X509Certificate certificate) {
+        try {
+            String subjectDn = certificate.getSubjectX500Principal().getName();
+            if (subjectDn != null && subjectDn.contains("CN=" + PLACEHOLDER_DNS_NAME)) {
+                return true;
+            }
+            Collection<List<?>> altNames = certificate.getSubjectAlternativeNames();
+            if (altNames != null) {
+                for (List<?> item : altNames) {
+                    if (item.size() >= 2 && Integer.valueOf(2).equals(item.get(0))
+                            && PLACEHOLDER_DNS_NAME.equals(item.get(1))) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("isPlaceholder check failed", e);
+        }
+        return false;
     }
 
     private static void write(String path, String content) {

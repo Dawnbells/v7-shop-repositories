@@ -68,7 +68,7 @@ public class CertificateRequestListener {
                     .errorMsg(sslResult.getErrorMsg())
                     .sslPushMsg("")
                     .errLog(sslResult.getErrLog())
-                    .certificateExpiryDate(SslCertificateUtil.getExpiryDate(domain))
+                    .certificateExpiryDate(sslResult.isSuccess() ? SslCertificateUtil.getRealExpiryDate(domain) : null)
                     .build();
             domain.setSslCertificate(sslCertificate);
 

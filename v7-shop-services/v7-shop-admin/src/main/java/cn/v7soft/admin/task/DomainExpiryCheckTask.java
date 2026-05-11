@@ -24,6 +24,7 @@ import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.entities.primary.SSLCertificate;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
+import cn.v7soft.dao.enums.CertificateRequestStatus;
 import cn.v7soft.dao.repositories.primary.TopLevelDomainRepository;
 import cn.v7soft.dao.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
@@ -131,9 +132,11 @@ public class DomainExpiryCheckTask {
                 && domainExpiry.isBefore(LocalDateTime.now().plusDays(EXPIRY_WARNING_DAYS));
 
         Long ownerId = getOwnerId(domain);
+        boolean inRequestProgress = domain.getCertificateRequestStatus() == CertificateRequestStatus.QUEUE
+                || domain.getCertificateRequestStatus() == CertificateRequestStatus.REQUESTING;
 
-        // 1. 证书过期≥5天 或 证书未设置 → 进入删除流程
-        if (certMissing || certExpiredDays >= DELETION_TRIGGER_EXPIRED_DAYS) {
+        // 1. 证书过期≥5天 或 证书未设置 → 进入删除流程（申请进行中除外，避免误删新建域名）
+        if (!inRequestProgress && (certMissing || certExpiredDays >= DELETION_TRIGGER_EXPIRED_DAYS)) {
             return handleDeletionFlow(domain, ownerId, certMissing
                     ? "证书未设置"
                     : "证书已过期" + certExpiredDays + "天");
@@ -219,11 +222,12 @@ public class DomainExpiryCheckTask {
     }
 
     /**
-     * 读取磁盘上的实际证书有效期
+     * 读取磁盘上的实际证书有效期。占位证书视为"证书未设置"，返回 null，
+     * 避免占位证书 100 年有效期污染巡检判断与数据库证书有效期字段。
      */
     private LocalDateTime readActualCertExpiry(TopLevelDomain domain) {
         try {
-            return SslCertificateUtil.getExpiryDate(domain);
+            return SslCertificateUtil.getRealExpiryDate(domain);
         } catch (Exception e) {
             log.debug("[DomainExpiryCheck] 域名 {} 读取证书文件失败: {}", domain.getName(), e.getMessage());
             return null;

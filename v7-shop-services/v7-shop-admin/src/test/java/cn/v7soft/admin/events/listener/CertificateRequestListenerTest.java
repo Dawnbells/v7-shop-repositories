@@ -30,6 +30,7 @@ import cn.v7soft.dao.enums.CertificateRequestStatus;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -59,7 +60,7 @@ class CertificateRequestListenerTest {
     void setUp() {
         hibernateMock = mockStatic(Hibernate.class);
         sslUtilMock = mockStatic(SslCertificateUtil.class);
-        sslUtilMock.when(() -> SslCertificateUtil.getExpiryDate(any(TopLevelDomain.class)))
+        sslUtilMock.when(() -> SslCertificateUtil.getRealExpiryDate(any(TopLevelDomain.class)))
                 .thenReturn(LocalDateTime.now().plusDays(90));
         lenient().when(cloudPlatformAccountService.getCertificateRequester(any(CloudPlatformAccount.class)))
                 .thenReturn(certificateRequester);
@@ -108,7 +109,7 @@ class CertificateRequestListenerTest {
     }
 
     @Test
-    @DisplayName("证书申请失败 → 不执行 push.sh、状态 ERROR")
+    @DisplayName("证书申请失败 → 不执行 push.sh、状态 ERROR、不写入 certificateExpiryDate")
     void shouldNotPushWhenCertificateRequestFailure() throws IOException {
         TopLevelDomain domain = buildDomain(true);
         lenient().when(topLevelDomainService.getById(1L)).thenReturn(domain);
@@ -123,6 +124,9 @@ class CertificateRequestListenerTest {
 
         verify(listener, never()).executePushScript();
         assertEquals(CertificateRequestStatus.ERROR, domain.getCertificateRequestStatus());
+        assertNotNull(domain.getSslCertificate());
+        assertNull(domain.getSslCertificate().getCertificateExpiryDate());
+        sslUtilMock.verify(() -> SslCertificateUtil.getRealExpiryDate(any(TopLevelDomain.class)), never());
     }
 
     @Test
@@ -163,7 +167,7 @@ class CertificateRequestListenerTest {
                 .build();
         lenient().when(certificateRequester.handleRequestSslCertificate(any(), any())).thenReturn(success);
 
-        sslUtilMock.when(() -> SslCertificateUtil.getExpiryDate(any(TopLevelDomain.class)))
+        sslUtilMock.when(() -> SslCertificateUtil.getRealExpiryDate(any(TopLevelDomain.class)))
                 .thenThrow(new RuntimeException("解析证书过期时间失败"));
 
         listener.handleCertificateRequest(new CertificateRequestEvent(this, 1L, null));
