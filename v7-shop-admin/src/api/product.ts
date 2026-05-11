@@ -50,11 +50,12 @@ export function translateByAI(data: { productId: string; countryId: string; lang
   })
 }
 
-export function aiTranslateImage(data: { multimediaFileId: string; languageId: string; prompt?: string; aiAccountId: string; imageUrl?: string }) {
+export function aiTranslateImage(data: { multimediaFileId?: string; imageUrl?: string; imageDataBase64?: string; languageId: string; prompt?: string; aiAccountId: string }) {
   return request({
     url: '/product/ai-translate/image',
     method: 'post',
     data,
+    timeout: 300000,
   })
 }
 

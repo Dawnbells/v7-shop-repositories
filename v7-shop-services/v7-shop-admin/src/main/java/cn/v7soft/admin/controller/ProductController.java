@@ -118,8 +118,9 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @PostMapping(value = "/ai-translate/text-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter aiTranslateTextStream(@Valid @RequestBody AiTranslateTextRequest request) {
         checkAiTranslatePermission();
+        cn.v7soft.dao.entities.primary.SystemUser owner = SaSessionUtil.getLoginOwner();
         SseEmitter emitter = new SseEmitter(300_000L);
-        aiTranslateService.streamText(request, emitter);
+        aiTranslateService.streamText(request, owner, emitter);
         return emitter;
     }
 
@@ -127,8 +128,9 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @PostMapping(value = "/ai-translate/html-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter aiTranslateHtmlStream(@Valid @RequestBody AiTranslateHtmlRequest request) {
         checkAiTranslatePermission();
+        cn.v7soft.dao.entities.primary.SystemUser owner = SaSessionUtil.getLoginOwner();
         SseEmitter emitter = new SseEmitter(300_000L);
-        aiTranslateService.streamHtml(request, emitter);
+        aiTranslateService.streamHtml(request, owner, emitter);
         return emitter;
     }
 
@@ -136,7 +138,8 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @PostMapping("/ai-translate/image")
     public AiTranslateImageResponse aiTranslateImage(@Valid @RequestBody AiTranslateImageRequest request) throws Exception {
         checkAiTranslatePermission();
-        return aiTranslateService.translateImage(request);
+        cn.v7soft.dao.entities.primary.SystemUser owner = SaSessionUtil.getLoginOwner();
+        return aiTranslateService.translateImage(request, owner);
     }
 
     private void checkAiTranslatePermission() {

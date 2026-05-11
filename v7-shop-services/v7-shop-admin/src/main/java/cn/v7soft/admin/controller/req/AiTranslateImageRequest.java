@@ -10,7 +10,6 @@ import lombok.Setter;
 @Setter
 public class AiTranslateImageRequest {
 
-    @NotBlank(message = "图片文件ID不能为空")
     @Pattern(regexp = "^[0-9]+$", message = "图片文件ID格式不正确")
     private String multimediaFileId;
 
@@ -26,4 +25,7 @@ public class AiTranslateImageRequest {
     private String aiAccountId;
 
     private String imageUrl;
+
+    @Size(max = 20971520, message = "base64图片数据过大")
+    private String imageDataBase64;
 }

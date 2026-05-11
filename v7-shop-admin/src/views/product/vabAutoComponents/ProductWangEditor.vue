@@ -17,18 +17,20 @@
       @click.stop="openImgTranslateDialog"
     >
       <svg
-        fill="none"
-        height="12"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="2"
+        fill="#fff"
+        height="16"
+        style="display: block; fill: #fff"
         viewBox="0 0 24 24"
-        width="12"
+        width="16"
       >
-        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-        <path d="M2 17l10 5 10-5" />
-        <path d="M2 12l10 5 10-5" />
+        <path
+          d="M10 4 L11.8 11.2 L19 13 L11.8 14.8 L10 22 L8.2 14.8 L1 13 L8.2 11.2 Z"
+          style="fill: #fff"
+        />
+        <path
+          d="M18 2 L18.7 5.3 L22 6 L18.7 6.7 L18 10 L17.3 6.7 L14 6 L17.3 5.3 Z"
+          style="fill: #fff"
+        />
       </svg>
     </div>
     <ai-translate-prompt-dialog
@@ -199,9 +201,15 @@ const currentImgSource = ref<any>({ id: '', absolutionPath: '' })
 let currentHoveredImg: HTMLImageElement | null = null
 let imgLeaveTimer: ReturnType<typeof setTimeout> | null = null
 
-const extractFileIdFromSrc = (src: string): string => {
-  const match = src.match(/\/multimedia\/(\d+)/)
-  return match ? match[1] : ''
+const buildImgSource = (img: HTMLImageElement) => {
+  const src = img.src || ''
+  const m = src.match(/\/(\d+)(?:\?[^/]*)?$/)
+  return {
+    multimediaFileId: m ? m[1] : '',
+    imageUrl: src.startsWith('data:') ? '' : src,
+    imageDataBase64: src.startsWith('data:') ? (src.includes(',') ? src.split(',')[1] : '') : '',
+    absolutionPath: src,
+  }
 }
 
 const onEditorMouseOver = (e: MouseEvent) => {
@@ -221,11 +229,7 @@ const onEditorMouseOver = (e: MouseEvent) => {
       top: `${imgRect.top - containerRect.top + 4}px`,
       left: `${imgRect.left - containerRect.left + 4}px`,
     }
-    currentImgSource.value = {
-      id: extractFileIdFromSrc(img.src),
-      multimediaFileId: extractFileIdFromSrc(img.src),
-      absolutionPath: img.src,
-    }
+    currentImgSource.value = buildImgSource(img)
     imgAiBtnVisible.value = true
   }
 }
@@ -295,14 +299,12 @@ onBeforeUnmount(() => {
   height: 22px;
   color: #fff;
   cursor: pointer;
-  background: var(--el-color-primary);
+  background: #409eff;
   border-radius: 50%;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-  opacity: 0.9;
-  transition: opacity 0.2s, transform 0.2s;
+  transition: transform 0.2s;
 
   &:hover {
-    opacity: 1;
     transform: scale(1.15);
   }
 }
