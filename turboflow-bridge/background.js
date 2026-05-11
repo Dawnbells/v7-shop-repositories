@@ -420,6 +420,13 @@ async function runLoop() {
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
     addLog(conn.connected ? 'info' : 'warn', `Flow: ${conn.connected ? 'connected' : conn.reason || 'disconnected'}`);
 
+    // bridge 自行决定能力：未连接（Flow tab 未就绪 / grecaptcha 不可用 等）就不发起 poll，
+    // 由 watchdog 或下一次 scheduleLoop 重新检查；服务端不再做这层筛选，按 FIFO 派发
+    if (!conn.connected) {
+      scheduleLoop(IDLE_DELAY_MS);
+      return;
+    }
+
     const orderedServices = rotateServices(services);
     if (orderedServices.length === 0) {
       addLog('warn', 'No enabled services, idle');

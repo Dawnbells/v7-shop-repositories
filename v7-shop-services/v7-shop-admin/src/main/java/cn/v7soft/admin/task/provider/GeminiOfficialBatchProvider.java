@@ -107,7 +107,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
                     subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), pendingQueue.size());
         } catch (Exception e) {
             log.error("[GeminiBatch] failed to prepare batch entry: {}", subTask.getSubTaskId(), e);
-            callback.onSubTaskFailed(subTask, "prepare failed: " + e.getMessage(), true, null);
+            callback.onSubTaskFailed(subTask, "prepare failed: " + e.getMessage(), true, null, null);
         }
     }
 
@@ -125,7 +125,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             BatchEntry entry = pendingIt.next();
             if (taskId.equals(entry.subTask.getTaskId())) {
                 pendingIt.remove();
-                callback.onSubTaskFailed(entry.subTask, "task cancelled", false, null);
+                callback.onSubTaskFailed(entry.subTask, "task cancelled", false, null, null);
             }
         }
         // 2. activeBatches 中的 entries：已提交到 Gemini，可能已消耗 token，按预估计费
@@ -137,7 +137,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
                 if (taskId.equals(entry.subTask.getTaskId())) {
                     entryIt.remove();
                     callback.onSubTaskFailed(entry.subTask, "task cancelled (batch in-flight)",
-                            false, buildEstimatedResult(entry));
+                            false, buildEstimatedResult(entry), null);
                 }
             }
         }
@@ -193,7 +193,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
         } catch (Exception e) {
             log.error("[GeminiBatch] flush failed, failing {} subtasks", batch.size(), e);
             for (BatchEntry entry : batch) {
-                callback.onSubTaskFailed(entry.subTask, "batch submit failed: " + e.getMessage(), true, null);
+                callback.onSubTaskFailed(entry.subTask, "batch submit failed: " + e.getMessage(), true, null, null);
             }
             // submit 失败说明 Gemini 尚未处理，不计费
         }
@@ -298,7 +298,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             if (node == null || !node.has("response")) {
                 log.debug("[GeminiBatch] batch result missing entry: jobName={}, key={}", ab.jobName, key);
                 callback.onSubTaskFailed(entry.subTask, "no result in batch for key: " + key,
-                        false, buildEstimatedResult(entry));
+                        false, buildEstimatedResult(entry), null);
                 continue;
             }
             try {
@@ -308,7 +308,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             } catch (Exception ex) {
                 log.error("[GeminiBatch] process entry failed: key={}", key, ex);
                 callback.onSubTaskFailed(entry.subTask, "process failed: " + ex.getMessage(),
-                        false, buildEstimatedResult(entry));
+                        false, buildEstimatedResult(entry), null);
             }
         }
     }
@@ -400,7 +400,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
                             .businessThinkingTokens(0)
                             .businessCredits(TokenCostCalculator.usdToCredits(cost))
                             .build();
-                    callback.onSubTaskFailed(subTask, "image save failed: " + e.getMessage(), false, partial);
+                    callback.onSubTaskFailed(subTask, "image save failed: " + e.getMessage(), false, partial, null);
                 }
             }
         }
@@ -457,7 +457,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
     private void failAllEntries(ActiveBatch ab, String message, boolean billable) {
         for (BatchEntry entry : ab.entries.values()) {
             SubTaskResult partial = billable ? buildEstimatedResult(entry) : null;
-            callback.onSubTaskFailed(entry.subTask, message, !billable, partial);
+            callback.onSubTaskFailed(entry.subTask, message, !billable, partial, null);
         }
     }
 

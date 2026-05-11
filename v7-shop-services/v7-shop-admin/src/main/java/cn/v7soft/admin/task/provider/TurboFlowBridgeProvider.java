@@ -203,13 +203,18 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                         .businessCredits(TokenCostCalculator.usdToCredits(cost))
                         .build();
             }
-            callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult);
+            callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult, null);
         }
     }
 
     /**
      * 插件轮询获取任务。
-     * 流程：鉴权 → 检查插件状态 → 从队列取子任务 → 读图片 → 查缓存 → 分配 assignment → 返回图片数据
+     * <p>
+     * 设计原则：服务端不判断 bridge 能力（flowConnected/busy 由 bridge 自行管理）：
+     * 只要 bridge 来 poll 就按 FIFO 派发任务。如果 bridge 当前无法执行（如 Flow tab 关闭、reCAPTCHA blocked），
+     * 应在插件端自行决定不发起 poll，直到环境恢复。
+     * <p>
+     * 流程：鉴权 → 从队列取子任务 → 读图片 → 查缓存 → 分配 assignment → 返回图片数据
      */
     public TurboFlowBridgeTaskResponse pollTask(String token, TurboFlowBridgePollRequest request) {
         // 1. 通过 Bearer token 鉴权，找到所有匹配的 AiAccount
@@ -222,22 +227,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .message("invalid bridge token")
                     .build();
         }
-        // 记录插件在线状态（仅用于观测）
+        // 记录插件在线状态（仅用于观测，不参与派发决策）
         bridgeStates.put(bridgeId, TurboFlowBridgeState.from(accounts.get(0).getId(), request));
         log.debug("[TurboFlowBridge] poll received: bridgeId={}, matchedAccounts={}, flowConnected={}, busy={}",
                 bridgeId, accounts.size(), request.getFlowConnected(), request.getBusy());
 
-        // 2. 检查插件状态：flow 未连接或正忙则不分发
-        if (!Boolean.TRUE.equals(request.getFlowConnected())) {
-            log.debug("[TurboFlowBridge] poll skipped because flow is disconnected: bridgeId={}", bridgeId);
-            return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("flow not connected").build();
-        }
-        if (Boolean.TRUE.equals(request.getBusy())) {
-            log.debug("[TurboFlowBridge] poll skipped because bridge is busy: bridgeId={}", bridgeId);
-            return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("bridge busy").build();
-        }
-
-        // 3. 遍历所有匹配账号的队列，取第一个有任务的（FIFO）
+        // 2. 遍历所有匹配账号的队列，取第一个有任务的（FIFO）
         AiAccountTranslateSubTask subTask = null;
         AiAccount account = null;
         for (AiAccount acc : accounts) {
@@ -251,7 +246,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 }
             }
         }
-        if (subTask == null) {
+        if (subTask == null || account == null) {
             log.debug("[TurboFlowBridge] poll found no queued image task: bridgeId={}, checkedAccounts={}",
                     bridgeId, accounts.size());
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("no task").build();
@@ -260,7 +255,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         // 防御：TEXT/HTML 已在 executeSubTask 阶段由 Gemini 处理，理论上不会出现在队列中
         if (subTask.getType() != AiAccountTranslateSubTaskType.IMAGE) {
             log.warn("[TurboFlowBridge] unexpected non-image task in queue: {}", subTask.getSubTaskId());
-            callback.onSubTaskFailed(subTask, "non-image task in TurboFlow queue", true, null);
+            callback.onSubTaskFailed(subTask, "non-image task in TurboFlow queue", true, null, null);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("non-image task skipped").build();
         }
 
@@ -268,12 +263,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         if (!callback.isTaskActive(subTask.getTaskId())) {
             log.debug("[TurboFlowBridge] polled subtask parent is inactive: taskId={}, subTaskId={}",
                     subTask.getTaskId(), subTask.getSubTaskId());
-            callback.onSubTaskFailed(subTask, "parent task no longer active", false, null);
+            callback.onSubTaskFailed(subTask, "parent task no longer active", false, null, null);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("task missing").build();
         }
 
         try {
-            // 4. 读取源图片并计算哈希
+            // 3. 读取源图片并计算哈希
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
             byte[] imageBytes = TranslateProviderSupport.readImageBytes(multimediaFileService, sourceFile);
             String imageHash = DigestUtil.sha256Hex(imageBytes);
@@ -281,7 +276,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             log.debug("[TurboFlowBridge] source image prepared for bridge dispatch: taskId={}, subTaskId={}, imageId={}, imageHash={}, bytes={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash, imageBytes.length);
 
-            // 5. 二次缓存检查：入队后到 poll 之间，其他任务可能已生成同图同语言的缓存
+            // 4. 二次缓存检查：入队后到 poll 之间，其他任务可能已生成同图同语言的缓存
             Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
                     .findByImageHashAndLanguageId(imageHash, Long.parseLong(subTask.getLanguageId()));
             if (cached.isPresent()) {
@@ -349,7 +344,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .build();
         } catch (Exception e) {
             // 分发失败，通知 adapter 进入重试流程
-            callback.onSubTaskFailed(subTask, "dispatch failed: " + e.getMessage(), true, null);
+            callback.onSubTaskFailed(subTask, "dispatch failed: " + e.getMessage(), true, null, "DISPATCH_FAILED");
             log.error("[TurboFlowBridge] 分发任务失败: taskId={}, subTaskId={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), e);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("dispatch failed: " + e.getMessage()).build();
@@ -431,7 +426,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     subTask.getTaskId(), subTask.getSubTaskId(), promptTokens, completionTokens, businessCredits);
             callback.onSubTaskCompleted(subTask, result);
         } catch (Exception e) {
-            callback.onSubTaskFailed(subTask, "complete processing failed: " + e.getMessage(), true, null);
+            callback.onSubTaskFailed(subTask, "complete processing failed: " + e.getMessage(), true, null, "COMPLETE_PROCESSING_FAILED");
             log.error("[TurboFlowBridge] completeTask 处理失败, 已推入重试队列: assignmentId={}",
                     request.getAssignmentId(), e);
             throw new IllegalStateException("complete turboflow task failed: " + e.getMessage(), e);
@@ -472,9 +467,10 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         }
         String message = StrUtil.blankToDefault(request.getMessage(), "TurboFlow task failed");
         boolean retryable = request.getRetryable() == null || Boolean.TRUE.equals(request.getRetryable());
-        log.debug("[TurboFlowBridge] fail received: taskId={}, subTaskId={}, assignmentId={}, retryable={}, message={}",
-                subTask.getTaskId(), subTask.getSubTaskId(), request.getAssignmentId(), retryable, message);
-        callback.onSubTaskFailed(subTask, message, retryable, null);
+        String errorCode = request.getErrorCode();
+        log.debug("[TurboFlowBridge] fail received: taskId={}, subTaskId={}, assignmentId={}, retryable={}, errorCode={}, message={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), request.getAssignmentId(), retryable, errorCode, message);
+        callback.onSubTaskFailed(subTask, message, retryable, null, errorCode);
     }
 
     @Override
@@ -486,7 +482,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 AiAccountTranslateSubTask subTask = it.next();
                 if (taskId.equals(subTask.getTaskId())) {
                     it.remove();
-                    callback.onSubTaskFailed(subTask, "task cancelled", false, null);
+                    callback.onSubTaskFailed(subTask, "task cancelled", false, null, null);
                 }
             }
         }
@@ -497,7 +493,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             AiAccountTranslateSubTask subTask = entry.getValue();
             if (taskId.equals(subTask.getTaskId())) {
                 it.remove();
-                callback.onSubTaskFailed(subTask, "task cancelled", false, null);
+                callback.onSubTaskFailed(subTask, "task cancelled", false, null, null);
             }
         }
     }
@@ -517,7 +513,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             it.remove();
             log.warn("[TurboFlowBridge] lease expired: taskId={}, subTaskId={}, assignmentId={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), entry.getKey());
-            callback.onSubTaskFailed(subTask, "TurboFlow lease expired", true, null);
+            callback.onSubTaskFailed(subTask, "TurboFlow lease expired", true, null, "LEASE_EXPIRED");
         }
     }
 

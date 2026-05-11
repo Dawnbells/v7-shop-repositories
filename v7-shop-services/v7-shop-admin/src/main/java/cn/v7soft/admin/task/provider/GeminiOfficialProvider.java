@@ -94,7 +94,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 it.remove();
                 AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
                 callback.onSubTaskFailed(subTask, "task cancelled (Gemini in-flight)",
-                        false, buildEstimatedResult(subTask, acc));
+                        false, buildEstimatedResult(subTask, acc), null);
             }
         }
     }
@@ -121,7 +121,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 if (result.isFailed()) {
                     log.debug("[GeminiOfficialProvider] subtask produced failed result: taskId={}, subTaskId={}, type={}, message={}",
                             subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), result.getFailMessage());
-                    callback.onSubTaskFailed(subTask, result.getFailMessage(), false, result);
+                    callback.onSubTaskFailed(subTask, result.getFailMessage(), false, result, null);
                 } else {
                     log.debug("[GeminiOfficialProvider] subtask completed by Gemini: taskId={}, subTaskId={}, type={}, elapsedMs={}, actualTokens={}, businessCredits={}",
                             subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), result.getElapsedMs(),
@@ -136,7 +136,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 boolean billable = isBillableError(e);
                 AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
                 SubTaskResult partialResult = billable ? buildEstimatedResult(subTask, acc) : null;
-                callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult);
+                callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult, null);
             }
         }
     }
