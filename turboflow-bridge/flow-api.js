@@ -8,10 +8,26 @@ const MODEL_NARWHAL = 'NARWHAL';
 const FLOW_URL_PATTERN = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
 const TOKEN_CACHE_MS = 5 * 60 * 1000;
 
+// reCAPTCHA 风控恢复策略：先尝试 reload Flow 页面，仍失败则新建 project；总恢复次数和 reload 次数都有上限，避免死循环。
+const MAX_TOTAL_RECOVERY = 3;
+const MAX_PAGE_RELOAD = 2;
+const PAGE_LOAD_TIMEOUT_MS = 30 * 1000;
+const RECAPTCHA_SETTLE_MS = 5 * 1000;
+
 let cachedToken = null;
 let tokenTimestamp = 0;
 let flowTabId = null;
 let projectId = null;
+
+let recoveryInProgress = false;
+let recoveryPromise = null;
+let totalRecoveryAttempts = 0;
+let pageReloadAttempts = 0;
+
+export function resetRecoveryState() {
+  totalRecoveryAttempts = 0;
+  pageReloadAttempts = 0;
+}
 
 function uuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -118,6 +134,140 @@ export async function getRecaptchaToken(tabId, action = 'IMAGE_GENERATION') {
   return results?.[0]?.result || null;
 }
 
+// ── reCAPTCHA recovery (page reload → new project) ─────────────────
+
+/**
+ * 等待目标 tab 进入 complete 状态，超时即拒绝。
+ * 用于 reload / 导航后阻塞到页面真正可交互。
+ */
+function waitForTabComplete(tabId, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      reject(new Error('Page load timed out'));
+    }, timeoutMs);
+    function listener(updatedTabId, changeInfo) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        clearTimeout(timer);
+        resolve();
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+/**
+ * L1 恢复：在 Flow tab 内强制刷新页面，以重置 reCAPTCHA session。
+ * 加 ?t=timestamp 避免缓存命中。等加载完成后 sleep 一段时间让 grecaptcha 重新就绪，再实际取 token 验证。
+ */
+async function reloadFlowPage(tabId) {
+  clearTokenCache();
+  projectId = null;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: () => {
+        window.location.href = window.location.href.split('?')[0] + '?t=' + Date.now();
+      },
+    });
+    await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
+    await sleep(RECAPTCHA_SETTLE_MS);
+    const token = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
+    return !!token;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * L2 恢复：通过 trpc 接口新建一个 Flow project，再把 tab 导航到新 project URL。
+ * 比 reload 更激进，能重置部分服务端绑定的 session 上下文。
+ */
+async function createNewProject(tabId) {
+  clearTokenCache();
+  projectId = null;
+  try {
+    const createRes = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: async () => {
+        try {
+          const now = new Date();
+          const title = now.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })
+            + ', ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const res = await fetch('/fx/api/trpc/project.createProject', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ json: { projectTitle: title, toolName: 'PINHOLE' } }),
+          });
+          if (!res.ok) return { error: 'HTTP ' + res.status };
+          const json = await res.json();
+          const pid = json?.result?.data?.json?.result?.projectId;
+          return pid ? { success: true, projectId: pid } : { error: 'No projectId in response' };
+        } catch (e) {
+          return { error: e.message };
+        }
+      },
+    });
+    const result = createRes?.[0]?.result;
+    if (!result?.success) {
+      return false;
+    }
+    const targetUrl = 'https://labs.google/fx/tools/flow/project/' + result.projectId;
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: (url) => { window.location.href = url; },
+      args: [targetUrl],
+    });
+    await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
+    await sleep(RECAPTCHA_SETTLE_MS);
+    const token = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
+    return !!token;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * reCAPTCHA 恢复调度器。
+ * - 并发请求只触发一次恢复：通过 recoveryPromise 让其他调用方等待结果
+ * - 总恢复次数有上限（避免长时间死循环消耗 API/Tab 资源）
+ * - 优先 reload Flow 页面（最多 MAX_PAGE_RELOAD 次），仍失败再 createNewProject
+ * resetRecoveryState() 会清零计数，应在任务成功或新批次开始时调用。
+ */
+export async function recoverRecaptcha(tabId) {
+  if (recoveryInProgress && recoveryPromise) {
+    return await recoveryPromise;
+  }
+  if (totalRecoveryAttempts >= MAX_TOTAL_RECOVERY) {
+    return false;
+  }
+  recoveryInProgress = true;
+  totalRecoveryAttempts++;
+  recoveryPromise = (async () => {
+    try {
+      if (pageReloadAttempts < MAX_PAGE_RELOAD) {
+        pageReloadAttempts++;
+        if (await reloadFlowPage(tabId)) {
+          return true;
+        }
+      }
+      return await createNewProject(tabId);
+    } finally {
+      recoveryInProgress = false;
+    }
+  })();
+  try {
+    return await recoveryPromise;
+  } finally {
+    recoveryPromise = null;
+  }
+}
+
 // ── Low-level API call (runs inside the Flow tab) ──────────────────
 
 function deepClone(obj) {
@@ -161,7 +311,11 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
         });
         const text = await res.text();
         if (!res.ok) {
-          return { error: 'HTTP ' + res.status + ': ' + text.substring(0, 500), status: res.status };
+          return {
+            error: 'HTTP ' + res.status + ': ' + text.substring(0, 500),
+            errText: text.substring(0, 1000),
+            status: res.status,
+          };
         }
         let data;
         try {
@@ -181,12 +335,40 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
   if (!result) throw new Error('Script execution failed');
 
   if (result.error) {
-    // On 403: refresh token and retry once
-    if (result.status === 403 && retryCount === 0) {
-      await sleep(1500);
-      clearTokenCache();
-      const freshToken = await getSessionToken(tabId);
-      return callFlowApi(tabId, url, payload, freshToken || token, action, 1);
+    // 403：先按风控关键字识别 reCAPTCHA / 权限两类。
+    // - L0(retryCount=0)：刷 session token 重试，覆盖临时 token 失效场景
+    // - L1(retryCount=1) 且 reCAPTCHA 风控：进入 recoverRecaptcha（reload Flow / 新建 project）
+    // - 其它：抛出带语义的错误，由 background.js 映射为 errorCode 上报
+    if (result.status === 403) {
+      const errText = (result.errText || result.error || '').toLowerCase();
+      const isRecaptcha = errText.includes('recaptcha')
+        || errText.includes('captcha')
+        || errText.includes('bot')
+        || errText.includes('unusual_activity');
+      const isPermission = errText.includes('permission')
+        || errText.includes('forbidden')
+        || errText.includes('auth');
+
+      if (retryCount === 0) {
+        await sleep(1500);
+        clearTokenCache();
+        const freshToken = await getSessionToken(tabId);
+        return callFlowApi(tabId, url, payload, freshToken || token, action, 1);
+      }
+      if (retryCount === 1 && isRecaptcha) {
+        const recovered = await recoverRecaptcha(tabId);
+        if (recovered) {
+          const freshToken = await getSessionToken(tabId);
+          return callFlowApi(tabId, url, payload, freshToken || token, action, 2);
+        }
+      }
+      if (isRecaptcha) {
+        throw new Error('reCAPTCHA blocked — close the Flow tab, reopen it, and try again');
+      }
+      if (isPermission) {
+        throw new Error('Access denied (403) — your Flow session may have expired. Refresh the Flow page and try again');
+      }
+      throw new Error('Blocked by Google (403) — refresh the Flow page, disable VPN if active, and try again');
     }
     // On 401: token expired, refresh and retry once
     if (result.status === 401 && retryCount === 0) {
@@ -498,14 +680,11 @@ export async function checkConnection() {
     return { connected: false, reason: 'No project open. Create or open a project in Flow.' };
   }
 
-  // Verify reCAPTCHA is available without consuming a token
-  const recaptchaAvailable = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: () => typeof grecaptcha !== 'undefined' && !!grecaptcha.enterprise,
-  });
-  if (!recaptchaAvailable?.[0]?.result) {
-    return { connected: false, reason: 'reCAPTCHA not loaded. Refresh the Flow page and wait for it to fully load.' };
+  // 真的试调一次 grecaptcha.enterprise.execute：风控触发时即便对象存在也无法拿 token，
+  // 提前在这里拦下，避免后续 executeTask 消耗任务名额。
+  const recaptchaToken = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
+  if (!recaptchaToken) {
+    return { connected: false, reason: 'reCAPTCHA blocked or not loaded. Refresh the Flow page; disable VPN if active.' };
   }
 
   return { connected: true, tabId, projectId: pid };

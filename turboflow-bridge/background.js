@@ -5,6 +5,7 @@ import {
   getMediaRedirectUrl,
   fetchImageAsBase64,
   clearTokenCache,
+  resetRecoveryState,
 } from './flow-api.js';
 
 const VERSION = '1.1.0';
@@ -22,6 +23,32 @@ const TRANSLATE_TIMEOUT_MS = 180 * 1000;
 const FAIL_REPORT_MAX_RETRIES = 3;
 const FAIL_REPORT_RETRY_BASE_MS = 1000;
 
+/**
+ * 根据 translateImage 抛出的错误信息映射到上报用的 errorCode。
+ * 与 flow-api.js 中 callFlowApi 抛出的特定文案保持同步。
+ */
+function classifyErrorCode(message) {
+  const text = (message || '').toLowerCase();
+  if (text.includes('recaptcha blocked')) return 'RECAPTCHA_BLOCKED';
+  if (text.includes('blocked by google (403)') || text.includes('access denied (403)')) return 'GOOGLE_BLOCKED';
+  if (text.includes('timeout') || text.includes('timed out')) return 'TIMEOUT';
+  // Flow tab 被关闭/导航走时，in-flight 的 fetch/executeScript 会抛 'Failed to fetch'、'Script execution failed' 等
+  if (text.includes('failed to fetch')
+    || text.includes('flow is not connected')
+    || text.includes('no flow tab')
+    || text.includes('flow tab')
+    || text.includes('script execution failed')) return 'FLOW_DISCONNECTED';
+  return 'FLOW_EXECUTION_FAILED';
+}
+
+/**
+ * 把错误码翻译成更友好的描述（写日志用），原始 message 仍随 reportFail 上报给服务端。
+ */
+function friendlyErrorMessage(errorCode, rawMessage) {
+  if (errorCode === 'FLOW_DISCONNECTED') return 'Flow tab unavailable (closed / navigated away)';
+  return rawMessage;
+}
+
 let bridgeId = null;
 let running = false;
 let currentTasks = [];
@@ -31,6 +58,97 @@ let lastStatus = { connected: false, message: 'Not checked' };
 let nextPollAt = 0;
 let taskHistory = [];
 let logHistory = [];
+
+// reCAPTCHA 恢复全部失败时进入暂停：停止主动 poll，需用户在 sidepanel 点 Run Now 显式恢复。
+let pollPaused = false;
+let pauseReason = null;
+
+// Flow 标签页可用性看门狗：每秒探测，标签关闭 → 立即阻断 poll；重新打开 → 自动恢复
+const FLOW_URL_RE = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
+const WATCHDOG_INTERVAL_MS = 1000;
+let flowTabAvailable = false;
+let watchdogTimer = null;
+
+/**
+ * 轻量级 Flow tab 存活探测：仅查 chrome.tabs，不调 grecaptcha（避免高频消耗 reCAPTCHA token）。
+ * grecaptcha 风控由 runLoop 内的 checkConnection 二次校验。
+ */
+async function probeFlowTabAvailable() {
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
+    return tabs.some((t) => t.url && FLOW_URL_RE.test(t.url) && t.status === 'complete');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 启动每秒一次的 Flow tab 看门狗。
+ * - 关闭 → 终止 pending timer + 广播 disconnected + scheduleLoop 在此后被短路
+ * - 重新打开 → 自动 scheduleLoop(100) 触发完整 checkConnection 流程
+ */
+function startConnectionWatchdog() {
+  if (watchdogTimer) return;
+  const tick = async () => {
+    const ok = await probeFlowTabAvailable();
+    if (ok === flowTabAvailable) return;
+    flowTabAvailable = ok;
+    if (ok) {
+      addLog('info', '✅ Flow tab detected');
+      broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: 'Verifying Flow connection...', projectId: null });
+      scheduleLoop(100);
+    } else {
+      const reason = 'Flow tab closed — open Google Flow to resume';
+      addLog('warn', '⚠️ ' + reason);
+      lastStatus = { connected: false, message: reason };
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      nextPollAt = 0;
+      broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: reason, projectId: null });
+      broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt: 0 });
+    }
+  };
+  tick();
+  watchdogTimer = setInterval(tick, WATCHDOG_INTERVAL_MS);
+}
+
+/**
+ * 进入暂停态：清掉待执行 timer、设置 action badge 强提示、广播状态给 sidepanel。
+ * 触发条件：reCAPTCHA 恢复机制穷尽后仍失败（errorCode === RECAPTCHA_BLOCKED）。
+ */
+function pausePoll(reason) {
+  pollPaused = true;
+  pauseReason = reason;
+  nextPollAt = 0;
+  if (timerId) {
+    clearTimeout(timerId);
+    timerId = null;
+  }
+  chrome.action.setBadgeText({ text: '!' }).catch(() => {});
+  chrome.action.setBadgeBackgroundColor({ color: '#d32f2f' }).catch(() => {});
+  lastStatus = { connected: false, message: reason };
+  broadcast({ type: 'BRIDGE_PAUSED', reason });
+  broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: reason, projectId: null });
+  broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt: 0 });
+  addLog('error', '⛔ Poll paused: ' + reason);
+}
+
+/**
+ * 用户显式恢复：清掉暂停状态、清 badge、重置 reCAPTCHA 恢复计数。
+ * 由 RUN_NOW 等消息触发。
+ */
+function resumePoll() {
+  if (!pollPaused) return false;
+  pollPaused = false;
+  pauseReason = null;
+  resetRecoveryState();
+  chrome.action.setBadgeText({ text: '' }).catch(() => {});
+  broadcast({ type: 'BRIDGE_RESUMED' });
+  addLog('info', '✅ Poll resumed by user');
+  return true;
+}
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
@@ -46,13 +164,18 @@ chrome.tabs.onRemoved.addListener(() => {
 
 chrome.runtime.onInstalled.addListener(() => {
   ensureBridgeId();
+  startConnectionWatchdog();
   loadPersistedState().then(() => scheduleLoop(1000));
 });
 
 chrome.runtime.onStartup.addListener(() => {
   ensureBridgeId();
+  startConnectionWatchdog();
   loadPersistedState().then(() => scheduleLoop(1000));
 });
+
+// service worker 唤醒（含模块顶层执行）时也启动一次，覆盖 onInstalled/onStartup 都未触发的场景
+startConnectionWatchdog();
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CHECK_CONNECTION') {
@@ -85,11 +208,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_STATUS') {
-    sendResponse({ running, currentTask: currentTasks[0] || null, currentTasks: getCurrentTasks(), lastStatus, nextPollAt });
+    sendResponse({
+      running,
+      currentTask: currentTasks[0] || null,
+      currentTasks: getCurrentTasks(),
+      lastStatus,
+      nextPollAt,
+      paused: pollPaused,
+      pauseReason,
+    });
     return false;
   }
 
   if (msg.type === 'RUN_NOW') {
+    // 用户主动触发 → 总是先尝试退出暂停态，再 schedule 一次立即 poll
+    resumePoll();
     scheduleLoop(100);
     sendResponse({ ok: true });
     return false;
@@ -244,6 +377,14 @@ function persistLogs() {
 }
 
 function scheduleLoop(delayMs) {
+  // 暂停态下不再触发任何 poll，必须等用户点 Run Now 显式恢复
+  if (pollPaused) {
+    return;
+  }
+  // Flow tab 不可用时不发起 poll，等 watchdog 检测到重新打开再自动 schedule
+  if (!flowTabAvailable) {
+    return;
+  }
   const newPollAt = Date.now() + delayMs;
   // 如果已有更早的 timer 排队，不重置——避免并发任务陆续完成时反复推迟 poll
   if (timerId && nextPollAt > 0 && nextPollAt <= newPollAt) {
@@ -383,19 +524,24 @@ async function executeTask(service, task) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
+    // 任务成功完成 → 清零 reCAPTCHA 恢复计数，避免上一次偶发风控影响后续任务
+    resetRecoveryState();
     scheduleLoop(SUCCESS_DELAY_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
+    const errorCode = classifyErrorCode(e.message);
+    // retryable 保持 true：服务端 failTask 当前不读 errorCode，沿用原有重试语义；
+    // 实际"风控冷却"在插件端通过 scheduleLoop 的差异化延迟实现。
     await reportFailWithRetry(service, {
       bridgeId,
       assignmentId: task.assignmentId,
-      errorCode: 'FLOW_EXECUTION_FAILED',
+      errorCode,
       message: e.message,
       stack: e.stack || null,
       retryable: true,
       elapsedMs: elapsed,
     });
-    addLog('error', `Task failed: ${e.message}`);
+    addLog('error', `Task failed [${errorCode}]: ${friendlyErrorMessage(errorCode, e.message)}`);
     addTaskHistory({
       taskId: task.taskId,
       subTaskId: task.subTaskId,
@@ -409,7 +555,12 @@ async function executeTask(service, task) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    scheduleLoop(FAILURE_DELAY_MS);
+    if (errorCode === 'RECAPTCHA_BLOCKED') {
+      // 插件端恢复机制已穷尽 → 暂停 poll 并强提示，等用户在 sidepanel 点 Run Now 重新发起
+      pausePoll('⚠️ reCAPTCHA blocked — close & reopen Flow tab, then click Run Now');
+    } else {
+      scheduleLoop(FAILURE_DELAY_MS);
+    }
   }
 }
 
