@@ -15,6 +15,8 @@ const FLOW_URL = 'https://labs.google/fx/zh/tools/flow/';
 const POLL_INTERVAL_MS = 500;
 const STAGGER_STEP_MS = 250;
 const CONCURRENCY = 4;
+const TRANSLATE_START_INTERVAL_MS = 20 * 1000;
+const PAUSE_STATE_STORAGE_KEY = 'bridgePauseState';
 const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
 // 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；网速慢时下载重试可达 120 秒；
@@ -61,6 +63,7 @@ let timerId = null;
 let serviceCursor = 0;
 let lastStatus = { connected: false, message: 'Not checked' };
 let nextPollAt = 0;
+let lastTranslateStartAt = 0;
 let taskHistory = [];
 let logHistory = [];
 
@@ -68,11 +71,15 @@ let logHistory = [];
 let pollPaused = false;
 let pauseReason = null;
 let pausedAt = 0;
+let pauseUntilAt = 0;
+let pauseReasonCode = null;
 let autoReopenTimer = null;
 
 // 1 小时强制冷静期：Google 账号级风控通常需要小时级冷却。冷静期内主动关闭 Flow tab 让账号完全离线，
 // 倒计时结束后自动重开 Flow tab 触发 watchdog 自动恢复 poll。
 const PAUSE_MIN_COOLDOWN_MS = 60 * 60 * 1000;
+const DAILY_QUOTA_TIME_ZONE = 'America/Los_Angeles';
+const DAILY_QUOTA_RESUME_BUFFER_MS = 5 * 60 * 1000;
 
 // Flow 标签页可用性看门狗：每秒探测，标签关闭 → 立即阻断 poll；重新打开 → 自动恢复
 const FLOW_URL_RE = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
@@ -171,13 +178,87 @@ async function closeFlowTabs() {
  * 计划在冷静期结束时主动重开 Flow 标签页。
  * watchdog 检测到新 tab 后会自动尝试 resumePoll（此时 cooldown 已过，可成功）。
  */
+function getTimeZoneParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.filter((p) => p.type !== 'literal').map((p) => [p.type, Number(p.value)]));
+  return {
+    year: values.year,
+    month: values.month,
+    day: values.day,
+    hour: values.hour,
+    minute: values.minute,
+    second: values.second,
+  };
+}
+
+function getTimeZoneOffsetMs(date, timeZone) {
+  const p = getTimeZoneParts(date, timeZone);
+  const localAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return localAsUtc - date.getTime();
+}
+
+function zonedTimeToUtcMs(year, month, day, hour, minute, second, timeZone) {
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  let utc = localAsUtc;
+  for (let i = 0; i < 3; i++) {
+    utc = localAsUtc - getTimeZoneOffsetMs(new Date(utc), timeZone);
+  }
+  return utc;
+}
+
+function getNextDailyQuotaResumeAt(nowMs = Date.now()) {
+  const nowPacific = getTimeZoneParts(new Date(nowMs), DAILY_QUOTA_TIME_ZONE);
+  const nextPacificDate = new Date(Date.UTC(nowPacific.year, nowPacific.month - 1, nowPacific.day + 1));
+  return zonedTimeToUtcMs(
+    nextPacificDate.getUTCFullYear(),
+    nextPacificDate.getUTCMonth() + 1,
+    nextPacificDate.getUTCDate(),
+    0,
+    0,
+    0,
+    DAILY_QUOTA_TIME_ZONE
+  ) + DAILY_QUOTA_RESUME_BUFFER_MS;
+}
+
+function getPauseUntilAt() {
+  return pauseUntilAt || (pausedAt + PAUSE_MIN_COOLDOWN_MS);
+}
+
+function getPauseRemainingMs() {
+  return pollPaused ? Math.max(0, getPauseUntilAt() - Date.now()) : 0;
+}
+
+function persistPauseState() {
+  chrome.storage.local.set({
+    [PAUSE_STATE_STORAGE_KEY]: {
+      pollPaused,
+      pauseReason,
+      pausedAt,
+      pauseUntilAt: getPauseUntilAt(),
+      pauseReasonCode,
+    },
+  }).catch(() => {});
+}
+
+function clearPauseState() {
+  chrome.storage.local.remove([PAUSE_STATE_STORAGE_KEY]).catch(() => {});
+}
+
 function scheduleAutoReopenFlow() {
   if (autoReopenTimer) {
     clearTimeout(autoReopenTimer);
     autoReopenTimer = null;
   }
-  const elapsed = Date.now() - pausedAt;
-  const remaining = PAUSE_MIN_COOLDOWN_MS - elapsed;
+  const remaining = getPauseRemainingMs();
   if (remaining <= 0) {
     autoReopenFlow();
     return;
@@ -203,19 +284,25 @@ async function autoReopenFlow() {
  * 触发条件：reCAPTCHA 恢复机制穷尽后仍失败（errorCode === RECAPTCHA_BLOCKED / GOOGLE_BLOCKED）。
  * 幂等：并发场景下多个 in-flight 任务可能同时调用，重复调用时仅刷新 reason，不重复广播日志。
  */
-function pausePoll(reason) {
+function pausePoll(reason, options = {}) {
   const alreadyPaused = pollPaused;
+  const now = Date.now();
+  const requestedPauseUntilAt = options.untilAt || (now + PAUSE_MIN_COOLDOWN_MS);
   pollPaused = true;
   pauseReason = reason;
+  pauseReasonCode = options.code || pauseReasonCode || null;
+  pauseUntilAt = Math.max(pauseUntilAt || 0, requestedPauseUntilAt);
   nextPollAt = 0;
   if (timerId) {
     clearTimeout(timerId);
     timerId = null;
   }
   if (alreadyPaused) {
+    persistPauseState();
+    scheduleAutoReopenFlow();
     return;
   }
-  pausedAt = Date.now();
+  pausedAt = now;
   safeAction((action) => action.setBadgeText({ text: '!' }));
   safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
   lastStatus = { connected: false, message: reason };
@@ -224,6 +311,7 @@ function pausePoll(reason) {
   broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt: 0 });
   addLog('error', '⛔ Poll paused: ' + reason);
   // 1 小时硬冷静期：关闭 Flow tab + 计划自动重开
+  persistPauseState();
   closeFlowTabs();
   scheduleAutoReopenFlow();
 }
@@ -236,9 +324,9 @@ function pausePoll(reason) {
  */
 function resumePoll(force = false) {
   if (!pollPaused) return false;
-  const elapsed = Date.now() - pausedAt;
-  if (!force && elapsed < PAUSE_MIN_COOLDOWN_MS) {
-    const remainingMin = Math.ceil((PAUSE_MIN_COOLDOWN_MS - elapsed) / 60000);
+  const remainingMs = getPauseRemainingMs();
+  if (remainingMs > 0 && (pauseReasonCode === 'DAILY_QUOTA_REACHED' || !force)) {
+    const remainingMin = Math.ceil(remainingMs / 60000);
     addLog('warn',
       `⏳ Google 风控冷静期中：还需 ${remainingMin} 分钟。短时强制恢复可能加重风控甚至触发临时封禁。`);
     return false;
@@ -246,10 +334,13 @@ function resumePoll(force = false) {
   pollPaused = false;
   pauseReason = null;
   pausedAt = 0;
+  pauseUntilAt = 0;
+  pauseReasonCode = null;
   if (autoReopenTimer) {
     clearTimeout(autoReopenTimer);
     autoReopenTimer = null;
   }
+  clearPauseState();
   resetRecoveryState();
   safeAction((action) => action.setBadgeText({ text: '' }));
   broadcast({ type: 'BRIDGE_RESUMED' });
@@ -333,9 +424,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_STATUS') {
-    const cooldownRemainingMs = pollPaused
-      ? Math.max(0, PAUSE_MIN_COOLDOWN_MS - (Date.now() - pausedAt))
-      : 0;
+    const cooldownRemainingMs = getPauseRemainingMs();
     sendResponse({
       running,
       currentTask: currentTasks[0] || null,
@@ -344,7 +433,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       nextPollAt,
       paused: pollPaused,
       pauseReason,
+      pauseReasonCode,
       pausedAt: pollPaused ? pausedAt : 0,
+      pauseUntilAt: pollPaused ? getPauseUntilAt() : 0,
       cooldownRemainingMs,
     });
     return false;
@@ -355,9 +446,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     const wasPaused = pollPaused;
     const resumed = resumePoll(msg.force === true);
     if (wasPaused && !resumed) {
-      const elapsed = Date.now() - pausedAt;
-      const remainingMs = Math.max(0, PAUSE_MIN_COOLDOWN_MS - elapsed);
-      sendResponse({ ok: false, requireConfirm: true, remainingMs, pauseReason });
+      const remainingMs = getPauseRemainingMs();
+      sendResponse({
+        ok: false,
+        requireConfirm: pauseReasonCode !== 'DAILY_QUOTA_REACHED',
+        remainingMs,
+        pauseReason,
+        pauseReasonCode,
+      });
       return false;
     }
     scheduleLoop(100);
@@ -463,9 +559,21 @@ async function ensureBridgeId() {
 }
 
 async function loadPersistedState() {
-  const stored = await chrome.storage.local.get(['taskHistory', 'logHistory']);
+  const stored = await chrome.storage.local.get(['taskHistory', 'logHistory', PAUSE_STATE_STORAGE_KEY]);
   taskHistory = Array.isArray(stored.taskHistory) ? stored.taskHistory : [];
   logHistory = Array.isArray(stored.logHistory) ? stored.logHistory : [];
+  const pauseState = stored[PAUSE_STATE_STORAGE_KEY];
+  if (pauseState?.pollPaused && pauseState.pauseUntilAt > Date.now()) {
+    pollPaused = true;
+    pauseReason = pauseState.pauseReason || 'Poll paused';
+    pausedAt = pauseState.pausedAt || Date.now();
+    pauseUntilAt = pauseState.pauseUntilAt;
+    pauseReasonCode = pauseState.pauseReasonCode || null;
+    lastStatus = { connected: false, message: pauseReason };
+    scheduleAutoReopenFlow();
+  } else if (pauseState) {
+    clearPauseState();
+  }
 }
 
 async function loadConfig() {
@@ -544,6 +652,13 @@ async function runLoop() {
       return;
     }
 
+    const waitForTranslateSlot = lastTranslateStartAt + TRANSLATE_START_INTERVAL_MS - Date.now();
+    if (waitForTranslateSlot > 0) {
+      scheduleLoop(waitForTranslateSlot);
+      scheduleNext = false;
+      return;
+    }
+
     const config = await loadConfig();
     const services = config.services.filter((s) => s.enabled !== false && s.baseUrl && s.token);
     const conn = await checkConnection().catch((e) => ({ connected: false, reason: e.message }));
@@ -566,6 +681,7 @@ async function runLoop() {
         const staggerIndex = currentTasks.length; // 当前已占槽位 0..3，对齐 nano-b 的 250*i 错峰
         addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
         serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
+        lastTranslateStartAt = Date.now();
         executeTask(service, task, staggerIndex, conn).catch((e) => addLog('error', `Task runner error: ${e.message}`));
         break;
       }
@@ -683,7 +799,10 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
     if (errorCode === 'RECAPTCHA_BLOCKED' || errorCode === 'GOOGLE_BLOCKED') {
       pausePoll('⚠️ Google 风控触发 — 关闭并重开 Flow 标签页后点 Run Now');
     } else if (errorCode === 'DAILY_QUOTA_REACHED') {
-      pausePoll('⚠️ Google 账号每日额度已用尽 — 等几小时后点 Run Now');
+      pausePoll('Google daily quota reached; paused until the next Pacific Time quota window', {
+        code: 'DAILY_QUOTA_REACHED',
+        untilAt: getNextDailyQuotaResumeAt(),
+      });
     } else {
       scheduleLoop(POLL_INTERVAL_MS);
     }
