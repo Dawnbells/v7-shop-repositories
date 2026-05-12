@@ -1,8 +1,8 @@
 package cn.v7soft.admin.utils;
 
-import java.time.LocalDateTime;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -131,8 +131,8 @@ public class OrderQueryHelper {
         }
         String domainKeyword = normalizeDomainKeyword(keyword);
         boolean needsDistinct = (searchType == SearchType.PRODUCT_TITLE || searchType == SearchType.MERCHANDISE)
-                && !keyword.isEmpty();
-        QueryAttribute strictDomainMatch = buildHostMatchAttribute(domainKeyword);
+                                && !keyword.isEmpty();
+        boolean strictDomainMatch = domainKeyword.chars().filter(c -> c == '.').count() > 1;
         // searchType 由前端按 keyword 形态推导确定，后端按精确分支匹配（不再做"综合 OR 多字段"）
         // 同一 searchType 下若涉及多字段（如 ORDER_ID 同时查 id 和 originOrderId），仍用 .or() 段组合
         return orderQueryPageRequest
@@ -152,7 +152,9 @@ public class OrderQueryHelper {
                 .addConstraint(StrUtil.isNotBlank(keyword) && searchType == SearchType.MERCHANDISE, new FullTextMatchAttribute("itemInfos.merchandise", keyword))
                 .addConstraint(!keywords.isEmpty() && searchType == SearchType.REMOTE_IP, InAttribute.<String>builder().name("riskInfo.remoteIp").value(keywords).build())
                 .addConstraint(StrUtil.isNotBlank(keyword) && searchType == SearchType.ADDRESS, new FullTextMatchAttribute("deliveryInfo.address", keyword))
-                .addConstraint(StrUtil.isNotBlank(domainKeyword) && searchType == SearchType.DOMAIN, strictDomainMatch)
+                .addConstraint(StrUtil.isNotBlank(domainKeyword) && searchType == SearchType.DOMAIN,
+                               strictDomainMatch ? EqualsQueryAttribute.builder().name("contextInfo.websiteUrl").value(domainKeyword.trim()).build()
+                                                 : LikeAttribute.builder().name("contextInfo.websiteUrl").value(domainKeyword.trim()).leftMatch(true).build())
                 .next()
                 .addConstraint(RepeatType.IP == request.getRepeatType(), GreaterThanAttribute.<Integer>builder().name("botOrderCheckInfo.remoteIpRepeatCount").value(1).build())
                 .addConstraint(RepeatType.PHONE == request.getRepeatType(), GreaterThanAttribute.<Integer>builder().name("botOrderCheckInfo.phoneRepeatCount").value(1).build())
@@ -166,7 +168,7 @@ public class OrderQueryHelper {
      * 按 "." 边界严格匹配 host 的查询条件。
      * <p>
      * websiteUrl 字段存储的是纯 host（如 "de.varlar.com"），由 v7-shop-mall 写入：
-     *   websiteUrl = pageContext.subDomain.fullName
+     * websiteUrl = pageContext.subDomain.fullName
      * <p>
      * 匹配语义：
      * <ul>
@@ -177,6 +179,8 @@ public class OrderQueryHelper {
      * </ul>
      */
     static QueryAttribute buildHostMatchAttribute(String hostKeyword) {
+        long dotCount = hostKeyword.chars().filter(c -> c == '.').count();
+
         return new QueryAttribute() {
             @Override
             public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder cb) {
