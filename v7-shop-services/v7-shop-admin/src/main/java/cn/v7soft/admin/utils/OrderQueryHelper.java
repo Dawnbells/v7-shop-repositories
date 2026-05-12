@@ -1,6 +1,8 @@
 package cn.v7soft.admin.utils;
 
 import java.time.LocalDateTime;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -141,9 +143,11 @@ public class OrderQueryHelper {
             phone = phone.trim();
             phone = phone.length() > 8 ? phone.substring(phone.length() - 8) : phone;
         }
+        String domainKeyword = normalizeDomainKeyword(keyword);
         boolean needsDistinct = (complexMatchTitle || complexMatchMerchandise
                 || searchType == SearchType.PRODUCT_TITLE || searchType == SearchType.MERCHANDISE)
                 && !keyword.isEmpty();
+        QueryAttribute strictDomainMatch = buildHostMatchAttribute(domainKeyword);
         return orderQueryPageRequest
                 .addConstraint(needsDistinct, new QueryAttribute() {
                     @Override
@@ -161,8 +165,10 @@ public class OrderQueryHelper {
                 .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchMerchandise || searchType == SearchType.MERCHANDISE), new FullTextMatchAttribute("itemInfos.merchandise", keyword))
                 .addConstraint(!keywords.isEmpty() && (complexMatchIp || searchType == SearchType.REMOTE_IP), InAttribute.<String>builder().name("riskInfo.remoteIp").value(keywords).build())
                 .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchAddress || searchType == SearchType.ADDRESS), new FullTextMatchAttribute("deliveryInfo.address", keyword))
-                .addConstraint(StrUtil.isNotBlank(keyword) && complexMatchWebsiteUrl, new FullTextMatchAttribute("contextInfo.websiteUrl", keyword))
-                .addConstraint(StrUtil.isNotBlank(keyword) && searchType == SearchType.DOMAIN, new FullTextMatchAttribute("contextInfo.websiteUrl", keyword))
+                // 综合查询：keyword 像域名(含 . 且不含空格)时按 . 边界严格匹配；否则保留原全文匹配，避免影响其它字段搜索
+                .addConstraint(StrUtil.isNotBlank(domainKeyword) && complexMatchWebsiteUrl && isDomainLike, strictDomainMatch)
+                .addConstraint(StrUtil.isNotBlank(keyword) && complexMatchWebsiteUrl && !isDomainLike, new FullTextMatchAttribute("contextInfo.websiteUrl", keyword))
+                .addConstraint(StrUtil.isNotBlank(domainKeyword) && searchType == SearchType.DOMAIN, strictDomainMatch)
                 .next()
                 .addConstraint(RepeatType.IP == request.getRepeatType(), GreaterThanAttribute.<Integer>builder().name("botOrderCheckInfo.remoteIpRepeatCount").value(1).build())
                 .addConstraint(RepeatType.PHONE == request.getRepeatType(), GreaterThanAttribute.<Integer>builder().name("botOrderCheckInfo.phoneRepeatCount").value(1).build())
@@ -170,5 +176,62 @@ public class OrderQueryHelper {
                 .addConstraint(RepeatType.DEVICE == request.getRepeatType(), GreaterThanAttribute.<Integer>builder().name("botOrderCheckInfo.deviceRepeatCount").value(1).build())
                 .addConstraint(RepeatType.REAL_IP == request.getRepeatType(), GreaterThanAttribute.<Integer>builder().name("botOrderCheckInfo.realIpRepeatCount").value(1).build())
                 ;
+    }
+
+    /**
+     * 按 "." 边界严格匹配 host 的查询条件。
+     * <p>
+     * websiteUrl 字段存储的是纯 host（如 "de.varlar.com"），由 v7-shop-mall 写入：
+     *   websiteUrl = pageContext.subDomain.fullName
+     * <p>
+     * 匹配语义（避免子串误匹配）：
+     *   keyword = "varlar.com"     → 匹配 varlar.com、de.varlar.com、ide.varlar.com，但不匹配 notvarlar.com
+     *   keyword = "de.varlar.com"  → 只匹配 de.varlar.com 自身（不会误匹配 ide.varlar.com）
+     * <p>
+     * 等价 SQL：websiteUrl = ? OR websiteUrl LIKE '%.${keyword}'
+     */
+    static QueryAttribute buildHostMatchAttribute(String hostKeyword) {
+        return new QueryAttribute() {
+            @Override
+            public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder cb) {
+                Path<String> path = root.<Object>get("contextInfo").<String>get("websiteUrl");
+                return cb.or(
+                        cb.equal(path, hostKeyword),
+                        cb.like(path, "%." + hostKeyword)
+                );
+            }
+        };
+    }
+
+    static String normalizeDomainKeyword(String keyword) {
+        if (StrUtil.isBlank(keyword)) {
+            return "";
+        }
+        String trimmed = keyword.trim();
+        try {
+            URI uri = new URI(trimmed.contains("://") ? trimmed : "https://" + trimmed);
+            String host = uri.getHost();
+            if (StrUtil.isNotBlank(host)) {
+                return host.startsWith("www.") ? host.substring(4) : host;
+            }
+        } catch (URISyntaxException ignored) {
+            log.debug("域名查询关键字不是标准URL: {}", trimmed);
+        }
+        String domain = trimmed
+                .replaceFirst("^[a-zA-Z][a-zA-Z0-9+.-]*://", "")
+                .replaceFirst("^www\\.", "");
+        int slashIndex = domain.indexOf('/');
+        if (slashIndex >= 0) {
+            domain = domain.substring(0, slashIndex);
+        }
+        int queryIndex = domain.indexOf('?');
+        if (queryIndex >= 0) {
+            domain = domain.substring(0, queryIndex);
+        }
+        int hashIndex = domain.indexOf('#');
+        if (hashIndex >= 0) {
+            domain = domain.substring(0, hashIndex);
+        }
+        return domain.trim();
     }
 }
