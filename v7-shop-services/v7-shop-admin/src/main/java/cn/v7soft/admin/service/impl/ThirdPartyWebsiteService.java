@@ -16,6 +16,7 @@ import cn.v7soft.admin.controller.req.TemporaryOrderRiskRecordInfoRequest;
 import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
 import cn.v7soft.admin.service.*;
 import cn.v7soft.admin.service.SyncMode;
+import cn.v7soft.admin.utils.OrderQueryHelper;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
@@ -504,7 +505,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         info.setDepartment(StrUtil.blankToDefault(owner.getDepartmentName(), ""));
         info.setWebsiteId(website.getLongId());
         info.setWebsiteName(website.getNickName());
-        info.setWebsiteUrl("https://" + website.getHandle() + ".myshopline.com/admin");
+        info.setWebsiteUrl(OrderQueryHelper.extractHost("https://" + website.getHandle() + ".myshopline.com/admin"));
         info.setAddressRule("");
         info.setPhoneRule("");
 

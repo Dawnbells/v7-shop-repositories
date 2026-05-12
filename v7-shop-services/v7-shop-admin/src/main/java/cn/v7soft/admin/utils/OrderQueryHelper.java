@@ -197,6 +197,33 @@ public class OrderQueryHelper {
         };
     }
 
+    /**
+     * 从任意 URL 格式中提取纯 host（不含协议、路径、查询串、fragment）。
+     * 与 {@link #normalizeDomainKeyword} 的区别：不去 www 前缀，适用于写入端保留原始 host。
+     */
+    public static String extractHost(String url) {
+        if (StrUtil.isBlank(url)) {
+            return "";
+        }
+        String trimmed = url.trim();
+        try {
+            URI uri = new URI(trimmed.contains("://") ? trimmed : "https://" + trimmed);
+            String host = uri.getHost();
+            if (StrUtil.isNotBlank(host)) {
+                return host;
+            }
+        } catch (URISyntaxException ignored) {
+        }
+        String s = trimmed.replaceFirst("^[a-zA-Z][a-zA-Z0-9+.-]*://", "");
+        int slashIdx = s.indexOf('/');
+        if (slashIdx >= 0) s = s.substring(0, slashIdx);
+        int queryIdx = s.indexOf('?');
+        if (queryIdx >= 0) s = s.substring(0, queryIdx);
+        int hashIdx = s.indexOf('#');
+        if (hashIdx >= 0) s = s.substring(0, hashIdx);
+        return s.trim();
+    }
+
     static String normalizeDomainKeyword(String keyword) {
         if (StrUtil.isBlank(keyword)) {
             return "";
