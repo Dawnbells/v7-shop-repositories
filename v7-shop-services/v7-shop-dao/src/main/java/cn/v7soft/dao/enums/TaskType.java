@@ -21,4 +21,8 @@ public enum TaskType {
      * 地址库导入任务
      */
     ADDRESS_IMPORT,
+    /**
+     * 商品 AI 实时翻译任务（编辑页 SSE/单图，单次请求即结算，不进入异步调度）
+     */
+    PRODUCT_AI_REALTIME_TRANSLATE,
 }

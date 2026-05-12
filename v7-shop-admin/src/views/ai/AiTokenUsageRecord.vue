@@ -323,7 +323,7 @@ const fetchData = async () => {
     const params: any = {
       pageNo: queryForm.pageNo,
       pageSize: queryForm.pageSize,
-      taskTypes: ['PRODUCT_AI_TRANSLATE'],
+      taskTypes: ['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_REALTIME_TRANSLATE'],
     }
     const { data } = await listAiTranslateTasks(params)
     const previouslyExpanded = new Set(expandedKeys.value.map((k) => String(k)))

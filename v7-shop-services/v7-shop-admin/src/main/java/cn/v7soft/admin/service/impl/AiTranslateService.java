@@ -1,6 +1,7 @@
 package cn.v7soft.admin.service.impl;
 
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -23,25 +24,30 @@ import cn.v7soft.admin.controller.req.AiTranslateTextRequest;
 import cn.v7soft.admin.controller.resp.AiTranslateImageResponse;
 import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.IAiTranslateService;
+import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.utils.MultimediaUtil;
+import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
+import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.AiProvider;
+import cn.v7soft.dao.enums.TaskState;
+import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
+import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
 public class AiTranslateService implements IAiTranslateService {
 
-    private static final long REALTIME_TASK_ID = -1L;
     private static final Pattern TRAILING_ID_PATTERN = Pattern.compile("/(\\d+)(?:\\?[^/]*)?$");
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
@@ -54,19 +60,25 @@ public class AiTranslateService implements IAiTranslateService {
     private final IMultimediaFileService multimediaFileService;
     private final AiTokenUsageRecordRepository usageRecordRepository;
     private final ThreadPoolTaskExecutor translationExecutor;
+    private final AsyncTaskRepository asyncTaskRepository;
+    private final IAsyncTaskService asyncTaskService;
 
     public AiTranslateService(GeminiTranslateService geminiTranslateService,
                               IAiAccountService aiAccountService,
                               ILanguageService languageService,
                               IMultimediaFileService multimediaFileService,
                               AiTokenUsageRecordRepository usageRecordRepository,
-                              @Qualifier("translationExecutor") ThreadPoolTaskExecutor translationExecutor) {
+                              @Qualifier("translationExecutor") ThreadPoolTaskExecutor translationExecutor,
+                              AsyncTaskRepository asyncTaskRepository,
+                              IAsyncTaskService asyncTaskService) {
         this.geminiTranslateService = geminiTranslateService;
         this.aiAccountService = aiAccountService;
         this.languageService = languageService;
         this.multimediaFileService = multimediaFileService;
         this.usageRecordRepository = usageRecordRepository;
         this.translationExecutor = translationExecutor;
+        this.asyncTaskRepository = asyncTaskRepository;
+        this.asyncTaskService = asyncTaskService;
     }
 
     @Override
@@ -74,6 +86,9 @@ public class AiTranslateService implements IAiTranslateService {
         AiAccount account = resolveAccount(request.getAiAccountId());
         Language language = resolveLanguage(request.getLanguageId());
         String targetLang = language.getName();
+        String preview = truncate(request.getText(), 30);
+        AsyncTask task = createRealtimeTask(TranslationContentType.TEXT, targetLang, preview,
+                request.getAiAccountId(), owner);
 
         translationExecutor.submit(() -> {
             try {
@@ -86,8 +101,9 @@ public class AiTranslateService implements IAiTranslateService {
                                 log.warn("[streamText] emitter.send failed", e);
                             }
                         },
-                        usage -> recordUsage(account, TranslationContentType.TEXT, targetLang, usage, owner),
+                        usage -> recordUsage(task.getId(), account, TranslationContentType.TEXT, targetLang, usage, owner),
                         () -> {
+                            markCompletedAndSettle(task);
                             try {
                                 emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                 emitter.complete();
@@ -96,6 +112,7 @@ public class AiTranslateService implements IAiTranslateService {
                             }
                         },
                         error -> {
+                            markFailedAndSettle(task, error.getMessage());
                             try {
                                 emitter.send(SseEmitter.event().name("error").data(error.getMessage()));
                                 emitter.completeWithError(error);
@@ -106,6 +123,7 @@ public class AiTranslateService implements IAiTranslateService {
                 );
             } catch (Exception e) {
                 log.error("[streamText] unexpected error", e);
+                markFailedAndSettle(task, e.getMessage());
                 try {
                     emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
                     emitter.completeWithError(e);
@@ -119,6 +137,9 @@ public class AiTranslateService implements IAiTranslateService {
         AiAccount account = resolveAccount(request.getAiAccountId());
         Language language = resolveLanguage(request.getLanguageId());
         String targetLang = language.getName();
+        String preview = truncate(request.getHtml(), 30);
+        AsyncTask task = createRealtimeTask(TranslationContentType.HTML, targetLang, preview,
+                request.getAiAccountId(), owner);
 
         translationExecutor.submit(() -> {
             try {
@@ -131,8 +152,9 @@ public class AiTranslateService implements IAiTranslateService {
                                 log.warn("[streamHtml] emitter.send failed", e);
                             }
                         },
-                        usage -> recordUsage(account, TranslationContentType.HTML, targetLang, usage, owner),
+                        usage -> recordUsage(task.getId(), account, TranslationContentType.HTML, targetLang, usage, owner),
                         () -> {
+                            markCompletedAndSettle(task);
                             try {
                                 emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                                 emitter.complete();
@@ -141,6 +163,7 @@ public class AiTranslateService implements IAiTranslateService {
                             }
                         },
                         error -> {
+                            markFailedAndSettle(task, error.getMessage());
                             try {
                                 emitter.send(SseEmitter.event().name("error").data(error.getMessage()));
                                 emitter.completeWithError(error);
@@ -151,6 +174,7 @@ public class AiTranslateService implements IAiTranslateService {
                 );
             } catch (Exception e) {
                 log.error("[streamHtml] unexpected error", e);
+                markFailedAndSettle(task, e.getMessage());
                 try {
                     emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
                     emitter.completeWithError(e);
@@ -164,42 +188,51 @@ public class AiTranslateService implements IAiTranslateService {
         AiAccount account = resolveAccount(request.getAiAccountId());
         Language language = resolveLanguage(request.getLanguageId());
         String targetLang = language.getName();
+        AsyncTask task = createRealtimeTask(TranslationContentType.IMAGE, targetLang, "图片翻译",
+                request.getAiAccountId(), owner);
 
-        ImageData imageData = loadImageBytes(request);
+        try {
+            ImageData imageData = loadImageBytes(request);
 
-        byte[] translated = geminiTranslateService.translateImageWithAccount(
-                account, request.getPrompt(), imageData.bytes, imageData.mimeType, targetLang,
-                usage -> recordUsage(account, TranslationContentType.IMAGE, targetLang, usage, owner));
+            byte[] translated = geminiTranslateService.translateImageWithAccount(
+                    account, request.getPrompt(), imageData.bytes, imageData.mimeType, targetLang,
+                    usage -> recordUsage(task.getId(), account, TranslationContentType.IMAGE, targetLang, usage, owner));
 
-        if (translated == null) {
-            if (imageData.sourceFile != null) {
+            markCompletedAndSettle(task);
+
+            if (translated == null) {
+                if (imageData.sourceFile != null) {
+                    return AiTranslateImageResponse.builder()
+                            .id(imageData.sourceFile.getId())
+                            .name(imageData.sourceFile.getName())
+                            .suffix(imageData.sourceFile.getSuffix())
+                            .mediaType(imageData.sourceFile.getMediaType() != null ? imageData.sourceFile.getMediaType().name() : "IMAGE")
+                            .relativePath(imageData.sourceFile.getRelativePath())
+                            .absolutionPath(MultimediaUtil.resolveAbsolutionPath(imageData.sourceFile.getId()))
+                            .build();
+                }
                 return AiTranslateImageResponse.builder()
-                        .id(imageData.sourceFile.getId())
-                        .name(imageData.sourceFile.getName())
-                        .suffix(imageData.sourceFile.getSuffix())
-                        .mediaType(imageData.sourceFile.getMediaType() != null ? imageData.sourceFile.getMediaType().name() : "IMAGE")
-                        .relativePath(imageData.sourceFile.getRelativePath())
-                        .absolutionPath(MultimediaUtil.resolveAbsolutionPath(imageData.sourceFile.getId()))
+                        .id(null)
+                        .name("no_translation_needed")
+                        .suffix(imageData.suffix)
+                        .mediaType("IMAGE")
                         .build();
             }
+
+            MultimediaFile saved = multimediaFileService.saveTranslatedImage(translated, imageData.suffix, owner);
+
             return AiTranslateImageResponse.builder()
-                    .id(null)
-                    .name("no_translation_needed")
-                    .suffix(imageData.suffix)
-                    .mediaType("IMAGE")
+                    .id(saved.getId())
+                    .name(saved.getName())
+                    .suffix(saved.getSuffix())
+                    .mediaType(saved.getMediaType() != null ? saved.getMediaType().name() : "IMAGE")
+                    .relativePath(saved.getRelativePath())
+                    .absolutionPath(MultimediaUtil.resolveAbsolutionPath(saved.getId()))
                     .build();
+        } catch (Exception e) {
+            markFailedAndSettle(task, e.getMessage());
+            throw e;
         }
-
-        MultimediaFile saved = multimediaFileService.saveTranslatedImage(translated, imageData.suffix, owner);
-
-        return AiTranslateImageResponse.builder()
-                .id(saved.getId())
-                .name(saved.getName())
-                .suffix(saved.getSuffix())
-                .mediaType(saved.getMediaType() != null ? saved.getMediaType().name() : "IMAGE")
-                .relativePath(saved.getRelativePath())
-                .absolutionPath(MultimediaUtil.resolveAbsolutionPath(saved.getId()))
-                .build();
     }
 
     // ======================== 图片源三选一解析 ========================
@@ -301,12 +334,58 @@ public class AiTranslateService implements IAiTranslateService {
         return language;
     }
 
-    private void recordUsage(AiAccount account, TranslationContentType contentType,
+    // ======================== AsyncTask 生命周期 ========================
+
+    private AsyncTask createRealtimeTask(TranslationContentType contentType,
+                                         String targetLang,
+                                         String contentPreview,
+                                         String aiAccountId,
+                                         SystemUser owner) {
+        AsyncTask task = AsyncTask.builder()
+                .taskType(TaskType.PRODUCT_AI_REALTIME_TRANSLATE)
+                .state(TaskState.PROCESSING)
+                .progress(0)
+                .estimatedCredits(0)
+                .parameters("{\"contentType\":\"" + contentType + "\",\"targetLanguage\":\""
+                        + targetLang + "\",\"aiAccountId\":\"" + aiAccountId + "\"}")
+                .name("实时翻译: " + contentPreview + " → " + targetLang)
+                .build();
+        task.setOwner(owner);
+        return asyncTaskRepository.saveAndFlush(task);
+    }
+
+    private void markCompletedAndSettle(AsyncTask task) {
+        try {
+            asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, 100);
+            asyncTaskService.finalizeBilling(task.getId());
+        } catch (Exception e) {
+            log.warn("[markCompletedAndSettle] taskId={} 结算失败", task.getId(), e);
+        }
+    }
+
+    private void markFailedAndSettle(AsyncTask task, String errorMsg) {
+        try {
+            task.setMessage(errorMsg);
+            asyncTaskService.updateAsyncTask(task, TaskState.FAILED, 100);
+            asyncTaskService.finalizeBilling(task.getId());
+        } catch (Exception e) {
+            log.warn("[markFailedAndSettle] taskId={} 结算失败", task.getId(), e);
+        }
+    }
+
+    private void recordUsage(Long taskId, AiAccount account, TranslationContentType contentType,
                              String targetLang, GeminiTranslateService.TokenUsage usage,
                              SystemUser owner) {
         try {
+            int prompt = safeInt(usage.getPromptTokens());
+            int completion = safeInt(usage.getCompletionTokens());
+            int thinking = safeInt(usage.getThinkingTokens());
+            int total = safeInt(usage.getTotalTokens());
+            BigDecimal cost = TokenCostCalculator.calculateCost(contentType, account, prompt, completion, thinking);
+            int credits = TokenCostCalculator.usdToCredits(cost);
+
             AiTokenUsageRecord record = AiTokenUsageRecord.builder()
-                    .taskId(REALTIME_TASK_ID)
+                    .taskId(taskId)
                     .subTaskId(UUID.randomUUID().toString())
                     .aiAccount(account)
                     .contentType(contentType)
@@ -314,12 +393,18 @@ public class AiTranslateService implements IAiTranslateService {
                     .cacheHit(false)
                     .skipped(false)
                     .model(account.getModel())
-                    .actualPromptTokens(usage.getPromptTokens() != null ? usage.getPromptTokens() : 0)
-                    .actualCompletionTokens(usage.getCompletionTokens() != null ? usage.getCompletionTokens() : 0)
-                    .actualThinkingTokens(usage.getThinkingTokens() != null ? usage.getThinkingTokens() : 0)
-                    .actualTotalTokens(usage.getTotalTokens() != null ? usage.getTotalTokens() : 0)
+                    .actualPromptTokens(prompt)
+                    .actualCompletionTokens(completion)
+                    .actualThinkingTokens(thinking)
+                    .actualTotalTokens(total)
+                    .businessPromptTokens(prompt)
+                    .businessCompletionTokens(completion)
+                    .businessThinkingTokens(thinking)
+                    .businessTotalTokens(prompt + completion + thinking)
+                    .businessCost(cost)
+                    .businessCredits(credits)
                     .elapsedMs(usage.getElapsedMs())
-                    .settled(true)
+                    .settled(false)
                     .build();
             if (owner != null) {
                 record.setOwner(owner);
@@ -328,5 +413,15 @@ public class AiTranslateService implements IAiTranslateService {
         } catch (Exception e) {
             log.warn("[recordUsage] 记录 token 用量失败", e);
         }
+    }
+
+    private static int safeInt(Integer value) {
+        return value != null ? value : 0;
+    }
+
+    private static String truncate(String text, int maxLen) {
+        if (text == null) return "";
+        String stripped = text.replaceAll("<[^>]*>", "").strip();
+        return stripped.length() <= maxLen ? stripped : stripped.substring(0, maxLen) + "…";
     }
 }

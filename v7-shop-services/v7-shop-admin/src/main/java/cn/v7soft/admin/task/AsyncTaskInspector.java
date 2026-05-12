@@ -49,7 +49,8 @@ public class AsyncTaskInspector {
 
         for (AsyncTask task : stuckTasks) {
             try {
-                if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE) {
+                if (task.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE
+                        || task.getTaskType() == TaskType.PRODUCT_AI_REALTIME_TRANSLATE) {
                     continue;
                 }
 

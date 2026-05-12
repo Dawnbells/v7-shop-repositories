@@ -25,9 +25,11 @@ import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.AiTranslateImageResponse;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
+import cn.v7soft.admin.exception.InsufficientCreditsException;
 import cn.v7soft.admin.service.IAiTranslateService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.service.IProductService;
+import cn.v7soft.admin.service.impl.AiCreditsService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.controller.request.DeleteRequest;
 import cn.v7soft.core.enums.ClientResponseEnum;
@@ -46,13 +48,16 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
 
     private final IMultimediaFileService multimediaFileService;
     private final IAiTranslateService aiTranslateService;
+    private final AiCreditsService aiCreditsService;
 
     protected ProductController(IProductService service,
                                 IMultimediaFileService multimediaFileService,
-                                IAiTranslateService aiTranslateService) {
+                                IAiTranslateService aiTranslateService,
+                                AiCreditsService aiCreditsService) {
         super(service);
         this.multimediaFileService = multimediaFileService;
         this.aiTranslateService = aiTranslateService;
+        this.aiCreditsService = aiCreditsService;
     }
 
     @Override
@@ -118,6 +123,7 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @PostMapping(value = "/ai-translate/text-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter aiTranslateTextStream(@Valid @RequestBody AiTranslateTextRequest request) {
         checkAiTranslatePermission();
+        requireAvailableCredits();
         cn.v7soft.dao.entities.primary.SystemUser owner = SaSessionUtil.getLoginOwner();
         SseEmitter emitter = new SseEmitter(300_000L);
         aiTranslateService.streamText(request, owner, emitter);
@@ -128,6 +134,7 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @PostMapping(value = "/ai-translate/html-stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter aiTranslateHtmlStream(@Valid @RequestBody AiTranslateHtmlRequest request) {
         checkAiTranslatePermission();
+        requireAvailableCredits();
         cn.v7soft.dao.entities.primary.SystemUser owner = SaSessionUtil.getLoginOwner();
         SseEmitter emitter = new SseEmitter(300_000L);
         aiTranslateService.streamHtml(request, owner, emitter);
@@ -138,6 +145,7 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @PostMapping("/ai-translate/image")
     public AiTranslateImageResponse aiTranslateImage(@Valid @RequestBody AiTranslateImageRequest request) throws Exception {
         checkAiTranslatePermission();
+        requireAvailableCredits();
         cn.v7soft.dao.entities.primary.SystemUser owner = SaSessionUtil.getLoginOwner();
         return aiTranslateService.translateImage(request, owner);
     }
@@ -147,6 +155,13 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
         Long departmentId = loginUser.getDepartmentId();
         if (!loginUser.isAdmin() && !Objects.equals(departmentId, 1103627419648L)) {
             ClientResponseEnum.NO_PERMISSION.throwException("暂无权限");
+        }
+    }
+
+    private void requireAvailableCredits() {
+        Long userId = SaSessionUtil.getLoginUser().getLongId();
+        if (!aiCreditsService.hasAvailableCredits(userId)) {
+            throw new InsufficientCreditsException("AI额度不足，请充值后重试");
         }
     }
 

@@ -3,16 +3,11 @@ package cn.v7soft.dao.dto;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
-import java.util.function.Predicate;
-
 import cn.v7soft.dao.entities.primary.Department;
 import cn.v7soft.dao.entities.primary.Role;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.Gender;
 import cn.v7soft.dao.enums.SystemUserType;
-import cn.v7soft.dao.enums.ViewMode;
-import cn.v7soft.dao.utils.SaSessionUtil;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;

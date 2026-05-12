@@ -85,8 +85,8 @@ export function listAiTranslateTasks(data: any) {
     url: '/tasks/page',
     method: 'post',
     data: {
+      taskTypes: ['PRODUCT_AI_TRANSLATE', 'PRODUCT_AI_REALTIME_TRANSLATE'],
       ...data,
-      taskTypes: ['PRODUCT_AI_TRANSLATE'],
     },
   })
 }
