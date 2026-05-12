@@ -12,18 +12,39 @@
                 style="width: 515px"
               >
                 <template #prepend>
-                  <el-select v-model="queryForm.searchType" style="width: 50px">
-                    <el-option label="综合查询" value="COMPLEX" />
-                    <el-option label="订单编号" value="ORDER_ID" />
-                    <el-option label="中文品名" value="MERCHANDISE" />
-                    <el-option label="手机号码" value="TELEPHONE" />
-                    <el-option label="客户姓名" value="NAME" />
-                    <el-option label="产品标题" value="PRODUCT_TITLE" />
-                    <el-option label="远程IP" value="REMOTE_IP" />
-                    <el-option label="客户地址" value="ADDRESS" />
-                    <el-option label="下单域名" value="DOMAIN" />
-                    <el-option label="重单查询" value="REPEAT" />
-                  </el-select>
+                  <div class="search-type-select-wrap">
+                    <el-select
+                      v-model="queryForm.searchType"
+                      class="search-type-select"
+                      @change="onSearchTypeManualChange"
+                    >
+                      <el-option label="订单编号" value="ORDER_ID" />
+                      <el-option label="中文品名" value="MERCHANDISE" />
+                      <el-option label="手机号码" value="TELEPHONE" />
+                      <el-option label="客户姓名" value="NAME" />
+                      <el-option label="产品标题" value="PRODUCT_TITLE" />
+                      <el-option label="远程IP" value="REMOTE_IP" />
+                      <el-option label="客户地址" value="ADDRESS" />
+                      <el-option label="下单域名" value="DOMAIN" />
+                      <el-option label="重单查询" value="REPEAT" />
+                    </el-select>
+                    <el-tooltip :content="inferTooltip" placement="top">
+                      <button
+                        class="infer-toggle-button"
+                        :style="{
+                          color: autoInferSearchType
+                            ? 'var(--el-color-primary)'
+                            : 'var(--el-text-color-disabled)',
+                        }"
+                        type="button"
+                        @click.stop="onToggleAutoInfer"
+                      >
+                        <el-icon>
+                          <MagicStick />
+                        </el-icon>
+                      </button>
+                    </el-tooltip>
+                  </div>
                 </template>
                 <template #append>
                   <el-space>
@@ -288,7 +309,15 @@
 </template>
 
 <script setup lang="ts">
-import { CircleCheck, Delete, Download, EditPen, Refresh, Upload } from '@element-plus/icons-vue'
+import {
+  CircleCheck,
+  Delete,
+  Download,
+  EditPen,
+  MagicStick,
+  Refresh,
+  Upload,
+} from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { type Department, getTree as getAllDepartmentTree } from '~/src/api/department'
 import { status } from '~/src/api/taskManagement'
@@ -318,6 +347,72 @@ const uploadPercentage = ref<number>(0)
 const percentageFormat = (percentage: number) => `${percentage}%`
 // const fold = ref<boolean>(false)
 const queryForm = defineModel<any>()
+
+const SEARCH_TYPE_LABELS: Record<string, string> = {
+  ORDER_ID: '订单编号',
+  MERCHANDISE: '中文品名',
+  TELEPHONE: '手机号码',
+  NAME: '客户姓名',
+  PRODUCT_TITLE: '产品标题',
+  REMOTE_IP: '远程IP',
+  ADDRESS: '客户地址',
+  DOMAIN: '下单域名',
+  REPEAT: '重单查询',
+}
+
+// 仅在 autoInferSearchType=true 时根据 keyword 自动写入 queryForm.searchType
+const autoInferSearchType = ref(true)
+
+const inferSearchType = (raw?: string): string => {
+  const s = (raw ?? '').trim()
+  if (!s) return 'ORDER_ID'
+  if (/[\u4e00-\u9fa5]/.test(s)) return 'MERCHANDISE'
+  if (s.includes('.')) {
+    if (/[a-zA-Z]/.test(s)) return 'DOMAIN'
+    if (/^[\d.]+$/.test(s)) return 'REMOTE_IP'
+  }
+  if (/^\d+$/.test(s)) {
+    return s.length >= 5 && s.length <= 12 ? 'TELEPHONE' : 'ORDER_ID'
+  }
+  if (/[a-zA-Z]/.test(s)) {
+    const spaceCount = (s.match(/ /g) || []).length
+    return spaceCount === 1 ? 'NAME' : 'PRODUCT_TITLE'
+  }
+  return 'ORDER_ID'
+}
+
+const inferTooltip = computed(() => {
+  const label = SEARCH_TYPE_LABELS[queryForm.value?.searchType] ?? '订单编号'
+  return autoInferSearchType.value
+    ? `智能推断中：${label}（手动选择类型后会暂停推断）`
+    : `已手动锁定：${label}，点击恢复智能推断`
+})
+
+const onSearchTypeManualChange = () => {
+  // el-select @change 仅在用户交互时触发，程序赋值不会触发；因此可作为“手动锁定”的判定点
+  autoInferSearchType.value = false
+}
+
+const onToggleAutoInfer = () => {
+  autoInferSearchType.value = true
+  if (queryForm.value) {
+    queryForm.value.searchType = inferSearchType(queryForm.value.keywords)
+  }
+}
+
+watch(
+  () => queryForm.value?.keywords,
+  (kw) => {
+    if (!kw || !String(kw).trim()) {
+      autoInferSearchType.value = true
+      if (queryForm.value) queryForm.value.searchType = 'ORDER_ID'
+      return
+    }
+    if (!autoInferSearchType.value) return
+    if (queryForm.value) queryForm.value.searchType = inferSearchType(kw)
+  }
+)
+
 const uploadUrl = `${getEnv('VITE_API_BASE_URL', window.location.origin)}/orders/upload`
 const belongUserIdLoading = ref<boolean>(false)
 const belongUserIdOptions = ref<any[]>([])
@@ -493,6 +588,52 @@ onActivated(() => {
 </script>
 
 <style scoped>
+/* 让 prepend 里的查询类型 select 与外层 input 边框融合，避免视觉上出现双重边框 */
+.search-type-select-wrap {
+  position: relative;
+  display: inline-flex;
+  width: 90px;
+}
+.search-type-select {
+  width: 100%;
+}
+.search-type-select :deep(.el-select__wrapper),
+.search-type-select :deep(.el-select__wrapper.is-hovering),
+.search-type-select :deep(.el-select__wrapper.is-focused) {
+  padding-left: 0;
+  background-color: transparent;
+  box-shadow: none !important;
+}
+.search-type-select :deep(.el-select__selected-item) {
+  margin-left: 34px;
+}
+.search-type-select :deep(.el-select__input-wrapper) {
+  margin-left: 34px;
+}
+
+/* 智能推断图标区域：覆盖在 select 左侧内部，高度与下拉框一致，整块可点击 */
+.infer-toggle-button {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  padding: 0;
+  margin: 0 0 0 -20px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: var(--el-border-radius-base) 0 0 var(--el-border-radius-base);
+  transition: background-color 0.15s;
+}
+.infer-toggle-button .el-icon {
+  font-size: 16px;
+}
+
 .form-item-wrap {
   display: flex;
   flex-direction: row;

@@ -36,7 +36,6 @@ public class OrderQueryHelper {
 
     public static QueryPageRequest<Order> convertOrderQueryPageRequest(QueryOrderRequest request, IOrderService orderService) {
         SearchType searchType = request.getSearchType();
-        boolean isComplex = searchType == SearchType.COMPLEX;
         String keyword = request.getKeywords() == null ? "" : request.getKeywords().trim();
         request.setSortBy("orderTime desc, id desc");
 
@@ -113,19 +112,6 @@ public class OrderQueryHelper {
                                    EqualsQueryAttribute.builder().name("riskInfo.realIp").value(value).build());
 
         }
-        boolean isNumericKeyword = !keyword.isEmpty() && keyword.matches("\\d+");
-        boolean isIpLike = keyword.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
-        boolean isDomainLike = keyword.contains(".") && !keyword.contains(" ");
-
-        boolean complexMatchId = isComplex && !isIpLike;
-        boolean complexMatchPhone = isComplex && isNumericKeyword;
-        boolean complexMatchIp = isComplex && (isNumericKeyword || isIpLike);
-        boolean complexMatchName = isComplex && !isNumericKeyword && !isIpLike;
-        boolean complexMatchTitle = isComplex && !isNumericKeyword && !isIpLike;
-        boolean complexMatchMerchandise = isComplex && !isNumericKeyword && !isIpLike;
-        boolean complexMatchAddress = isComplex && !isNumericKeyword && !isIpLike;
-        boolean complexMatchWebsiteUrl = isComplex && (isDomainLike || (!isNumericKeyword && !isIpLike));
-
         String delimiter = " ";
         if (request.getKeywords() == null) {
             delimiter = " ";
@@ -144,10 +130,11 @@ public class OrderQueryHelper {
             phone = phone.length() > 8 ? phone.substring(phone.length() - 8) : phone;
         }
         String domainKeyword = normalizeDomainKeyword(keyword);
-        boolean needsDistinct = (complexMatchTitle || complexMatchMerchandise
-                || searchType == SearchType.PRODUCT_TITLE || searchType == SearchType.MERCHANDISE)
+        boolean needsDistinct = (searchType == SearchType.PRODUCT_TITLE || searchType == SearchType.MERCHANDISE)
                 && !keyword.isEmpty();
         QueryAttribute strictDomainMatch = buildHostMatchAttribute(domainKeyword);
+        // searchType 由前端按 keyword 形态推导确定，后端按精确分支匹配（不再做"综合 OR 多字段"）
+        // 同一 searchType 下若涉及多字段（如 ORDER_ID 同时查 id 和 originOrderId），仍用 .or() 段组合
         return orderQueryPageRequest
                 .addConstraint(needsDistinct, new QueryAttribute() {
                     @Override
@@ -157,17 +144,14 @@ public class OrderQueryHelper {
                     }
                 })
                 .or()
-                .addConstraint(!keywords.isEmpty() && (complexMatchId || searchType == SearchType.ORDER_ID), InAttribute.<Long>builder().name("id").value(keywords.stream().filter(ConvertUtils::isLong).map(Long::parseLong).toList()).build())
-                .addConstraint(!keywords.isEmpty() && (complexMatchId || searchType == SearchType.ORDER_ID), InAttribute.<String>builder().name("originOrderId").value(keywords).build())
-                .addConstraint(StrUtil.isNotBlank(phone) && (complexMatchPhone || searchType == SearchType.TELEPHONE), LikeAttribute.builder().name("deliveryInfo.phoneLast8").value(phone).leftMatch(false).build())
-                .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchName || searchType == SearchType.NAME), LikeAttribute.builder().name("deliveryInfo.firstName").value(keyword).leftMatch(false).build())
-                .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchTitle || searchType == SearchType.PRODUCT_TITLE), new FullTextMatchAttribute("itemInfos.title", keyword))
-                .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchMerchandise || searchType == SearchType.MERCHANDISE), new FullTextMatchAttribute("itemInfos.merchandise", keyword))
-                .addConstraint(!keywords.isEmpty() && (complexMatchIp || searchType == SearchType.REMOTE_IP), InAttribute.<String>builder().name("riskInfo.remoteIp").value(keywords).build())
-                .addConstraint(StrUtil.isNotBlank(keyword) && (complexMatchAddress || searchType == SearchType.ADDRESS), new FullTextMatchAttribute("deliveryInfo.address", keyword))
-                // 综合查询：keyword 像域名(含 . 且不含空格)时按 . 边界严格匹配；否则保留原全文匹配，避免影响其它字段搜索
-                .addConstraint(StrUtil.isNotBlank(domainKeyword) && complexMatchWebsiteUrl && isDomainLike, strictDomainMatch)
-                .addConstraint(StrUtil.isNotBlank(keyword) && complexMatchWebsiteUrl && !isDomainLike, new FullTextMatchAttribute("contextInfo.websiteUrl", keyword))
+                .addConstraint(!keywords.isEmpty() && searchType == SearchType.ORDER_ID, InAttribute.<Long>builder().name("id").value(keywords.stream().filter(ConvertUtils::isLong).map(Long::parseLong).toList()).build())
+                .addConstraint(!keywords.isEmpty() && searchType == SearchType.ORDER_ID, InAttribute.<String>builder().name("originOrderId").value(keywords).build())
+                .addConstraint(StrUtil.isNotBlank(phone) && searchType == SearchType.TELEPHONE, LikeAttribute.builder().name("deliveryInfo.phoneLast8").value(phone).leftMatch(false).build())
+                .addConstraint(StrUtil.isNotBlank(keyword) && searchType == SearchType.NAME, LikeAttribute.builder().name("deliveryInfo.firstName").value(keyword).leftMatch(false).build())
+                .addConstraint(StrUtil.isNotBlank(keyword) && searchType == SearchType.PRODUCT_TITLE, new FullTextMatchAttribute("itemInfos.title", keyword))
+                .addConstraint(StrUtil.isNotBlank(keyword) && searchType == SearchType.MERCHANDISE, new FullTextMatchAttribute("itemInfos.merchandise", keyword))
+                .addConstraint(!keywords.isEmpty() && searchType == SearchType.REMOTE_IP, InAttribute.<String>builder().name("riskInfo.remoteIp").value(keywords).build())
+                .addConstraint(StrUtil.isNotBlank(keyword) && searchType == SearchType.ADDRESS, new FullTextMatchAttribute("deliveryInfo.address", keyword))
                 .addConstraint(StrUtil.isNotBlank(domainKeyword) && searchType == SearchType.DOMAIN, strictDomainMatch)
                 .next()
                 .addConstraint(RepeatType.IP == request.getRepeatType(), GreaterThanAttribute.<Integer>builder().name("botOrderCheckInfo.remoteIpRepeatCount").value(1).build())
@@ -184,21 +168,27 @@ public class OrderQueryHelper {
      * websiteUrl 字段存储的是纯 host（如 "de.varlar.com"），由 v7-shop-mall 写入：
      *   websiteUrl = pageContext.subDomain.fullName
      * <p>
-     * 匹配语义（避免子串误匹配）：
-     *   keyword = "varlar.com"     → 匹配 varlar.com、de.varlar.com、ide.varlar.com，但不匹配 notvarlar.com
-     *   keyword = "de.varlar.com"  → 只匹配 de.varlar.com 自身（不会误匹配 ide.varlar.com）
-     * <p>
-     * 等价 SQL：websiteUrl = ? OR websiteUrl LIKE '%.${keyword}'
+     * 匹配语义：
+     * <ul>
+     *   <li>一级域名（点数 ≤ 1，例如 "varlar.com"）：等于自身 OR 以 ".${keyword}" 结尾，
+     *       匹配 varlar.com、de.varlar.com、ide.varlar.com 等全部子域名；不会匹配 notvarlar.com</li>
+     *   <li>子域名（点数 ≥ 2，例如 "de.varlar.com"）：仅精确等于自身，不再做后缀模糊，
+     *       严格区分 de.varlar.com 与 ide.varlar.com 等同后缀 host</li>
+     * </ul>
      */
     static QueryAttribute buildHostMatchAttribute(String hostKeyword) {
         return new QueryAttribute() {
             @Override
             public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder cb) {
                 Path<String> path = root.<Object>get("contextInfo").<String>get("websiteUrl");
-                return cb.or(
-                        cb.equal(path, hostKeyword),
-                        cb.like(path, "%." + hostKeyword)
-                );
+                long dotCount = hostKeyword.chars().filter(c -> c == '.').count();
+                if (dotCount <= 1) {
+                    return cb.or(
+                            cb.equal(path, hostKeyword),
+                            cb.like(path, "%." + hostKeyword)
+                    );
+                }
+                return cb.equal(path, hostKeyword);
             }
         };
     }

@@ -6,7 +6,6 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum SearchType {
-    COMPLEX("综合查询"),
     ORDER_ID("订单编号"),
     MERCHANDISE("中文品名"),
     TELEPHONE("手机号码"),

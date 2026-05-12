@@ -632,7 +632,7 @@ const queryForm = reactive<any>({
   isAudit: isAudit.value || undefined,
   isContact: isContact.value || undefined,
   dateRange: isAudit.value ? auditDefaultDataRange : undefined,
-  searchType: 'COMPLEX',
+  searchType: 'ORDER_ID',
   keywords: '',
 })
 
@@ -724,7 +724,7 @@ const onReset = () => {
   queryForm.repeatValue = undefined
   queryForm.pageNo = 1
   queryForm.pageSize = 20
-  queryForm.searchType = 'COMPLEX'
+  queryForm.searchType = 'ORDER_ID'
   queryForm.keywords = ''
 }
 
@@ -1079,7 +1079,7 @@ const initQueryParams = () => {
   queryForm.pageNo = Number(query.pageNo) || 1
   queryForm.pageSize = Number(query.pageSize) || 20
   queryForm.repeatType = query.repeatType || undefined
-  queryForm.searchType = query.searchType || 'COMPLEX'
+  queryForm.searchType = query.searchType || 'ORDER_ID'
   queryForm.keywords = query.keywords || undefined
   queryForm.orderStatus = query.orderStatus || undefined
   queryForm.botOrderStatus = query.botOrderStatus || undefined

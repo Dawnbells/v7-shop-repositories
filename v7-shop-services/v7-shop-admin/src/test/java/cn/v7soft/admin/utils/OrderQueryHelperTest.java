@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -23,8 +24,8 @@ import static org.mockito.Mockito.when;
  *
  * <p>核心验证 "按下单域名查询" 的匹配语义：
  * <ul>
- *   <li>websiteUrl = keyword</li>
- *   <li>OR websiteUrl LIKE '%.${keyword}'</li>
+ *   <li>一级域名（点数 ≤ 1，如 "varlar.com"）：websiteUrl = keyword OR websiteUrl LIKE '%.${keyword}'</li>
+ *   <li>子域名（点数 ≥ 2，如 "de.varlar.com"）：仅 websiteUrl = keyword（不再做后缀 LIKE）</li>
  * </ul>
  *
  * <p>由 v7-shop-mall 写入：{@code websiteUrl = pageContext.subDomain.fullName}，
@@ -61,33 +62,32 @@ class OrderQueryHelperTest {
     }
 
     @Test
-    @DisplayName("buildHostMatchAttribute: 生成的 Predicate = (websiteUrl = keyword) OR (websiteUrl LIKE '%.keyword')")
-    void buildHostMatchAttributeConstructsCorrectPredicate() {
+    @DisplayName("buildHostMatchAttribute: 一级域名（点数=1）= equal OR LIKE '%.keyword'，匹配自身和全部子域名")
+    void buildHostMatchAttributeForTopLevelDomain() {
         String keyword = "varlar.com";
         HostMatchHarness harness = new HostMatchHarness(keyword);
 
         harness.run();
 
-        // 核心断言：精确相等 + 按 . 边界 LIKE 各调用一次
         verify(harness.cb, times(1)).equal(harness.websiteUrlPath, keyword);
         verify(harness.cb, times(1)).like(harness.websiteUrlPath, "%." + keyword);
-        // 上述两个 Predicate 被 OR 组合
         verify(harness.cb, times(1)).or(any(Predicate.class), any(Predicate.class));
     }
 
     @Test
-    @DisplayName("buildHostMatchAttribute: 子域名 keyword 不会误匹配 ide.varlar.com 这种含子串的 host")
-    void buildHostMatchAttributeIsExactForSpecificSubdomain() {
-        // 这个测试验证 LIKE 模式的字面量为 "%.${keyword}"，而不是 "%${keyword}%"
-        // 因此 keyword="de.varlar.com" 生成的 LIKE 模式是 "%.de.varlar.com"
-        // 它不会匹配 "ide.varlar.com"（不以 ".de.varlar.com" 结尾）
+    @DisplayName("buildHostMatchAttribute: 子域名（点数≥2）只用 equal，不做后缀 LIKE")
+    void buildHostMatchAttributeForSubdomainUsesExactEqualOnly() {
+        // keyword=de.varlar.com 视为子域名，仅精确匹配自身；
+        // 避免 LIKE 既会引入 m.de.varlar.com 这类更深子域名的误匹配，
+        // 也保证 de.varlar.com 与 ide.varlar.com 的严格区分（这本来就不会被 LIKE 误匹配，因为 LIKE 是 "%."+keyword 形态）。
         String keyword = "de.varlar.com";
         HostMatchHarness harness = new HostMatchHarness(keyword);
 
         harness.run();
 
-        verify(harness.cb).like(harness.websiteUrlPath, "%.de.varlar.com");
-        verify(harness.cb).equal(harness.websiteUrlPath, "de.varlar.com");
+        verify(harness.cb, times(1)).equal(harness.websiteUrlPath, keyword);
+        verify(harness.cb, never()).like(eq(harness.websiteUrlPath), anyString());
+        verify(harness.cb, never()).or(any(Predicate.class), any(Predicate.class));
     }
 
     /**
