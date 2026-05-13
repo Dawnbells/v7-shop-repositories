@@ -26,6 +26,8 @@ public interface ISystemUserService extends IBaseService<SystemUser> {
      */
     String getTicket();
 
+    String getWebsiteTicket(Long websiteId);
+
     /**
      * 根据ticket进行登录
      * @param ticket ticket

@@ -30,4 +30,10 @@ public interface WebsiteRepository extends BaseRepository<Website> {
 
     @Query("select w.currency from Website w where w.id=:id")
     Currency getCurrencyById(@Param("id") Long id);
+
+    @Query("select w.owner.id from Website w where w.id=:id")
+    Long getOwnerIdById(@Param("id") Long id);
+
+    @Query("select w.owner.department.id from Website w where w.id=:id")
+    Long getOwnerDepartmentIdById(@Param("id") Long id);
 }

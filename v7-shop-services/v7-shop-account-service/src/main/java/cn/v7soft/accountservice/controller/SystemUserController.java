@@ -112,6 +112,13 @@ public class SystemUserController {
         return TicketResponse.builder().ticket(systemUserService.getTicket()).build();
     }
 
+    @SaCheckLogin
+    @GetMapping("/getWebsiteTicket/{websiteId}")
+    @Operation(summary = "get website manager ticket")
+    public TicketResponse getWebsiteTicket(@PathVariable("websiteId") Long websiteId) {
+        return TicketResponse.builder().ticket(systemUserService.getWebsiteTicket(websiteId)).build();
+    }
+
     @GetMapping("/loginByTicket/{ticket}")
     @Operation(summary = "根据ticket进行登录,返回tokenValue")
     public LoginResponse loginByTicket(@PathVariable("ticket") String ticket) {

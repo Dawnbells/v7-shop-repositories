@@ -61,6 +61,13 @@ export function getTicket() {
   })
 }
 
+export function getWebsiteTicket(websiteId: string | number) {
+  return request({
+    url: `/systemUser/getWebsiteTicket/${websiteId}`,
+    method: 'get',
+  })
+}
+
 export function loginByTicket(ticket: string) {
   return request({
     url: `/systemUser/loginByTicket/${ticket}`,

@@ -5,6 +5,8 @@ import cn.dev33.satoken.session.SaSession;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.IdUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import cn.v7soft.accountservice.controller.req.LoginRequest;
 import cn.v7soft.accountservice.controller.req.SystemUserAddRequest;
 import cn.v7soft.accountservice.service.ISystemUserService;
@@ -14,12 +16,17 @@ import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.core.service.impl.BaseService;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
+import cn.v7soft.dao.repositories.primary.WebsiteRepository;
 import cn.v7soft.dao.tenant.TenantContext;
+import cn.v7soft.dao.tenant.WebsiteContext;
+import cn.v7soft.dao.utils.SaSessionUtil;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -27,11 +34,15 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class SystemUserService extends BaseService<SystemUser, SystemUserRepository> implements ISystemUserService {
-    private final StringRedisTemplate redisTemplate;
+    private static final String WEBSITE_MANAGER_TICKET_PREFIX = "WEBSITE_MANAGER:";
 
-    public SystemUserService(SystemUserRepository systemUserRepository, StringRedisTemplate redisTemplate) {
+    private final StringRedisTemplate redisTemplate;
+    private final WebsiteRepository websiteRepository;
+
+    public SystemUserService(SystemUserRepository systemUserRepository, StringRedisTemplate redisTemplate, WebsiteRepository websiteRepository) {
         super(systemUserRepository);
         this.redisTemplate = redisTemplate;
+        this.websiteRepository = websiteRepository;
     }
 
     @Override
@@ -77,11 +88,44 @@ public class SystemUserService extends BaseService<SystemUser, SystemUserReposit
     }
 
     @Override
+    public String getWebsiteTicket(Long websiteId) {
+        SystemUserDto systemUser = SaSessionUtil.getLoginUser();
+        assertCanAccessWebsite(systemUser, websiteId);
+
+        final String ticket = IdUtil.nanoId();
+        String payload = JSONUtil.toJsonStr(Map.of(
+                "tokenValue", StpUtil.getTokenValue(),
+                "targetWebsiteId", websiteId
+        ));
+        this.redisTemplate.opsForValue().set(ticket, WEBSITE_MANAGER_TICKET_PREFIX + payload, 30, TimeUnit.SECONDS);
+        return ticket;
+    }
+
+    @Override
     public String loginByTicket(String ticket) {
         String tokenValue = this.redisTemplate.opsForValue().get(ticket);
         if (!StringUtils.hasLength(tokenValue)) {
             ClientResponseEnum.PARAMETER_ILLEGAL.throwException("请检查Ticket是否有效");
         }
-        return tokenValue;
+        if (!tokenValue.startsWith(WEBSITE_MANAGER_TICKET_PREFIX)) {
+            return tokenValue;
+        }
+
+        this.redisTemplate.delete(ticket);
+        JSONObject payload = JSONUtil.parseObj(tokenValue.substring(WEBSITE_MANAGER_TICKET_PREFIX.length()));
+        Long targetWebsiteId = payload.getLong("targetWebsiteId");
+        String websiteTokenValue = payload.getStr("tokenValue");
+        ClientResponseEnum.NO_PERMISSION.assertTrue(WebsiteContext.isWebsiteAdmin(), "ticket invalid");
+        ClientResponseEnum.NO_PERMISSION.assertTrue(Objects.equals(WebsiteContext.getCurrentWebsiteId(), targetWebsiteId), "ticket invalid");
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(StringUtils.hasLength(websiteTokenValue), "ticket invalid");
+        return websiteTokenValue;
+    }
+
+    private void assertCanAccessWebsite(SystemUserDto systemUser, Long websiteId) {
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(websiteId);
+        Long ownerId = websiteRepository.getOwnerIdById(websiteId);
+        ClientResponseEnum.NO_PERMISSION.notNull(ownerId, "no website permission");
+        Long ownerDepartmentId = websiteRepository.getOwnerDepartmentIdById(websiteId);
+        ClientResponseEnum.NO_PERMISSION.assertTrue(systemUser.hasManagerPermission(ownerId, ownerDepartmentId), "no website permission");
     }
 }

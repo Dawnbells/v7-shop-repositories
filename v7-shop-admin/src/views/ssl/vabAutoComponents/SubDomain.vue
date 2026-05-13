@@ -103,7 +103,7 @@
 </template>
 
 <script lang="ts" setup>
-import { getTicket } from '~/src/api/user'
+import { getWebsiteTicket } from '~/src/api/user'
 import BindSubDomainProduct from './BindSubDomainProduct.vue'
 import SubDomainThemeSelect from './SubDomainThemeSelect.vue'
 import { doDelete, page } from '/@/api/subDomain'
@@ -216,7 +216,7 @@ onActivated(() => {
   tableRef.value.doLayout()
 })
 const goWebsiteManager = async (row: { website: { id: string } }) => {
-  const res = await getTicket()
+  const res = await getWebsiteTicket(row.website.id)
   const url = `http://admin${row.website.id}.${fullDomain.value}/#/?ticket=${encodeURIComponent(res.data.ticket)}`
   window.open(url, '_blank')
 }

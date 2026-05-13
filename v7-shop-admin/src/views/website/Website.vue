@@ -138,7 +138,7 @@
 
 <script lang="ts" setup>
 import { Delete, Plus, Search } from '@element-plus/icons-vue'
-import { getTicket } from '/@/api/user'
+import { getWebsiteTicket } from '/@/api/user'
 import { doDelete, page, switchValidity } from '/@/api/website'
 
 defineOptions({
@@ -211,7 +211,7 @@ const handleTransfer = (row = {}) => {
 }
 
 const goWebsiteManager = async (row: { id: string }) => {
-  const res = await getTicket()
+  const res = await getWebsiteTicket(row.id)
   const url = `http://admin${row.id}.${fullDomain.value}/#/?ticket=${encodeURIComponent(res.data.ticket)}`
   window.open(url, '_blank')
 }
