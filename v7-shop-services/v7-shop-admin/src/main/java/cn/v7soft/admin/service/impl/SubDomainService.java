@@ -12,6 +12,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
 import cn.v7soft.admin.controller.req.CreateAndBindSpuPixelRequest;
@@ -66,6 +68,7 @@ import cn.v7soft.dao.repositories.primary.SubDomainSpuPixelRepository;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import cn.v7soft.dao.properties.ThemeEditorProperty;
 import cn.v7soft.dao.utils.SaSessionUtil;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
@@ -173,6 +176,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     @Override
     public void doCreate(Long id) {
         SubDomain subDomain = getById(id);
+        logWebsiteDomainOperation("prepareBindWebsiteDomain", subDomain);
         assertCanAccessParentDomain(subDomain);
 
         String websiteId = subDomain.getWebsite() == null ? "" : subDomain.getWebsite().getId().toString();
@@ -191,6 +195,10 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         FrontServer frontServer = website.getCountry().getFrontServer();
         subDomain.setFrontServer(frontServer);
         subDomain.setWebsite(website);
+        log.info("bindWebsiteDomainResolved: subDomainId={}, fullName={}, currentWebsiteId={}, websiteName={}, frontServer={}, contextDomain={}, websiteAdmin={}, origin={}, referer={}",
+                subDomain.getId(), subDomain.getFullName(), currentWebsiteId, website.getName(),
+                frontServer == null ? null : frontServer.getName(),
+                WebsiteContext.getDomain(), WebsiteContext.isWebsiteAdmin(), getRequestHeader("Origin"), getRequestHeader("Referer"));
 
         String name = frontServer.getName();
 
@@ -263,9 +271,36 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     public void doDeleteAll(List<Long> ids) {
         for (Long id : ids) {
             SubDomain subDomain = getById(id);
+            logWebsiteDomainOperation("prepareDeleteWebsiteDomain", subDomain);
             assertCanManageWebsiteDomain(subDomain);
             doDelete(subDomain);
         }
+    }
+
+    private void logWebsiteDomainOperation(String action, SubDomain subDomain) {
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        TopLevelDomain parentDomain = subDomain.getParentDomain();
+        SystemUser owner = parentDomain == null ? null : parentDomain.getOwner();
+        Website website = subDomain.getWebsite();
+        log.info("{}: userId={}, username={}, userType={}, departmentId={}, currentWebsiteId={}, contextDomain={}, websiteAdmin={}, origin={}, referer={}, subDomainId={}, fullName={}, boundWebsiteId={}, boundWebsiteName={}, parentDomainId={}, parentDomain={}, parentOwnerId={}, parentOwnerDepartmentId={}",
+                action,
+                loginUser.getLongId(), loginUser.getName(), loginUser.getUserType(), loginUser.getDepartmentId(),
+                WebsiteContext.getCurrentWebsiteId(), WebsiteContext.getDomain(), WebsiteContext.isWebsiteAdmin(),
+                getRequestHeader("Origin"), getRequestHeader("Referer"),
+                subDomain.getId(), subDomain.getFullName(),
+                website == null ? null : website.getId(), website == null ? null : website.getName(),
+                parentDomain == null ? null : parentDomain.getId(), parentDomain == null ? null : parentDomain.getName(),
+                owner == null ? null : owner.getId(),
+                owner == null || owner.getDepartment() == null ? null : owner.getDepartment().getId());
+    }
+
+    private String getRequestHeader(String name) {
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            return null;
+        }
+        HttpServletRequest request = attributes.getRequest();
+        return request == null ? null : request.getHeader(name);
     }
 
     private void assertCanManageWebsiteDomain(SubDomain subDomain) {

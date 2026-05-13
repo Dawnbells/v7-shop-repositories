@@ -32,6 +32,9 @@ public class CompanyTenantInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, @NotNull HttpServletResponse response, @NotNull Object handler) throws Exception {
         // 记录请求信息
 //        log.info("Filter called for URL: {} at {} by thread {}， process={}", request.getRequestURI(), LocalDateTime.now(), Thread.currentThread().getId(), ProcessHandle.current().pid());
+        TenantContext.clear();
+        WebsiteContext.clear();
+
         String path = request.getRequestURI();
 
         if(path == null || path.endsWith(".php")) {
@@ -73,6 +76,12 @@ public class CompanyTenantInterceptor implements HandlerInterceptor {
     @Override
     public void postHandle(@NotNull HttpServletRequest request, @NotNull HttpServletResponse response, @NotNull Object handler, ModelAndView modelAndView) throws Exception {
         HandlerInterceptor.super.postHandle(request, response, handler, modelAndView);
+        TenantContext.clear();
+        WebsiteContext.clear();
+    }
+    @Override
+    public void afterCompletion(@NotNull HttpServletRequest request, @NotNull HttpServletResponse response, @NotNull Object handler, Exception ex) throws Exception {
+        HandlerInterceptor.super.afterCompletion(request, response, handler, ex);
         TenantContext.clear();
         WebsiteContext.clear();
     }
