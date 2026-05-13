@@ -56,17 +56,6 @@
                     >
                       搜索
                     </el-button>
-                    <el-divider direction="vertical" />
-
-                    <el-tooltip content="重置" placement="top">
-                      <el-button
-                        :icon="Refresh"
-                        :loading="listLoading"
-                        native-type="submit"
-                        type="primary"
-                        @click="reset"
-                      />
-                    </el-tooltip>
                   </el-space>
                 </template>
               </el-input>
@@ -315,7 +304,6 @@ import {
   Download,
   EditPen,
   MagicStick,
-  Refresh,
   Upload,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -476,10 +464,6 @@ const calcTokenHeader = () => {
 
 const queryData = () => {
   emit('onSearch')
-}
-
-const reset = () => {
-  emit('onReset')
 }
 
 // const handleFold = () => {

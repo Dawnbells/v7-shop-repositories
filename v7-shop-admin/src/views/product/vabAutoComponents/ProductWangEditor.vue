@@ -1,5 +1,5 @@
 <template>
-  <div :class="['wang-editor-container']" @mouseleave="hideImgAiBtn">
+  <div ref="containerRef" :class="['wang-editor-container']" @mouseleave="hideImgAiBtn">
     <toolbar :editor="editorRef" style="border-bottom: 1px solid var(--el-border-color)" />
     <editor
       v-model="html"
@@ -59,6 +59,7 @@ defineOptions({
 type InsertFnType = (url: string, alt: string, href: string) => void
 
 const editorRef: ShallowRef<IDomEditor | undefined> = shallowRef<IDomEditor | undefined>()
+const containerRef = ref<HTMLElement | null>(null)
 const html = defineModel<string>()
 const props = defineProps({
   isProduct: {
@@ -201,6 +202,7 @@ const currentImgSource = ref<any>({ id: '', absolutionPath: '' })
 const pendingReplaceSrc = ref('')
 let currentHoveredImg: HTMLImageElement | null = null
 let imgLeaveTimer: ReturnType<typeof setTimeout> | null = null
+let editorContentEl: HTMLElement | null = null
 
 const buildImgSource = (img: HTMLImageElement) => {
   const src = img.src || ''
@@ -214,8 +216,8 @@ const buildImgSource = (img: HTMLImageElement) => {
 }
 
 const updateImgAiBtnPosition = (img: HTMLImageElement) => {
-  const containerEl = img.closest('.wang-editor-container')
-  const contentEl = document.querySelector('.wang-editor-content') as HTMLElement | null
+  const containerEl = (img.closest('.wang-editor-container') as HTMLElement | null) || containerRef.value
+  const contentEl = containerEl?.querySelector('.wang-editor-content') as HTMLElement | null
   if (!containerEl || !contentEl) return false
   const containerRect = containerEl.getBoundingClientRect()
   const imgRect = img.getBoundingClientRect()
@@ -296,10 +298,13 @@ const onImgTranslated = (result: any) => {
 
 const setupEditorMouseListeners = () => {
   nextTick(() => {
-    const container = document.querySelector('.wang-editor-content')
-    if (container) {
-      container.addEventListener('mouseover', onEditorMouseOver as any)
-      container.addEventListener('scroll', onEditorScroll, { passive: true })
+    const container = containerRef.value?.querySelector('.wang-editor-content') as HTMLElement | null
+    if (container && container !== editorContentEl) {
+      editorContentEl?.removeEventListener('mouseover', onEditorMouseOver as any)
+      editorContentEl?.removeEventListener('scroll', onEditorScroll)
+      editorContentEl = container
+      editorContentEl.addEventListener('mouseover', onEditorMouseOver as any)
+      editorContentEl.addEventListener('scroll', onEditorScroll, { passive: true })
     }
   })
 }
@@ -315,10 +320,10 @@ defineExpose({
 onBeforeUnmount(() => {
   const editor = editorRef.value
   if (editor) editor.destroy()
-  const container = document.querySelector('.wang-editor-content')
-  if (container) {
-    container.removeEventListener('mouseover', onEditorMouseOver as any)
-    container.removeEventListener('scroll', onEditorScroll)
+  if (editorContentEl) {
+    editorContentEl.removeEventListener('mouseover', onEditorMouseOver as any)
+    editorContentEl.removeEventListener('scroll', onEditorScroll)
+    editorContentEl = null
   }
 })
 </script>
@@ -353,9 +358,39 @@ onBeforeUnmount(() => {
   border: var(--el-border) !important;
 
   &.w-e-full-screen-container {
-    z-index: 9999 !important;
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 2999 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+
+    .w-e-toolbar {
+      flex: 0 0 auto !important;
+    }
+
     .wang-editor-content {
+      flex: 1 1 auto !important;
+      height: auto !important;
+      min-height: 0 !important;
       max-height: none !important;
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
+      overflow: auto !important;
+    }
+
+    .w-e-text-container {
+      height: auto !important;
+      min-height: 0 !important;
+      flex: 1 1 auto !important;
+    }
+
+    .w-e-scroll {
+      min-height: 100% !important;
       overflow: auto !important;
     }
   }
