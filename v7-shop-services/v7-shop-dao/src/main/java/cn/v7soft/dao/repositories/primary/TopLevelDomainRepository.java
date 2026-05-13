@@ -13,8 +13,8 @@ public interface TopLevelDomainRepository extends BaseRepository<TopLevelDomain>
     /**
      * 根据域名名称和排除指定ID查询一级域名
      */
-    @Query("FROM TopLevelDomain WHERE name = :name AND (:id IS NULL OR id <> :id) AND status = 'VALID'")
-    TopLevelDomain findBySameName(@Param("name") String name, @Param("id") Long id);
+    @Query("SELECT COUNT(d) FROM TopLevelDomain d WHERE d.name = :name AND (:id IS NULL OR d.id <> :id) AND d.status = 'VALID'")
+    long countBySameName(@Param("name") String name, @Param("id") Long id);
 
     /**
      * 获取所有正在申请证书和排队申请证书的域名，不限公司和数据范围

@@ -5,6 +5,7 @@ import cn.v7soft.admin.controller.req.CreateAndBindSpuPixelRequest;
 import cn.v7soft.admin.controller.resp.PixelSimpleResponse;
 import cn.v7soft.admin.controller.resp.SubDomainSpuDetailResponse;
 import cn.v7soft.admin.service.dto.SubDomainDto;
+import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.service.IBaseService;
 import cn.v7soft.dao.entities.primary.Spu;
 import cn.v7soft.dao.entities.primary.SubDomain;
@@ -26,6 +27,8 @@ public interface ISubDomainService extends IBaseService<SubDomain> {
      * @return 批评的域名列表
      */
     List<SubDomain> queryRelayDomainsByKeyword(String keyword);
+
+    QueryAttribute getParentDomainAccessDataRangeAttribute();
 
     /**
      * 当前商城新增绑定域名

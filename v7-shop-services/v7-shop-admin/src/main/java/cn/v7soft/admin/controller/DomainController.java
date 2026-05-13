@@ -51,11 +51,13 @@ public class DomainController {
             @Override
             public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) {
                 Predicate websitePredicate = criteriaBuilder.equal(root.get("website").get("id"), WebsiteContext.getCurrentWebsiteId());
+                Predicate dataRangePredicate = subDomainService.getParentDomainAccessDataRangeAttribute()
+                        .toPredicate(root, query, criteriaBuilder);
                 if (TextUtils.isBlank(request.getKeyword())) {
-                    return websitePredicate;
+                    return criteriaBuilder.and(websitePredicate, dataRangePredicate);
                 }
                 Predicate keywordPredicate = criteriaBuilder.like(root.get("fullName"), "%" + request.getKeyword() + "%");
-                return criteriaBuilder.and(websitePredicate, keywordPredicate);
+                return criteriaBuilder.and(websitePredicate, dataRangePredicate, keywordPredicate);
             }
         })).map(SubDomainResponse::convertEntity);
     }

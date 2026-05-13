@@ -20,7 +20,7 @@ export function uploadFiles(folderId?: any) {
   return (options: any) => {
     console.log(options)
     request({
-      url: `/multimedia-file/uploadFiles${folderId ? '' : `/${folderId}`}`,
+      url: `/multimedia-file/uploadFiles/${folderId || 'root'}`,
       method: 'post',
     })
   }

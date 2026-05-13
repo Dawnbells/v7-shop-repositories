@@ -2,6 +2,7 @@ package cn.v7soft.admin.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -29,6 +30,7 @@ import cn.v7soft.admin.service.dto.SubDomainDto;
 import cn.v7soft.admin.service.ssl.ISslCertificateRequester;
 import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.admin.utils.NginxConfigWriter;
+import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.core.enums.ServiceResponseEnum;
@@ -46,6 +48,7 @@ import cn.v7soft.dao.entities.primary.SubDomainSpuLandingPage;
 import cn.v7soft.dao.entities.primary.SubDomainSpuLandingPageId;
 import cn.v7soft.dao.entities.primary.SubDomainSpuPixel;
 import cn.v7soft.dao.entities.primary.SubDomainSpuPixelId;
+import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.ThemeCustom;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import cn.v7soft.dao.entities.primary.Website;
@@ -63,7 +66,10 @@ import cn.v7soft.dao.repositories.primary.SubDomainSpuPixelRepository;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import cn.v7soft.dao.properties.ThemeEditorProperty;
 import cn.v7soft.dao.utils.SaSessionUtil;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -109,13 +115,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     public List<SubDomain> queryDomainsByKeyword(String keyword) {
         return repository.findAll((Specification<SubDomain>) (root, query, criteriaBuilder) -> {
             Predicate websitePredicate = criteriaBuilder.isNull(root.get("website"));
-            SystemUserDto loginUser = SaSessionUtil.getLoginUser();
-            Predicate dataRangePredicate = criteriaBuilder.conjunction();
-            if (loginUser.isDepartmentManager()) {
-                dataRangePredicate = criteriaBuilder.equal(root.get("parentDomain").get("owner").get("department").get("id"), loginUser.getDepartmentId());
-            } else if (!loginUser.isAdmin()) {
-                dataRangePredicate = criteriaBuilder.equal(root.get("parentDomain").get("owner").get("id"), loginUser.getLongId());
-            }
+            Predicate dataRangePredicate = getParentDomainAccessDataRangeAttribute().toPredicate(root, query, criteriaBuilder);
             if (keyword == null || keyword.isEmpty()) {
                 return criteriaBuilder.and(dataRangePredicate, websitePredicate);  // 返回一个总为真的断言，表示不筛选任何条件
             }
@@ -132,7 +132,8 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         return repository.findAll((Specification<SubDomain>) (root, query, criteriaBuilder) -> {
             Predicate typePredicate = criteriaBuilder.equal(root.get("type"), DomainType.RELAY);
             Predicate frontServerPredicate = criteriaBuilder.isNull(root.get("frontServer"));
-            Predicate andPredicate = criteriaBuilder.and(typePredicate, frontServerPredicate);
+            Predicate dataRangePredicate = getParentDomainAccessDataRangeAttribute().toPredicate(root, query, criteriaBuilder);
+            Predicate andPredicate = criteriaBuilder.and(dataRangePredicate, typePredicate, frontServerPredicate);
             if (keyword == null || keyword.isEmpty()) {
                 return andPredicate;  // 返回一个总为真的断言，表示不筛选任何条件
             }
@@ -144,8 +145,35 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     }
 
     @Override
+    public QueryAttribute getParentDomainAccessDataRangeAttribute() {
+        return new QueryAttribute() {
+            @Override
+            public <T> Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder criteriaBuilder) {
+                SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+                if (loginUser.isAdmin()) {
+                    return criteriaBuilder.conjunction();
+                }
+                if (loginUser.isDeepDepartmentManager()) {
+                    CriteriaBuilder.In<Object> in = criteriaBuilder.in(root.get("parentDomain").get("owner").get("department").get("id"));
+                    if (loginUser.getAccessDepartmentIds() != null) {
+                        for (Long accessDepartmentId : loginUser.getAccessDepartmentIds()) {
+                            in.value(accessDepartmentId);
+                        }
+                    }
+                    return in;
+                }
+                if (loginUser.isDepartmentManager()) {
+                    return criteriaBuilder.equal(root.get("parentDomain").get("owner").get("department").get("id"), loginUser.getDepartmentId());
+                }
+                return criteriaBuilder.equal(root.get("parentDomain").get("owner").get("id"), loginUser.getLongId());
+            }
+        };
+    }
+
+    @Override
     public void doCreate(Long id) {
         SubDomain subDomain = getById(id);
+        assertCanAccessParentDomain(subDomain);
 
         String websiteId = subDomain.getWebsite() == null ? "" : subDomain.getWebsite().getId().toString();
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(subDomain.getWebsite(), "该域名已绑定其他商城: " + websiteId);
@@ -234,8 +262,41 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     @Transactional
     public void doDeleteAll(List<Long> ids) {
         for (Long id : ids) {
-            doDelete(getById(id));
+            SubDomain subDomain = getById(id);
+            assertCanManageWebsiteDomain(subDomain);
+            doDelete(subDomain);
         }
+    }
+
+    private void assertCanManageWebsiteDomain(SubDomain subDomain) {
+        assertCanAccessParentDomain(subDomain);
+        Long currentWebsiteId = WebsiteContext.getCurrentWebsiteId();
+        Website website = subDomain.getWebsite();
+        boolean isCurrentWebsiteDomain = website != null && Objects.equals(website.getId(), currentWebsiteId);
+        ClientResponseEnum.NO_PERMISSION.assertTrue(isCurrentWebsiteDomain, "您无权限操作该域名");
+    }
+
+    private void assertCanAccessParentDomain(SubDomain subDomain) {
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        if (loginUser.isAdmin()) {
+            return;
+        }
+        TopLevelDomain parentDomain = subDomain.getParentDomain();
+        SystemUser owner = parentDomain == null ? null : parentDomain.getOwner();
+        ClientResponseEnum.NO_PERMISSION.notNull(owner, "您无权限操作该域名");
+        if (Objects.equals(owner.getId(), loginUser.getLongId())) {
+            return;
+        }
+        Long ownerDepartmentId = owner.getDepartment() == null ? null : owner.getDepartment().getId();
+        boolean canAccess = false;
+        if (loginUser.isDeepDepartmentManager()) {
+            canAccess = ownerDepartmentId != null
+                    && loginUser.getAccessDepartmentIds() != null
+                    && loginUser.getAccessDepartmentIds().contains(ownerDepartmentId);
+        } else if (loginUser.isDepartmentManager()) {
+            canAccess = Objects.equals(ownerDepartmentId, loginUser.getDepartmentId());
+        }
+        ClientResponseEnum.NO_PERMISSION.assertTrue(canAccess, "您无权限操作该域名");
     }
 
     @Transactional

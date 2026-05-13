@@ -13,6 +13,7 @@ import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.core.controller.request.attributes.NotQueryAttribute;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
+import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import io.swagger.v3.oas.annotations.Operation;
@@ -43,7 +44,7 @@ public class MultimediaFileController extends BaseDataRangeController<Multimedia
 
     @PostMapping("/uploadFiles/{id}")
     public List<MultimediaFileResponse> uploadFiles(HttpServletRequest httpServletRequest, @PathVariable(value = "id", required = false) String compactId) {
-        Long realId = "10000".equalsIgnoreCase(compactId) || "10001".equalsIgnoreCase(compactId) ? null : Long.parseLong(Base62.decodeStr(compactId));
+        Long realId = parseFolderId(compactId);
         return service.uploadFiles(httpServletRequest, realId);
     }
 
@@ -66,7 +67,7 @@ public class MultimediaFileController extends BaseDataRangeController<Multimedia
                 if ("10001".equals(compactId)) {
                     return criteriaBuilder.isNull(root.get("folder").get("id"));
                 }
-                Long realId = Long.parseLong(Base62.decodeStr(compactId));
+                Long realId = parseFolderId(compactId);
                 return criteriaBuilder.equal(root.get("folder").get("id"), realId);
             }
         }).add(NotQueryAttribute.builder().name("status").value(StatusEnum.DELETED).build());
@@ -94,5 +95,20 @@ public class MultimediaFileController extends BaseDataRangeController<Multimedia
     @Override
     protected boolean cleanupBeforeDelete(DeleteRequest request) {
         return true;
+    }
+
+    private Long parseFolderId(String compactId) {
+        if (compactId == null
+                || "root".equalsIgnoreCase(compactId)
+                || "10000".equalsIgnoreCase(compactId)
+                || "10001".equalsIgnoreCase(compactId)) {
+            return null;
+        }
+
+        try {
+            return Long.parseLong(Base62.decodeStr(compactId));
+        } catch (Exception e) {
+            throw ClientResponseEnum.PARAMETER_ILLEGAL.newException("文件夹ID非法");
+        }
     }
 }

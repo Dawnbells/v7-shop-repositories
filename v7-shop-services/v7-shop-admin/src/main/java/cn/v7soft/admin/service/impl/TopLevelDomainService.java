@@ -70,8 +70,8 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
 
     @Override
     protected void checkKeyConstraint(TopLevelDomain entity) {
-        TopLevelDomain existingDomain = repository.findBySameName(entity.getName(), entity.getId());
-        ClientResponseEnum.PARAMETER_ILLEGAL.isNull(existingDomain, "一级域名不允许重复");
+        long sameNameCount = repository.countBySameName(entity.getName(), entity.getId());
+        ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(sameNameCount == 0, "一级域名不允许重复");
     }
 
     @Override
