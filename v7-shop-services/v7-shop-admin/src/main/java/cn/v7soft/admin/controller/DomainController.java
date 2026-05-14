@@ -95,6 +95,6 @@ public class DomainController {
             ClientResponseEnum.PARAMETER_ILLEGAL.throwException("IDS参数错: " + request.getIds());
         }
         ClientResponseEnum.PARAMETER_ILLEGAL.notEmpty(ids, "IDS参数为空");
-        subDomainService.doDeleteAll(ids);
+        subDomainService.unbindWebsiteDomains(ids);
     }
 }

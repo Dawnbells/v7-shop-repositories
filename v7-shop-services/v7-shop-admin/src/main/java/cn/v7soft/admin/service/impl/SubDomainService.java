@@ -277,6 +277,20 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         }
     }
 
+    @Override
+    @Transactional
+    public void unbindWebsiteDomains(List<Long> ids) {
+        for (Long id : ids) {
+            SubDomain subDomain = getById(id);
+            logWebsiteDomainOperation("prepareUnbindWebsiteDomain", subDomain);
+            assertCanManageWebsiteDomain(subDomain);
+            subDomain.setAnalyzeSuccess(false);
+            subDomain.setFrontServer(null);
+            subDomain.setWebsite(null);
+            repository.saveAndFlush(subDomain);
+        }
+    }
+
     private void logWebsiteDomainOperation(String action, SubDomain subDomain) {
         SystemUserDto loginUser = SaSessionUtil.getLoginUser();
         TopLevelDomain parentDomain = subDomain.getParentDomain();

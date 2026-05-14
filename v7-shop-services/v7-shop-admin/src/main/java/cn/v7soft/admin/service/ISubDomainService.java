@@ -49,6 +49,8 @@ public interface ISubDomainService extends IBaseService<SubDomain> {
      */
     void doDeleteAll(List<Long> ids);
 
+    void unbindWebsiteDomains(List<Long> ids);
+
     /**
      * 解除所有绑定该删除的绑定
      * @param websiteId 商城ID
