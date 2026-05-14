@@ -147,9 +147,6 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
             product = getById(ConvertUtils.parseLong(request.getId()));
         }
         assertCanAccessSpu(request.getSpuId());
-        assertCanAccessSpu(request.getBotShowSpuId());
-        assertCanAccessSpu(request.getRiskUserShowSpuId());
-        assertCanAccessSpu(request.getBlacklistedUserShowSpuId());
         BeanUtil.copyProperties(request, product);
         product.getAlternativeSkus().clear();
         product.getAlternativeSkus().addAll(productSKUService.listBySkuCodes(request.getAlternativeSkuCodes()));
