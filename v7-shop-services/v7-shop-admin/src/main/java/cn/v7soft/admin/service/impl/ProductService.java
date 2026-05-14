@@ -146,6 +146,10 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         } else {
             product = getById(ConvertUtils.parseLong(request.getId()));
         }
+        assertCanAccessSpu(request.getSpuId());
+        assertCanAccessSpu(request.getBotShowSpuId());
+        assertCanAccessSpu(request.getRiskUserShowSpuId());
+        assertCanAccessSpu(request.getBlacklistedUserShowSpuId());
         BeanUtil.copyProperties(request, product);
         product.getAlternativeSkus().clear();
         product.getAlternativeSkus().addAll(productSKUService.listBySkuCodes(request.getAlternativeSkuCodes()));
@@ -230,6 +234,19 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         }
         spuRepository.refreshUpdateTime(product.getSpu().getId());
         return super.save(product);
+    }
+
+    private void assertCanAccessSpu(String spuId) {
+        if (!ConvertUtils.isLong(spuId)) {
+            return;
+        }
+        Spu spu = spuRepository.findById(Long.valueOf(spuId)).orElse(null);
+        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(spu, "SPU不存在");
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        SystemUser owner = spu.getOwner();
+        Long ownerId = owner == null ? null : owner.getId();
+        Long ownerDepartmentId = owner == null || owner.getDepartment() == null ? null : owner.getDepartment().getId();
+        ClientResponseEnum.NO_PERMISSION.assertTrue(loginUser.hasManagerPermission(ownerId, ownerDepartmentId), "您无权限操作该SPU");
     }
 
     @Override

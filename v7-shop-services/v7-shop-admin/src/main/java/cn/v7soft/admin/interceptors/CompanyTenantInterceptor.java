@@ -1,17 +1,13 @@
 package cn.v7soft.admin.interceptors;
 
-import java.time.LocalDateTime;
-
 import cn.dev33.satoken.stp.StpUtil;
 import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.common.constants.StpSessionKey;
-import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.common.utils.DomainUtils;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.enums.SystemUserType;
-import cn.v7soft.dao.repositories.primary.WebsiteRepository;
 import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,12 +20,10 @@ import org.springframework.web.servlet.ModelAndView;
 @Slf4j
 public class CompanyTenantInterceptor implements HandlerInterceptor {
     private final ICompanyService companyService;
-    private final WebsiteRepository websiteRepository;
 
-    public CompanyTenantInterceptor(ICompanyService companyService, WebsiteRepository websiteRepository) {
+    public CompanyTenantInterceptor(ICompanyService companyService) {
         log.debug("CompanyTenantFilter construct");
         this.companyService = companyService;
-        this.websiteRepository = websiteRepository;
     }
 
     @Override
@@ -72,21 +66,9 @@ public class CompanyTenantInterceptor implements HandlerInterceptor {
             if (SystemUserType.ADMIN == systemUser.getUserType()) {
                 TenantContext.silent();
             }
-            if (WebsiteContext.isWebsiteAdmin()) {
-                assertCanAccessCurrentWebsite(systemUser);
-            }
             StpUtil.getSession().set(StpSessionKey.COMPANY_IDENTITY, company);
         }
         return true;
-    }
-
-    private void assertCanAccessCurrentWebsite(SystemUserDto systemUser) {
-        Long websiteId = WebsiteContext.getCurrentWebsiteId();
-        ClientResponseEnum.NO_PERMISSION.notNull(websiteId, "no website permission");
-        Long ownerId = websiteRepository.getOwnerIdById(websiteId);
-        ClientResponseEnum.NO_PERMISSION.notNull(ownerId, "no website permission");
-        Long ownerDepartmentId = websiteRepository.getOwnerDepartmentIdById(websiteId);
-        ClientResponseEnum.NO_PERMISSION.assertTrue(systemUser.hasManagerPermission(ownerId, ownerDepartmentId), "no website permission");
     }
 
     @Override

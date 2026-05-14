@@ -19,9 +19,11 @@ import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.ITemporaryOrderService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.controller.request.QueryPageRequest;
+import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.TemporaryOrder;
+import cn.v7soft.dao.tenant.WebsiteContext;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -61,7 +63,11 @@ public class TemporaryOrderController extends BaseDataRangeController<TemporaryO
         if (Objects.equals(Boolean.TRUE, request.getIsAudit()) && !StpUtil.hasPermission("order.audit")) {
             ClientResponseEnum.NO_PERMISSION.throwException();
         }
-        return QueryPageRequest.fromRequest(request);
+        return QueryPageRequest.<TemporaryOrder>fromRequest(request)
+                .addConstraint(WebsiteContext.isWebsiteAdmin(), EqualsQueryAttribute.builder()
+                        .name("contextInfo.websiteId")
+                        .value(WebsiteContext.getCurrentWebsiteId())
+                        .build());
     }
 
     @Override
