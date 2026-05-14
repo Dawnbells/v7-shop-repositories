@@ -57,8 +57,15 @@ public class SystemUserService extends BaseService<SystemUser, SystemUserReposit
             ClientResponseEnum.LOGIN_FAILED.notNull(user);
             ClientResponseEnum.LOGIN_FAILED.assertTrue(user.getStatus() == StatusEnum.VALID, "账号或密码错误");
             ClientResponseEnum.LOGIN_FAILED.assertTrue(BCrypt.checkpw(request.getPassword(), user.getPassword()));
+            SystemUserDto systemUserDto = SystemUserDto.convert(user);
             StpUtil.login(user.getId());
-            StpUtil.getSession().set(SaSession.USER, SystemUserDto.convert(user));
+            StpUtil.getSession().set(SaSession.USER, systemUserDto);
+            try {
+                assertCanAccessCurrentWebsite(systemUserDto);
+            } catch (RuntimeException e) {
+                StpUtil.logout();
+                throw e;
+            }
         } finally {
             // 恢复
             TenantContext.restore();
@@ -107,18 +114,38 @@ public class SystemUserService extends BaseService<SystemUser, SystemUserReposit
         if (!StringUtils.hasLength(tokenValue)) {
             ClientResponseEnum.PARAMETER_ILLEGAL.throwException("请检查Ticket是否有效");
         }
+        this.redisTemplate.delete(ticket);
         if (!tokenValue.startsWith(WEBSITE_MANAGER_TICKET_PREFIX)) {
+            assertTokenCanAccessCurrentWebsite(tokenValue);
             return tokenValue;
         }
 
-        this.redisTemplate.delete(ticket);
         JSONObject payload = JSONUtil.parseObj(tokenValue.substring(WEBSITE_MANAGER_TICKET_PREFIX.length()));
         Long targetWebsiteId = payload.getLong("targetWebsiteId");
         String websiteTokenValue = payload.getStr("tokenValue");
         ClientResponseEnum.NO_PERMISSION.assertTrue(WebsiteContext.isWebsiteAdmin(), "ticket invalid");
         ClientResponseEnum.NO_PERMISSION.assertTrue(Objects.equals(WebsiteContext.getCurrentWebsiteId(), targetWebsiteId), "ticket invalid");
         ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(StringUtils.hasLength(websiteTokenValue), "ticket invalid");
+        assertTokenCanAccessCurrentWebsite(websiteTokenValue);
         return websiteTokenValue;
+    }
+
+    private void assertCanAccessCurrentWebsite(SystemUserDto systemUser) {
+        if (!WebsiteContext.isWebsiteAdmin()) {
+            return;
+        }
+        assertCanAccessWebsite(systemUser, WebsiteContext.getCurrentWebsiteId());
+    }
+
+    private void assertTokenCanAccessCurrentWebsite(String tokenValue) {
+        if (!WebsiteContext.isWebsiteAdmin()) {
+            return;
+        }
+        Object loginId = StpUtil.getLoginIdByToken(tokenValue);
+        ClientResponseEnum.NO_PERMISSION.notNull(loginId, "no website permission");
+        SystemUser systemUser = repository.findById(Long.valueOf(String.valueOf(loginId))).orElse(null);
+        ClientResponseEnum.NO_PERMISSION.notNull(systemUser, "no website permission");
+        assertCanAccessWebsite(SystemUserDto.convert(systemUser), WebsiteContext.getCurrentWebsiteId());
     }
 
     private void assertCanAccessWebsite(SystemUserDto systemUser, Long websiteId) {
