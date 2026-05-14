@@ -968,7 +968,7 @@
                     <el-option
                       v-for="item in spuOptions"
                       :key="item.id"
-                      :label="`${item.code} - ${item.name} - ${item.id}`"
+                      :label="getSpuOptionLabel(item)"
                       :value="item.id"
                     >
                       <span style="float: left">{{ item.name }}</span>
@@ -980,8 +980,18 @@
                     </el-option>
                   </el-select>
                 </el-form-item>
-                <el-form-item label="类型">
-                  <el-text>.xxxx</el-text>
+                <el-form-item label="草稿">
+                  <div class="draft-actions">
+                    <el-button class="draft-action-button" @click="openDraftManager">草稿管理</el-button>
+                    <el-button
+                      v-if="hasCurrentDraft"
+                      class="draft-action-button"
+                      type="warning"
+                      @click="clearCurrentDraft"
+                    >
+                      清除草稿
+                    </el-button>
+                  </div>
                 </el-form-item>
               </el-card>
             </el-affix>
@@ -1015,12 +1025,7 @@
       <template #footer>
         <el-button
           type="primary"
-          @click="
-            () => {
-              dialogFormVisible = false
-              close()
-            }
-          "
+          @click="cancelEdit"
         >
           取消
         </el-button>
@@ -1030,16 +1035,51 @@
     <file-chooser ref="fileChooserRef" :z-index="5000" />
     <spec-edit ref="specEditRef" :language-id="form.languageId" @update-specifications="updateSpecifications" />
     <cloak-info-edit ref="cloakInfoEditRef" @update-cloak-infos="handleUpdateCloakInfos" />
+    <vab-dialog v-model="draftManagerVisible" title="产品草稿管理" width="760px">
+      <el-table v-loading="draftListLoading" :data="draftList" empty-text="暂无草稿">
+        <el-table-column label="商品" min-width="220">
+          <template #default="{ row }">
+            <div>{{ row.title || '未命名草稿' }}</div>
+            <el-text size="small" type="info">SPU: {{ row.spuId || '-' }}</el-text>
+          </template>
+        </el-table-column>
+        <el-table-column label="类型" width="90">
+          <template #default="{ row }">
+            {{ getDraftModeLabel(row.mode) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="最近保存" width="180">
+          <template #default="{ row }">
+            {{ formatDraftTime(row.updatedAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column align="right" label="操作" width="150">
+          <template #default="{ row }">
+            <el-button text type="primary" @click="openDraft(row)">打开</el-button>
+            <el-button text type="danger" @click="deleteDraft(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </vab-dialog>
   </div>
 </template>
 
 <script lang="ts" setup>
 import { Delete, Edit, View as IconView, Plus } from '@element-plus/icons-vue'
 import Decimal from 'decimal.js'
+import { ElMessageBox } from 'element-plus'
 import type { AutocompleteFetchSuggestionsCallback } from 'element-plus'
+import { onBeforeUnmount, toRaw } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { getRecommendCurrencyByLanguage, getRemoteQueryCurrency } from '~/src/api/currency'
 import { useUserStore } from '~/src/store/modules/user'
+import {
+  deleteProductEditDraft,
+  getProductEditDraft,
+  listProductEditDrafts,
+  saveProductEditDraft,
+} from '~/src/utils/productEditDraft'
+import type { ProductEditDraftRecord } from '~/src/utils/productEditDraft'
 import { patternAmount, patternPositive, patternTaxationMethod } from '~/src/utils/patterns'
 import { getRemoteQuery as getCountryRemoteQuery } from '/@/api/country'
 import { doEdit, getRemoteQueryMerchandise } from '/@/api/product'
@@ -1134,6 +1174,20 @@ const specNameOptions = ['Color', 'Size', 'Material', 'Style', 'Model']
 const specificationValues = ref<{ [key: string]: string[] | undefined }>({})
 const userStore = useUserStore()
 const batchSelectSpec = ref<any>([])
+const DRAFT_LIMIT = 10
+const DRAFT_SAVE_DELAY = 800
+const currentDraftKey = ref<string>('')
+const currentDraftMode = ref<'new' | 'edit' | 'copy'>('new')
+const currentDraftSourceProductId = ref<string | number | undefined>()
+const currentOriginalState = ref<any>(null)
+const hasCurrentDraft = ref<boolean>(false)
+const draftManagerVisible = ref<boolean>(false)
+const draftListLoading = ref<boolean>(false)
+const draftList = ref<ProductEditDraftRecord[]>([])
+const draftSavePaused = ref<boolean>(true)
+const draftSaveReady = ref<boolean>(false)
+const draftSaveFailedNotified = ref<boolean>(false)
+let draftSaveTimer: ReturnType<typeof setTimeout> | undefined
 
 const specWidth = computed(() => {
   const widthList = form.specifications.map((sku: SkuType) => {
@@ -1280,7 +1334,221 @@ const profitMargin = computed(() => {
   }
 })
 
-const showEdit = (product: any, spuItem: any = null) => {
+const cloneDraftValue = (value: any) => JSON.parse(JSON.stringify(toRaw(value ?? null)))
+
+const getDraftUserKey = () => userStore.getUsername || userStore.getDisplayName || 'guest'
+
+const getDraftModeLabel = (mode: string) => {
+  if (mode === 'edit') return '编辑'
+  if (mode === 'copy') return '复制'
+  return '新增'
+}
+
+const formatDraftTime = (timestamp: number) => {
+  if (!timestamp) return '-'
+  const date = new Date(timestamp)
+  const pad = (value: number) => `${value}`.padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+const buildDraftKey = (product: any, spuItem: any, sourceProductId?: string | number) => {
+  const userKey = getDraftUserKey()
+  const spuId = spuItem?.id || product?.spuId || product?.spu?.id || 'unknown'
+  if (sourceProductId) {
+    currentDraftMode.value = 'copy'
+    currentDraftSourceProductId.value = sourceProductId
+    return `product-edit:${userKey}:copy:${spuId}:${sourceProductId}`
+  }
+  if (product?.id) {
+    currentDraftMode.value = 'edit'
+    currentDraftSourceProductId.value = undefined
+    return `product-edit:${userKey}:edit:${spuId}:${product.id}`
+  }
+  currentDraftMode.value = 'new'
+  currentDraftSourceProductId.value = undefined
+  return `product-edit:${userKey}:new:${spuId}`
+}
+
+const getSpuOptionCode = (item: any) => item?.code || item?.spuCode || ''
+
+const getSpuOptionLabel = (item: any) => {
+  const code = getSpuOptionCode(item)
+  const name = item?.name || item?.spuName || ''
+  const id = item?.id || ''
+  return [code, name, id].filter((value) => value !== '').join(' - ')
+}
+
+const buildSpuOption = (item: any, fallback: any = {}) => ({
+  id: item?.id || fallback?.id,
+  name: item?.name || item?.spuName || fallback?.name || fallback?.spuName,
+  code: item?.code || item?.spuCode || fallback?.code || fallback?.spuCode || '',
+})
+
+const appendSpuOption = (item: any) => {
+  const option = buildSpuOption(item)
+  if (!option.id) return
+  const existing = spuOptions.value.find((spuOption: any) => String(spuOption.id) === String(option.id))
+  if (existing) {
+    existing.name = existing.name || option.name
+    existing.code = existing.code || option.code
+    return
+  }
+  spuOptions.value = [...spuOptions.value, option]
+}
+
+const createDraftPayload = () => ({
+  spu: cloneDraftValue(spu.value),
+  form: cloneDraftValue(form),
+  specifications: cloneDraftValue(specifications.value),
+  specificationValues: cloneDraftValue(specificationValues.value),
+  skuOptions: cloneDraftValue(skuOptions.value),
+  spuOptions: cloneDraftValue(spuOptions.value),
+  countryOptions: cloneDraftValue(countryOptions.value),
+  languageOptions: cloneDraftValue(languageOptions.value),
+  currencyOptions: cloneDraftValue(currencyOptions.value),
+  merchandiseOptions: cloneDraftValue(merchandiseOptions.value),
+})
+
+const applyDraftPayload = (payload: any) => {
+  if (!payload) return
+  spu.value = payload.spu || null
+  Object.assign(form, payload.form || {})
+  specifications.value = payload.specifications || [{ name: 'Color', values: [] }]
+  specificationValues.value = payload.specificationValues || {}
+  skuOptions.value = payload.skuOptions || []
+  spuOptions.value = payload.spuOptions || []
+  countryOptions.value = payload.countryOptions || []
+  languageOptions.value = payload.languageOptions || []
+  currencyOptions.value = payload.currencyOptions || []
+  merchandiseOptions.value = payload.merchandiseOptions || []
+}
+
+const saveDraftNow = async () => {
+  if (!dialogFormVisible.value || draftSavePaused.value || !draftSaveReady.value || !currentDraftKey.value) {
+    return
+  }
+  if (draftSaveTimer) {
+    clearTimeout(draftSaveTimer)
+    draftSaveTimer = undefined
+  }
+  try {
+    await saveProductEditDraft(
+      {
+        draftKey: currentDraftKey.value,
+        userKey: getDraftUserKey(),
+        title: form.title || '',
+        spuId: form.spuId,
+        productId: currentDraftMode.value === 'edit' ? form.id : currentDraftSourceProductId.value,
+        mode: currentDraftMode.value,
+        updatedAt: Date.now(),
+        payload: createDraftPayload(),
+      },
+      DRAFT_LIMIT
+    )
+    hasCurrentDraft.value = true
+  } catch (error) {
+    console.error('save product draft failed', error)
+    if (!draftSaveFailedNotified.value) {
+      draftSaveFailedNotified.value = true
+      $baseMessage('草稿保存失败，请及时手动保存', 'warning', 'hey')
+    }
+  }
+}
+
+const scheduleDraftSave = () => {
+  if (!dialogFormVisible.value || draftSavePaused.value || !draftSaveReady.value || !currentDraftKey.value) {
+    return
+  }
+  if (draftSaveTimer) {
+    clearTimeout(draftSaveTimer)
+  }
+  draftSaveTimer = setTimeout(() => {
+    saveDraftNow()
+  }, DRAFT_SAVE_DELAY)
+}
+
+const loadCurrentDraft = async () => {
+  if (!currentDraftKey.value) return
+  try {
+    const draft = await getProductEditDraft(currentDraftKey.value)
+    hasCurrentDraft.value = !!draft
+    if (draft) {
+      applyDraftPayload(draft.payload)
+    }
+  } catch (error) {
+    console.error('load product draft failed', error)
+  }
+}
+
+const clearCurrentDraft = async () => {
+  if (!currentDraftKey.value) return
+  draftSavePaused.value = true
+  if (draftSaveTimer) {
+    clearTimeout(draftSaveTimer)
+    draftSaveTimer = undefined
+  }
+  try {
+    await deleteProductEditDraft(currentDraftKey.value)
+    hasCurrentDraft.value = false
+    applyDraftPayload(currentOriginalState.value)
+    await $baseMessage('草稿已清除', 'success', 'hey')
+  } finally {
+    nextTick(() => {
+      draftSavePaused.value = false
+    })
+  }
+}
+
+const refreshDraftList = async () => {
+  draftListLoading.value = true
+  try {
+    draftList.value = await listProductEditDrafts(getDraftUserKey())
+  } finally {
+    draftListLoading.value = false
+  }
+}
+
+const openDraftManager = async () => {
+  draftManagerVisible.value = true
+  await refreshDraftList()
+}
+
+const openDraft = async (draft: ProductEditDraftRecord) => {
+  if (dialogFormVisible.value && currentDraftKey.value && currentDraftKey.value !== draft.draftKey) {
+    await ElMessageBox.confirm('当前编辑内容将切换为所选草稿，是否继续？', '提示', {
+      type: 'warning',
+    })
+  }
+  draftSavePaused.value = true
+  currentDraftKey.value = draft.draftKey
+  currentDraftMode.value = draft.mode
+  currentDraftSourceProductId.value = draft.mode === 'copy' ? draft.productId : undefined
+  title.value = getDraftModeLabel(draft.mode)
+  isEdit.value = draft.mode === 'edit'
+  applyDraftPayload(draft.payload)
+  currentOriginalState.value = cloneDraftValue(draft.payload)
+  hasCurrentDraft.value = true
+  dialogFormVisible.value = true
+  draftManagerVisible.value = false
+  nextTick(() => {
+    draftSaveReady.value = true
+    draftSavePaused.value = false
+  })
+}
+
+const deleteDraft = async (draft: ProductEditDraftRecord) => {
+  await deleteProductEditDraft(draft.draftKey)
+  if (currentDraftKey.value === draft.draftKey) {
+    hasCurrentDraft.value = false
+  }
+  await refreshDraftList()
+}
+
+const showEdit = (product: any, spuItem: any = null, options: { sourceProductId?: string | number } = {}) => {
+  draftSavePaused.value = true
+  draftSaveReady.value = false
+  hasCurrentDraft.value = false
+  currentDraftKey.value = buildDraftKey(product, spuItem, options.sourceProductId)
   spu.value = spuItem
   dialogFormVisible.value = true
   if (product && product.language) {
@@ -1303,41 +1571,19 @@ const showEdit = (product: any, spuItem: any = null) => {
     specifications.value = convertToSpecificationType(product.specifications)
   }
   spuOptions.value = [
-    {
-      id: spuItem.id,
-      name: spuItem.name,
-      code: spuItem.code,
-    },
+    buildSpuOption(spuItem, product?.spu || product?.botShowSpu || product?.riskUserShowSpu || product?.blacklistedShowSpu),
   ]
   if (product && product.botShowSpu) {
     form.botShowSpuId = product.botShowSpu.id
-    spuOptions.value = [
-      ...spuOptions.value,
-      {
-        id: product.botShowSpu.id,
-        name: product.botShowSpu.name,
-      },
-    ]
+    appendSpuOption(product.botShowSpu)
   }
   if (product && product.riskUserShowSpu) {
     form.riskUserShowSpuId = product.riskUserShowSpu.id
-    spuOptions.value = [
-      ...spuOptions.value,
-      {
-        id: product.riskUserShowSpu.id,
-        name: product.riskUserShowSpu.name,
-      },
-    ]
+    appendSpuOption(product.riskUserShowSpu)
   }
   if (product && product.blacklistedShowSpu) {
     form.blacklistedUserShowSpuId = product.blacklistedShowSpu.id
-    spuOptions.value = [
-      ...spuOptions.value,
-      {
-        id: product.blacklistedShowSpu.id,
-        name: product.blacklistedShowSpu.name,
-      },
-    ]
+    appendSpuOption(product.blacklistedShowSpu)
   }
   form.spuId = spuItem.id
 
@@ -1348,7 +1594,7 @@ const showEdit = (product: any, spuItem: any = null) => {
     form.currencyId = currency.value
   }
 
-  nextTick(() => {
+  nextTick(async () => {
     isEdit.value = false
     if (!product || !product.title) title.value = '添加'
     else {
@@ -1369,6 +1615,10 @@ const showEdit = (product: any, spuItem: any = null) => {
         onSelectLanguage(product.language.id)
       }
     }
+    currentOriginalState.value = createDraftPayload()
+    await loadCurrentDraft()
+    draftSaveReady.value = true
+    draftSavePaused.value = false
   })
 }
 
@@ -1406,7 +1656,19 @@ defineExpose({
   showEdit,
 })
 
+const cancelEdit = async () => {
+  await saveDraftNow()
+  dialogFormVisible.value = false
+  close()
+}
+
 const close = () => {
+  draftSavePaused.value = true
+  draftSaveReady.value = false
+  if (draftSaveTimer) {
+    clearTimeout(draftSaveTimer)
+    draftSaveTimer = undefined
+  }
   formRef.value.clearValidate()
   formRef.value.resetFields()
   Object.assign(form, {
@@ -1451,6 +1713,10 @@ const close = () => {
     botShowSpuId: '',
   })
   specifications.value = [{ name: 'Color', values: [] }]
+  specificationValues.value = {}
+  currentDraftKey.value = ''
+  currentOriginalState.value = null
+  hasCurrentDraft.value = false
   emit('fetch-data')
 }
 
@@ -1537,6 +1803,10 @@ const save = () => {
           spec.specificationImageId = spec.skuImage ? spec.skuImage.id : null
         })
         const { msg }: any = await doEdit(form)
+        if (currentDraftKey.value) {
+          await deleteProductEditDraft(currentDraftKey.value)
+          hasCurrentDraft.value = false
+        }
         await $baseMessage(msg, 'success', 'hey')
         dialogFormVisible.value = false
         close()
@@ -1743,6 +2013,21 @@ watch(
   },
   { deep: true }
 )
+
+watch(
+  [form, specifications, specificationValues],
+  () => {
+    scheduleDraftSave()
+  },
+  { deep: true }
+)
+
+onBeforeUnmount(() => {
+  if (draftSaveTimer) {
+    clearTimeout(draftSaveTimer)
+  }
+})
+
 const getTextWidth = (text: string, font = '14px Arial') => {
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
@@ -2003,6 +2288,19 @@ const handleUpdateCloakInfos = (cloakInfos: any) => {
   margin-bottom: 0;
   color: #7a8499;
 }
+
+.draft-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.draft-action-button {
+  flex: 1;
+  min-width: 0;
+  margin-left: 0 !important;
+}
+
 .sku-code {
   float: left;
 }

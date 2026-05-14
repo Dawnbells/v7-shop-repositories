@@ -197,7 +197,7 @@ const handleProductTranslate = (row: any, product: any) => {
   const newProduct = { ...product }
   newProduct.id = undefined
   newProduct.language = undefined
-  productEditRef.value.showEdit(newProduct, row)
+  productEditRef.value.showEdit(newProduct, row, { sourceProductId: product.id })
 }
 
 const handleEditCurrencyExchangeRate = (row: any) => {
