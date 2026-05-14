@@ -161,6 +161,29 @@ const loadCompanyInfo = () => {
       }, 1000)
     })
 }
+
+const getMainAdminLoginUrl = () => {
+  const url = new URL(globalThis.location.href)
+  const hostParts = url.hostname.split('.')
+
+  if (hostParts.length > 1 && hostParts[0].startsWith('admin')) {
+    hostParts[0] = 'admin'
+    url.hostname = hostParts.join('.')
+  }
+
+  return `${url.protocol}//${url.host}/#/login`
+}
+
+const closeOrRedirectToMainAdmin = () => {
+  try {
+    window.close()
+  } finally {
+    setTimeout(() => {
+      globalThis.location.replace(getMainAdminLoginUrl())
+    }, 100)
+  }
+}
+
 onBeforeMount(() => {
   loadCompanyInfo()
   const currentUrl = globalThis.location.href // 当前完整 URL
@@ -174,7 +197,7 @@ onBeforeMount(() => {
     ElMessageBox.alert('请到总后台登录', '提示', {
       confirmButtonText: '确定',
       callback: () => {
-        window.close() // 关闭当前标签页
+        closeOrRedirectToMainAdmin()
       },
     })
   }
