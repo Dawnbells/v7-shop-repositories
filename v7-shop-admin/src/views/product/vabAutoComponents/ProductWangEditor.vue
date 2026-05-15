@@ -99,11 +99,10 @@ const editorConfig = reactive<Partial<IEditorConfig>>({
       },
       async customBrowseAndUpload(insertFn: InsertFnType) {
         const images = await fileChooserRef.value.choose()
-        if (!images || images.length < 0) {
-          console.warn(`choose form sku images error: ${JSON.stringify(images)}`)
+        if (!Array.isArray(images) || images.length === 0) {
+          // 用户取消选择或未选中任何资源，正常返回即可（FileChooser 关闭时会 resolve 空数组）
           return
         }
-        // 最后插入图片
         images.forEach((element: any) => {
           insertFn(element.absolutionPath, 'Product details image', '')
         })

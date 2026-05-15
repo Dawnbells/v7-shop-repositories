@@ -60,16 +60,10 @@
             <vab-query-form-left-panel :span="24">
               <el-upload
                 ref="uploadRef"
-                v-model:file-list="fileList"
                 accept="image/png,image/jpeg,image/gif,image/webp"
-                :action="uploadFilesAction"
                 :before-upload="beforeUpload"
-                :headers="{ Authorization: calcTokenHeader() }"
+                :http-request="customUpload"
                 multiple
-                :on-change="handleFileChange"
-                :on-error="handleError"
-                :on-progress="onProgress"
-                :on-success="handleSuccess"
                 :show-file-list="false"
                 style="margin: 0 10px 10px 0"
               >
@@ -156,39 +150,84 @@
     v-model="uploadingDialogVisible"
     :close-on-click-modal="false"
     :close-on-press-escape="false"
-    :title="`正在上传(${totalUploadFiles}/${uploadedFiles.length})`"
+    :title="`上传进度 (${doneCount}/${tasks.length})${
+      failCount ? ` · 失败 ${failCount}` : ''
+    }`"
     width="500"
     @closed="handleClose"
   >
     <div ref="scrollContainer" style="max-height: 300px; overflow-y: auto">
       <div
-        v-for="(item, index) in uploadedFiles"
-        :key="index"
+        v-for="task in tasks"
+        :key="task.uid"
         style="display: flex; flex-direction: column; margin-bottom: 15px"
       >
-        <span style="margin-bottom: 5px">{{ item.name }}</span>
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            gap: 8px;
+          "
+        >
+          <span
+            :title="task.name"
+            style="
+              flex: 1;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            "
+          >
+            {{ task.name }}
+          </span>
+          <el-button
+            v-if="task.status === 'uploading' || task.status === 'pending'"
+            link
+            size="small"
+            type="warning"
+            @click="cancelTask(task)"
+          >
+            取消
+          </el-button>
+          <span
+            v-else-if="task.status === 'fail'"
+            style="color: var(--el-color-danger); font-size: 12px"
+          >
+            {{ task.error || '上传失败' }}
+          </span>
+          <span
+            v-else-if="task.status === 'cancel'"
+            style="color: var(--el-color-warning); font-size: 12px"
+          >
+            已取消
+          </span>
+        </div>
         <el-progress
-          v-if="(item as any).status === 'fail'"
-          :percentage="(item as any).percentage"
-          status="exception"
-        />
-        <el-progress v-else-if="!(item as any).response" :percentage="(item as any).percentage" />
-        <el-progress
-          v-else
-          :percentage="(item as any).percentage"
-          :status="((item as any).response as any)?.code === '0' ? 'success' : 'exception'"
+          :percentage="task.percent"
+          :status="
+            task.status === 'fail' || task.status === 'cancel'
+              ? 'exception'
+              : task.status === 'success'
+                ? 'success'
+                : undefined
+          "
         />
       </div>
     </div>
     <template #footer>
-      <el-button :loading="isUploading" type="primary" @click="handleChoose">确定</el-button>
+      <el-button v-if="isUploading" @click="handleClose">全部取消并关闭</el-button>
+      <el-button :loading="isUploading" type="primary" @click="handleChoose">
+        确定
+      </el-button>
     </template>
   </el-dialog>
 </template>
 
 <script lang="ts" setup>
 import { Delete, Folder, Search, Upload } from '@element-plus/icons-vue'
-import type { UploadFile, UploadFiles, UploadProgressEvent, UploadRawFile } from 'element-plus'
+import type { UploadRawFile, UploadRequestOptions } from 'element-plus'
 import { ElTree, ElUpload } from 'element-plus'
 import { useDebounceFn } from '@vueuse/core'
 import {
@@ -198,10 +237,10 @@ import {
   mkdirFolderApi,
   page,
   renameFolderApi,
+  uploadFile,
 } from '~/src/api/explorer'
 import { VabContextMenu, VabContextMenuItem } from '/@/plugins/VabContextMenu'
 import { useUserStore } from '/@/store/modules/user'
-import { getEnv } from '/@/utils/env'
 
 defineOptions({
   name: 'Explorer',
@@ -223,10 +262,22 @@ const renameOp = ref<boolean>(false)
 const total = ref<any>(0)
 const workspaceFolderId = ref<any>(undefined)
 const title = ref<string>('新建文件夹')
-const uploadingFileName = ref<string>('')
-const percentage = ref(0)
-const isUploading = ref(false)
-const fileList = ref<UploadFile[]>([])
+
+// 上传任务模型：每个文件一条记录，状态完全独立、无隐藏耦合
+type UploadTaskStatus = 'pending' | 'uploading' | 'success' | 'fail' | 'cancel'
+interface UploadTask {
+  uid: string | number
+  name: string
+  size: number
+  percent: number
+  status: UploadTaskStatus
+  response?: any
+  error?: string
+  abort?: AbortController
+}
+const tasks = ref<UploadTask[]>([])
+// 单文件大小上限（图片 20MB，按需调整）
+const MAX_FILE_SIZE = 20 * 1024 * 1024
 const root = ref<any>([
   {
     id: '10000',
@@ -261,13 +312,17 @@ const uploadRef = ref<InstanceType<typeof ElUpload>>()
 const rules = reactive<any>({
   name: [{ required: true, trigger: 'blur', message: '文件夹名称不能为空' }],
 })
-const uploadedFiles = ref<(UploadFile | UploadRawFile)[]>([])
-
-const uploadFilesAction = computed(() => {
-  return `${getEnv('VITE_API_BASE_URL', window.location.origin)}/multimedia-file/uploadFiles/${workspaceFolderId.value ? workspaceFolderId.value : 'root'}`
-})
-const totalUploadFiles = ref(0)
 const scrollContainer = ref<HTMLElement>()
+
+// 上传完成度派生量：均由 tasks 推导，避免任何手动计数错位
+const isUploading = computed(() =>
+  tasks.value.some((t) => t.status === 'uploading' || t.status === 'pending')
+)
+const doneCount = computed(
+  () => tasks.value.filter((t) => t.status !== 'uploading' && t.status !== 'pending').length
+)
+const successCount = computed(() => tasks.value.filter((t) => t.status === 'success').length)
+const failCount = computed(() => tasks.value.filter((t) => t.status === 'fail').length)
 
 const onContextMenu = (e: MouseEvent, c: any) => {
   e.preventDefault()
@@ -291,11 +346,6 @@ const inputMkdirFolderInfo = async (parentFolder: any, rename: boolean) => {
 
 const calcColor = (data: any) => {
   return data.sensitive ? '#008077' : '#a8abb2'
-}
-
-const calcTokenHeader = () => {
-  const { token } = userStore
-  return `Bearer ${token}`
 }
 
 const getImageUrl = (item: any): string => {
@@ -375,77 +425,91 @@ const fetchTreeFolder = async () => {
   treeLoading.value = false
 }
 
-const onProgress = async (
-  evt: UploadProgressEvent,
-  uploadFile: UploadFile,
-  uploadFiles: UploadFiles
-) => {
-  uploadingDialogVisible.value = true
-  isUploading.value = true
-  if (
-    evt.percent >= 100 &&
-    !uploadedFiles.value.find((item: UploadFile | UploadRawFile) => item === uploadFile)
-  ) {
-    if (uploadFile && uploadFile.raw) {
-      const index = uploadedFiles.value.indexOf(uploadFile.raw)
-      if (index !== -1) {
-        // 替换掉匹配项
-        uploadedFiles.value[index] = uploadFile
-      }
-    }
+// 滚动条吸底，便于看到最新上传项
+const scrollToBottom = async () => {
+  await nextTick()
+  if (scrollContainer.value) {
+    scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
+  }
+}
 
-    // Add this to scroll to bottom after DOM update
-    await nextTick(() => {
-      if (scrollContainer.value) {
-        scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
+// 计算当前应使用的目标文件夹 id（与原逻辑保持一致：未选或选了"所有文件"时落到 root）
+const resolveTargetFolderId = (): string => {
+  const id = workspaceFolderId.value
+  if (!id || id === 'all' || id === '10000') return 'root'
+  return String(id)
+}
+
+/**
+ * 自定义上传函数：取代 el-upload 内置 XHR
+ * - 每个文件单独走一次 axios 请求；状态、进度、错误、取消互不影响
+ * - 复用全局拦截器（token 注入、业务码处理、错误 toast）
+ * - 不再依赖任何"计数器齐平"判定
+ */
+const customUpload = async (options: UploadRequestOptions) => {
+  const rawFile = options.file as UploadRawFile
+  const abort = new AbortController()
+  const uid = rawFile.uid ?? `${Date.now()}-${Math.random()}`
+
+  // 注意 Vue 3 响应式陷阱：把原始对象 push 进 ref 数组后，数组里存的是 reactive proxy，
+  // 必须通过 proxy 修改属性才会触发依赖更新；同时 abort 用 markRaw 排除响应式代理，
+  // 否则 AbortController 方法被 Proxy 包裹后会抛 Illegal invocation。
+  tasks.value.push({
+    uid,
+    name: rawFile.name,
+    size: rawFile.size,
+    percent: 0,
+    status: 'pending',
+    abort: markRaw(abort),
+  })
+  const task = tasks.value.find((t) => t.uid === uid)!
+  uploadingDialogVisible.value = true
+  scrollToBottom()
+
+  try {
+    task.status = 'uploading'
+    const data = await uploadFile(resolveTargetFolderId(), rawFile, {
+      signal: abort.signal,
+      onProgress: (percent) => {
+        task.percent = percent
+      },
+    })
+    task.percent = 100
+    task.status = 'success'
+    task.response = data
+    return data
+  } catch (err: any) {
+    if (abort.signal.aborted) {
+      task.status = 'cancel'
+      task.error = '已取消'
+    } else {
+      task.status = 'fail'
+      task.error = err?.msg || err?.message || '上传失败'
+    }
+    return Promise.reject(err)
+  } finally {
+    if (!isUploading.value) {
+      await handleAllUploadFinished()
+    }
+  }
+}
+
+// 所有上传任务都已结束（成功/失败/取消）后的统一收尾
+const handleAllUploadFinished = async () => {
+  await fetchData()
+  clearSelection()
+  // 仅对成功项做"自动选中新上传内容"
+  tasks.value
+    .filter((t) => t.status === 'success')
+    .forEach((t) => {
+      const resp = t.response
+      const list0 = resp?.data?.list
+      if (Array.isArray(list0) && list0.length > 0) {
+        const newItem = list0[0]
+        const matched = list.value.find((it: any) => it.id === newItem.id)
+        if (matched) toggleSelection(matched)
       }
     })
-
-    if (uploadFiles.length > 0) {
-      percentage.value = Math.floor((uploadedFiles.value.length * 100) / uploadFiles.length)
-    } else {
-      percentage.value = 0 // 或其他适当默认值
-    }
-    uploadingFileName.value = uploadFile.name
-  }
-}
-
-const handleSuccess = async () => {
-  totalUploadFiles.value++
-}
-
-const handleError = async () => {
-  totalUploadFiles.value++
-}
-const handleFileChange = (_uploadFile: UploadFile, uploadFiles: UploadFiles) => {
-  // 将 fileList 的顺序存储下来
-  uploadedFiles.value = [...uploadFiles]
-  handleUploadFinish()
-}
-const handleUploadFinish = async () => {
-  // Check if all files are uploaded
-  if (uploadedFiles.value.length === totalUploadFiles.value) {
-    await fetchData()
-    clearSelection()
-    // Select newly uploaded files
-    uploadedFiles.value
-      .filter((item: any) => {
-        const response = item.response
-        return response && response.data && response.data.list && response.data.total > 0
-      })
-      .map((item: any) => {
-        return item.response.data.list[0]
-      })
-      .forEach((item: any) => {
-        if (item) {
-          let selected = list.value.filter((it: any) => it.id === item.id)
-          if (selected && selected.length > 0) {
-            toggleSelection(selected[0])
-          }
-        }
-      })
-    isUploading.value = false
-  }
 }
 
 const fetchData = async (id?: any) => {
@@ -569,18 +633,36 @@ defineExpose({
   reset,
 })
 
-// Add this function before the onBeforeMount hook
+// 客户端校验：阻止超大文件 / 非允许类型在网络层浪费时间
 const beforeUpload = (file: UploadRawFile) => {
-  uploadedFiles.value.push(file)
-  uploadingDialogVisible.value = true
-  return true // or add your upload validation logic here
+  if (file.size > MAX_FILE_SIZE) {
+    $baseMessage(
+      `《${file.name}》超过 ${MAX_FILE_SIZE / 1024 / 1024}MB，已被忽略`,
+      'warning',
+      'hey'
+    )
+    return false
+  }
+  return true
+}
+
+// 主动取消单个上传任务（运营点"取消"按钮时调用）
+const cancelTask = (task: UploadTask) => {
+  if (task.status === 'uploading' || task.status === 'pending') {
+    task.abort?.abort()
+  }
 }
 
 const emit = defineEmits(['choose'])
 const handleClose = () => {
+  // 关闭对话框时，先取消尚未完成的任务，避免后台请求继续占用资源
+  tasks.value.forEach((t) => {
+    if (t.status === 'uploading' || t.status === 'pending') {
+      t.abort?.abort()
+    }
+  })
   uploadRef.value?.clearFiles()
-  uploadedFiles.value = []
-  totalUploadFiles.value = 0
+  tasks.value = []
   uploadingDialogVisible.value = false
 }
 

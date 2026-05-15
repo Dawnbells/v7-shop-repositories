@@ -55,5 +55,13 @@ defineExpose({
   choose,
 })
 
-const close = () => {}
+// 关键修复：用户用任意非"确认"方式关闭弹窗（X / Esc / 点遮罩 / 强制关闭）时，
+// 必须 resolve 等待中的 Promise，否则调用方（如 wangEditor.customBrowseAndUpload）
+// 会一直 pending，导致工具栏按钮永久置灰。
+const close = () => {
+  if (onChooseListener.value) {
+    onChooseListener.value([] as any)
+    onChooseListener.value = null
+  }
+}
 </script>
