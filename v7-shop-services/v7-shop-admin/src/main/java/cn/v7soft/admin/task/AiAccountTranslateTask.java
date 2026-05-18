@@ -708,24 +708,27 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                     task.getId(), task.getOwner() == null ? null : task.getOwner().getId());
             // 0. 重启恢复：清理上次运行残留的 usage records，按已发生的实际消耗 settle
             //    （不能直接 unfreeze，否则重启前已经回调写入的 businessCredits 会被丢弃，公司白嫖 API 成本）
+            //    estimatedCredits 在新版冻结路径下严格等于真实冻结量（tryFreeze 被拒时为 0），
+            //    因此即使 prevFrozen=0 也要在 actualBilled>0 时入账已发生消耗。
             List<AiTokenUsageRecord> staleRecords = usageRecordRepository.findByTaskId(task.getId());
             if (!staleRecords.isEmpty()) {
-                final Integer prevFrozen = task.getEstimatedCredits();
+                final Integer prevFrozenRaw = task.getEstimatedCredits();
+                final int prevFrozen = (prevFrozenRaw == null || prevFrozenRaw < 0) ? 0 : prevFrozenRaw;
                 final int actualBilled = staleRecords.stream()
                         .map(AiTokenUsageRecord::getBusinessCredits)
                         .filter(c -> c != null && c > 0)
                         .mapToInt(Integer::intValue)
                         .sum();
                 transactionTemplate.executeWithoutResult(txStatus -> {
-                    if (prevFrozen != null && prevFrozen > 0) {
+                    if (prevFrozen > 0 || actualBilled > 0) {
                         aiCreditsService.settle(task.getOwner().getId(), prevFrozen, actualBilled);
                         task.setEstimatedCredits(null);
                         asyncTaskRepository.save(task);
                     }
                     usageRecordRepository.deleteAll(staleRecords);
                 });
-                log.warn("[AiAccountTranslateTask] restart recovery: settled actualBilled={} credits, cleaned {} stale records for taskId={}",
-                         actualBilled, staleRecords.size(), task.getId());
+                log.warn("[AiAccountTranslateTask] restart recovery: prevFrozen={}, actualBilled={} credits, cleaned {} stale records for taskId={}",
+                         prevFrozen, actualBilled, staleRecords.size(), task.getId());
             }
 
             TranslateByAIRequest request = JSONUtil.toBean(task.getParameters(), TranslateByAIRequest.class);
@@ -805,17 +808,20 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             // 4/5/6 在同一事务中执行，保证 usage records + 积分冻结 + 任务状态的原子性
             final int credits = totalEstimatedCredits;
             final List<AiTokenUsageRecord> records = usageRecords;
+            // 真实冻结量必须严格等于 estimatedCredits，否则 settle 阶段会用错误的 freezeAmount
+            // 把 SystemUser.frozenAiCredits 减成负数。tryFreeze 返回 0 时表示未实际冻结。
+            int[] actuallyFrozenHolder = new int[]{0};
             transactionTemplate.executeWithoutResult(txStatus -> {
                 usageRecordRepository.saveAll(records);
                 if (credits > 0) {
-                    aiCreditsService.tryFreeze(task.getOwner().getId(), credits);
-                    task.setEstimatedCredits(credits);
+                    actuallyFrozenHolder[0] = aiCreditsService.tryFreeze(task.getOwner().getId(), credits);
                 }
+                task.setEstimatedCredits(actuallyFrozenHolder[0]);
                 task.setState(TaskState.PROCESSING);
                 asyncTaskRepository.save(task);
             });
-            log.debug("[AiAccountTranslateTask] task transaction committed: taskId={}, usageRecords={}, frozenCredits={}",
-                    task.getId(), records.size(), credits);
+            log.debug("[AiAccountTranslateTask] task transaction committed: taskId={}, usageRecords={}, estimatedCredits={}, actuallyFrozen={}",
+                    task.getId(), records.size(), credits, actuallyFrozenHolder[0]);
 
             // 7. 事务提交成功后再将子任务投递到执行队列，避免 usage 记录未落库就被 poll
             for (AiAccountTranslateSubTask subTask : subTasks) {
@@ -1237,10 +1243,13 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     /**
      * 积分结算：解冻预估额 + 扣减实际消耗 + 写入结算汇总信息。
-     * frozenCredits 来自 AsyncTask.estimatedCredits（loadTask 时写入），
+     * frozenCredits 来自 AsyncTask.estimatedCredits（loadTask 时写入，等于真实冻结量），
      * actualCredits 来自 SUM(AiTokenUsageRecord.businessCredits)（Provider 回调时累计写入）。
      * <p>
      * 幂等：取消路径下 AsyncTaskService.finalizeBilling 可能已先结算，本方法须跳过避免双重扣费。
+     * <p>
+     * 边界：tryFreeze 被 SQL 拒（极端竞争窗口）时 estimatedCredits=0，但子任务仍可能跑出 actualCredits，
+     * 此时仍要把 actualCredits 入账，否则会"白嫖"。
      */
     private void settleTask(AsyncTask task) {
         try {
@@ -1248,18 +1257,19 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 log.debug("[AiAccountTranslateTask] settleTask skipped, already settled: taskId={}", task.getId());
                 return;
             }
-            Integer frozenCredits = task.getEstimatedCredits();
-            if (frozenCredits == null || frozenCredits <= 0) {
+            Integer estimated = task.getEstimatedCredits();
+            int frozenCredits = (estimated == null || estimated < 0) ? 0 : estimated;
+            int actualCredits = usageRecordRepository.sumUnsettledBusinessCreditsByTaskId(task.getId());
+            if (frozenCredits == 0 && actualCredits == 0) {
                 return;
             }
-            int actualCredits = usageRecordRepository.sumUnsettledBusinessCreditsByTaskId(task.getId());
             long recordCount = usageRecordRepository.countByTaskId(task.getId());
             int totalPromptTokens = usageRecordRepository.sumBusinessPromptTokensByTaskId(task.getId());
             int totalCompletionTokens = usageRecordRepository.sumBusinessCompletionTokensByTaskId(task.getId());
             int totalThinkingTokens = usageRecordRepository.sumBusinessThinkingTokensByTaskId(task.getId());
 
             transactionTemplate.executeWithoutResult(txStatus -> {
-                aiCreditsService.settle(task.getOwner().getId(), task.getEstimatedCredits(), actualCredits);
+                aiCreditsService.settle(task.getOwner().getId(), frozenCredits, actualCredits);
                 usageRecordRepository.markSettledByTaskId(task.getId());
                 task.setEstimatedCredits(0);
                 task.setBillingRecordCount(recordCount);

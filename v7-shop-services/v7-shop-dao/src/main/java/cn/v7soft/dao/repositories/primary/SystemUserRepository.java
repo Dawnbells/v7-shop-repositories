@@ -53,25 +53,40 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
     int freezeCredits(@Param("userId") Long userId, @Param("amount") int amount);
 
     /**
-     * 宽松冻结：只要 available > 0 即允许冻结（允许超额），用于子任务级积分冻结
+     * 宽松冻结：只要 available > 0 即允许冻结（允许超额），用于子任务级积分冻结。
+     * 返回受影响行数：0 表示 SQL 条件未满足（available<=0 或用户禁用），调用方需据此判断
+     * 是否真正冻结成功，避免后续 settle 用错误的 freezeAmount 将 frozenAiCredits 减成负数。
      */
     @Modifying
     @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits + :amount " +
            "WHERE u.id = :userId " +
            "AND u.monthlyAiCredits > 0 " +
            "AND (u.monthlyAiCredits - u.usedAiCredits - u.frozenAiCredits) > 0")
-    void freezeCreditsIfPositive(@Param("userId") Long userId, @Param("amount") int amount);
+    int freezeCreditsIfPositive(@Param("userId") Long userId, @Param("amount") int amount);
 
+    /**
+     * 结算：解冻 freezeAmount + 累加 actualAmount 到 used。
+     * 用 CASE WHEN 防止 frozenAiCredits 被减成负数（多路径调用对称性兜底）。
+     */
     @Modifying
-    @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits - :freezeAmount, " +
+    @Query("UPDATE SystemUser u SET " +
+           "u.frozenAiCredits = CASE WHEN u.frozenAiCredits >= :freezeAmount " +
+           "                         THEN u.frozenAiCredits - :freezeAmount " +
+           "                         ELSE 0 END, " +
            "u.usedAiCredits = u.usedAiCredits + :actualAmount " +
            "WHERE u.id = :userId")
     int settleCredits(@Param("userId") Long userId,
                       @Param("freezeAmount") int freezeAmount,
                       @Param("actualAmount") int actualAmount);
 
+    /**
+     * 仅解冻：CASE WHEN 防止 frozenAiCredits 被减成负数。
+     */
     @Modifying
-    @Query("UPDATE SystemUser u SET u.frozenAiCredits = u.frozenAiCredits - :amount " +
+    @Query("UPDATE SystemUser u SET " +
+           "u.frozenAiCredits = CASE WHEN u.frozenAiCredits >= :amount " +
+           "                         THEN u.frozenAiCredits - :amount " +
+           "                         ELSE 0 END " +
            "WHERE u.id = :userId")
     int unfreezeCredits(@Param("userId") Long userId, @Param("amount") int amount);
 

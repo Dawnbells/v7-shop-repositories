@@ -69,13 +69,25 @@ public class AiCreditsService {
     /**
      * 宽松冻结：只要 available > 0 即允许冻结（允许超额），不抛异常。
      * 管理员、公司管理员、禁用(null/0)、无限额(-1)用户直接 return 不冻结。
+     *
+     * @return 真实冻结的积分量。0 表示未实际冻结（被跳过、或 SQL 条件未满足）。
+     *         调用方必须按返回值记录 estimatedCredits，否则 settle 阶段会用错误的
+     *         freezeAmount 将 frozenAiCredits 减成负数。
      */
     @Transactional
-    public void tryFreeze(Long userId, int estimated) {
+    public int tryFreeze(Long userId, int estimated) {
         if (shouldSkipCreditsOperation(userId)) {
-            return;
+            return 0;
         }
-        systemUserRepository.freezeCreditsIfPositive(userId, estimated);
+        int rows = systemUserRepository.freezeCreditsIfPositive(userId, estimated);
+        if (rows == 0) {
+            // 与 processSinglePendingTask.hasAvailableCredits 之间存在竞争窗口，
+            // 极端并发下可能走到这里。记 warn 便于排查。
+            log.warn("[AiCreditsService] tryFreeze rejected by SQL (available<=0): userId={}, estimated={}",
+                    userId, estimated);
+            return 0;
+        }
+        return estimated;
     }
 
     /**
