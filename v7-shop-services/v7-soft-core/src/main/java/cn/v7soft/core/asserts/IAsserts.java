@@ -9,7 +9,6 @@ import org.springframework.util.StringUtils;
 
 import cn.v7soft.core.enums.IResponseEnum;
 import cn.v7soft.core.exception.BaseException;
-import lombok.extern.slf4j.Slf4j;
 
 public interface IAsserts extends IResponseEnum {
 
