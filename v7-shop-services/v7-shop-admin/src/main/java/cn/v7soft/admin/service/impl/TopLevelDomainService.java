@@ -29,6 +29,7 @@ import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.core.enums.StatusEnum;
+import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.entities.primary.PixelAccount;
 import cn.v7soft.dao.entities.primary.Protocol;
@@ -39,6 +40,7 @@ import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import cn.v7soft.dao.enums.CertificateRequestStatus;
 import cn.v7soft.dao.enums.NginxConfigType;
 import cn.v7soft.dao.repositories.primary.TopLevelDomainRepository;
+import cn.v7soft.dao.utils.SaSessionUtil;
 import kotlin.text.Charsets;
 import lombok.extern.slf4j.Slf4j;
 
@@ -106,11 +108,24 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
     @Transactional
     public void delete(Long id) {
         TopLevelDomain topLevelDomain = getById(id);
+        assertCanDelete(topLevelDomain);
         List<SubDomain> subDomains = topLevelDomain.getSubDomains();
         subDomainService.doDeleteAll(subDomains.stream().map(SubDomain::getId).toList());
         cleanupDomainResources(topLevelDomain);
         topLevelDomain.setStatus(StatusEnum.DELETED);
         repository.save(topLevelDomain);
+    }
+
+    private void assertCanDelete(TopLevelDomain topLevelDomain) {
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        if (loginUser.isAdmin()) {
+            return;
+        }
+        SystemUser owner = topLevelDomain.getOwner();
+        ClientResponseEnum.NO_PERMISSION.notNull(owner, "您无权限操作该域名");
+        Long ownerDepartmentId = owner.getDepartment() == null ? null : owner.getDepartment().getId();
+        boolean canDelete = loginUser.hasManagerPermission(owner.getId(), ownerDepartmentId);
+        ClientResponseEnum.NO_PERMISSION.assertTrue(canDelete, "您无权限操作该域名");
     }
 
     /**

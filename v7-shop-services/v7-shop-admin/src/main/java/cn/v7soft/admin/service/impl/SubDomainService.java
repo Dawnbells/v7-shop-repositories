@@ -262,7 +262,10 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     @Transactional
     public void deleteAll(List<Long> ids) {
         for (Long id : ids) {
-            doDelete(getById(id));
+            SubDomain subDomain = getById(id);
+            logWebsiteDomainOperation("prepareDeleteSubDomain", subDomain);
+            assertCanAccessParentDomain(subDomain);
+            doDelete(subDomain);
         }
     }
 
@@ -271,8 +274,8 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
     public void doDeleteAll(List<Long> ids) {
         for (Long id : ids) {
             SubDomain subDomain = getById(id);
-            logWebsiteDomainOperation("prepareDeleteWebsiteDomain", subDomain);
-            assertCanManageWebsiteDomain(subDomain);
+            logWebsiteDomainOperation("prepareDeleteSubDomainByParentDomain", subDomain);
+            assertCanAccessParentDomain(subDomain);
             doDelete(subDomain);
         }
     }
@@ -337,14 +340,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
             return;
         }
         Long ownerDepartmentId = owner.getDepartment() == null ? null : owner.getDepartment().getId();
-        boolean canAccess = false;
-        if (loginUser.isDeepDepartmentManager()) {
-            canAccess = ownerDepartmentId != null
-                    && loginUser.getAccessDepartmentIds() != null
-                    && loginUser.getAccessDepartmentIds().contains(ownerDepartmentId);
-        } else if (loginUser.isDepartmentManager()) {
-            canAccess = Objects.equals(ownerDepartmentId, loginUser.getDepartmentId());
-        }
+        boolean canAccess = loginUser.hasManagerPermission(owner.getId(), ownerDepartmentId);
         ClientResponseEnum.NO_PERMISSION.assertTrue(canAccess, "您无权限操作该域名");
     }
 
