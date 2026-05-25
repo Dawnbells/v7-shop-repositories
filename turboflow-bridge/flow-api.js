@@ -5,8 +5,8 @@
 const RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 const API_BASE = 'https://aisandbox-pa.googleapis.com';
 const MODEL_NARWHAL = 'NARWHAL';
+const FLOW_PROJECT_URL_BASE = 'https://labs.google/fx/tools/flow/project/';
 const FLOW_URL_PATTERN = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
-const TOKEN_CACHE_MS = 5 * 60 * 1000;
 
 // reCAPTCHA 风控恢复策略：先尝试 reload Flow 页面，仍失败则新建 project；总恢复次数和 reload 次数都有上限，避免死循环。
 const MAX_TOTAL_RECOVERY = 3;
@@ -69,7 +69,7 @@ export function getFlowTabId() {
 // ── Session token ──────────────────────────────────────────────────
 
 export async function getSessionToken(tabId) {
-  if (cachedToken && Date.now() - tokenTimestamp < TOKEN_CACHE_MS) {
+  if (cachedToken) {
     return cachedToken;
   }
   const results = await chrome.scripting.executeScript({
@@ -93,6 +93,25 @@ export async function getSessionToken(tabId) {
   return token;
 }
 
+export function setSessionToken(token, capturedAt = Date.now()) {
+  if (!token) return;
+  cachedToken = token;
+  tokenTimestamp = capturedAt;
+}
+
+export async function refreshSessionToken(tabId) {
+  clearTokenCache();
+  return await getSessionToken(tabId);
+}
+
+export function getSessionTokenStatus() {
+  return {
+    tokenPresent: !!cachedToken,
+    tokenCapturedAt: tokenTimestamp || null,
+    tokenAgeMs: cachedToken && tokenTimestamp ? Date.now() - tokenTimestamp : null,
+  };
+}
+
 export function clearTokenCache() {
   cachedToken = null;
   tokenTimestamp = 0;
@@ -101,8 +120,7 @@ export function clearTokenCache() {
 // ── Project ID ─────────────────────────────────────────────────────
 
 // 对齐 nano-b `Ue()`：projectId 全局缓存，首次提取后复用；reload / 新建 project / tab 关闭时清空。
-export async function getProjectId(tabId) {
-  if (projectId) return projectId;
+async function readProjectIdFromTab(tabId) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -111,7 +129,12 @@ export async function getProjectId(tabId) {
       return m ? m[1] : null;
     },
   });
-  projectId = results?.[0]?.result || null;
+  return results?.[0]?.result || null;
+}
+
+export async function getProjectId(tabId) {
+  if (projectId) return projectId;
+  projectId = await readProjectIdFromTab(tabId);
   return projectId;
 }
 
@@ -194,6 +217,56 @@ async function reloadFlowPage(tabId) {
  * L2 恢复：通过 trpc 接口新建一个 Flow project，再把 tab 导航到新 project URL。
  * 比 reload 更激进，能重置部分服务端绑定的 session 上下文。
  */
+async function createFlowProjectAndNavigate(tabId) {
+  projectId = null;
+  const createRes = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async () => {
+      try {
+        const now = new Date();
+        const title = now.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })
+          + ', ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const res = await fetch('/fx/api/trpc/project.createProject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ json: { projectTitle: title, toolName: 'PINHOLE' } }),
+        });
+        if (!res.ok) return { error: 'HTTP ' + res.status };
+        const json = await res.json();
+        const pid = json?.result?.data?.json?.result?.projectId;
+        return pid ? { success: true, projectId: pid } : { error: 'No projectId in response' };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+  });
+  const result = createRes?.[0]?.result;
+  if (!result?.success) {
+    throw new Error(result?.error || 'Failed to create Flow project');
+  }
+  const targetUrl = FLOW_PROJECT_URL_BASE + result.projectId;
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: (url) => { window.location.href = url; },
+    args: [targetUrl],
+  });
+  await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
+  projectId = result.projectId;
+  return projectId;
+}
+
+export async function ensureFlowProjectOpen(tabId) {
+  const currentProjectId = await readProjectIdFromTab(tabId);
+  if (currentProjectId) {
+    projectId = currentProjectId;
+    return currentProjectId;
+  }
+  return await createFlowProjectAndNavigate(tabId);
+}
+
 async function createNewProject(tabId) {
   clearTokenCache();
   projectId = null;
