@@ -8,6 +8,7 @@ import cn.v7soft.dao.entities.primary.Spu;
 import cn.v7soft.dao.entities.primary.SubDomain;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
+import cn.v7soft.dao.entities.primary.Website;
 import cn.v7soft.dao.enums.LandingPageType;
 import cn.v7soft.dao.enums.SystemUserType;
 import cn.v7soft.dao.repositories.primary.ProductRepository;
@@ -75,6 +76,20 @@ class SpuServiceTest {
     }
 
     @Test
+    void generateSharedUrlAllowsLegacyWebsiteBoundLandingPage() {
+        GenerateSharedUrlRequest request = sharedUrlRequest("https://shop.example.com/product/1001", 60);
+        mockLoginUser(100L, 10L, 1L, SystemUserType.EMPLOYEE, List.of(10L), List.of());
+        mockSubDomain(10L, 100L, 10L, 200L);
+        mockBoundLandingPage(10L, 1001L, false);
+        when(repository.findByIdAndWebsiteId(1001L, 200L)).thenReturn(Optional.of(Spu.builder().id(1001L).build()));
+        mockSpu(1001L, 100L, 10L, 1L, false);
+
+        String sharedUrl = service.generateSharedUrl(request);
+
+        assertTrue(sharedUrl.startsWith("https://shop.example.com/product/1001?xyz-sid="));
+    }
+
+    @Test
     void generateSharedUrlRejectsDomainWithoutPermission() {
         GenerateSharedUrlRequest request = sharedUrlRequest("https://shop.example.com/product/1001", 60);
         mockLoginUser(300L, 30L, 1L, SystemUserType.EMPLOYEE, List.of(30L), List.of());
@@ -87,8 +102,9 @@ class SpuServiceTest {
     void generateSharedUrlRejectsUnboundLandingPage() {
         GenerateSharedUrlRequest request = sharedUrlRequest("https://shop.example.com/product/1001", 60);
         mockLoginUser(100L, 10L, 1L, SystemUserType.EMPLOYEE, List.of(10L), List.of());
-        mockSubDomain(10L, 100L, 10L);
+        mockSubDomain(10L, 100L, 10L, 200L);
         mockBoundLandingPage(10L, 1001L, false);
+        when(repository.findByIdAndWebsiteId(1001L, 200L)).thenReturn(Optional.empty());
 
         assertThrows(RuntimeException.class, () -> service.generateSharedUrl(request));
     }
@@ -139,16 +155,22 @@ class SpuServiceTest {
     }
 
     private void mockSubDomain(Long subDomainId, Long ownerId, Long ownerDepartmentId) {
+        mockSubDomain(subDomainId, ownerId, ownerDepartmentId, null);
+    }
+
+    private void mockSubDomain(Long subDomainId, Long ownerId, Long ownerDepartmentId, Long websiteId) {
         Department department = Department.builder().id(ownerDepartmentId).build();
         SystemUser owner = SystemUser.builder().id(ownerId).department(department).build();
         TopLevelDomain parentDomain = TopLevelDomain.builder()
                 .id(99L)
                 .owner(owner)
                 .build();
+        Website website = websiteId == null ? null : Website.builder().id(websiteId).build();
         SubDomain subDomain = SubDomain.builder()
                 .id(subDomainId)
                 .fullName("shop.example.com")
                 .parentDomain(parentDomain)
+                .website(website)
                 .build();
         when(subDomainRepository.findByFullName("shop.example.com")).thenReturn(subDomain);
     }

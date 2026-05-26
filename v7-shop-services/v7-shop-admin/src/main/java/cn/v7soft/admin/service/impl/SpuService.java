@@ -370,12 +370,23 @@ public class SpuService extends BaseDataRangeService<Spu, SpuRepository> impleme
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(subDomain, "请检查落地页链接是否正确: " + domain);
         assertCanAccessSubDomain(loginUser, subDomain);
 
-        boolean bound = subDomainSpuLandingPageRepository.existsBySubDomainIdAndSpuIdAndLandingPageType(
-                subDomain.getId(), spuId, LandingPageType.LAND);
+        boolean bound = isSharedUrlLandingPageBound(subDomain, spuId);
         ClientResponseEnum.NO_PERMISSION.assertTrue(bound, "您无权限生成该落地页共享链接");
 
         Spu spu = getById(spuId);
         ClientResponseEnum.NO_PERMISSION.assertTrue(canAccessSpu(loginUser, spu), "您无权限生成该落地页共享链接");
+    }
+
+    private boolean isSharedUrlLandingPageBound(SubDomain subDomain, Long spuId) {
+        boolean newTemplateBound = subDomainSpuLandingPageRepository.existsBySubDomainIdAndSpuIdAndLandingPageType(
+                subDomain.getId(), spuId, LandingPageType.LAND);
+        if (newTemplateBound) {
+            return true;
+        }
+        if (subDomain.getWebsite() == null) {
+            return false;
+        }
+        return repository.findByIdAndWebsiteId(spuId, subDomain.getWebsite().getId()).isPresent();
     }
 
     private void assertCanAccessSubDomain(SystemUserDto loginUser, SubDomain subDomain) {
