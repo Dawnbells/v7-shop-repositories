@@ -162,11 +162,31 @@
         <label class="test-label">Target Language</label>
         <input id="test-lang" type="text" value="Simplified Chinese" placeholder="e.g. Japanese, Korean...">
       </div>
+      <div class="test-options">
+        <label class="test-check">
+          <input id="test-stealth" type="checkbox" checked>
+          <span>Stealth Mode</span>
+        </label>
+        <label class="test-check">
+          <input id="test-auto-clear-cache" type="checkbox">
+          <span>Auto-clear Cache</span>
+        </label>
+      </div>
+      <div class="test-field">
+        <label class="test-label">Random Delay (seconds)</label>
+        <div class="test-delay-grid">
+          <input id="test-delay-min" type="number" min="0" max="120" step="1" value="2" placeholder="Min">
+          <input id="test-delay-max" type="number" min="0" max="120" step="1" value="5" placeholder="Max">
+        </div>
+      </div>
       <div class="test-field">
         <label class="test-label">Prompt</label>
         <textarea id="test-prompt" rows="6" placeholder="Leave empty to use default prompt"></textarea>
       </div>
-      <button id="btn-test-run" class="primary test-run-btn" disabled>Translate</button>
+      <div class="test-actions">
+        <button id="btn-test-run" class="primary test-run-btn" disabled>Translate</button>
+        <button id="btn-test-dom-run" class="secondary test-run-btn" disabled>Translate By DOM</button>
+      </div>
       <div id="test-status" class="test-status hidden"></div>
       <div id="test-result" class="test-result hidden">
         <label class="test-label">Result</label>

@@ -502,6 +502,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  if (msg.action === 'executeInMainWorld') {
+    const tabId = _sender.tab?.id || msg.tabId;
+    if (!tabId) {
+      sendResponse({ success: false, error: 'No tab ID' });
+      return true;
+    }
+    chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: (funcBody, args) => (0, eval)(`(function(...args) { ${funcBody} })`)(...(args || [])),
+      args: [msg.funcBody, msg.args || []],
+    }).then((results) => {
+      sendResponse({ success: true, result: results?.[0]?.result });
+    }).catch((error) => {
+      sendResponse({ success: false, error: error.message });
+    });
+    return true;
+  }
+
   if (msg.type === 'TEST_TRANSLATE') {
     (async () => {
       try {
@@ -537,6 +556,57 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         if (!resultUrl) throw new Error('Flow returned no image url');
         const image = await fetchImageAsBase64(conn.tabId, resultUrl);
         sendResponse({ ok: true, resultDataUrl: image.dataUrl });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'TEST_TRANSLATE_DOM') {
+    (async () => {
+      try {
+        const conn = await checkConnection();
+        if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
+        const prompt = msg.prompt || buildPrompt({
+          targetLanguage: msg.targetLanguage || 'Simplified Chinese',
+        });
+        const aspectRatio = msg.aspectRatio === 'auto'
+          ? aspectRatioFor(msg.width, msg.height)
+          : msg.aspectRatio;
+
+        await chrome.scripting.executeScript({
+          target: { tabId: conn.tabId },
+          files: ['flow-dom-method.js'],
+          world: 'ISOLATED',
+        });
+
+        const result = await chrome.tabs.sendMessage(conn.tabId, {
+          type: 'RUN_DOM_TRANSLATE_V3',
+          task: {
+            imageBase64: ensureDataUrl(msg.imageBase64),
+            fileName: msg.fileName || 'test.png',
+            mimeType: msg.mimeType || 'image/png',
+            aspectRatio,
+            model: sanitizeModel(msg.model),
+            stealthMode: msg.stealthMode !== false,
+            delayMin: Number(msg.delayMin || 0),
+            delayMax: Number(msg.delayMax || 0),
+            prompt,
+          },
+        });
+
+        if (!result?.ok) throw new Error(result?.error || 'DOM translate failed');
+        let resultDataUrl = result.resultDataUrl || null;
+        if (!resultDataUrl && result.resultUrl) {
+          const image = await fetchImageAsBase64(conn.tabId, result.resultUrl);
+          resultDataUrl = image.dataUrl;
+        }
+        if (!resultDataUrl) throw new Error('DOM translate completed but no readable result image was returned');
+        if (msg.autoClearCache) {
+          await clearFlowPageCache(conn.tabId);
+        }
+        sendResponse({ ok: true, resultDataUrl, resultUrl: result.resultUrl || null });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
       }
@@ -998,6 +1068,33 @@ function stripDataUrl(value) {
   if (!value) return '';
   const comma = value.indexOf(',');
   return comma >= 0 ? value.substring(comma + 1) : value;
+}
+
+async function clearFlowPageCache(tabId) {
+  clearTokenCache();
+  clearProjectIdCache();
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async () => {
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+      try { sessionStorage.clear(); } catch {}
+      try { localStorage.clear(); } catch {}
+      try {
+        if (indexedDB?.databases) {
+          const dbs = await indexedDB.databases();
+          for (const db of dbs) {
+            if (db.name) indexedDB.deleteDatabase(db.name);
+          }
+        }
+      } catch {}
+      return true;
+    },
+  });
+  await chrome.tabs.reload(tabId, { bypassCache: true });
 }
 
 async function postJson(service, path, body) {

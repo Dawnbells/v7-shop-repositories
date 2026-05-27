@@ -475,8 +475,13 @@
   const testAspect = document.getElementById('test-aspect');
   const testModel = document.getElementById('test-model');
   const testLang = document.getElementById('test-lang');
+  const testStealth = document.getElementById('test-stealth');
+  const testAutoClearCache = document.getElementById('test-auto-clear-cache');
+  const testDelayMin = document.getElementById('test-delay-min');
+  const testDelayMax = document.getElementById('test-delay-max');
   const testPrompt = document.getElementById('test-prompt');
   const btnTestRun = document.getElementById('btn-test-run');
+  const btnTestDomRun = document.getElementById('btn-test-dom-run');
   const testStatusEl = document.getElementById('test-status');
   const testResultEl = document.getElementById('test-result');
   const testResultSrc = document.getElementById('test-result-src');
@@ -507,28 +512,30 @@
         testPreview.classList.remove('hidden');
         testDropPlaceholder.classList.add('hidden');
         btnTestRun.disabled = false;
+        btnTestDomRun.disabled = false;
       };
       img.src = reader.result;
     };
     reader.readAsDataURL(file);
   }
 
-  btnTestRun.addEventListener('click', async () => {
+  async function runTestTranslate(type, label) {
     if (!testImageData) return;
     btnTestRun.disabled = true;
+    btnTestDomRun.disabled = true;
     testStatusEl.classList.remove('hidden');
     testStatusEl.className = 'test-status running';
-    testStatusEl.textContent = 'Translating...';
+    testStatusEl.textContent = `${label}...`;
     testResultEl.classList.add('hidden');
     const startTime = Date.now();
     const timer = setInterval(() => {
       const sec = Math.round((Date.now() - startTime) / 1000);
-      testStatusEl.textContent = `Translating... ${sec}s`;
+      testStatusEl.textContent = `${label}... ${sec}s`;
     }, 1000);
 
     try {
       const result = await chrome.runtime.sendMessage({
-        type: 'TEST_TRANSLATE',
+        type,
         imageBase64: testImageData.dataUrl,
         fileName: testImageData.name,
         mimeType: testImageData.type,
@@ -537,6 +544,10 @@
         aspectRatio: testAspect.value,
         model: testModel.value,
         targetLanguage: testLang.value || 'Simplified Chinese',
+        stealthMode: !!testStealth.checked,
+        autoClearCache: !!testAutoClearCache.checked,
+        delayMin: Number(testDelayMin.value || 0),
+        delayMax: Number(testDelayMax.value || 0),
         prompt: testPrompt.value || '',
       });
       clearInterval(timer);
@@ -557,7 +568,11 @@
       testStatusEl.textContent = 'Error: ' + e.message;
     }
     btnTestRun.disabled = false;
-  });
+    btnTestDomRun.disabled = false;
+  }
+
+  btnTestRun.addEventListener('click', () => runTestTranslate('TEST_TRANSLATE', 'Translating'));
+  btnTestDomRun.addEventListener('click', () => runTestTranslate('TEST_TRANSLATE_DOM', 'Translating by DOM'));
 
   init();
 })();
