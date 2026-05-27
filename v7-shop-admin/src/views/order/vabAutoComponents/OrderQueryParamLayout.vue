@@ -162,6 +162,7 @@
             </el-form-item>
             <el-form-item label="归属部门">
               <el-tree-select
+                ref="deptTreeRef"
                 v-model="queryForm.belongDepartmentIds"
                 clearable
                 collapse-tags
@@ -169,9 +170,11 @@
                 :default-checked-keys="queryForm.belongDepartmentIds"
                 :default-expanded-keys="queryForm.belongDepartmentIds"
                 multiple
+                check-strictly
                 node-key="id"
                 :props="defaultProps"
                 show-checkbox
+                @check="onDeptTreeCheck"
               />
             </el-form-item>
             <el-form-item label="订单平台">
@@ -405,12 +408,42 @@ const uploadUrl = `${getEnv('VITE_API_BASE_URL', window.location.origin)}/orders
 const belongUserIdLoading = ref<boolean>(false)
 const belongUserIdOptions = ref<any[]>([])
 const allDepartmentTree = ref<Department[]>([])
+const deptTreeRef = ref<any>(null)
 const uploadErrorMessage = ref<string>('')
 const countryOptions = ref<any>([])
 
 const defaultProps = {
   label: 'name',
   children: 'children',
+}
+
+const collectDescendantIds = (node: any): number[] => {
+  const ids: number[] = []
+  if (node.children) {
+    for (const child of node.children) {
+      ids.push(child.id)
+      ids.push(...collectDescendantIds(child))
+    }
+  }
+  return ids
+}
+
+const onDeptTreeCheck = (nodeData: any, { checkedKeys }: any) => {
+  const tree = deptTreeRef.value
+  if (!tree) return
+
+  const isChecked = checkedKeys.includes(nodeData.id)
+  let newKeys = [...checkedKeys]
+
+  const descendantIds = collectDescendantIds(nodeData)
+  if (isChecked) {
+    newKeys = [...new Set([...newKeys, ...descendantIds])]
+  } else {
+    newKeys = newKeys.filter((key: number) => !descendantIds.includes(key))
+  }
+
+  tree.setCheckedKeys(newKeys)
+  queryForm.value.belongDepartmentIds = [...newKeys]
 }
 const props = defineProps<{
   listLoading: boolean
