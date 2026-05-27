@@ -74,37 +74,37 @@
               <el-form-item label="商品主图" prop="skuImages">
                 <vue-draggable v-model="form.skuImages" :animation="200" ghost-class="ghost">
                   <div
-                    v-for="(image, index) in form.skuImages"
-                    :key="image.name"
+                    v-for="{ image, originalIndex } in validSkuImages"
+                    :key="image.id || image.name || image.absolutionPath || originalIndex"
                     class="image-wrapper image-item-card el-space__item"
                   >
                     <ai-translate-wrapper
                       :language-id="form.languageId"
                       :source="image"
                       type="image"
-                      @apply="(v) => onApplySkuImage(index, v)"
+                      @apply="(v) => onApplySkuImage(originalIndex, v)"
                     >
                       <el-image
                         class="el-upload--picture-card"
                         fit="fill"
-                        :src="`${image.absolutionPath}`"
+                        :src="image.absolutionPath || ''"
                         style="
                           width: 120px !important;
                           height: 120px !important;
                           cursor: pointer;
                           border: 1px solid #d9d9d9;
                         "
-                        @click="chooseFormSkuImage(index)"
-                        @mouseenter="showDeleteButton(index)"
-                        @mouseleave="hideDeleteButton(index)"
+                        @click="chooseFormSkuImage(originalIndex)"
+                        @mouseenter="showDeleteButton(originalIndex)"
+                        @mouseleave="hideDeleteButton(originalIndex)"
                       />
                     </ai-translate-wrapper>
                     <div
                       v-if="image.showDelete"
                       class="delete-icon"
-                      @click="deleteImage(index)"
-                      @mouseenter="showDeleteButton(index)"
-                      @mouseleave="hideDeleteButton(index)"
+                      @click="deleteImage(originalIndex)"
+                      @mouseenter="showDeleteButton(originalIndex)"
+                      @mouseleave="hideDeleteButton(originalIndex)"
                     >
                       <el-icon>
                         <delete />
@@ -113,7 +113,7 @@
                   </div>
                 </vue-draggable>
                 <el-icon
-                  v-if="!form.skuImages || form.skuImages.length < 10"
+                  v-if="validSkuImages.length < MAX_SKU_IMAGE_COUNT"
                   class="el-upload--picture-card image-wrapper add-image-button image-item-card"
                   style="width: 120px !important; height: 120px !important"
                   @click="chooseFormSkuImage(100)"
@@ -1176,6 +1176,7 @@ const userStore = useUserStore()
 const batchSelectSpec = ref<any>([])
 const DRAFT_LIMIT = 10
 const DRAFT_SAVE_DELAY = 800
+const MAX_SKU_IMAGE_COUNT = 10
 const currentDraftKey = ref<string>('')
 const currentDraftMode = ref<'new' | 'edit' | 'copy'>('new')
 const currentDraftSourceProductId = ref<string | number | undefined>()
@@ -1255,6 +1256,38 @@ const form = reactive<any>({
   riskUserShowSpuId: '',
   botShowSpuId: '',
 })
+const isValidSkuImage = (image: any) => {
+  return (
+    image !== null &&
+    typeof image === 'object' &&
+    (Boolean(image.id) || Boolean(image.absolutionPath))
+  )
+}
+
+const normalizeSkuImages = (images: any) => {
+  if (!Array.isArray(images)) {
+    return []
+  }
+  return images.filter(isValidSkuImage).slice(0, MAX_SKU_IMAGE_COUNT)
+}
+
+const normalizeChosenFiles = (files: any) => {
+  if (!Array.isArray(files) || files.length === 0) {
+    return []
+  }
+  return normalizeSkuImages(files)
+}
+
+const validSkuImages = computed(() => {
+  if (!Array.isArray(form.skuImages)) {
+    return []
+  }
+  return form.skuImages
+    .map((image: any, originalIndex: number) => ({ image, originalIndex }))
+    .filter(({ image }: any) => isValidSkuImage(image))
+    .slice(0, MAX_SKU_IMAGE_COUNT)
+})
+
 const rules = reactive<any>({
   title: [{ required: true, trigger: 'blur', message: '请输入商品标题' }],
   // summary: [{ required: true, trigger: 'blur', message: '请输入商品摘要' }],
@@ -1396,23 +1429,28 @@ const appendSpuOption = (item: any) => {
   spuOptions.value = [...spuOptions.value, option]
 }
 
-const createDraftPayload = () => ({
-  spu: cloneDraftValue(spu.value),
-  form: cloneDraftValue(form),
-  specifications: cloneDraftValue(specifications.value),
-  specificationValues: cloneDraftValue(specificationValues.value),
-  skuOptions: cloneDraftValue(skuOptions.value),
-  spuOptions: cloneDraftValue(spuOptions.value),
-  countryOptions: cloneDraftValue(countryOptions.value),
-  languageOptions: cloneDraftValue(languageOptions.value),
-  currencyOptions: cloneDraftValue(currencyOptions.value),
-  merchandiseOptions: cloneDraftValue(merchandiseOptions.value),
-})
+const createDraftPayload = () => {
+  const draftForm = cloneDraftValue(form)
+  draftForm.skuImages = normalizeSkuImages(draftForm.skuImages)
+  return {
+    spu: cloneDraftValue(spu.value),
+    form: draftForm,
+    specifications: cloneDraftValue(specifications.value),
+    specificationValues: cloneDraftValue(specificationValues.value),
+    skuOptions: cloneDraftValue(skuOptions.value),
+    spuOptions: cloneDraftValue(spuOptions.value),
+    countryOptions: cloneDraftValue(countryOptions.value),
+    languageOptions: cloneDraftValue(languageOptions.value),
+    currencyOptions: cloneDraftValue(currencyOptions.value),
+    merchandiseOptions: cloneDraftValue(merchandiseOptions.value),
+  }
+}
 
 const applyDraftPayload = (payload: any) => {
   if (!payload) return
   spu.value = payload.spu || null
   Object.assign(form, payload.form || {})
+  form.skuImages = normalizeSkuImages(form.skuImages)
   specifications.value = payload.specifications || [{ name: 'Color', values: [] }]
   specificationValues.value = payload.specificationValues || {}
   skuOptions.value = payload.skuOptions || []
@@ -1601,6 +1639,7 @@ const showEdit = (product: any, spuItem: any = null, options: { sourceProductId?
       isEdit.value = true
       title.value = product.language ? '编辑' : '复制'
       Object.assign(form, product)
+      form.skuImages = normalizeSkuImages(form.skuImages)
       form.introduction = product.introduction
       merchandiseOptions.value = [product.merchandise]
       form.merchandise = product.merchandise
@@ -1721,8 +1760,8 @@ const close = () => {
 }
 
 const chooseSkuImage = async (row: any) => {
-  const images = await fileChooserRef.value.choose()
-  if (!images || images.length < 0) {
+  const images = normalizeChosenFiles(await fileChooserRef.value.choose())
+  if (images.length === 0) {
     return
   }
   row.skuImage = images[0]
@@ -1751,8 +1790,8 @@ const onBatchEdit = (modifiedProps: any) => {
 }
 
 const chooseFormSkuVideo = async () => {
-  const videos = await fileChooserRef.value.choose()
-  if (!videos || videos.length < 0) {
+  const videos = normalizeChosenFiles(await fileChooserRef.value.choose())
+  if (videos.length === 0) {
     return
   }
   form.skuVideo = videos[0]
@@ -1761,34 +1800,40 @@ const chooseFormSkuVideo = async () => {
 }
 
 const chooseFormSkuImage = async (index: number) => {
-  const images = await fileChooserRef.value.choose()
-  if (!images || images.length < 0) {
-    console.warn(`choose form sku images error: ${JSON.stringify(images)}`)
+  const images = normalizeChosenFiles(await fileChooserRef.value.choose())
+  if (images.length === 0) {
     return
   }
   console.log(`choose from sku image: ${index}, images = ${JSON.stringify(images)}`)
   if (index === 100) {
-    form.skuImages = [...form.skuImages, ...images]
+    form.skuImages = normalizeSkuImages([...normalizeSkuImages(form.skuImages), ...images])
   } else {
     form.skuImages[index] = images[0]
+    form.skuImages = normalizeSkuImages(form.skuImages)
   }
 }
 
 const showDeleteButton = (index: number) => {
-  form.skuImages[index].showDelete = true
+  if (isValidSkuImage(form.skuImages[index])) {
+    form.skuImages[index].showDelete = true
+  }
 }
 
 const hideDeleteButton = (index: number) => {
-  form.skuImages[index].showDelete = false
+  if (isValidSkuImage(form.skuImages[index])) {
+    form.skuImages[index].showDelete = false
+  }
 }
 
 const deleteImage = (index: number) => {
   form.skuImages.splice(index, 1)
+  form.skuImages = normalizeSkuImages(form.skuImages)
 }
 
 const onApplySkuImage = (index: number, translated: any) => {
-  if (translated && translated.id) {
+  if (translated && translated.id && isValidSkuImage(form.skuImages[index])) {
     form.skuImages[index] = { ...form.skuImages[index], ...translated }
+    form.skuImages = normalizeSkuImages(form.skuImages)
   }
 }
 
@@ -1797,7 +1842,8 @@ const save = () => {
     if (valid) {
       try {
         saveLoading.value = true
-        form.skuImageIds = form.skuImages.map((skuImage: any) => skuImage.id)
+        form.skuImages = normalizeSkuImages(form.skuImages)
+        form.skuImageIds = form.skuImages.map((skuImage: any) => skuImage.id).filter(Boolean)
         form.specifications = skuSpecifications.value
         form.specifications.forEach((spec: any) => {
           spec.specificationImageId = spec.skuImage ? spec.skuImage.id : null
