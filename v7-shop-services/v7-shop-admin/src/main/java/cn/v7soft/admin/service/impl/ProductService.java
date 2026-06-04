@@ -431,7 +431,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         String translatedSummary = lookupTranslation(translatedTextMap, product.getSummary());
         String translatedWaybillProductName = lookupTranslation(translatedTextMap, product.getWaybillProductName());
 
-        String finalIntroduction = translatedIntroduction;
+        String finalIntroduction = translatedIntroduction != null ? translatedIntroduction : product.getIntroduction();
         if (finalIntroduction != null && translatedImageMap != null) {
             Matcher matcher = IMG_ID_PATTERN.matcher(finalIntroduction);
             StringBuffer sb = new StringBuffer();
@@ -449,7 +449,10 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         }
 
         List<ProductSpecification> newSpecs = new ArrayList<>();
-        for (ProductSpecification spec : product.getSpecificationList()) {
+        List<ProductSpecification> sourceSpecs = product.getSpecificationList() == null
+                                             ? List.of()
+                                             : product.getSpecificationList();
+        for (ProductSpecification spec : sourceSpecs) {
             MultimediaFile specImg = spec.getSpecificationImage();
             MultimediaFile translatedSpecImg = specImg != null && specImg.getId() != null && translatedImageMap != null
                                                ? translatedImageMap.getOrDefault(String.valueOf(specImg.getId()), specImg)
@@ -469,7 +472,10 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                     .attributes(null)
                     .build();
             List<ProductSpecificationAttributes> newAttrs = new ArrayList<>();
-            for (ProductSpecificationAttributes attr : spec.getAttributes()) {
+            List<ProductSpecificationAttributes> sourceAttrs = spec.getAttributes() == null
+                                                         ? List.of()
+                                                         : spec.getAttributes();
+            for (ProductSpecificationAttributes attr : sourceAttrs) {
                 String translatedName = lookupTranslation(translatedTextMap, attr.getName());
                 String translatedValue = lookupTranslation(translatedTextMap, attr.getValue());
 
@@ -501,6 +507,10 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
             newImageFiles.addAll(product.getImageFiles());
         }
 
+        List<ProductSKU> alternativeSkus = product.getAlternativeSkus() == null
+                                           ? new ArrayList<>()
+                                           : new ArrayList<>(product.getAlternativeSkus());
+
         Product newProduct = Product.builder()
                 .title(translatedTitle)
                 .summary(translatedSummary)
@@ -526,7 +536,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .imageFiles(newImageFiles)
                 .language(language)
                 .spu(product.getSpu())
-                .alternativeSkus(new ArrayList<>(product.getAlternativeSkus()))
+                .alternativeSkus(alternativeSkus)
                 .country(country)
                 .botShowSpu(product.getBotShowSpu())
                 .riskUserShowSpu(product.getRiskUserShowSpu())
@@ -552,6 +562,9 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
     private String lookupTranslation(Map<String, String> translatedTextMap, String original) {
         if (original == null || original.isBlank()) {
+            return original;
+        }
+        if (translatedTextMap == null) {
             return original;
         }
         String hash = DigestUtil.sha256Hex(original);

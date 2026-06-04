@@ -1310,7 +1310,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             log.debug("[AiAccountTranslateTask] translated product finalized: taskId={}, completed={}, failed={}",
                     status.getTaskId(), status.getCompletedSubTaskCount().get(), status.getFailedSubTaskCount().get());
         } catch (Exception e) {
-            status.fail("assemble translated product failed: " + e.getMessage());
+            status.fail(exceptionSummary("assemble translated product failed", e));
             log.error("[AiAccountTranslateTask] assemble translated product failed: taskId={}",
                       status.getTaskId(), e);
         } finally {
@@ -1326,5 +1326,13 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             inputStream.transferTo(outputStream);
             return outputStream.toByteArray();
         }
+    }
+
+    private String exceptionSummary(String prefix, Exception e) {
+        String message = e.getMessage();
+        if (StrUtil.isBlank(message)) {
+            message = e.getClass().getSimpleName();
+        }
+        return prefix + ": " + message;
     }
 }

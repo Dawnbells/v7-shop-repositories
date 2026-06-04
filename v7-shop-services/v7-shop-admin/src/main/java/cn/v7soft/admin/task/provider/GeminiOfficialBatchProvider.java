@@ -1,6 +1,7 @@
 package cn.v7soft.admin.task.provider;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Iterator;
@@ -44,7 +45,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
 
     private static final int FLUSH_THRESHOLD = 50;
     private static final long FLUSH_TIMEOUT_MS = 30_000;
-    private static final long BATCH_JOB_TIMEOUT_MS = 60 * 60_000;
+    private static final long BATCH_JOB_TIMEOUT_MS = Duration.ofDays(1).toMillis();
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Set<String> COMPLETED_STATES = Set.of(
             "JOB_STATE_SUCCEEDED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED",

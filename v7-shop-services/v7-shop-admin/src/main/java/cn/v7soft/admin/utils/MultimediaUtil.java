@@ -46,6 +46,9 @@ public class MultimediaUtil {
 
     public static String replacementIntroductionsMultimedia(IMultimediaFileService multimediaFileService,
                                                             String introduction) {
+        if (introduction == null || introduction.isBlank()) {
+            return introduction;
+        }
         // 创建正则表达式
         String regex = "/multimedia/([0-9]+)";
         Pattern pattern = Pattern.compile(regex);
