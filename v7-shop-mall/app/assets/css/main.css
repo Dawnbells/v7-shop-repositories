@@ -1,0 +1,4 @@
+/* 全局样式入口 */
+/* 通过本地入口文件 @import 重置样式，避免 Windows 下 Nuxt 直接引用 node_modules
+   绝对路径生成畸形的 /_nuxt/@fs... <link>（会 404）。 */
+@import "@unocss/reset/tailwind.css";

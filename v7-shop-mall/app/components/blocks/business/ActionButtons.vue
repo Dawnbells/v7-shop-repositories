@@ -36,6 +36,10 @@ const props = withDefaults(defineProps<Props>(), {
   stickyShowImage: false,
 });
 
+// 本组件有两个根节点（按钮容器 + Teleport 悬浮栏），fallthrough 属性无法自动继承，
+// 关闭自动继承并把渲染器传入的节点 style 显式绑定到主容器，消除 Vue 警告。
+defineOptions({ inheritAttrs: false });
+
 const router = useRouter();
 const { t } = useI18n();
 
@@ -250,6 +254,7 @@ onBeforeUnmount(() => {
     ref="buttonsRef"
     class="block-action-buttons"
     :class="[sizeClass, `layout-${layout}`, { 'full-width': fullWidth }]"
+    :style="$attrs.style as any"
   >
     <!-- 加入购物车按钮 -->
     <button
