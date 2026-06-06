@@ -34,7 +34,7 @@
         <el-input v-model.trim="form.accessToken" clearable placeholder="请输入 Google Ads 转化标签" />
       </el-form-item>
       <el-form-item
-        v-if="form.platform === 'META' || form.platform === 'GOOGLE' || form.platform === 'TIKTOK' || form.platform === 'TABOOLA' || form.platform === 'BIGO'"
+        v-if="form.platform === 'META' || form.platform === 'GOOGLE' || form.platform === 'TIKTOK' || form.platform === 'TABOOLA' || form.platform === 'BIGO' || form.platform === 'GTM'"
         label="转化事件"
         prop="conversionEvent"
       >

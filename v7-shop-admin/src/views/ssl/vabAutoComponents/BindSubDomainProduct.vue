@@ -720,7 +720,7 @@
       <el-form-item v-if="createPixelForm.platform === 'GOOGLE'" label="转化标签" required>
         <el-input v-model.trim="createPixelForm.accessToken" clearable placeholder="请输入 Google Ads 转化标签" />
       </el-form-item>
-      <el-form-item v-if="!isCreateEmbedPixel && !isCreateGtmPixel" label="转化事件" required>
+      <el-form-item v-if="!isCreateEmbedPixel" label="转化事件" required>
         <el-select v-model="createPixelForm.conversionEvent" placeholder="请选择转化事件" style="width: 100%">
           <el-option label="加购物车" value="ADD_TO_CART" />
           <el-option label="下单购买" value="PURCHASE" />
