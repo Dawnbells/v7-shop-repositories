@@ -606,9 +606,14 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         if (request.getPlatform() == PixelAccountPlatform.GOOGLE) {
             ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(request.getAccessToken(), "请输入 Google Ads 转化标签");
         }
+        String pixelId = request.getPixelId();
+        if (request.getPlatform() == PixelAccountPlatform.GTM) {
+            pixelId = PixelAccountPlatform.normalizeGtmContainerId(pixelId);
+            ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(pixelId, "GTM 容器 ID 格式不正确，应为 GTM-XXXXXX");
+        }
         PixelAccount pixelAccount = PixelAccount.builder()
                 .pixelName(request.getPixelName())
-                .pixelId(request.getPixelId())
+                .pixelId(pixelId)
                 .accessToken(request.getAccessToken() == null ? "" : request.getAccessToken())
                 .platform(request.getPlatform())
                 .state(PixelAccountState.WAIT_VALID)

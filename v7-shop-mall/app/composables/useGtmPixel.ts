@@ -35,8 +35,9 @@ export function useGtmPixel() {
       if (!hasGtmPixel.value) return [];
       const loadCalls = containerIds.value
         .map(
+          // 容器 ID 以 JSON.stringify 注入为合法 JS 字符串字面量，避免脚本被截断/注入
           (id) =>
-            `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${id}');`,
+            `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+encodeURIComponent(i)+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',${JSON.stringify(id)});`,
         )
         .join("");
       return [
@@ -50,7 +51,8 @@ export function useGtmPixel() {
       if (!hasGtmPixel.value) return [];
       return containerIds.value.map((id) => ({
         key: `gtm-noscript-${id}`,
-        innerHTML: `<iframe src="https://www.googletagmanager.com/ns.html?id=${id}" height="0" width="0" style="display:none;visibility:hidden"></iframe>`,
+        // iframe URL 参数使用 encodeURIComponent，避免属性/URL 注入
+        innerHTML: `<iframe src="https://www.googletagmanager.com/ns.html?id=${encodeURIComponent(id)}" height="0" width="0" style="display:none;visibility:hidden"></iframe>`,
         tagPosition: "bodyOpen" as const,
       }));
     }),

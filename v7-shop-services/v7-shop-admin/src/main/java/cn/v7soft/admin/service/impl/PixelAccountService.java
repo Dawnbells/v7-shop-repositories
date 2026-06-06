@@ -38,6 +38,11 @@ public class PixelAccountService extends BaseDataRangeService<PixelAccount, Pixe
         if (data.getPlatform() == PixelAccountPlatform.GOOGLE) {
             ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(data.getAccessToken(), "请输入 Google Ads 转化标签");
         }
+        if (data.getPlatform() == PixelAccountPlatform.GTM) {
+            String containerId = PixelAccountPlatform.normalizeGtmContainerId(data.getPixelId());
+            ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(containerId, "GTM 容器 ID 格式不正确，应为 GTM-XXXXXX");
+            data.setPixelId(containerId);
+        }
     }
 
     @Override
