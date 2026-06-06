@@ -23,6 +23,7 @@ import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.controller.request.DeleteRequest;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
+import cn.v7soft.core.controller.request.attributes.InAttribute;
 import cn.v7soft.core.controller.request.attributes.LikeAttribute;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.StatusEnum;
@@ -119,7 +120,16 @@ public class PixelAccountController extends BaseDataRangeController<PixelAccount
             }
         });
         if (StringUtils.hasText(platform)) {
-            request.add(EqualsQueryAttribute.builder().name("platform").value(PixelAccountPlatform.valueOf(platform)).build());
+            PixelAccountPlatform target = PixelAccountPlatform.valueOf(platform);
+            if (target == PixelAccountPlatform.GOOGLE) {
+                // Google 广告平台下，绑定像素同时允许 Google 原生像素与 GTM（GTM 属于 Google）
+                request.add(InAttribute.<PixelAccountPlatform>builder()
+                        .name("platform")
+                        .value(List.of(PixelAccountPlatform.GOOGLE, PixelAccountPlatform.GTM))
+                        .build());
+            } else {
+                request.add(EqualsQueryAttribute.builder().name("platform").value(target).build());
+            }
         }
         return service.findPaginated(request)
                 .stream()
