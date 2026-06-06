@@ -188,6 +188,12 @@
                                   <span>Bigo</span>
                                 </div>
                               </el-option>
+                              <el-option label="Google Tag Manager" value="GTM">
+                                <div class="platform-option">
+                                  <span class="platform-dot" style="background: #4285f4" />
+                                  <span>Google Tag Manager</span>
+                                </div>
+                              </el-option>
                               <el-option label="嵌入像素" value="EMBED">
                                 <div class="platform-option">
                                   <span class="platform-dot" style="background: #67c23a" />
@@ -698,6 +704,7 @@
           <el-option label="TikTok" value="TIKTOK" />
           <el-option label="Taboola" value="TABOOLA" />
           <el-option label="Bigo" value="BIGO" />
+          <el-option label="Google Tag Manager" value="GTM" />
           <el-option label="嵌入像素" value="EMBED" />
         </el-select>
       </el-form-item>
@@ -713,7 +720,7 @@
       <el-form-item v-if="createPixelForm.platform === 'GOOGLE'" label="转化标签" required>
         <el-input v-model.trim="createPixelForm.accessToken" clearable placeholder="请输入 Google Ads 转化标签" />
       </el-form-item>
-      <el-form-item v-if="!isCreateEmbedPixel" label="转化事件" required>
+      <el-form-item v-if="!isCreateEmbedPixel && !isCreateGtmPixel" label="转化事件" required>
         <el-select v-model="createPixelForm.conversionEvent" placeholder="请选择转化事件" style="width: 100%">
           <el-option label="加购物车" value="ADD_TO_CART" />
           <el-option label="下单购买" value="PURCHASE" />
@@ -1015,12 +1022,12 @@ const assembledCampaign = computed(() => {
 })
 
 const platformDisplayName = computed(() => {
-  const map: Record<string, string> = { META: 'Meta', GOOGLE: 'Google', TIKTOK: 'TikTok', TABOOLA: 'Taboola', BIGO: 'Bigo', EMBED: '嵌入像素' }
+  const map: Record<string, string> = { META: 'Meta', GOOGLE: 'Google', TIKTOK: 'TikTok', TABOOLA: 'Taboola', BIGO: 'Bigo', GTM: 'Google Tag Manager', EMBED: '嵌入像素' }
   return adConfig.adPlatform ? map[adConfig.adPlatform] || adConfig.adPlatform : ''
 })
 
 const platformTagType = computed(() => {
-  const map: Record<string, string> = { META: '', GOOGLE: 'danger', TIKTOK: 'info', TABOOLA: 'primary', BIGO: 'warning', EMBED: 'success' }
+  const map: Record<string, string> = { META: '', GOOGLE: 'danger', TIKTOK: 'info', TABOOLA: 'primary', BIGO: 'warning', GTM: 'primary', EMBED: 'success' }
   return (adConfig.adPlatform ? map[adConfig.adPlatform] : 'info') as any
 })
 
@@ -1031,6 +1038,7 @@ const getPlatformColor = (platform: string) => {
     TIKTOK: '#010101',
     TABOOLA: '#0056d6',
     BIGO: '#f5a400',
+    GTM: '#4285f4',
     EMBED: '#67c23a',
   }
   return map[platform] || '#909399'
@@ -1064,11 +1072,13 @@ const createPixelForm = reactive({
 })
 
 const isCreateEmbedPixel = computed(() => createPixelForm.platform === 'EMBED')
+const isCreateGtmPixel = computed(() => createPixelForm.platform === 'GTM')
 
 const createPixelIdPlaceholder = computed(() => {
   if (isCreateEmbedPixel.value) return '可选，留空时自动生成'
   if (createPixelForm.platform === 'TABOOLA') return '请输入 Taboola Account ID'
   if (createPixelForm.platform === 'BIGO') return '请输入 BIGO accountId 或完整 resource/pixel URL'
+  if (isCreateGtmPixel.value) return '请输入 GTM 容器 ID，如 GTM-XXXXXX'
   return '请输入像素ID'
 })
 

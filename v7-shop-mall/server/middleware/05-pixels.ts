@@ -57,6 +57,7 @@ export default defineEventHandler(async (event) => {
       tiktok: pixels.tiktok.length,
       taboola: pixels.taboola.length,
       bigo: pixels.bigo.length,
+      gtm: pixels.gtm.length,
       embed: pixels.embed.length,
     });
     updatePageContext(event, { pixels });

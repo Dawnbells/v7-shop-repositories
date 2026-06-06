@@ -11,6 +11,7 @@ export function usePixels() {
   const tiktok = useTiktokPixel();
   const taboola = useTaboolaPixel();
   const bigo = useBigoPixel();
+  const gtm = useGtmPixel();
   const embed = useEmbedPixel();
 
   /**
@@ -33,6 +34,7 @@ export function usePixels() {
     tiktok.trackPurchase(value, currency, options?.contentIds, options?.eventId);
     taboola.trackPurchase(value, currency, options?.contentIds, options?.transactionId);
     bigo.trackPurchase(value, currency, options?.contentIds, options?.transactionId);
+    gtm.trackPurchase(value, currency, options?.contentIds, options?.transactionId);
   }
 
   function trackAddToCart(
@@ -46,6 +48,7 @@ export function usePixels() {
     tiktok.trackAddToCart(value, currency, contentId, eventId);
     taboola.trackAddToCart(value, currency, contentId);
     bigo.trackAddToCart(value, currency, contentId);
+    gtm.trackAddToCart(value, currency, contentId);
   }
 
   function trackInitiateCheckout(value: number, currency: string) {
@@ -54,6 +57,7 @@ export function usePixels() {
     tiktok.trackInitiateCheckout(value, currency);
     taboola.trackInitiateCheckout(value, currency);
     bigo.trackInitiateCheckout(value, currency);
+    gtm.trackInitiateCheckout(value, currency);
   }
 
   /**
@@ -74,6 +78,7 @@ export function usePixels() {
       ...(tiktok.tiktokPixels.value || []),
       ...(taboola.taboolaPixels.value || []),
       ...(bigo.bigoPixels.value || []),
+      ...(gtm.gtmPixels.value || []),
     ];
 
     const needPurchase = allPixels.some((p) => p.conversionEvent === "PURCHASE");
@@ -93,6 +98,7 @@ export function usePixels() {
     tiktok,
     taboola,
     bigo,
+    gtm,
     embed,
     trackPurchase,
     trackAddToCart,

@@ -8,7 +8,7 @@ import { query } from "../utils/db";
 /**
  * 像素账号平台类型
  */
-export type PixelPlatform = "META" | "GOOGLE" | "TIKTOK" | "TABOOLA" | "BIGO" | "EMBED";
+export type PixelPlatform = "META" | "GOOGLE" | "TIKTOK" | "TABOOLA" | "BIGO" | "GTM" | "EMBED";
 
 /**
  * 像素账号状态
@@ -44,6 +44,7 @@ export interface PixelsByPlatform {
   tiktok: PixelAccount[];
   taboola: PixelAccount[];
   bigo: PixelAccount[];
+  gtm: PixelAccount[];
   embed: PixelAccount[];
 }
 
@@ -117,6 +118,7 @@ export function groupPixelsByPlatform(pixels: PixelAccount[]): PixelsByPlatform 
     tiktok: [],
     taboola: [],
     bigo: [],
+    gtm: [],
     embed: [],
   };
 

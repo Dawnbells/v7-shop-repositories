@@ -17,6 +17,7 @@
           <el-option label="TIKTOK" value="TIKTOK" />
           <el-option label="TABOOLA" value="TABOOLA" />
           <el-option label="BIGO" value="BIGO" />
+          <el-option label="Google Tag Manager" value="GTM" />
           <el-option label="EMBED" value="EMBED" />
         </el-select>
       </el-form-item>
@@ -97,6 +98,7 @@ const rules = reactive<any>({
 const pixelIdPlaceholder = computed(() => {
   if (form.platform === 'TABOOLA') return '请输入 Taboola Account ID'
   if (form.platform === 'BIGO') return '请输入 BIGO accountId 或完整 resource/pixel URL'
+  if (form.platform === 'GTM') return '请输入 GTM 容器 ID，如 GTM-XXXXXX'
   if (form.platform === 'EMBED') return '请输入嵌入像素标识'
   return '请输入像素ID'
 })

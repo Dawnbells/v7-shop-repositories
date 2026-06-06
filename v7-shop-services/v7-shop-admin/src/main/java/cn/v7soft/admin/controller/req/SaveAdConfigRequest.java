@@ -23,7 +23,7 @@ public class SaveAdConfigRequest {
     @Schema(title = "SPU ID")
     private Long spuId;
 
-    @Schema(title = "广告平台: META / GOOGLE / TIKTOK / TABOOLA / BIGO / EMBED")
+    @Schema(title = "广告平台: META / GOOGLE / TIKTOK / TABOOLA / BIGO / GTM / EMBED")
     private String adPlatform;
 
     @Schema(title = "流量媒介: cpc / ppc / organic / email / social / paid_social / affiliate / referral / display / video")
