@@ -121,8 +121,8 @@ public class PixelAccountController extends BaseDataRangeController<PixelAccount
         });
         if (StringUtils.hasText(platform)) {
             PixelAccountPlatform target = PixelAccountPlatform.valueOf(platform);
-            if (target == PixelAccountPlatform.GOOGLE) {
-                // Google 广告平台下，绑定像素同时允许 Google 原生像素与 GTM（GTM 属于 Google）
+            if (target == PixelAccountPlatform.GOOGLE || target == PixelAccountPlatform.GTM) {
+                // Google 与 GTM 同属 Google 体系，互相可绑定：两者均按 IN (GOOGLE, GTM) 过滤
                 request.add(InAttribute.<PixelAccountPlatform>builder()
                         .name("platform")
                         .value(List.of(PixelAccountPlatform.GOOGLE, PixelAccountPlatform.GTM))
