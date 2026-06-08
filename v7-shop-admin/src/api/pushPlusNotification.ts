@@ -4,12 +4,14 @@ export type PushPlusTemplate = 'markdown' | 'html' | 'txt' | 'json'
 
 export interface PushPlusNotificationConfig {
   open: boolean
+  serverIpSwitchOpen: boolean
   tokenSet: boolean
   template: PushPlusTemplate
 }
 
 export interface SavePushPlusNotificationConfig {
   open: boolean
+  serverIpSwitchOpen: boolean
   token?: string
   template: PushPlusTemplate
 }

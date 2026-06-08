@@ -15,6 +15,8 @@ public class PushPlusNotificationConfigResponse {
 
     private Boolean open;
 
+    private Boolean serverIpSwitchOpen;
+
     private Boolean tokenSet;
 
     private String template;

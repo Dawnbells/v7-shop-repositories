@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import cn.hutool.json.JSONObject;
 import cn.v7soft.admin.controller.req.SavePushPlusNotificationConfigRequest;
 import cn.v7soft.admin.event.AiTranslateTaskNotificationEvent;
+import cn.v7soft.admin.event.ServerIpSwitchNotificationEvent;
 import cn.v7soft.admin.service.IDynamicConfigService;
 import cn.v7soft.admin.service.pushplus.PushPlusClient;
 import cn.v7soft.admin.service.pushplus.PushPlusSendRequest;
@@ -114,10 +115,68 @@ class PushPlusNotificationServiceTest {
     }
 
     @Test
+    void skipsServerIpSwitchNotificationWhenIndependentSwitchClosed() {
+        FakeDynamicConfigService configService = new FakeDynamicConfigService();
+        configService.value.set("open", true);
+        configService.value.set("serverIpSwitchOpen", false);
+        configService.value.set("token", "push-token");
+        RecordingPushPlusClient client = new RecordingPushPlusClient();
+        PushPlusNotificationService service = new PushPlusNotificationService(configService, client);
+
+        service.sendServerIpSwitchNotification(serverIpSwitchEvent("FAILOVER"));
+
+        assertThat(client.requests).isEmpty();
+    }
+
+    @Test
+    void sendsServerIpSwitchFailoverMessageWhenEnabledEvenAiTranslateClosed() {
+        FakeDynamicConfigService configService = new FakeDynamicConfigService();
+        configService.value.set("open", false);
+        configService.value.set("serverIpSwitchOpen", true);
+        configService.value.set("token", "push-token");
+        configService.value.set("template", "markdown");
+        RecordingPushPlusClient client = new RecordingPushPlusClient();
+        PushPlusNotificationService service = new PushPlusNotificationService(configService, client);
+
+        service.sendServerIpSwitchNotification(serverIpSwitchEvent("FAILOVER"));
+
+        assertThat(client.requests).hasSize(1);
+        PushPlusSendRequest request = client.requests.get(0);
+        assertThat(request.getTitle()).isEqualTo("服务器IP已切换到备用IP");
+        assertThat(request.getToken()).isEqualTo("push-token");
+        assertThat(request.getChannel()).isEqualTo("wechat");
+        assertThat(request.getTemplate()).isEqualTo("markdown");
+        assertThat(request.getContent())
+                .contains("切换类型：故障切换")
+                .contains("服务器：东京前端")
+                .contains("CNAME：relay.example.com")
+                .contains("原IP：1.1.1.1")
+                .contains("目标IP：2.2.2.2")
+                .contains("切换时间：2026-06-08 11:12:13");
+    }
+
+    @Test
+    void sendsServerIpSwitchRecoveryMessageWhenEnabled() {
+        FakeDynamicConfigService configService = new FakeDynamicConfigService();
+        configService.value.set("serverIpSwitchOpen", true);
+        configService.value.set("token", "push-token");
+        RecordingPushPlusClient client = new RecordingPushPlusClient();
+        PushPlusNotificationService service = new PushPlusNotificationService(configService, client);
+
+        service.sendServerIpSwitchNotification(serverIpSwitchEvent("RECOVERY"));
+
+        assertThat(client.requests).hasSize(1);
+        PushPlusSendRequest request = client.requests.get(0);
+        assertThat(request.getTitle()).isEqualTo("服务器IP已恢复到主IP");
+        assertThat(request.getContent()).contains("切换类型：恢复切回");
+    }
+
+    @Test
     void saveConfigPreservesExistingTokenWhenRequestTokenBlank() {
         FakeDynamicConfigService configService = new FakeDynamicConfigService();
         configService.value.set("open", true);
         configService.value.set("token", "old-token");
+        configService.value.set("serverIpSwitchOpen", true);
         RecordingPushPlusClient client = new RecordingPushPlusClient();
         PushPlusNotificationService service = new PushPlusNotificationService(configService, client);
         SavePushPlusNotificationConfigRequest request = new SavePushPlusNotificationConfigRequest();
@@ -130,6 +189,7 @@ class PushPlusNotificationServiceTest {
         assertThat(configService.saved.getBool("open")).isFalse();
         assertThat(configService.saved.getStr("token")).isEqualTo("old-token");
         assertThat(configService.saved.getStr("template")).isEqualTo("markdown");
+        assertThat(configService.saved.getBool("serverIpSwitchOpen")).isTrue();
     }
 
     private static AiTranslateTaskNotificationEvent submitEvent() {
@@ -142,6 +202,18 @@ class PushPlusNotificationServiceTest {
                 "Japanese",
                 "Gemini账号",
                 LocalDateTime.of(2026, 6, 8, 9, 10, 11)
+        );
+    }
+
+    private static ServerIpSwitchNotificationEvent serverIpSwitchEvent(String switchType) {
+        return ServerIpSwitchNotificationEvent.of(
+                1L,
+                "东京前端",
+                "relay.example.com",
+                "1.1.1.1",
+                "2.2.2.2",
+                switchType,
+                LocalDateTime.of(2026, 6, 8, 11, 12, 13)
         );
     }
 

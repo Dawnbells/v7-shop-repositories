@@ -9,6 +9,7 @@ import cn.v7soft.admin.controller.req.SavePushPlusNotificationConfigRequest;
 import cn.v7soft.admin.controller.resp.PushPlusNotificationConfigResponse;
 import cn.v7soft.admin.controller.resp.PushPlusNotificationTestResponse;
 import cn.v7soft.admin.event.AiTranslateTaskNotificationEvent;
+import cn.v7soft.admin.event.ServerIpSwitchNotificationEvent;
 import cn.v7soft.admin.service.IDynamicConfigService;
 import cn.v7soft.admin.service.IPushPlusNotificationService;
 import cn.v7soft.admin.service.pushplus.PushPlusClient;
@@ -29,6 +30,8 @@ public class PushPlusNotificationService implements IPushPlusNotificationService
     private static final String DEFAULT_TEMPLATE = "markdown";
     private static final String SUBMIT_TITLE = "AI翻译任务已提交";
     private static final String RETRY_TITLE = "AI翻译任务已重试";
+    private static final String SERVER_FAILOVER_TITLE = "服务器IP已切换到备用IP";
+    private static final String SERVER_RECOVERY_TITLE = "服务器IP已恢复到主IP";
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Set<String> SUPPORTED_TEMPLATES = Set.of("markdown", "html", "txt", "json");
 
@@ -40,6 +43,7 @@ public class PushPlusNotificationService implements IPushPlusNotificationService
         JSONObject config = getConfigValue(TenantContext.getCurrentTenant());
         return PushPlusNotificationConfigResponse.builder()
                 .open(config.getBool("open", false))
+                .serverIpSwitchOpen(config.getBool("serverIpSwitchOpen", false))
                 .tokenSet(StrUtil.isNotBlank(config.getStr("token")))
                 .template(normalizeTemplate(config.getStr("template")))
                 .build();
@@ -50,6 +54,9 @@ public class PushPlusNotificationService implements IPushPlusNotificationService
         JSONObject existing = getConfigValue(TenantContext.getCurrentTenant());
         JSONObject config = new JSONObject();
         config.set("open", Boolean.TRUE.equals(request.getOpen()));
+        config.set("serverIpSwitchOpen", request.getServerIpSwitchOpen() == null
+                ? existing.getBool("serverIpSwitchOpen", false)
+                : Boolean.TRUE.equals(request.getServerIpSwitchOpen()));
         config.set("template", normalizeTemplate(request.getTemplate()));
         if (StrUtil.isNotBlank(request.getToken())) {
             config.set("token", request.getToken().trim());
@@ -62,12 +69,6 @@ public class PushPlusNotificationService implements IPushPlusNotificationService
     @Override
     public PushPlusNotificationTestResponse sendTest(String content) {
         JSONObject config = getConfigValue(TenantContext.getCurrentTenant());
-        if (!config.getBool("open", false)) {
-            return PushPlusNotificationTestResponse.builder()
-                    .success(false)
-                    .message("PushPlus 微信通知未开启")
-                    .build();
-        }
         String token = config.getStr("token");
         if (StrUtil.isBlank(token)) {
             return PushPlusNotificationTestResponse.builder()
@@ -120,6 +121,37 @@ public class PushPlusNotificationService implements IPushPlusNotificationService
         }
     }
 
+    @Override
+    public void sendServerIpSwitchNotification(ServerIpSwitchNotificationEvent event) {
+        try {
+            JSONObject config = getConfigValue(event.getCompanyId());
+            if (!config.getBool("serverIpSwitchOpen", false)) {
+                return;
+            }
+            String token = config.getStr("token");
+            if (StrUtil.isBlank(token)) {
+                return;
+            }
+            PushPlusSendResponse response = pushPlusClient.send(PushPlusSendRequest.builder()
+                    .token(token)
+                    .title(event.isRecovery() ? SERVER_RECOVERY_TITLE : SERVER_FAILOVER_TITLE)
+                    .content(buildServerIpSwitchContent(event))
+                    .channel(DEFAULT_CHANNEL)
+                    .template(normalizeTemplate(config.getStr("template")))
+                    .build());
+            if (response == null || !Integer.valueOf(200).equals(response.getCode())) {
+                log.warn("PushPlus 服务器 IP 切换通知发送失败: serverName={}, switchType={}, code={}, msg={}",
+                        event.getServerName(),
+                        event.getSwitchType(),
+                        response == null ? null : response.getCode(),
+                        response == null ? null : response.getMsg());
+            }
+        } catch (Exception e) {
+            log.warn("PushPlus 服务器 IP 切换通知发送异常: serverName={}, switchType={}, error={}",
+                    event.getServerName(), event.getSwitchType(), e.getMessage());
+        }
+    }
+
     private JSONObject getConfigValue(Long companyId) {
         return dynamicConfigService.getConfigValue(CONFIG_NAME, null, companyId);
     }
@@ -147,6 +179,17 @@ public class PushPlusNotificationService implements IPushPlusNotificationService
             appendLine(content, "任务ID", event.getTaskId());
         }
         appendLine(content, "提交时间", event.getCreatedAt() == null ? null : TIME_FORMATTER.format(event.getCreatedAt()));
+        return content.toString();
+    }
+
+    private String buildServerIpSwitchContent(ServerIpSwitchNotificationEvent event) {
+        StringBuilder content = new StringBuilder();
+        appendLine(content, "切换类型", event.isRecovery() ? "恢复切回" : "故障切换");
+        appendLine(content, "服务器", event.getServerName());
+        appendLine(content, "CNAME", event.getCnameRecord());
+        appendLine(content, "原IP", event.getFromIp());
+        appendLine(content, "目标IP", event.getToIp());
+        appendLine(content, "切换时间", event.getSwitchedAt() == null ? null : TIME_FORMATTER.format(event.getSwitchedAt()));
         return content.toString();
     }
 

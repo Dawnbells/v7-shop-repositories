@@ -12,8 +12,12 @@
           </template>
 
           <el-form label-position="top" :model="form" @submit.prevent>
-            <el-form-item label="开启通知">
+            <el-form-item label="AI翻译任务通知">
               <el-switch v-model="form.open" />
+            </el-form-item>
+
+            <el-form-item label="服务器IP切换通知">
+              <el-switch v-model="form.serverIpSwitchOpen" />
             </el-form-item>
 
             <el-form-item label="PushPlus Token">
@@ -91,6 +95,7 @@ const tokenSet = ref(false)
 
 const form = reactive({
   open: false,
+  serverIpSwitchOpen: false,
   token: '',
   template: 'markdown' as PushPlusTemplate,
 })
@@ -105,6 +110,7 @@ const fetchConfig = async () => {
     const { data } = await getPushPlusNotificationConfig()
     const config = (data || {}) as Partial<PushPlusNotificationConfig>
     form.open = Boolean(config.open)
+    form.serverIpSwitchOpen = Boolean(config.serverIpSwitchOpen)
     form.template = (config.template || 'markdown') as PushPlusTemplate
     form.token = ''
     tokenSet.value = Boolean(config.tokenSet)
@@ -119,6 +125,7 @@ const handleSave = async () => {
     const token = form.token.trim()
     const { msg }: any = await savePushPlusNotificationConfig({
       open: form.open,
+      serverIpSwitchOpen: form.serverIpSwitchOpen,
       template: form.template,
       ...(token ? { token } : {}),
     })

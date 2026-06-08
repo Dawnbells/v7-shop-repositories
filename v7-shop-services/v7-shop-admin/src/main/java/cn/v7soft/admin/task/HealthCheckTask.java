@@ -11,10 +11,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.core.env.Environment;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import cn.hutool.core.util.StrUtil;
+import cn.v7soft.admin.event.ServerIpSwitchNotificationEvent;
 import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.ISubDomainService;
 import cn.v7soft.admin.service.dns.IDnsService;
@@ -38,6 +40,7 @@ public class HealthCheckTask {
     private final ISubDomainService subDomainService;
     private final DnsServiceFactory dnsServiceFactory;
     private final DnsSwitchLogRepository dnsSwitchLogRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     private final Map<Long, AtomicInteger> failureCountMap = new ConcurrentHashMap<>();
 
@@ -60,7 +63,7 @@ public class HealthCheckTask {
                 if (currentIp != null && !currentIp.equals(primaryIp)) {
                     log.info("[HealthCheck] {} 主IP恢复，切回: {} -> {}", frontServer.getName(), currentIp, primaryIp);
                     updateDns(frontServer, primaryIp);
-                    saveSwitchLog(frontServer.getName(), currentIp, primaryIp, "RECOVERY");
+                    saveSwitchLogAndPublishNotification(frontServer, currentIp, primaryIp, "RECOVERY");
                 } else {
                     log.info("[HealthCheck] {} ({}) 正常", frontServer.getName(), primaryIp);
                 }
@@ -75,7 +78,7 @@ public class HealthCheckTask {
                     if (currentIp != null && currentIp.equals(primaryIp)) {
                         log.error("[HealthCheck] {} 切换到备用IP: {} -> {}", frontServer.getName(), primaryIp, failoverIp);
                         updateDns(frontServer, failoverIp);
-                        saveSwitchLog(frontServer.getName(), primaryIp, failoverIp, "FAILOVER");
+                        saveSwitchLogAndPublishNotification(frontServer, primaryIp, failoverIp, "FAILOVER");
                     }
                 }
             }
@@ -118,17 +121,27 @@ public class HealthCheckTask {
         dnsService.updateRecord(account, parentDomain.getName(), subDomain.getName(), targetIp);
     }
 
-    private void saveSwitchLog(String serverName, String fromIp, String toIp, String switchType) {
+    private void saveSwitchLogAndPublishNotification(FrontServer frontServer, String fromIp, String toIp, String switchType) {
         try {
+            java.time.LocalDateTime switchedAt = java.time.LocalDateTime.now();
             DnsSwitchLog switchLog = DnsSwitchLog.builder()
-                    .serverName(serverName)
+                    .serverName(frontServer.getName())
                     .fromIp(fromIp)
                     .toIp(toIp)
                     .switchType(switchType)
-                    .switchedAt(java.time.LocalDateTime.now())
+                    .switchedAt(switchedAt)
                     .acknowledged(false)
                     .build();
             dnsSwitchLogRepository.save(switchLog);
+            eventPublisher.publishEvent(ServerIpSwitchNotificationEvent.of(
+                    frontServer.getCompanyId(),
+                    frontServer.getName(),
+                    frontServer.getCnameRecord(),
+                    fromIp,
+                    toIp,
+                    switchType,
+                    switchedAt
+            ));
         } catch (Exception e) {
             log.error("[HealthCheck] 保存DNS切换日志失败", e);
         }

@@ -4,6 +4,7 @@ import cn.v7soft.admin.controller.req.SavePushPlusNotificationConfigRequest;
 import cn.v7soft.admin.controller.resp.PushPlusNotificationConfigResponse;
 import cn.v7soft.admin.controller.resp.PushPlusNotificationTestResponse;
 import cn.v7soft.admin.event.AiTranslateTaskNotificationEvent;
+import cn.v7soft.admin.event.ServerIpSwitchNotificationEvent;
 
 public interface IPushPlusNotificationService {
 
@@ -14,4 +15,6 @@ public interface IPushPlusNotificationService {
     PushPlusNotificationTestResponse sendTest(String content);
 
     void sendAiTranslateTaskNotification(AiTranslateTaskNotificationEvent event);
+
+    void sendServerIpSwitchNotification(ServerIpSwitchNotificationEvent event);
 }
