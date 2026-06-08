@@ -17,9 +17,10 @@ public interface TopLevelDomainRepository extends BaseRepository<TopLevelDomain>
     long countBySameName(@Param("name") String name, @Param("id") Long id);
 
     /**
-     * 获取所有正在申请证书和排队申请证书的域名，不限公司和数据范围
+     * 获取所有正在申请证书和排队申请证书的域名，不限公司和数据范围。
+     * 按 id 升序（雪花ID≈创建顺序），使应用重启重排后队列恢复为符合直觉的先进先出。
      */
-    @Query("FROM TopLevelDomain where certificateRequestStatus='REQUESTING' or certificateRequestStatus='QUEUE'")
+    @Query("FROM TopLevelDomain WHERE certificateRequestStatus='REQUESTING' OR certificateRequestStatus='QUEUE' ORDER BY id ASC")
     List<TopLevelDomain> findAllQueueOrRequesting();
 
     /**

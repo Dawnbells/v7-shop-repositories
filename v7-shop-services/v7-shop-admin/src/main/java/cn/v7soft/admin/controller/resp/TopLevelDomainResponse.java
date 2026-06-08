@@ -72,6 +72,9 @@ public class TopLevelDomainResponse extends DataRangeResponse {
     @Schema(title = "已绑定像素列表")
     private List<PixelAccountResponse> pixels;
 
+    @Schema(title = "证书申请队列位置（第几位，从1开始；仅排队中域名有值）")
+    private Integer queuePosition;
+
     public static TopLevelDomainResponse convertEntity(TopLevelDomain entity) {
         if (entity == null) {
             return null;

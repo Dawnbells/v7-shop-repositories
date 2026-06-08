@@ -4,6 +4,7 @@ import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.events.event.CertificateRequestEvent;
+import cn.v7soft.admin.events.trackers.CertificateQueueTracker;
 import cn.v7soft.admin.service.ICloudPlatformAccountService;
 import cn.v7soft.admin.service.ISystemSettingsService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
@@ -38,10 +39,13 @@ public class CertificateRequestListener {
     private final ITopLevelDomainService topLevelDomainService;
     private final ICloudPlatformAccountService cloudPlatformAccountService;
     private final PlaceholderCertHolder placeholderCertHolder;
+    private final CertificateQueueTracker queueTracker;
 
     @EventListener
     @Async("certificateRequestAsyncExecutor")
     public void handleCertificateRequest(CertificateRequestEvent event) throws IOException {
+        // 已被执行器取出处理，不再算"排队中"——放首行确保任何提前 return / 异常路径也已清理
+        queueTracker.remove(event.getDomainId());
         TopLevelDomain domain = null;
         boolean shouldPushCertificateChange = false;
         try {
