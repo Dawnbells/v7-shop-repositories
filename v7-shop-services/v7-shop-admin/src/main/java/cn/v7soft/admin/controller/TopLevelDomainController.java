@@ -1,9 +1,11 @@
 package cn.v7soft.admin.controller;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
 
 import org.jetbrains.annotations.Nullable;
+import org.springframework.data.domain.Page;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,6 +27,7 @@ import cn.v7soft.admin.controller.req.UpdateCertificateReq;
 import cn.v7soft.admin.controller.resp.GetCertificateResp;
 import cn.v7soft.admin.controller.resp.TopLevelDomainResponse;
 import cn.v7soft.admin.events.CertificateRequestPublisher;
+import cn.v7soft.admin.events.trackers.CertificateQueueTracker;
 import cn.v7soft.admin.service.ICloudPlatformAccountService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
 import cn.v7soft.admin.service.dns.impl.DnsServiceFactory;
@@ -64,15 +67,37 @@ public class TopLevelDomainController extends BaseDataRangeController<TopLevelDo
     private final ICloudPlatformAccountService cloudPlatformAccountService;
     private final DnsServiceFactory dnsServiceFactory;
     private final PlaceholderCertHolder placeholderCertHolder;
+    private final CertificateQueueTracker queueTracker;
 
     protected TopLevelDomainController(ITopLevelDomainService service, CertificateRequestPublisher certificateRequestPublisher,
                                        ICloudPlatformAccountService cloudPlatformAccountService, DnsServiceFactory dnsServiceFactory,
-                                       PlaceholderCertHolder placeholderCertHolder) {
+                                       PlaceholderCertHolder placeholderCertHolder, CertificateQueueTracker queueTracker) {
         super(service);
         this.certificateRequestPublisher = certificateRequestPublisher;
         this.cloudPlatformAccountService = cloudPlatformAccountService;
         this.dnsServiceFactory = dnsServiceFactory;
         this.placeholderCertHolder = placeholderCertHolder;
+        this.queueTracker = queueTracker;
+    }
+
+    @Override
+    @PostMapping("/page")
+    @Operation(summary = "分页查询")
+    public Page<TopLevelDomainResponse> page(@Valid @RequestBody QueryTopLevelDomainRequest request) {
+        Page<TopLevelDomainResponse> page = super.page(request);
+        boolean anyQueue = page.getContent().stream()
+                .anyMatch(r -> r.getCertificateRequestStatus() == CertificateRequestStatus.QUEUE);
+        if (anyQueue) {
+            // tracker 为全局内存结构，快照即跨公司真实排位，无需绕过租户过滤
+            Map<Long, Integer> snapshot = queueTracker.positionSnapshot();
+            page.getContent().forEach(r -> {
+                if (r.getCertificateRequestStatus() == CertificateRequestStatus.QUEUE) {
+                    // r.getId() 经 BaseController.filling() 设为纯数字字符串，可直接还原为 Long
+                    r.setQueuePosition(snapshot.get(Long.valueOf(r.getId())));
+                }
+            });
+        }
+        return page;
     }
 
     @Override
