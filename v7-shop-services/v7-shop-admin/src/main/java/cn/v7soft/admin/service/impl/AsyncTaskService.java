@@ -4,12 +4,17 @@ import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.lang.Pair;
+import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
+import cn.v7soft.admin.event.AiTranslateTaskNotificationEvent;
 import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.service.IS3Service;
@@ -18,11 +23,21 @@ import cn.v7soft.common.enums.AccessDataRangeLevel;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AsyncTask;
+import cn.v7soft.dao.entities.primary.Country;
+import cn.v7soft.dao.entities.primary.Language;
+import cn.v7soft.dao.entities.primary.Product;
+import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
+import cn.v7soft.dao.repositories.primary.AiAccountRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
+import cn.v7soft.dao.repositories.primary.CountryRepository;
+import cn.v7soft.dao.repositories.primary.LanguageRepository;
+import cn.v7soft.dao.repositories.primary.ProductRepository;
+import cn.v7soft.dao.utils.SaSessionUtil;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -36,18 +51,33 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     private final ITaskExecutorService taskExecutorService;
     private final AiCreditsService aiCreditsService;
     private final AiTokenUsageRecordRepository aiTokenUsageRecordRepository;
+    private final ProductRepository productRepository;
+    private final CountryRepository countryRepository;
+    private final LanguageRepository languageRepository;
+    private final AiAccountRepository aiAccountRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public AsyncTaskService(AsyncTaskRepository repository,
                             IS3Service s3Service,
                             @Lazy ITaskExecutorService taskExecutorService,
                             AiCreditsService aiCreditsService,
-                            AiTokenUsageRecordRepository aiTokenUsageRecordRepository) {
+                            AiTokenUsageRecordRepository aiTokenUsageRecordRepository,
+                            ProductRepository productRepository,
+                            CountryRepository countryRepository,
+                            LanguageRepository languageRepository,
+                            AiAccountRepository aiAccountRepository,
+                            ApplicationEventPublisher eventPublisher) {
         super(repository);
         this.asyncTaskRepository = repository;
         this.s3Service = s3Service;
         this.taskExecutorService = taskExecutorService;
         this.aiCreditsService = aiCreditsService;
         this.aiTokenUsageRecordRepository = aiTokenUsageRecordRepository;
+        this.productRepository = productRepository;
+        this.countryRepository = countryRepository;
+        this.languageRepository = languageRepository;
+        this.aiAccountRepository = aiAccountRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -246,9 +276,116 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         newTask = asyncTaskRepository.saveAndFlush(newTask);
 
         log.info("[retry] oldTaskId={} -> newTaskId={}, estimatedCredits={}", taskId, newTask.getId(), estimated);
-        if (newTask.getTaskType() != TaskType.PRODUCT_AI_TRANSLATE) {
+        if (newTask.getTaskType() == TaskType.PRODUCT_AI_TRANSLATE) {
+            publishAiTranslateRetryNotification(oldTask, newTask);
+        } else {
             taskExecutorService.submitAsyncTask(newTask.getId());
         }
         return AsyncTaskResponse.convert(newTask);
+    }
+
+    private void publishAiTranslateRetryNotification(AsyncTask oldTask, AsyncTask newTask) {
+        try {
+            TranslateByAIRequest request = JSONUtil.toBean(oldTask.getParameters(), TranslateByAIRequest.class);
+            Long productId = parseLongOrNull(request.getProductId());
+            Long countryId = parseLongOrNull(request.getCountryId());
+            Long languageId = parseLongOrNull(request.getLanguageId());
+            Long aiAccountId = parseLongOrNull(request.getAiAccountId());
+
+            Product product = findProduct(productId);
+            Country country = findCountry(countryId);
+            Language language = findLanguage(languageId);
+            AiAccount account = findAiAccount(aiAccountId);
+
+            eventPublisher.publishEvent(AiTranslateTaskNotificationEvent.retry(
+                    newTask.getCompanyId(),
+                    oldTask.getId(),
+                    newTask.getId(),
+                    resolveOperatorName(newTask),
+                    resolveProductTitle(product, productId),
+                    resolveCountryName(country, countryId),
+                    resolveLanguageName(language, languageId),
+                    resolveAiAccountName(account, aiAccountId),
+                    resolveCreatedAt(newTask)
+            ));
+        } catch (Exception e) {
+            log.warn("发布 AI 翻译重试通知事件失败: oldTaskId={}, newTaskId={}, error={}",
+                    oldTask.getId(), newTask.getId(), e.getMessage());
+        }
+    }
+
+    private Product findProduct(Long id) {
+        return id == null ? null : productRepository.findById(id).orElse(null);
+    }
+
+    private Country findCountry(Long id) {
+        return id == null ? null : countryRepository.findById(id).orElse(null);
+    }
+
+    private Language findLanguage(Long id) {
+        return id == null ? null : languageRepository.findById(id).orElse(null);
+    }
+
+    private AiAccount findAiAccount(Long id) {
+        return id == null ? null : aiAccountRepository.findById(id).orElse(null);
+    }
+
+    private String resolveOperatorName(AsyncTask task) {
+        try {
+            SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+            if (loginUser != null && StrUtil.isNotBlank(loginUser.getName())) {
+                return loginUser.getName();
+            }
+        } catch (Exception ignored) {
+            // ignore session lookup fallback
+        }
+        SystemUser owner = task.getOwner();
+        if (owner != null && StrUtil.isNotBlank(owner.getName())) {
+            return owner.getName();
+        }
+        return "未知用户";
+    }
+
+    private String resolveProductTitle(Product product, Long id) {
+        if (product != null && StrUtil.isNotBlank(product.getTitle())) {
+            return product.getTitle();
+        }
+        return id == null ? "-" : "商品#" + id;
+    }
+
+    private String resolveCountryName(Country country, Long id) {
+        if (country != null && StrUtil.isNotBlank(country.getName())) {
+            return country.getName();
+        }
+        return id == null ? "-" : "国家#" + id;
+    }
+
+    private String resolveLanguageName(Language language, Long id) {
+        if (language != null && StrUtil.isNotBlank(language.getName())) {
+            return language.getName();
+        }
+        return id == null ? "-" : "语言#" + id;
+    }
+
+    private String resolveAiAccountName(AiAccount account, Long id) {
+        if (account != null && StrUtil.isNotBlank(account.getName())) {
+            return account.getName();
+        }
+        return id == null ? "-" : "AI账号#" + id;
+    }
+
+    private LocalDateTime resolveCreatedAt(AsyncTask task) {
+        return task.getCreateTime() == null ? LocalDateTime.now() : task.getCreateTime();
+    }
+
+    private Long parseLongOrNull(String value) {
+        if (StrUtil.isBlank(value)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }
