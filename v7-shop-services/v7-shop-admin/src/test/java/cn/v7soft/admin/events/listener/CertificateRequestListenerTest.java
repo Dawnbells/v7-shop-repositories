@@ -16,6 +16,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import cn.v7soft.admin.events.event.CertificateRequestEvent;
+import cn.v7soft.admin.events.trackers.CertificateQueueTracker;
 import cn.v7soft.admin.service.ICloudPlatformAccountService;
 import cn.v7soft.admin.service.ISystemSettingsService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
@@ -48,6 +49,7 @@ class CertificateRequestListenerTest {
     @Mock private ICloudPlatformAccountService cloudPlatformAccountService;
     @Mock private PlaceholderCertHolder placeholderCertHolder;
     @Mock private ISslCertificateRequester certificateRequester;
+    @Mock private CertificateQueueTracker queueTracker;
 
     @Spy
     @InjectMocks
@@ -176,6 +178,24 @@ class CertificateRequestListenerTest {
         assertEquals(CertificateRequestStatus.ERROR, domain.getCertificateRequestStatus());
         SSLCertificate sslCertificate = domain.getSslCertificate();
         assertTrue(sslCertificate == null || isBlank(sslCertificate.getSslPushMsg()));
+    }
+
+    @Test
+    @DisplayName("处理开始即从队列跟踪器移除该域名")
+    void shouldRemoveFromQueueTrackerAtStart() throws IOException {
+        TopLevelDomain domain = buildDomain(true);
+        lenient().when(topLevelDomainService.getById(1L)).thenReturn(domain);
+
+        SslResult success = SslResult.builder()
+                .isSuccess(true).isCompleted(true).isError(false)
+                .result("ok").errLog("").errorMsg("")
+                .build();
+        lenient().when(certificateRequester.handleRequestSslCertificate(any(), any())).thenReturn(success);
+        doReturn("push ok").when(listener).executePushScript();
+
+        listener.handleCertificateRequest(new CertificateRequestEvent(this, 1L, null));
+
+        verify(queueTracker, times(1)).remove(1L);
     }
 
     private static boolean isBlank(String s) {
