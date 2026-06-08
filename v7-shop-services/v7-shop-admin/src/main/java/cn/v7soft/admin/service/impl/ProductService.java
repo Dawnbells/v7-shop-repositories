@@ -1,6 +1,7 @@
 package cn.v7soft.admin.service.impl;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +12,7 @@ import java.util.stream.Collectors;
 
 import org.apache.http.util.TextUtils;
 import org.hibernate.Hibernate;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +26,7 @@ import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
+import cn.v7soft.admin.event.AiTranslateTaskNotificationEvent;
 import cn.v7soft.admin.service.ICountryService;
 import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.ILanguageService;
@@ -69,6 +72,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
     private final TranslateTaskMetrics translateTaskMetrics;
     private final AiCreditsService aiCreditsService;
     private final IAiAccountService aiAccountService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ProductService(ProductRepository repository, IProductSKUService productSKUService,
                           ILanguageService languageService, ICountryService countryService,
@@ -76,7 +80,8 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                           AsyncTaskRepository asyncTaskRepository,
                           TranslateTaskMetrics translateTaskMetrics,
                           AiCreditsService aiCreditsService,
-                          IAiAccountService aiAccountService) {
+                          IAiAccountService aiAccountService,
+                          ApplicationEventPublisher eventPublisher) {
         super(repository);
         this.productSKUService = productSKUService;
         this.languageService = languageService;
@@ -87,6 +92,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         this.translateTaskMetrics = translateTaskMetrics;
         this.aiCreditsService = aiCreditsService;
         this.aiAccountService = aiAccountService;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -356,7 +362,7 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         ClientResponseEnum.PARAMETER_ILLEGAL.isNull(duplicate,
                                                     "同一SPU下该国家和语言已存在商品，不允许重复");
 
-        requireAiAccount(request);
+        AiAccount account = requireAiAccount(request);
         TaskType taskType = TaskType.PRODUCT_AI_TRANSLATE;
 
         String dedupKey = taskType.name() + ":" +
@@ -392,7 +398,37 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
                 .fillOwner();
         asyncTask = asyncTaskRepository.saveAndFlush(asyncTask);
         translateTaskMetrics.recordSubmit();
+        eventPublisher.publishEvent(AiTranslateTaskNotificationEvent.submitted(
+                asyncTask.getCompanyId(),
+                asyncTask.getId(),
+                resolveOperatorName(asyncTask),
+                title,
+                country.getName(),
+                language.getName(),
+                account.getName(),
+                resolveCreatedAt(asyncTask)
+        ));
         return AsyncTaskResponse.convert(asyncTask);
+    }
+
+    private String resolveOperatorName(AsyncTask task) {
+        try {
+            SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+            if (loginUser != null && StrUtil.isNotBlank(loginUser.getName())) {
+                return loginUser.getName();
+            }
+        } catch (Exception ignored) {
+            // ignore session lookup fallback
+        }
+        SystemUser owner = task.getOwner();
+        if (owner != null && StrUtil.isNotBlank(owner.getName())) {
+            return owner.getName();
+        }
+        return "未知用户";
+    }
+
+    private LocalDateTime resolveCreatedAt(AsyncTask task) {
+        return task.getCreateTime() == null ? LocalDateTime.now() : task.getCreateTime();
     }
 
     private AiAccount requireAiAccount(TranslateByAIRequest request) {
