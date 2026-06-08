@@ -29,7 +29,7 @@ export const certbotInfoStatus = (row: any) => {
     return '申请失败'
   }
   if (row.certificateRequestStatus === 'QUEUE') {
-    return '队列中'
+    return row.queuePosition ? `队列中（第${row.queuePosition}位）` : '队列中'
   }
   if (row.certificateRequestStatus === 'REQUESTING') {
     return '申请中'
