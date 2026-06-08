@@ -310,6 +310,12 @@
             <div v-if="row.contextInfo.salesPerson" class="text-left compact">
               <span>归属: {{ row.contextInfo.salesPerson }}</span>
             </div>
+            <div v-if="row.deliveryChannel" class="text-left compact">
+              <span>渠道: {{ row.deliveryChannel }}</span>
+            </div>
+            <div v-if="row.storehouse" class="text-left compact">
+              <span>仓库: {{ row.storehouse }}</span>
+            </div>
           </el-space>
         </template>
       </el-table-column>

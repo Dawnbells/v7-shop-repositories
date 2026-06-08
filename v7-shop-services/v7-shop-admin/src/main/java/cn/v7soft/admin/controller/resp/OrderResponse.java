@@ -11,6 +11,7 @@ import cn.v7soft.core.controller.response.IdResponse;
 import cn.v7soft.dao.entities.meta.OrderFinancialInfo;
 import cn.v7soft.dao.entities.meta.OrderPaymentInfo;
 import cn.v7soft.dao.entities.primary.Order;
+import cn.v7soft.dao.entities.primary.OrderLogisticsInfo;
 import cn.v7soft.dao.entities.primary.TemporaryOrder;
 import cn.v7soft.dao.enums.CheckStatus;
 import cn.v7soft.dao.enums.OrderStatus;
@@ -59,6 +60,12 @@ public class OrderResponse extends IdResponse {
     @Schema(title = "上下文信息")
     private OrderContextInfoResponse contextInfo;
 
+    @Schema(title = "出货渠道")
+    private String deliveryChannel;
+
+    @Schema(title = "仓库")
+    private String storehouse;
+
     @Schema(title = "机器审单提示")
     private BotOrderCheckInfoResponse botOrderCheckInfo;
 
@@ -103,6 +110,9 @@ public class OrderResponse extends IdResponse {
         if (order.getPlatform() == WebsiteTypeEnum.V7_SHOP) {
             fromUrl = fromUrl.split("\\?")[0];
         }
+        OrderLogisticsInfo logisticsInfo = order.getLogisticsInfo() == null
+                ? OrderLogisticsInfo.builder().build()
+                : order.getLogisticsInfo();
         return OrderResponse.builder()
                 .id(String.valueOf(order.getId()))
                 .originOrderId(order.getOriginOrderId())
@@ -114,6 +124,8 @@ public class OrderResponse extends IdResponse {
                 .deliveryInfo(OrderDeliveryInfoResponse.convert(order.getDeliveryInfo(), desensitized))
                 .botOrderCheckInfo(BotOrderCheckInfoResponse.convert(order.getBotOrderCheckInfo()))
                 .contextInfo(OrderContextInfoResponse.convert(order.getContextInfo()))
+                .deliveryChannel(logisticsInfo.getDeliveryChannel())
+                .storehouse(logisticsInfo.getStorehouse())
                 .createTime(order.getOrderTime())
                 .riskRecordInfo(RiskRecordInfoResponse.convert(order.getRiskInfo()))
                 .items(order.getItemInfos().stream().map(OrderItemInfoResponse::convertEntity).collect(Collectors.toList()))

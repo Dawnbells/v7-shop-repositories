@@ -14,6 +14,7 @@ import cn.v7soft.dao.entities.meta.OrderFinancialInfo;
 import cn.v7soft.dao.entities.primary.Order;
 import cn.v7soft.dao.entities.primary.OrderContextInfo;
 import cn.v7soft.dao.entities.primary.OrderItemInfo;
+import cn.v7soft.dao.entities.primary.OrderLogisticsInfo;
 import cn.v7soft.dao.enums.OrderStatus;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -123,6 +124,14 @@ public class OrderCheckInfoDto {
      * 审单备注
      */
     private String orderCheckRemark;
+    /**
+     * 出货渠道（渠道）
+     */
+    private String deliveryChannel;
+    /**
+     * 仓库
+     */
+    private String storehouse;
     public static final Map<String, String> KEY_MAPPING = new HashMap<>() {
         {
             put("orderId", "订单编号");
@@ -150,6 +159,8 @@ public class OrderCheckInfoDto {
             put("orderStatus", "审单状态");
             put("logist", "物流状态");
             put("orderCheckRemark", "审单批注");
+            put("deliveryChannel", "渠道");
+            put("storehouse", "仓库");
         }
     };
 
@@ -213,6 +224,19 @@ public class OrderCheckInfoDto {
             }
             if (department != null) {
                 contextInfo.setDepartment(department);
+            }
+        }
+        if (deliveryChannel != null || storehouse != null) {
+            OrderLogisticsInfo logisticsInfo = order.getLogisticsInfo();
+            if (logisticsInfo == null) {
+                logisticsInfo = OrderLogisticsInfo.builder().build();
+                order.setLogisticsInfo(logisticsInfo);
+            }
+            if (deliveryChannel != null) {
+                logisticsInfo.setDeliveryChannel(deliveryChannel);
+            }
+            if (storehouse != null) {
+                logisticsInfo.setStorehouse(storehouse);
             }
         }
         if (orderTime != null) {

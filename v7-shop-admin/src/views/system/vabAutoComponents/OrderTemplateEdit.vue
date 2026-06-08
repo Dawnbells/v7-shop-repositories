@@ -123,6 +123,8 @@ const uploadOrderTemplateFieldOptions = [
   { label: '导单日期', value: 'orderDate' },
   { label: '订单状态', value: 'orderStatus' },
   { label: '审单备注', value: 'orderCheckRemark' },
+  { label: '渠道', value: 'deliveryChannel' },
+  { label: '仓库', value: 'storehouse' },
 ]
 const downloadOrderTemplateFieldOptions = [
   { label: '订单ID', value: 'id' },
