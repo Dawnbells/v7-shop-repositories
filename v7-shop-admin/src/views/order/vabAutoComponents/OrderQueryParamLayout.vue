@@ -5,49 +5,49 @@
         <el-form label-width="100px" :model="queryForm" @submit.prevent>
           <el-row class="row-bg" justify="start">
             <el-form-item label="" label-width="35px">
-              <el-input
-                v-model="queryForm.keywords"
-                clearable
-                placeholder="请输入查询关键字"
-                style="width: 515px"
-              >
-                <template #prepend>
-                  <div class="search-type-select-wrap">
-                    <el-select
-                      v-model="queryForm.searchType"
-                      class="search-type-select"
-                      @change="onSearchTypeManualChange"
-                    >
-                      <el-option label="订单编号" value="ORDER_ID" />
-                      <el-option label="中文品名" value="MERCHANDISE" />
-                      <el-option label="手机号码" value="TELEPHONE" />
-                      <el-option label="客户姓名" value="NAME" />
-                      <el-option label="产品标题" value="PRODUCT_TITLE" />
-                      <el-option label="远程IP" value="REMOTE_IP" />
-                      <el-option label="客户地址" value="ADDRESS" />
-                      <el-option label="下单域名" value="DOMAIN" />
-                      <el-option label="重单查询" value="REPEAT" />
-                    </el-select>
-                    <el-tooltip :content="inferTooltip" placement="top">
-                      <button
-                        class="infer-toggle-button"
-                        :style="{
-                          color: autoInferSearchType
-                            ? 'var(--el-color-primary)'
-                            : 'var(--el-text-color-disabled)',
-                        }"
-                        type="button"
-                        @click.stop="onToggleAutoInfer"
+              <el-space alignment="center">
+                <el-input
+                  v-model="queryForm.keywords"
+                  clearable
+                  placeholder="请输入查询关键字"
+                  style="width: 515px"
+                >
+                  <template #prepend>
+                    <div class="search-type-select-wrap">
+                      <el-select
+                        v-model="queryForm.searchType"
+                        class="search-type-select"
+                        @change="onSearchTypeManualChange"
                       >
-                        <el-icon>
-                          <MagicStick />
-                        </el-icon>
-                      </button>
-                    </el-tooltip>
-                  </div>
-                </template>
-                <template #append>
-                  <el-space>
+                        <el-option label="订单编号" value="ORDER_ID" />
+                        <el-option label="中文品名" value="MERCHANDISE" />
+                        <el-option label="手机号码" value="TELEPHONE" />
+                        <el-option label="客户姓名" value="NAME" />
+                        <el-option label="产品标题" value="PRODUCT_TITLE" />
+                        <el-option label="远程IP" value="REMOTE_IP" />
+                        <el-option label="客户地址" value="ADDRESS" />
+                        <el-option label="下单域名" value="DOMAIN" />
+                        <el-option label="重单查询" value="REPEAT" />
+                      </el-select>
+                      <el-tooltip :content="inferTooltip" placement="top">
+                        <button
+                          class="infer-toggle-button"
+                          :style="{
+                            color: autoInferSearchType
+                              ? 'var(--el-color-primary)'
+                              : 'var(--el-text-color-disabled)',
+                          }"
+                          type="button"
+                          @click.stop="onToggleAutoInfer"
+                        >
+                          <el-icon>
+                            <MagicStick />
+                          </el-icon>
+                        </button>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <template #append>
                     <el-button
                       :loading="listLoading"
                       native-type="submit"
@@ -56,9 +56,41 @@
                     >
                       搜索
                     </el-button>
-                  </el-space>
-                </template>
-              </el-input>
+                  </template>
+                </el-input>
+                <el-select
+                  v-if="presetPageType"
+                  v-model="selectedPresetId"
+                  clearable
+                  filterable
+                  :loading="presetLoading"
+                  placeholder="已保存条件"
+                  style="width: 190px"
+                  @change="handleApplyPreset"
+                >
+                  <el-option
+                    v-for="item in presetOptions"
+                    :key="item.id"
+                    :label="item.name"
+                    :value="item.id"
+                  >
+                    <div class="preset-option">
+                      <span class="preset-option-name">{{ item.name }}</span>
+                      <el-button
+                        text
+                        size="small"
+                        type="danger"
+                        @click.stop="handleDeletePreset(item)"
+                      >
+                        删除
+                      </el-button>
+                    </div>
+                  </el-option>
+                </el-select>
+                <el-button v-if="presetPageType" type="primary" plain @click="openPresetDialog">
+                  保存当前条件
+                </el-button>
+              </el-space>
             </el-form-item>
             <el-form-item label="下单时间">
               <el-date-picker
@@ -319,6 +351,31 @@
       </div>
       <div style="height: 50px"></div>
     </el-dialog>
+
+    <el-dialog v-model="presetDialogVisible" append-to-body title="保存搜索条件" width="420px">
+      <el-form label-width="110px" :model="presetForm" @submit.prevent>
+        <el-form-item label="条件名称">
+          <el-input
+            v-model="presetForm.name"
+            maxlength="50"
+            placeholder="请输入条件名称"
+            show-word-limit
+          />
+        </el-form-item>
+        <el-form-item label="时间保存方式">
+          <el-radio-group v-model="presetForm.timeMode">
+            <el-radio-button label="ABSOLUTE">绝对时间</el-radio-button>
+            <el-radio-button label="RELATIVE">相对时间</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="presetDialogVisible = false">取消</el-button>
+        <el-button :loading="presetSaving" type="primary" @click="handleSavePreset">
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -337,7 +394,17 @@ import { status } from '~/src/api/taskManagement'
 import { useUserStore } from '~/src/store/modules/user'
 import { getRemoteQuery } from '/@/api/country'
 import { getRemoteQuery as getRemoteQueryEmployee } from '/@/api/employee'
+import {
+  deleteOrderSearchPreset,
+  listOrderSearchPresets,
+  saveOrderSearchPreset,
+  useOrderSearchPreset,
+  type OrderSearchPreset,
+  type OrderSearchPresetPageType,
+  type OrderSearchPresetTimeMode,
+} from '/@/api/orderSearchPreset'
 import { getEnv } from '/@/utils/env'
+import { applyPresetQueryParams, buildPresetQueryParams } from './orderSearchPresetHelper'
 const $baseMessage = inject<any>('$baseMessage')
 // Set default date range from yesterday 9:00 to today 9:00
 const today = new Date()
@@ -440,6 +507,24 @@ const deptTreeRef = ref<any>(null)
 const uploadErrorMessage = ref<string>('')
 const countryOptions = ref<any>([])
 
+const presetLoading = ref(false)
+const presetSaving = ref(false)
+const presetDialogVisible = ref(false)
+const selectedPresetId = ref<string | undefined>(undefined)
+const presetOptions = ref<OrderSearchPreset[]>([])
+const presetForm = reactive<{
+  name: string
+  timeMode: OrderSearchPresetTimeMode
+}>({
+  name: '',
+  timeMode: 'RELATIVE',
+})
+
+const presetPageType = computed<OrderSearchPresetPageType | undefined>(() => {
+  if (props.isContact) return undefined
+  return props.isAudit ? 'ORDER_AUDIT' : 'ORDER_MANAGER'
+})
+
 const defaultProps = {
   label: 'name',
   children: 'children',
@@ -526,6 +611,86 @@ const calcTokenHeader = () => {
 
 const queryData = () => {
   emit('onSearch')
+}
+
+const fetchOrderSearchPresets = async () => {
+  if (!presetPageType.value) {
+    presetOptions.value = []
+    return
+  }
+  presetLoading.value = true
+  try {
+    const res = await listOrderSearchPresets(presetPageType.value)
+    presetOptions.value = res?.data || []
+  } finally {
+    presetLoading.value = false
+  }
+}
+
+const openPresetDialog = () => {
+  presetForm.name = ''
+  presetForm.timeMode = 'RELATIVE'
+  presetDialogVisible.value = true
+}
+
+const handleSavePreset = async () => {
+  if (!presetPageType.value) return
+  const name = presetForm.name.trim()
+  if (!name) {
+    $baseMessage('请输入条件名称', 'warning', 'hey')
+    return
+  }
+
+  const existing = presetOptions.value.find((item) => item.name === name)
+  if (existing) {
+    await ElMessageBox.confirm(`已存在名为“${name}”的搜索条件，是否覆盖？`, '覆盖确认', {
+      confirmButtonText: '覆盖',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  }
+
+  presetSaving.value = true
+  try {
+    await saveOrderSearchPreset({
+      pageType: presetPageType.value,
+      name,
+      timeMode: presetForm.timeMode,
+      queryParams: buildPresetQueryParams(queryForm.value, presetForm.timeMode),
+    })
+    $baseMessage('保存成功', 'success', 'hey')
+    presetDialogVisible.value = false
+    await fetchOrderSearchPresets()
+  } finally {
+    presetSaving.value = false
+  }
+}
+
+const handleApplyPreset = async (presetId?: string) => {
+  if (!presetId) return
+  const res = await useOrderSearchPreset(presetId)
+  const preset = res?.data as OrderSearchPreset | undefined
+  if (!preset) return
+
+  autoInferSearchType.value = false
+  applyPresetQueryParams(queryForm.value, preset.queryParams)
+  queryForm.value.pageNo = 1
+  await fetchOrderSearchPresets()
+  queryData()
+}
+
+const handleDeletePreset = async (preset: OrderSearchPreset) => {
+  await ElMessageBox.confirm(`确认删除搜索条件“${preset.name}”？`, '删除确认', {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    type: 'warning',
+  })
+  await deleteOrderSearchPreset(preset.id)
+  if (selectedPresetId.value === preset.id) {
+    selectedPresetId.value = undefined
+  }
+  $baseMessage('删除成功', 'success', 'hey')
+  await fetchOrderSearchPresets()
 }
 
 // const handleFold = () => {
@@ -651,6 +816,11 @@ onActivated(() => {
     remoteQueryCountry(queryForm.value.countryId)
   }
   fetchAllDepartments()
+  fetchOrderSearchPresets()
+})
+
+onBeforeMount(() => {
+  fetchOrderSearchPresets()
 })
 </script>
 
@@ -736,5 +906,20 @@ onActivated(() => {
 }
 .input-with-select .el-input-group__prepend {
   background-color: var(--el-fill-color-blank);
+}
+
+.preset-option {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.preset-option-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
