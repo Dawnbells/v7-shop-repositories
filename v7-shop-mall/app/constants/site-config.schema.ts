@@ -354,6 +354,18 @@ export const SITE_CONFIG_SCHEMA: SiteFieldSchema[] = [
     description: "当地址库无匹配时，允许用户手动输入地址信息",
     disabled: false,
   },
+  {
+    key: "globalConfig.rtlMode",
+    label: "RTL 模式",
+    type: "toggle",
+    defaultValue: false,
+    options: [
+      { label: "标准模式", value: false },
+      { label: "RTL模式", value: true },
+    ],
+    group: "globalConfig.features",
+    description: "启用从右到左布局（适用于阿拉伯语、希伯来语等）",
+  },
 
   // ============ 全局皮肤 (globalStyle) ============
   // 颜色

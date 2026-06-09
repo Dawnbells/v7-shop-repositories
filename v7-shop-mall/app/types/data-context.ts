@@ -178,6 +178,7 @@ export interface GlobalConfig {
   enableCart?: boolean
   cartMode?: 'mall' | 'single'
   allowCustomAddress?: boolean
+  rtlMode?: boolean
   [key: string]: any
 }
 
