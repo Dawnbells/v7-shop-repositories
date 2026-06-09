@@ -148,11 +148,12 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
 
             // 将上传的文件写入临时文件
             file.transferTo(tempFile);
+            String templateId = request.getParameter("templateId");
             AsyncTask asyncTask = AsyncTask.builder()
                     .taskType(TaskType.ORDER_UPLOAD)
                     .state(TaskState.PENDING)
                     .progress(0)
-                    .parameters("{}")
+                    .parameters(JSONUtil.toJsonStr(new UploadOrderParameters(templateId)))
                     .uploadFilePath(tempFile.toString())
                     .build()
                     .fillOwner();
@@ -165,6 +166,9 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
             e.printStackTrace();
             return 0L;  // 如果发生错误，返回上传失败
         }
+    }
+
+    private record UploadOrderParameters(String templateId) {
     }
 
     @Override

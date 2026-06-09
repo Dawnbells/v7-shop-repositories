@@ -2,6 +2,7 @@
   <div class="order-manager-container">
     <el-progress v-if="!isContact && taskDownloading" :percentage="downloadPercentage" />
     <order-query-param-layout
+      ref="orderQueryParamLayoutRef"
       v-model="queryForm"
       :is-audit="isAudit"
       :is-contact="isContact"
@@ -15,6 +16,7 @@
       @on-download="handleDownload"
       @on-reset="onReset"
       @on-search="queryData"
+      @on-template-upload="handleTemplateUpload"
     />
     <vab-pagination
       :background="false"
@@ -601,6 +603,7 @@ const { isAudit, isContact } = toRefs(props)
 
 const $baseMessage = inject<any>('$baseMessage')
 const chooseOrderTemplateDialogRef = ref<any>()
+const orderQueryParamLayoutRef = ref<any>()
 const batchOrderManagerEdit = ref<any>()
 const tableRef = ref<any>(null)
 const remarkRef = ref<any>(null)
@@ -1000,6 +1003,8 @@ const handleChooseOrderTemplateConfirm = async (templateData: {
     }
     const { data } = await download(downloadQueryForm)
     waitingForDownload(data)
+  } else {
+    orderQueryParamLayoutRef.value?.startTemplateUpload(templateData.templateId)
   }
 }
 
@@ -1017,6 +1022,10 @@ const handleDownload = async (type: any) => {
   } else {
     chooseOrderTemplateDialogRef.value.showEdit(true, type, props.isAudit)
   }
+}
+
+const handleTemplateUpload = () => {
+  chooseOrderTemplateDialogRef.value.showEdit(false, undefined, props.isAudit)
 }
 
 const waitingForDownload = async (taskId: any) => {

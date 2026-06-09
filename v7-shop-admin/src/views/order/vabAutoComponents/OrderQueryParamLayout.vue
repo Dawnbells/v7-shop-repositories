@@ -281,6 +281,28 @@
         >
           <el-button :icon="Upload" :loading="progressVisible" type="success">上传订单</el-button>
         </el-upload>
+        <el-upload
+          v-if="isAudit"
+          ref="templateUploadRef"
+          :action="uploadUrl"
+          :before-upload="beforeUpload"
+          class="upload-order template-upload-order"
+          :data="templateUploadData"
+          :headers="{ Authorization: calcTokenHeader() }"
+          :on-error="handleUploadError"
+          :on-progress="handleProgress"
+          :on-success="handleUploadSuccess"
+          :show-file-list="false"
+        >
+          <el-button
+            :icon="Upload"
+            :loading="progressVisible"
+            type="warning"
+            @click.stop.prevent="handleTemplateUploadClick"
+          >
+            按模板上传订单
+          </el-button>
+        </el-upload>
       </vab-query-form-left-panel>
     </vab-query-form>
 
@@ -316,6 +338,7 @@ import { useUserStore } from '~/src/store/modules/user'
 import { getRemoteQuery } from '/@/api/country'
 import { getRemoteQuery as getRemoteQueryEmployee } from '/@/api/employee'
 import { getEnv } from '/@/utils/env'
+const $baseMessage = inject<any>('$baseMessage')
 // Set default date range from yesterday 9:00 to today 9:00
 const today = new Date()
 const tomorrow = new Date(today)
@@ -405,6 +428,11 @@ watch(
 )
 
 const uploadUrl = `${getEnv('VITE_API_BASE_URL', window.location.origin)}/orders/upload`
+const templateUploadRef = ref<any>()
+const templateUploadId = ref<string | undefined>(undefined)
+const templateUploadData = computed(() =>
+  templateUploadId.value ? { templateId: templateUploadId.value } : {}
+)
 const belongUserIdLoading = ref<boolean>(false)
 const belongUserIdOptions = ref<any[]>([])
 const allDepartmentTree = ref<Department[]>([])
@@ -457,6 +485,7 @@ const emit = defineEmits<{
   (event: 'onSearch'): void
   (event: 'onReset'): void
   (event: 'onDownload', type: string): void
+  (event: 'onTemplateUpload'): void
   (event: 'onBatchChangeOrderStatus', status: string): void
   (event: 'onBatchChangeOrderRemark'): void
   (event: 'onBatchContactStatus', contacted: boolean): void
@@ -511,6 +540,27 @@ const queryBelongToSearchAsync = (queryString: string, callback: (suggestions: a
 const handleDownload = (type: any) => {
   emit('onDownload', type)
 }
+
+const handleTemplateUploadClick = () => {
+  emit('onTemplateUpload')
+}
+
+const startTemplateUpload = (templateId: string) => {
+  templateUploadId.value = templateId
+  nextTick(() => {
+    const input = templateUploadRef.value?.$el?.querySelector?.('input[type="file"]')
+    if (input) {
+      input.click()
+    } else {
+      $baseMessage('未找到上传控件，请刷新页面后重试', 'error', 'hey')
+    }
+  })
+}
+
+defineExpose({
+  startTemplateUpload,
+})
+
 const handleProgress = (event: any) => {
   console.log('upload progress', event)
   uploadPercentage.value = event.percent
@@ -663,6 +713,9 @@ onActivated(() => {
   padding: 0;
   margin: -10px 0 0 0;
   vertical-align: middle;
+}
+.template-upload-order {
+  margin-left: 12px;
 }
 
 .custom-tree-node {

@@ -72,18 +72,23 @@ const templateOptions = ref<
 >([])
 const templateLoading = ref(false)
 const selectedTemplateId = ref<string | undefined>(undefined)
+const selectedTemplateStorageKey = computed(() =>
+  isDownloadTemplate.value ? 'selectedDownloadTemplate' : 'selectedUploadTemplate'
+)
 
 const selectedColumns = computed(() => {
   if (selectedTemplateId.value) {
-    return templateOptions.value.find((option) => option.id === selectedTemplateId.value)?.columns
+    return templateOptions.value.find((option) => option.id === selectedTemplateId.value)?.columns || []
   }
+  return []
 })
 const selectedColumnIds = computed(() => {
   if (selectedTemplateId.value) {
     return templateOptions.value
       .find((option) => option.id === selectedTemplateId.value)
-      ?.columns?.map((item) => item.id)
+      ?.columns?.map((item) => item.id) || []
   }
+  return []
 })
 
 const showEdit = (downloadTemplate: boolean, type: string | undefined) => {
@@ -92,7 +97,7 @@ const showEdit = (downloadTemplate: boolean, type: string | undefined) => {
   downloadType.value = type
   fetchTemplates('').then(() => {
     // 从 localStorage 还原默认选中
-    const saved = localStorage.getItem('selectedTemplate')
+    const saved = localStorage.getItem(selectedTemplateStorageKey.value)
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
@@ -148,7 +153,7 @@ const handleConfirm = () => {
     (option) => option.id === selectedTemplateId.value
   )
   if (selectedTemplate) {
-    localStorage.setItem('selectedTemplate', JSON.stringify(selectedTemplate))
+    localStorage.setItem(selectedTemplateStorageKey.value, JSON.stringify(selectedTemplate))
   }
   emit('onConfirm', {
     templateId: selectedTemplateId.value!,

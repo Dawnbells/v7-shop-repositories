@@ -33,7 +33,7 @@
       </vab-query-form-top-panel>
       <vab-query-form-left-panel :span="24">
         <el-button :icon="Plus" type="primary" @click="handleAdd(true)">添加下载模板</el-button>
-        <el-button disabled :icon="Plus" type="primary" @click="handleAdd(false)">
+        <el-button :icon="Plus" type="primary" @click="handleAdd(false)">
           添加上传模板
         </el-button>
         <el-button :icon="Delete" type="danger" @click="handleDelete">删除</el-button>

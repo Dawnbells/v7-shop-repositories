@@ -42,7 +42,6 @@ import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
 import cn.v7soft.admin.service.dto.OrderDownloadDto;
 import cn.v7soft.admin.utils.OrderQueryHelper;
-import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
@@ -231,6 +230,10 @@ public class TaskExecutorService implements ITaskExecutorService {
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
                 return;
             }
+            String templateId = JSONUtil.parseObj(StrUtil.blankToDefault(task.getParameters(), "{}")).getStr("templateId");
+            final Map<String, String> headerAliasMap = StrUtil.isBlank(templateId)
+                    ? OrderCheckInfoDto.KEY_MAPPING
+                    : orderTemplateService.getHeaderAliasMap(templateId, true);
             final int totalRows = getTotalRowCount(filePath, 0);
             final Map<String, Integer> rowNameMap = new HashMap<>();
             ExcelUtil.readBySax(filePath, 0, (sheetIndex, rowIndex, rowCells) -> {
@@ -246,15 +249,18 @@ public class TaskExecutorService implements ITaskExecutorService {
                     OrderCheckInfoDto orderCheckInfoDto = BeanUtil.toBean(OrderCheckInfoDto.class, new ValueProvider<>() {
                         @Override
                         public Object value(String key, Type valueType) {
-                            return rowCells.get(rowNameMap.get(OrderCheckInfoDto.KEY_MAPPING.get(key)));
+                            return getUploadCellValue(rowCells, rowNameMap, headerAliasMap, key);
                         }
                         @Override
                         public boolean containsKey(String key) {
-                            return rowNameMap.containsKey(OrderCheckInfoDto.KEY_MAPPING.get(key));
+                            return hasUploadCell(rowCells, rowNameMap, headerAliasMap, key);
                         }
                     }, CopyOptions.create());
-                    orderService.applyCheckInfoAndSave(orderCheckInfoDto.getOrderId(), orderCheckInfoDto, owner);
-                    successIds.add(orderCheckInfoDto.getOrderId());
+                    String orderId = StrUtil.blankToDefault(
+                            orderCheckInfoDto.getOrderId(),
+                            Objects.toString(getUploadCellValue(rowCells, rowNameMap, headerAliasMap, "originOrderId"), null));
+                    orderService.applyCheckInfoAndSave(orderId, orderCheckInfoDto, owner);
+                    successIds.add(orderId);
                 } catch (Exception e) {
                     errorMsgList.add("第" + rowIndex + "行: " + e.getMessage());
                 } finally {
@@ -269,6 +275,21 @@ public class TaskExecutorService implements ITaskExecutorService {
             task.setMessage(e.getMessage() + (successIds.isEmpty() ? "" : ("\n上传成功订单列表: \n" + ArrayUtil.join(successIds.toArray(), "\n") + "\n上传失败列表: \n" + ArrayUtil.join(errorMsgList.toArray(), "\n"))));
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
         }
+    }
+
+    private static boolean hasUploadCell(List<?> rowCells, Map<String, Integer> rowNameMap,
+                                         Map<String, String> headerAliasMap, String key) {
+        String headerName = headerAliasMap.get(key);
+        Integer index = rowNameMap.get(headerName);
+        return StrUtil.isNotBlank(headerName) && index != null && index < rowCells.size();
+    }
+
+    private static Object getUploadCellValue(List<?> rowCells, Map<String, Integer> rowNameMap,
+                                             Map<String, String> headerAliasMap, String key) {
+        if (!hasUploadCell(rowCells, rowNameMap, headerAliasMap, key)) {
+            return null;
+        }
+        return rowCells.get(rowNameMap.get(headerAliasMap.get(key)));
     }
 
     private void executeOrderDownload(AsyncTask task, SystemUserDto owner) {
