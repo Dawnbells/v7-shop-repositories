@@ -2,52 +2,53 @@
   <div>
     <vab-query-form>
       <vab-query-form-top-panel>
-        <el-form label-width="100px" :model="queryForm" @submit.prevent>
+        <div class="search-top">
+          <el-form class="search-form" label-width="100px" :model="queryForm" @submit.prevent>
           <el-row class="row-bg" justify="start">
             <el-form-item label="" label-width="35px">
-              <el-space alignment="center">
-                <el-input
-                  v-model="queryForm.keywords"
-                  clearable
-                  placeholder="请输入查询关键字"
-                  style="width: 515px"
-                >
-                  <template #prepend>
-                    <div class="search-type-select-wrap">
-                      <el-select
-                        v-model="queryForm.searchType"
-                        class="search-type-select"
-                        @change="onSearchTypeManualChange"
+              <el-input
+                v-model="queryForm.keywords"
+                clearable
+                placeholder="请输入查询关键字"
+                style="width: 515px"
+              >
+                <template #prepend>
+                  <div class="search-type-select-wrap">
+                    <el-select
+                      v-model="queryForm.searchType"
+                      class="search-type-select"
+                      @change="onSearchTypeManualChange"
+                    >
+                      <el-option label="订单编号" value="ORDER_ID" />
+                      <el-option label="中文品名" value="MERCHANDISE" />
+                      <el-option label="手机号码" value="TELEPHONE" />
+                      <el-option label="客户姓名" value="NAME" />
+                      <el-option label="产品标题" value="PRODUCT_TITLE" />
+                      <el-option label="远程IP" value="REMOTE_IP" />
+                      <el-option label="客户地址" value="ADDRESS" />
+                      <el-option label="下单域名" value="DOMAIN" />
+                      <el-option label="重单查询" value="REPEAT" />
+                    </el-select>
+                    <el-tooltip :content="inferTooltip" placement="top">
+                      <button
+                        class="infer-toggle-button"
+                        :style="{
+                          color: autoInferSearchType
+                            ? 'var(--el-color-primary)'
+                            : 'var(--el-text-color-disabled)',
+                        }"
+                        type="button"
+                        @click.stop="onToggleAutoInfer"
                       >
-                        <el-option label="订单编号" value="ORDER_ID" />
-                        <el-option label="中文品名" value="MERCHANDISE" />
-                        <el-option label="手机号码" value="TELEPHONE" />
-                        <el-option label="客户姓名" value="NAME" />
-                        <el-option label="产品标题" value="PRODUCT_TITLE" />
-                        <el-option label="远程IP" value="REMOTE_IP" />
-                        <el-option label="客户地址" value="ADDRESS" />
-                        <el-option label="下单域名" value="DOMAIN" />
-                        <el-option label="重单查询" value="REPEAT" />
-                      </el-select>
-                      <el-tooltip :content="inferTooltip" placement="top">
-                        <button
-                          class="infer-toggle-button"
-                          :style="{
-                            color: autoInferSearchType
-                              ? 'var(--el-color-primary)'
-                              : 'var(--el-text-color-disabled)',
-                          }"
-                          type="button"
-                          @click.stop="onToggleAutoInfer"
-                        >
-                          <el-icon>
-                            <MagicStick />
-                          </el-icon>
-                        </button>
-                      </el-tooltip>
-                    </div>
-                  </template>
-                  <template #append>
+                        <el-icon>
+                          <MagicStick />
+                        </el-icon>
+                      </button>
+                    </el-tooltip>
+                  </div>
+                </template>
+                <template #append>
+                  <el-space>
                     <el-button
                       :loading="listLoading"
                       native-type="submit"
@@ -56,41 +57,9 @@
                     >
                       搜索
                     </el-button>
-                  </template>
-                </el-input>
-                <el-select
-                  v-if="presetPageType"
-                  v-model="selectedPresetId"
-                  clearable
-                  filterable
-                  :loading="presetLoading"
-                  placeholder="已保存条件"
-                  style="width: 190px"
-                  @change="handleApplyPreset"
-                >
-                  <el-option
-                    v-for="item in presetOptions"
-                    :key="item.id"
-                    :label="item.name"
-                    :value="item.id"
-                  >
-                    <div class="preset-option">
-                      <span class="preset-option-name">{{ item.name }}</span>
-                      <el-button
-                        text
-                        size="small"
-                        type="danger"
-                        @click.stop="handleDeletePreset(item)"
-                      >
-                        删除
-                      </el-button>
-                    </div>
-                  </el-option>
-                </el-select>
-                <el-button v-if="presetPageType" type="primary" plain @click="openPresetDialog">
-                  保存当前条件
-                </el-button>
-              </el-space>
+                  </el-space>
+                </template>
+              </el-input>
             </el-form-item>
             <el-form-item label="下单时间">
               <el-date-picker
@@ -223,7 +192,42 @@
               </el-select>
             </el-form-item>
           </el-row>
-        </el-form>
+          </el-form>
+          <div v-if="presetPageType" class="preset-panel">
+            <el-select
+              v-model="selectedPresetId"
+              class="preset-select"
+              clearable
+              filterable
+              :loading="presetLoading"
+              placeholder="已保存条件"
+              style="width: 100%"
+              @change="handleApplyPreset"
+            >
+              <el-option
+                v-for="item in presetOptions"
+                :key="item.id"
+                :label="item.name"
+                :value="item.id"
+              >
+                <div class="preset-option">
+                  <span class="preset-option-name">{{ item.name }}</span>
+                  <el-button
+                    text
+                    size="small"
+                    type="danger"
+                    @click.stop="handleDeletePreset(item)"
+                  >
+                    删除
+                  </el-button>
+                </div>
+              </el-option>
+            </el-select>
+            <el-button class="preset-save-button" plain type="primary" @click="openPresetDialog">
+              保存当前条件
+            </el-button>
+          </div>
+        </div>
       </vab-query-form-top-panel>
       <vab-query-form-left-panel
         :span="24"
@@ -906,6 +910,36 @@ onBeforeMount(() => {
 }
 .input-with-select .el-input-group__prepend {
   background-color: var(--el-fill-color-blank);
+}
+
+/* 搜索区：左侧筛选表单，右侧独立的预设区域 */
+.search-top {
+  display: flex;
+  flex: 1;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+}
+.search-form {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 右侧预设区域：上下结构，下拉在上、保存按钮在下 */
+.preset-panel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 8px;
+  width: 200px;
+}
+.preset-panel .preset-select {
+  width: 100%;
+}
+.preset-panel .preset-save-button {
+  width: 100%;
+  margin: 0;
 }
 
 .preset-option {
