@@ -4,6 +4,9 @@
  * Flexbox 横向排列容器
  */
 
+// 前台渲染时 meta 不加载，容器标记必须声明在组件上（NodeRenderer 依赖它渲染子节点）
+defineOptions({ isContainer: true })
+
 interface Props {
   justify?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'space-around' | 'space-evenly'
   align?: 'flex-start' | 'center' | 'flex-end' | 'stretch' | 'baseline'

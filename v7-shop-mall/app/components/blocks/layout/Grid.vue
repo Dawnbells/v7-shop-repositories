@@ -4,6 +4,9 @@
  * CSS Grid 网格容器
  */
 
+// 前台渲染时 meta 不加载，容器标记必须声明在组件上（NodeRenderer 依赖它渲染子节点）
+defineOptions({ isContainer: true })
+
 interface Props {
   columns?: string | number
   rows?: string
