@@ -20,6 +20,7 @@ interface Props {
   title?: string
   reviews?: ReviewItem[] | string
   showSummary?: boolean
+  totalCount?: string
   showDates?: boolean
   showImages?: boolean
   verifiedText?: string
@@ -33,6 +34,7 @@ const props = withDefaults(defineProps<Props>(), {
   title: '用户评价',
   reviews: '',
   showSummary: true,
+  totalCount: '',
   showDates: true,
   showImages: true,
   verifiedText: '已验证购买',
@@ -85,6 +87,12 @@ const averageRating = computed(() => {
 })
 
 const reviewCount = computed(() => parsedReviews.value.length)
+
+// 汇总显示的总数：手动配置优先（如 "1,238"），留空时取评论条数
+const displayCount = computed(() => {
+  const manual = props.totalCount?.trim()
+  return manual || String(reviewCount.value)
+})
 
 // ============ 展开/收起 ============
 
@@ -141,7 +149,7 @@ function imageUrl(path: string): string {
         <span class="stars-bg">★★★★★</span>
         <span class="stars-fill" :style="{ width: starFillPercent(averageRating) }">★★★★★</span>
       </span>
-      <span class="summary-count">({{ reviewCount }})</span>
+      <span class="summary-count">({{ displayCount }})</span>
     </div>
 
     <!-- 评论列表 -->
