@@ -20,12 +20,18 @@ export interface SaveOrderSearchPresetRequest {
   queryParams: Record<string, any>
 }
 
+// 后端列表接口统一经 CommonResult + ListWrapper 包装，数组在 data.list
+export interface OrderSearchPresetListData {
+  list: OrderSearchPreset[]
+  total: number
+}
+
 export function listOrderSearchPresets(pageType: OrderSearchPresetPageType) {
   return request({
     url: '/order-search-presets',
     method: 'get',
     params: { pageType },
-  })
+  }) as Promise<{ data: OrderSearchPresetListData }>
 }
 
 export function saveOrderSearchPreset(data: SaveOrderSearchPresetRequest) {
@@ -47,5 +53,5 @@ export function useOrderSearchPreset(id: string) {
   return request({
     url: `/order-search-presets/${id}/use`,
     method: 'post',
-  })
+  }) as Promise<{ data: OrderSearchPreset }>
 }

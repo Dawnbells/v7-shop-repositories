@@ -625,7 +625,8 @@ const fetchOrderSearchPresets = async () => {
   presetLoading.value = true
   try {
     const res = await listOrderSearchPresets(presetPageType.value)
-    presetOptions.value = res?.data || []
+    // 后端列表接口经 CommonResult/ListWrapper 包装，真实数组在 data.list（与全站约定一致）
+    presetOptions.value = res?.data?.list || []
   } finally {
     presetLoading.value = false
   }
