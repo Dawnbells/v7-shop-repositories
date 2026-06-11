@@ -232,7 +232,7 @@ const showSkeleton = computed(() => !isInEditor.value && isCalculating.value);
   color: var(--text-color, #1f2937);
   flex-shrink: 0;
   min-width: 80px;
-  text-align: right;
+  text-align: end;
 }
 
 /* 价格骨架占位 */

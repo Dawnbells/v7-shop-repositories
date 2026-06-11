@@ -202,7 +202,7 @@ function scrollToHighlighted() {
 .searchable-select-input {
   width: 100%;
   padding: var(--address-form-input-padding, 10px 14px);
-  padding-right: 36px;
+  padding-inline-end: 36px;
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: var(--address-form-input-radius, 8px);
   font-size: var(--address-form-input-size, 14px);
@@ -236,7 +236,7 @@ function scrollToHighlighted() {
 
 .searchable-select-arrow {
   position: absolute;
-  right: 12px;
+  inset-inline-end: 12px;
   top: 50%;
   transform: translateY(-50%);
   width: 12px;
@@ -271,7 +271,7 @@ function scrollToHighlighted() {
   display: block;
   width: 100%;
   padding: 10px 14px;
-  text-align: left;
+  text-align: start;
   font-size: var(--address-form-input-size, 14px);
   color: var(--text-color, #1f2937);
   background: none;

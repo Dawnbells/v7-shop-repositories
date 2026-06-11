@@ -129,7 +129,7 @@ onBeforeUnmount(() => {
 .custom-html-badge {
   position: absolute;
   top: 4px;
-  right: 4px;
+  inset-inline-end: 4px;
   padding: 1px 6px;
   font-size: 11px;
   line-height: 1.4;

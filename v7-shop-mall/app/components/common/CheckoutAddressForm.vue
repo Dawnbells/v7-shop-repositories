@@ -610,8 +610,13 @@ onUnmounted(() => {
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 12px;
-  padding-right: 36px;
+  padding-inline-end: 36px;
   cursor: pointer;
+}
+
+/* background-position 无逻辑属性变体，RTL 下箭头移到左侧 */
+[dir='rtl'] .form-select {
+  background-position: left 12px center;
 }
 
 .form-select:disabled {
@@ -635,8 +640,11 @@ onUnmounted(() => {
   align-items: center;
   background: var(--background-color, #f9fafb);
   border: 1px solid var(--border-color, #e5e7eb);
-  border-right: none;
-  border-radius: var(--address-form-input-radius, 8px) 0 0 var(--address-form-input-radius, 8px);
+  border-inline-end: none;
+  border-start-start-radius: var(--address-form-input-radius, 8px);
+  border-end-start-radius: var(--address-form-input-radius, 8px);
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
   color: var(--text-secondary-color, #6b7280);
   font-size: var(--address-form-input-size, 14px);
   white-space: nowrap;
@@ -648,7 +656,10 @@ onUnmounted(() => {
 }
 
 .phone-input-wrapper .form-input.has-prefix {
-  border-radius: 0 var(--address-form-input-radius, 8px) var(--address-form-input-radius, 8px) 0;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: var(--address-form-input-radius, 8px);
+  border-end-end-radius: var(--address-form-input-radius, 8px);
 }
 
 /* 邮箱联想样式 */
@@ -684,7 +695,7 @@ onUnmounted(() => {
   display: block;
   width: 100%;
   padding: 10px 14px;
-  text-align: left;
+  text-align: start;
   font-size: var(--address-form-input-size, 14px);
   color: var(--text-color, #1f2937);
   background: none;

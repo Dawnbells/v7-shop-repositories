@@ -143,7 +143,7 @@ const formattedDate = computed(() => {
 .article-content :deep(ul),
 .article-content :deep(ol) {
   margin: 16px 0;
-  padding-left: 24px;
+  padding-inline-start: 24px;
 }
 
 .article-content :deep(li) {
@@ -153,7 +153,7 @@ const formattedDate = computed(() => {
 .article-content :deep(blockquote) {
   margin: 16px 0;
   padding: 12px 20px;
-  border-left: 4px solid var(--article-quote-border, #e5e7eb);
+  border-inline-start: 4px solid var(--article-quote-border, #e5e7eb);
   background-color: var(--article-quote-bg, #f9fafb);
   color: var(--article-quote-color, #4b5563);
   font-style: italic;
@@ -202,7 +202,7 @@ const formattedDate = computed(() => {
 .article-content :deep(td) {
   border: 1px solid var(--article-table-border, #e5e7eb);
   padding: 10px 14px;
-  text-align: left;
+  text-align: start;
 }
 
 .article-content :deep(th) {

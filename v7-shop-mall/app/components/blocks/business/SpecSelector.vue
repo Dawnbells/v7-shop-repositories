@@ -380,7 +380,7 @@ const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
 .spec-stock {
   font-size: 13px;
   color: #6b7280;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .spec-stock.out-of-stock {
@@ -405,7 +405,7 @@ const buttonSizeClass = computed(() => `size-${props.buttonSize}`);
 
   .spec-stock {
     width: 100%;
-    margin-left: 0;
+    margin-inline-start: 0;
     margin-top: 8px;
   }
 }

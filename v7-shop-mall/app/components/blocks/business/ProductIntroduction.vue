@@ -104,7 +104,7 @@ function getImageStyle(item: IntroductionItem): Record<string, string> {
 .intro-html-content :deep(ul),
 .intro-html-content :deep(ol) {
   margin: 8px 0;
-  padding-left: 20px;
+  padding-inline-start: 20px;
 }
 
 .intro-html-content :deep(li) {

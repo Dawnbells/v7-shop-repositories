@@ -226,6 +226,11 @@ function formatSpecAttributes(
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
 }
 
+/* RTL 下抽屉锚定在左侧（overlay 的 flex-end 自动镜像），阴影朝右 */
+[dir='rtl'] .cart-drawer {
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+}
+
 .cart-drawer-header {
   display: flex;
   align-items: center;
@@ -496,6 +501,12 @@ function formatSpecAttributes(
 .cart-drawer-enter-from .cart-drawer,
 .cart-drawer-leave-to .cart-drawer {
   transform: translateX(100%);
+}
+
+/* transform 无逻辑属性变体，RTL 下抽屉从左侧滑入滑出 */
+[dir='rtl'] .cart-drawer-enter-from .cart-drawer,
+[dir='rtl'] .cart-drawer-leave-to .cart-drawer {
+  transform: translateX(-100%);
 }
 
 /* 移动端适配 */

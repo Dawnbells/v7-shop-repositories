@@ -81,7 +81,11 @@ function handleTouchStart(e: TouchEvent) {
 
 function handleTouchEnd(e: TouchEvent) {
   touchEndX.value = e.changedTouches[0].clientX
-  const diff = touchStartX.value - touchEndX.value
+  let diff = touchStartX.value - touchEndX.value
+  // RTL 下镜像手势语义：右滑 = 下一张，与阅读方向一致
+  if (document.documentElement.dir === 'rtl') {
+    diff = -diff
+  }
   const threshold = 50
 
   if (Math.abs(diff) > threshold) {

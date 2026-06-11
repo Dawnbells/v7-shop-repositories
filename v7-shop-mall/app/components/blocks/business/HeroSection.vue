@@ -276,7 +276,7 @@ function handleBackgroundError() {
 
 .hero-content.align-left .hero-inner {
   align-items: flex-start;
-  text-align: left;
+  text-align: start;
 }
 
 .hero-content.align-center {
@@ -294,7 +294,7 @@ function handleBackgroundError() {
 
 .hero-content.align-right .hero-inner {
   align-items: flex-end;
-  text-align: right;
+  text-align: end;
 }
 
 /* 垂直位置 */

@@ -225,7 +225,7 @@ const segments = computed<CountdownSegments>(() => {
 
 .promo-origin-label {
   text-decoration: none;
-  margin-right: 2px;
+  margin-inline-end: 2px;
 }
 
 .promo-current-price {

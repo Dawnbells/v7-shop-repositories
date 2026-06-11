@@ -209,7 +209,7 @@ function openCartDrawer() {
 .cart-badge {
   position: absolute;
   top: 2px;
-  right: 2px;
+  inset-inline-end: 2px;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;

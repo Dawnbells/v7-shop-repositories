@@ -206,7 +206,7 @@ const paymentStatusText = computed(() => {
 }
 
 .layout-left-aligned .result-container {
-  text-align: left;
+  text-align: start;
   margin: 0;
 }
 
@@ -249,7 +249,7 @@ const paymentStatusText = computed(() => {
   border: 1px solid var(--order-result-card-border, var(--border-color, #e5e7eb));
   padding: var(--order-result-card-padding, 24px);
   margin-bottom: var(--order-result-card-margin, 32px);
-  text-align: left;
+  text-align: start;
 }
 
 .info-row {
@@ -282,9 +282,9 @@ const paymentStatusText = computed(() => {
   font-size: var(--order-result-value-size, 14px);
   color: var(--order-result-value-color, var(--text-color, #1f2937));
   font-weight: 500;
-  text-align: right;
+  text-align: end;
   word-break: break-all;
-  margin-left: 16px;
+  margin-inline-start: 16px;
 }
 
 .info-value.order-id {
@@ -373,8 +373,8 @@ const paymentStatusText = computed(() => {
   }
 
   .info-value {
-    text-align: left;
-    margin-left: 0;
+    text-align: start;
+    margin-inline-start: 0;
   }
 
   .info-row.highlight {

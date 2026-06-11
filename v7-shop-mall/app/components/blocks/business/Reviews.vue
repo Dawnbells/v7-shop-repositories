@@ -275,7 +275,7 @@ function imageUrl(path: string): string {
 .stars-fill {
   position: absolute;
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
   overflow: hidden;
   white-space: nowrap;
   color: var(--reviews-star-color, #f59e0b);

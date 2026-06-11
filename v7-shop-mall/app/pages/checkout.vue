@@ -553,7 +553,7 @@ provide(
   color: var(--text-color, #1f2937);
   flex-shrink: 0;
   min-width: 80px;
-  text-align: right;
+  text-align: end;
 }
 
 /* 表单样式 */
@@ -636,8 +636,11 @@ provide(
   align-items: center;
   background: var(--background-color, #f9fafb);
   border: 1px solid var(--border-color, #e5e7eb);
-  border-right: none;
-  border-radius: 8px 0 0 8px;
+  border-inline-end: none;
+  border-start-start-radius: 8px;
+  border-end-start-radius: 8px;
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
   color: var(--text-secondary-color, #6b7280);
   font-size: 14px;
   white-space: nowrap;
@@ -649,7 +652,10 @@ provide(
 }
 
 .phone-input-wrapper .form-input.has-prefix {
-  border-radius: 0 8px 8px 0;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
 }
 
 /* 订阅复选框样式 */

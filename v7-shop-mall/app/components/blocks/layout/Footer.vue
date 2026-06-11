@@ -842,7 +842,7 @@ onMounted(() => {
 .hover-underline .link-item::after {
   content: "";
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   bottom: -2px;
   width: 0;
   height: 1px;
@@ -878,7 +878,8 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   position: relative;
-  padding: 16px 16px 16px 0;
+  padding-block: 16px;
+  padding-inline: 0 16px;
   min-height: 56px;
 }
 
@@ -894,7 +895,7 @@ onMounted(() => {
   font-size: 16px;
   transition: transform 0.2s;
   position: absolute;
-  right: 16px;
+  inset-inline-end: 16px;
   line-height: 1;
 }
 
@@ -1247,7 +1248,7 @@ onMounted(() => {
     font-size: 16px;
     line-height: 1;
     position: absolute;
-    right: 16px;
+    inset-inline-end: 16px;
   }
 
   .footer-contact .contact-list {
@@ -1256,12 +1257,14 @@ onMounted(() => {
     transition:
       max-height 0.3s ease,
       padding 0.3s ease;
-    padding: 0 16px 0 24px;
+    padding-block: 0;
+    padding-inline: 24px 16px;
   }
 
   .footer-contact .contact-list.is-visible {
     max-height: 500px;
-    padding: 0 16px 16px 24px;
+    padding-block: 0 16px;
+    padding-inline: 24px 16px;
   }
 
   .link-group {
@@ -1283,7 +1286,7 @@ onMounted(() => {
     font-size: 16px;
     line-height: 1;
     position: absolute;
-    right: 16px;
+    inset-inline-end: 16px;
   }
 
   .group-links {
@@ -1298,7 +1301,8 @@ onMounted(() => {
 
   .link-group.is-expanded .group-links {
     max-height: 500px;
-    padding: 0 0 16px 24px;
+    padding-block: 0 16px;
+    padding-inline: 24px 0;
   }
 
   .footer-bottom {
@@ -1400,7 +1404,7 @@ onMounted(() => {
     font-size: 16px;
     line-height: 1;
     position: absolute;
-    right: 16px;
+    inset-inline-end: 16px;
   }
 
   .footer-contact .contact-list {
@@ -1409,12 +1413,14 @@ onMounted(() => {
     transition:
       max-height 0.3s ease,
       padding 0.3s ease;
-    padding: 0 16px 0 24px;
+    padding-block: 0;
+    padding-inline: 24px 16px;
   }
 
   .footer-contact .contact-list.is-visible {
     max-height: 500px;
-    padding: 0 16px 16px 24px;
+    padding-block: 0 16px;
+    padding-inline: 24px 16px;
   }
 
   .link-group {
@@ -1436,7 +1442,7 @@ onMounted(() => {
     font-size: 16px;
     line-height: 1;
     position: absolute;
-    right: 16px;
+    inset-inline-end: 16px;
   }
 
   .group-links {
@@ -1450,7 +1456,8 @@ onMounted(() => {
 
   .link-group.is-expanded .group-links {
     max-height: 500px;
-    padding: 0 0 16px 24px;
+    padding-block: 0 16px;
+    padding-inline: 24px 0;
   }
 
   .footer-bottom {
