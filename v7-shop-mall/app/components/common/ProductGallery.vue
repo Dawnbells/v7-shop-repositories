@@ -52,10 +52,10 @@ watch(() => props.previewImage, (newPreviewImage) => {
   }
 })
 
-function goToSlide(index: number) {
+async function goToSlide(index: number) {
   // 用户手动切换时，退出预览模式
   isShowingPreview.value = false
-  
+
   if (index < 0) {
     currentIndex.value = imageCount.value - 1
   } else if (index >= imageCount.value) {
@@ -63,6 +63,8 @@ function goToSlide(index: number) {
   } else {
     currentIndex.value = index
   }
+  // 等 v-show 生效（退出预览模式后轮播容器恢复布局），否则 offsetWidth 为 0 滚动无效
+  await nextTick()
   scrollToCurrentSlide()
   scrollThumbnailIntoView(currentIndex.value)
 }
@@ -76,11 +78,18 @@ function scrollThumbnailIntoView(index: number) {
   }
 }
 
+// RTL（如阿拉伯语站点）下滚动容器的 scrollLeft 取值范围是 -(scrollWidth-clientWidth) ~ 0
+function isRtl() {
+  return carouselRef.value
+    ? getComputedStyle(carouselRef.value).direction === 'rtl'
+    : false
+}
+
 function scrollToCurrentSlide() {
   if (carouselRef.value) {
     const slideWidth = carouselRef.value.offsetWidth
     carouselRef.value.scrollTo({
-      left: currentIndex.value * slideWidth,
+      left: currentIndex.value * slideWidth * (isRtl() ? -1 : 1),
       behavior: 'smooth',
     })
   }
@@ -92,7 +101,7 @@ function handleScroll() {
   
   if (carouselRef.value) {
     const slideWidth = carouselRef.value.offsetWidth
-    const scrollLeft = carouselRef.value.scrollLeft
+    const scrollLeft = Math.abs(carouselRef.value.scrollLeft)
     const newIndex = Math.round(scrollLeft / slideWidth)
     if (newIndex !== currentIndex.value && newIndex >= 0 && newIndex < imageCount.value) {
       currentIndex.value = newIndex
