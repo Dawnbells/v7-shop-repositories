@@ -409,7 +409,7 @@ agent 每 15s
 ## 7. 迁移 Runbook（新机平移，按公司批次切解析）
 
 1. **Phase 1 — Java API**（✅ 已实施 2026-06-12）：各公司实例上线 `FrontAgentController`（manifest + 证书下载 + token，token 由运维 `openssl rand -hex 32` 生成入密码库），与旧 git 链路并行，互不影响。落地文件：`FrontAgentController` / `FrontAgentInterceptor`（鉴权+按 Host 设租户）/ `FrontAgentConfigurer` / `FrontAgentManifestService` / `CertFingerprintCache` / `FrontAgentProperties` / `FrontAgentReport`+Repository / `TopLevelDomainRepository.findAllAgentServableDomains·findValidByName` / `CompanyTenantInterceptor` 放行 / `application.yml.example` 的 `application.front-agent` 段。
-2. **Phase 2 — 新前端机**：开新机（新 IP，校准 NTP——证书有效期校验依赖系统时间），部署 `nginx-front/` compose；agent 全量同步全部公司 → `nginx -t` 通过 → 用 `curl --resolve` 实测各形态域名（nuxt / legacy / 泛子域名 / 占位证书域名 / 未知域名 444）。
+2. **Phase 2 — 新前端机**（✅ 交付物已实现 2026-06-12，真机部署验证待执行）：开新机（新 IP，校准 NTP——证书有效期校验依赖系统时间），部署 `nginx-front/` compose；agent 全量同步全部公司 → `nginx -t` 通过 → 用 `curl --resolve` 实测各形态域名（nuxt / legacy / 泛子域名 / 占位证书域名 / 未知域名 444）。交付物：顶级目录 `nginx-front/`——`docker-compose.yml`（nginx+agent 双容器、pid 命名空间共享、SIGQUIT 优雅停机）、`.env.example`（全参数）、`nginx/nginx.conf`（通用配置）+ 空卷首启种子机制、Go agent（9 个源文件全中文教学级注释，纯标准库零依赖）+ 28 项单测/端到端测试（含护栏冻结解冻、坏证书拒收、跨公司冲突、内容寻址收敛、防抖、调优分档、日志轮转）、`README.md` 运维手册。
 3. **Phase 3 — 按公司批次切解析**：复用 `analyzeDomain` 云平台能力做批量改解析（指向新机 IP/CNAME），一批一观察（新机 access log、回报版本、业务侧抽查）；DNS TTL 提前调低。回切 = 解析改回老机。
 4. **Phase 4 — 退役**：全部域名切完 → 老前端机下线；删除 `NginxConfigWriter`、`pushAndRefresh` 的 `RuntimeUtil.exec`、`push.sh` 调用与 git 配置仓库（归档）；`FrontServer.requiredUpdate` 字段废弃，同步状态改由 `t_front_agent_report` 提供。
 

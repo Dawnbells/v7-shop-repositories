@@ -1,0 +1,6 @@
+# 机器实配与密钥不进 git（仓库只保留 .env.example）
+.env
+
+# Go 构建产物
+agent/v7front-agent
+agent/v7front-agent.exe

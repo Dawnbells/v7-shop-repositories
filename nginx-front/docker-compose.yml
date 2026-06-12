@@ -1,0 +1,87 @@
+# ============================================================================
+# v7 前端机：nginx（数据面）+ agent（控制面执行器）
+#
+# 全部配置经 .env 注入（cp .env.example .env 后填写）。
+# ⚠️ 改 .env 后必须 `docker compose up -d` 重建容器生效——`restart` 不会重读 .env。
+# 设计文档：docs/superpowers/specs/2026-06-12-nginx-config-refactor-design.md
+# ============================================================================
+services:
+  nginx:
+    image: ${NGINX_IMAGE:-nginx:1.29-alpine}
+    container_name: v7front-nginx
+    restart: unless-stopped
+    # 官方镜像 STOPSIGNAL=SIGQUIT：计划内重启优雅排空在途连接，给 30s 窗口
+    stop_grace_period: 30s
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # 持久卷：配置/证书/状态/日志的「现场」，重启零下载复原的根基
+      - ${HOST_DATA_DIR:-/data/v7-front}:/data/v7-front
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # 空卷首启种子脚本（官方镜像启动前自动执行 /docker-entrypoint.d/*.sh）
+      - ./nginx/docker-entrypoint.d/00-seed-release.sh:/docker-entrypoint.d/00-seed-release.sh:ro
+      - ./nginx/seed:/opt/v7front-seed:ro
+      # 边缘缓存：刻意不持久化到宿主（已确认决策：同机房回源代价低，重启冷启动重建）
+      - nginx-cache:/var/cache/nginx
+    # CPU/内存配额（空 = 不限，即宿主机全量；agent 的自动调优读取同样的值）
+    cpus: ${FRONT_CPU_LIMIT:-0}
+    mem_limit: ${FRONT_MEM_LIMIT:-0}
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 443 || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  agent:
+    build:
+      context: ./agent
+      args:
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:1.29-alpine}
+    image: v7front-agent:local
+    container_name: v7front-agent
+    restart: unless-stopped
+    # 共享 nginx 的进程命名空间：对 PID 1（nginx master）发 SIGHUP/USR1 实现
+    # reload 与日志重开，不暴露 docker.sock。nginx 容器被重建会令命名空间失效，
+    # agent 发信号失败时自杀退出，由 restart 策略拉起重新挂接（自愈）。
+    pid: "service:nginx"
+    depends_on: [nginx]
+    volumes:
+      - ${HOST_DATA_DIR:-/data/v7-front}:/data/v7-front
+      # 影子 nginx -t 用与数据面同一份主配置
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # nginx -t 会检查 proxy_cache_path 目录，必须与数据面共享同一个卷
+      - nginx-cache:/var/cache/nginx
+    environment:
+      FRONT_SERVER_NAME: ${FRONT_SERVER_NAME:?必须在 .env 配置 FRONT_SERVER_NAME}
+      COMPANIES: ${COMPANIES:?必须在 .env 配置 COMPANIES}
+      POLL_INTERVAL: ${POLL_INTERVAL:-15s}
+      RELOAD_MIN_INTERVAL: ${RELOAD_MIN_INTERVAL:-30s}
+      NGINX_ACCESS_LOG: ${NGINX_ACCESS_LOG:-off}
+      AGENT_LOG_LEVEL: ${AGENT_LOG_LEVEL:-info}
+      NGINX_LOG_MAX_FILE: ${NGINX_LOG_MAX_FILE:-256m}
+      NGINX_LOG_KEEP: ${NGINX_LOG_KEEP:-4}
+      FRONT_CPU_LIMIT: ${FRONT_CPU_LIMIT:-}
+      FRONT_MEM_LIMIT: ${FRONT_MEM_LIMIT:-}
+      FRONT_DISK_LIMIT: ${FRONT_DISK_LIMIT:-}
+      DELETE_GUARD_MIN: ${DELETE_GUARD_MIN:-100}
+      DELETE_GUARD_RATIO: ${DELETE_GUARD_RATIO:-0.30}
+      # 调优覆盖（空 = 用自动公式；详见 README「自动调优与 TUNE_ 覆盖」）
+      TUNE_WORKER_PROCESSES: ${TUNE_WORKER_PROCESSES:-}
+      TUNE_WORKER_CONNECTIONS: ${TUNE_WORKER_CONNECTIONS:-}
+      TUNE_WORKER_RLIMIT_NOFILE: ${TUNE_WORKER_RLIMIT_NOFILE:-}
+      TUNE_SSL_CERT_CACHE_MAX: ${TUNE_SSL_CERT_CACHE_MAX:-}
+      TUNE_SSL_SESSION_CACHE: ${TUNE_SSL_SESSION_CACHE:-}
+      TUNE_IMAGE_CACHE_MAX_SIZE: ${TUNE_IMAGE_CACHE_MAX_SIZE:-}
+      TUNE_NUXT_CACHE_MAX_SIZE: ${TUNE_NUXT_CACHE_MAX_SIZE:-}
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  nginx-cache:
