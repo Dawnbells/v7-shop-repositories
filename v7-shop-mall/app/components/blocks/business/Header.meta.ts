@@ -8,7 +8,7 @@ export const meta: ComponentMeta = {
   type: "header",
   name: "页头",
   icon: "i-carbon-application-web",
-  category: "layout",
+  category: "business",
   description: "页头组件，展示网站名称、Logo 和购物车",
 
   singleton: true,

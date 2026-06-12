@@ -13,9 +13,6 @@ export const meta: ComponentMeta = {
   description:
     "粘贴任意 HTML，在隔离的沙箱 iframe 中渲染（无法访问商城 Cookie/DOM/接口）",
 
-  // 仅商品详情页可用
-  allowedPages: ["product-detail"],
-
   propsSchema: [
     {
       key: "html",

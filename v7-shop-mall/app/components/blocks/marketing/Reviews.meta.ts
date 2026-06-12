@@ -40,7 +40,7 @@ export const meta: ComponentMeta = {
   type: "reviews",
   name: "用户评价",
   icon: "i-carbon-star",
-  category: "business",
+  category: "marketing",
   description: "可配置的评论列表：评分汇总、星级、买家秀图片与已验证购买徽章",
 
   propsSchema: [

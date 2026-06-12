@@ -158,6 +158,8 @@ function onDragStart(event: DragEvent, meta: ComponentMeta) {
                 :title="item.description"
                 @dragstart="onDragStart($event, item)"
               >
+                <!-- 布局分类天生全是容器，不显角标；其他分类的容器组件用角标标记 -->
+                <span v-if="item.isContainer && group.key !== 'layout'" class="item-badge">容器</span>
                 <div class="item-icon">
                   <span :class="item.icon"></span>
                 </div>
@@ -293,6 +295,7 @@ function onDragStart(event: DragEvent, meta: ComponentMeta) {
 }
 
 .component-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -315,6 +318,19 @@ function onDragStart(event: DragEvent, meta: ComponentMeta) {
 .component-item:active {
   cursor: grabbing;
   transform: scale(0.98);
+}
+
+.item-badge {
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-end: 4px;
+  padding: 1px 5px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.15);
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 .item-icon {

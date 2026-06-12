@@ -8,7 +8,7 @@ export const meta: ComponentMeta = {
   type: "footer",
   name: "页脚",
   icon: "i-carbon-row-collapse",
-  category: "layout",
+  category: "business",
   description:
     "页脚组件，支持多主题、品牌信息、协议链接、联系方式、社交媒体、邮件订阅",
 

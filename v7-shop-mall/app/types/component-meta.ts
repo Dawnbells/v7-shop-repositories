@@ -35,9 +35,9 @@ export interface SelectOption {
  */
 export type ComponentCategory =
   | "basic"      // 基础组件：文本、图片、按钮、图标
-  | "layout"     // 布局组件：容器、栅格、分割线、间距
-  | "business"   // 业务组件：商品卡片、轮播图、导航栏、页脚
-  | "marketing"  // 营销组件：优惠券、倒计时、促销标签
+  | "layout"     // 布局组件：固定只放容器组件（行/列/栅格等，PageSlot 作为布局页结构件是唯一例外）
+  | "business"   // 业务组件：商品信息、页头、页脚、轮播图等（含容器能力的组件在面板中显示"容器"角标）
+  | "marketing"  // 营销组件：促销条、用户评价、优惠券、倒计时
   | "form"       // 表单组件：输入框、选择器、复选框
 
 /**
