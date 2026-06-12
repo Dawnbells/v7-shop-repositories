@@ -9,7 +9,8 @@
     "storage",
     "unlimitedStorage",
     "tabs",
-    "activeTab"
+    "activeTab",
+    "cookies"
   ],
   "host_permissions": [
     "https://labs.google/*",

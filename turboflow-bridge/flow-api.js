@@ -8,26 +8,18 @@ const MODEL_NARWHAL = 'NARWHAL';
 const FLOW_PROJECT_URL_BASE = 'https://labs.google/fx/tools/flow/project/';
 const FLOW_URL_PATTERN = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
 
-// reCAPTCHA 风控恢复策略：先尝试 reload Flow 页面，仍失败则新建 project；总恢复次数和 reload 次数都有上限，避免死循环。
-const MAX_TOTAL_RECOVERY = 3;
-const MAX_PAGE_RELOAD = 2;
+// reCAPTCHA 恢复参数：reload/导航后等页面 complete 的超时，以及 grecaptcha 重新就绪的两段冷却。
+// 双档恢复策略由 background.js 决策（L1=仅清 labs.google storage；L2=L1 + 清 google.com _GRECAPTCHA cookie），
+// 本模块只暴露 runRecoveryChain(tabId, level) 给 background 调用，链上任一步抛错都直接向上抛。
 const PAGE_LOAD_TIMEOUT_MS = 30 * 1000;
 const RECAPTCHA_SETTLE_MS = 5 * 1000;
+const RECAPTCHA_POST_RELOAD_SETTLE_MS = 3 * 1000;
+const RECAPTCHA_POST_CREATE_SETTLE_MS = 5 * 1000;
 
 let cachedToken = null;
 let tokenTimestamp = 0;
 let flowTabId = null;
 let projectId = null;
-
-let recoveryInProgress = false;
-let recoveryPromise = null;
-let totalRecoveryAttempts = 0;
-let pageReloadAttempts = 0;
-
-export function resetRecoveryState() {
-  totalRecoveryAttempts = 0;
-  pageReloadAttempts = 0;
-}
 
 function uuid() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -163,7 +155,12 @@ export async function getRecaptchaToken(tabId, action = 'IMAGE_GENERATION') {
   return results?.[0]?.result || null;
 }
 
-// ── reCAPTCHA recovery (page reload → new project) ─────────────────
+// ── reCAPTCHA recovery (clear storage [+ cookie] → reload → settle → create new project) ─────
+//
+// 双档恢复链：
+//   L1 = clearFlowStorage(labs.google localStorage + sessionStorage) → reload → settle → createFlowProject → settle
+//   L2 = L1 全部 + 在 reload 之前先清 google.com 的 _GRECAPTCHA cookie（重置 reCAPTCHA Enterprise 风险评分）
+// 链上任一步抛错都直接向上抛出；background 决策是否升级到下一档或终止 + 删 project。
 
 /**
  * 等待目标 tab 进入 complete 状态，超时即拒绝。
@@ -187,35 +184,65 @@ function waitForTabComplete(tabId, timeoutMs) {
 }
 
 /**
- * L1 恢复：在 Flow tab 内强制刷新页面，以重置 reCAPTCHA session。
- * 加 ?t=timestamp 避免缓存命中。等加载完成后 sleep 一段时间让 grecaptcha 重新就绪，再实际取 token 验证。
+ * 清 Flow tab 的 localStorage + sessionStorage（labs.google origin 内）。
+ * 注意：reCAPTCHA Enterprise 的 iframe 跑在 google.com 域，这一步并不能清 reCAPTCHA 自身的客户端状态，
+ * 真正撬动风控评分需要走 L2 清 _GRECAPTCHA cookie。这一步只清 Flow 自身的本地缓存（project 列表、UI 偏好等）。
  */
-async function reloadFlowPage(tabId) {
-  clearTokenCache();
-  projectId = null;
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      func: () => {
-        window.location.href = window.location.href.split('?')[0] + '?t=' + Date.now();
-      },
-    });
-    await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
-    await sleep(RECAPTCHA_SETTLE_MS);
-    const token = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
-    if (!token) return false;
-    // 对齐 nano-b：reload 成功后再补 3s 让 grecaptcha 完全 settle，避免后续首个调用又踩到风控
-    await sleep(3000);
-    return true;
-  } catch {
-    return false;
-  }
+export async function clearFlowStorage(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      try { localStorage.clear(); } catch {}
+      try { sessionStorage.clear(); } catch {}
+    },
+  });
 }
 
 /**
- * L2 恢复：通过 trpc 接口新建一个 Flow project，再把 tab 导航到新 project URL。
- * 比 reload 更激进，能重置部分服务端绑定的 session 上下文。
+ * 列举并删除所有名为 _GRECAPTCHA 的 cookie（一般在 .google.com 域）。
+ * _GRECAPTCHA 是 reCAPTCHA Enterprise 的设备风险评分凭据：删除后服务端按"陌生设备"重新评估，
+ * 用于打破累计风险评分被持续加重的状态。不动 SID/HSID/SSID/NID 等 Google 账号 cookie，不会登出。
+ */
+export async function clearGrecaptchaCookie() {
+  if (!chrome.cookies) return 0;
+  const cookies = await chrome.cookies.getAll({ name: '_GRECAPTCHA' });
+  let removed = 0;
+  for (const cookie of cookies) {
+    const protocol = cookie.secure ? 'https://' : 'http://';
+    const domain = cookie.domain.replace(/^\./, '');
+    const url = `${protocol}${domain}${cookie.path || '/'}`;
+    try {
+      await chrome.cookies.remove({ url, name: cookie.name });
+      removed++;
+    } catch {
+      // 单条失败不影响整体——继续清下一条
+    }
+  }
+  return removed;
+}
+
+/**
+ * Reload Flow tab（带 cache busting 参数），等页面 complete 并等 grecaptcha settle。
+ * 不含 token 验证（验证由 runRecoveryChain 末尾统一做）。
+ */
+async function reloadFlowPageRaw(tabId) {
+  clearTokenCache();
+  projectId = null;
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      window.location.href = window.location.href.split('?')[0] + '?t=' + Date.now();
+    },
+  });
+  await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
+  await sleep(RECAPTCHA_SETTLE_MS);
+}
+
+/**
+ * 新建一个 Flow project（trpc project.createProject），把 tab 导航到新 project URL，等加载完。
+ * 返回新 projectId；失败抛错。
  */
 async function createFlowProjectAndNavigate(tabId) {
   projectId = null;
@@ -267,90 +294,27 @@ export async function ensureFlowProjectOpen(tabId) {
   return await createFlowProjectAndNavigate(tabId);
 }
 
-async function createNewProject(tabId) {
-  clearTokenCache();
-  projectId = null;
-  try {
-    const createRes = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      func: async () => {
-        try {
-          const now = new Date();
-          const title = now.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })
-            + ', ' + now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-          const res = await fetch('/fx/api/trpc/project.createProject', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ json: { projectTitle: title, toolName: 'PINHOLE' } }),
-          });
-          if (!res.ok) return { error: 'HTTP ' + res.status };
-          const json = await res.json();
-          const pid = json?.result?.data?.json?.result?.projectId;
-          return pid ? { success: true, projectId: pid } : { error: 'No projectId in response' };
-        } catch (e) {
-          return { error: e.message };
-        }
-      },
-    });
-    const result = createRes?.[0]?.result;
-    if (!result?.success) {
-      return false;
-    }
-    const targetUrl = 'https://labs.google/fx/tools/flow/project/' + result.projectId;
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      func: (url) => { window.location.href = url; },
-      args: [targetUrl],
-    });
-    await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
-    await sleep(RECAPTCHA_SETTLE_MS);
-    const token = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
-    if (!token) return false;
-    // 对齐 nano-b：新建 project 后再补 5s 让 grecaptcha 完全 settle（比 reload 更激进，需更长冷却）
-    await sleep(5000);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * reCAPTCHA 恢复调度器。
- * - 并发请求只触发一次恢复：通过 recoveryPromise 让其他调用方等待结果
- * - 总恢复次数有上限（避免长时间死循环消耗 API/Tab 资源）
- * - 优先 reload Flow 页面（最多 MAX_PAGE_RELOAD 次），仍失败再 createNewProject
- * resetRecoveryState() 会清零计数，应在任务成功或新批次开始时调用。
+ * 执行 reCAPTCHA 恢复链。
+ *   level='L1' → 清 labs.google storage → reload → settle → 创建新 project → settle
+ *   level='L2' → 在 reload 之前先清 _GRECAPTCHA cookie，其余同 L1
+ * 任一步抛错都直接向上抛出；成功返回新建的 projectId。
+ * 末尾会取一次 grecaptcha token 做就绪验证：拿不到 token 即视为恢复失败抛错。
  */
-export async function recoverRecaptcha(tabId) {
-  if (recoveryInProgress && recoveryPromise) {
-    return await recoveryPromise;
+export async function runRecoveryChain(tabId, level) {
+  await clearFlowStorage(tabId);
+  if (level === 'L2') {
+    await clearGrecaptchaCookie();
   }
-  if (totalRecoveryAttempts >= MAX_TOTAL_RECOVERY) {
-    return false;
+  await reloadFlowPageRaw(tabId);
+  const newProjectId = await createFlowProjectAndNavigate(tabId);
+  const postSettle = level === 'L2' ? RECAPTCHA_POST_CREATE_SETTLE_MS : RECAPTCHA_POST_RELOAD_SETTLE_MS;
+  await sleep(postSettle);
+  const token = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
+  if (!token) {
+    throw new Error('grecaptcha settle failed: no token after recovery');
   }
-  recoveryInProgress = true;
-  totalRecoveryAttempts++;
-  recoveryPromise = (async () => {
-    try {
-      if (pageReloadAttempts < MAX_PAGE_RELOAD) {
-        pageReloadAttempts++;
-        if (await reloadFlowPage(tabId)) {
-          return true;
-        }
-      }
-      return await createNewProject(tabId);
-    } finally {
-      recoveryInProgress = false;
-    }
-  })();
-  try {
-    return await recoveryPromise;
-  } finally {
-    recoveryPromise = null;
-  }
+  return newProjectId;
 }
 
 // ── Low-level API call (runs inside the Flow tab) ──────────────────
@@ -360,12 +324,8 @@ function deepClone(obj) {
 }
 
 async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATION', retryCount = 0) {
-  // 风控恢复期间所有 callFlowApi 调用先等恢复完成，避免 4 并发持续打 grecaptcha 加剧风控。
-  // 对齐 nano-b `je` 开头 `if (Q && n===0) await Q` 的门闩语义。
-  if (recoveryPromise) {
-    try { await recoveryPromise; } catch {}
-  }
-
+  // 风控恢复在 background 层处理：当 callFlowApi 抛 'reCAPTCHA blocked' 后，background 会停 poll、
+  // 同步跑 runRecoveryChain（L1 或 L2）、成功后再恢复 poll。期间不再发起新 callFlowApi，所以这里不需要门闩。
   const recaptchaToken = await getRecaptchaToken(tabId, action);
   if (!recaptchaToken) {
     throw new Error('No reCAPTCHA token — try refreshing the Flow page');
@@ -428,7 +388,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
   if (result.error) {
     // 403：先按风控关键字识别 reCAPTCHA / 权限两类。
     // - L0(retryCount=0)：刷 session token 重试，覆盖临时 token 失效场景
-    // - L1(retryCount=1) 且 reCAPTCHA 风控：进入 recoverRecaptcha（reload Flow / 新建 project）
+    // - reCAPTCHA 风控：直接抛 'reCAPTCHA blocked'，由 background 决策 L1/L2 + runRecoveryChain
     // - 其它：抛出带语义的错误，由 background.js 映射为 errorCode 上报
     if (result.status === 403) {
       const errText = (result.errText || result.error || '').toLowerCase();
@@ -446,15 +406,8 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
         const freshToken = await getSessionToken(tabId);
         return callFlowApi(tabId, url, payload, freshToken || token, action, 1);
       }
-      if (retryCount === 1 && isRecaptcha) {
-        const recovered = await recoverRecaptcha(tabId);
-        if (recovered) {
-          const freshToken = await getSessionToken(tabId);
-          return callFlowApi(tabId, url, payload, freshToken || token, action, 2);
-        }
-      }
       if (isRecaptcha) {
-        throw new Error('reCAPTCHA blocked — close the Flow tab, reopen it, and try again');
+        throw new Error('reCAPTCHA blocked — auto recovery required');
       }
       if (isPermission) {
         throw new Error('Access denied (403) — your Flow session may have expired. Refresh the Flow page and try again');
@@ -710,7 +663,9 @@ export async function fetchImageAsBase64(tabId, imageUrl, timeoutMs = 60000) {
 
   const result = results?.[0]?.result;
   if (!result || result.error) {
-    throw new Error('Failed to fetch image: ' + (result?.error || 'unknown'));
+    // [DOWNLOAD_FAILED] 前缀让 background classifyErrorCode 能把"下载结果图失败"和其它错误区分开，
+    // 仅这一类计入 consecutiveDownloadFails（连续 3 张触发 L1 恢复），避免被 FLOW_DISCONNECTED 等污染。
+    throw new Error('[DOWNLOAD_FAILED] Failed to fetch image: ' + (result?.error || 'unknown'));
   }
   return result;
 }
@@ -745,6 +700,128 @@ export async function checkConnection() {
 
   // 不再在此处主动调 grecaptcha.enterprise.execute 做预检——4 并发场景下短时累计调用过多会触发风控。
   // 对齐 nano-b：每个任务只在 callFlowApi 内消耗 1 次 reCAPTCHA token。
-  // 风控真正触发时由 callFlowApi 的 403 路径走三层恢复（reload Flow / 新建 project）兜底。
+  // 风控真正触发时由 callFlowApi 抛 'reCAPTCHA blocked'，background 决策 L1/L2 走 runRecoveryChain 兜底。
   return { connected: true, tabId, projectId: pid };
+}
+
+// ── Project list / delete (trpc) ───────────────────────────────────
+//
+// 用于"任务停止时清空账号下所有 project"。trpc 接口在 Flow tab context 里调（带 cookie 凭据）。
+//   list:   GET  /fx/api/trpc/project.searchUserProjects?input=<URL-encoded JSON>
+//   delete: POST /fx/api/trpc/project.deleteProject  body: {"json":{"projectToDeleteId":"..."}}
+
+async function searchUserProjectsPage(tabId, cursor) {
+  // trpc SuperJSON 透传：cursor=null 时需要 meta.values.cursor=["undefined"]，告诉服务端把 null 反序列化为 undefined
+  const input = cursor === null
+    ? { json: { pageSize: 20, toolName: 'PINHOLE', cursor: null }, meta: { values: { cursor: ['undefined'] } } }
+    : { json: { pageSize: 20, toolName: 'PINHOLE', cursor } };
+  const path = '/fx/api/trpc/project.searchUserProjects?input=' + encodeURIComponent(JSON.stringify(input));
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async (p) => {
+      try {
+        const res = await fetch(p, { credentials: 'include' });
+        if (!res.ok) return { error: 'HTTP ' + res.status };
+        return { success: true, data: await res.json() };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+    args: [path],
+  });
+  const result = results?.[0]?.result;
+  if (!result?.success) throw new Error(result?.error || 'searchUserProjects failed');
+  return result.data;
+}
+
+/**
+ * 分页列举当前账号下所有 project。
+ * 实测响应结构：
+ *   data.result.data.json.result.projects[]   // 每条 {projectId, projectInfo:{projectTitle, thumbnailMediaKey}, creationTime, ...}
+ *   data.result.data.json.result.nextPageToken // 字符串；下一页请求时作为 cursor 传回
+ * 返回 [{projectId, title}, ...]；防御性上限 1000 页（最多 20000 个 project），防止异常 token 导致死循环。
+ */
+export async function listAllUserProjects(tabId) {
+  const all = [];
+  let cursor = null;
+  let safety = 0;
+  while (safety++ < 1000) {
+    const data = await searchUserProjectsPage(tabId, cursor);
+    const inner = data?.result?.data?.json?.result || data?.result?.data?.json || {};
+    const items = inner.projects || inner.userProjects || inner.results || inner.items || [];
+    for (const p of items) {
+      const pid = p?.projectId || p?.id;
+      if (pid) {
+        all.push({
+          projectId: pid,
+          title: p?.projectInfo?.projectTitle || p?.projectTitle || p?.title || '',
+        });
+      }
+    }
+    cursor = inner.nextPageToken || inner.nextCursor || inner.cursor || null;
+    if (!cursor) break;
+  }
+  return all;
+}
+
+export async function deleteFlowProject(tabId, projectIdToDelete) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async (pid) => {
+      try {
+        const res = await fetch('/fx/api/trpc/project.deleteProject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ json: { projectToDeleteId: pid } }),
+        });
+        if (!res.ok) return { error: 'HTTP ' + res.status };
+        return { success: true };
+      } catch (e) {
+        return { error: e.message };
+      }
+    },
+    args: [projectIdToDelete],
+  });
+  const result = results?.[0]?.result;
+  if (!result?.success) throw new Error(result?.error || 'deleteProject failed');
+}
+
+/**
+ * 列举并删除账号下所有 project。
+ * 串行 200ms 间隔，单个失败继续不阻塞整批；进度通过 onProgress 回调上报给 background → sidepanel。
+ * onProgress 阶段：
+ *   { phase: 'list-failed', error }            列举失败，无法继续
+ *   { phase: 'start', total }                   开始删除前
+ *   { phase: 'progress', current, total, deleted, failed }  每删一个
+ *   { phase: 'done', total, deleted, failed }   全部完成
+ */
+export async function deleteAllUserProjects(tabId, onProgress) {
+  let projects;
+  try {
+    projects = await listAllUserProjects(tabId);
+  } catch (e) {
+    if (typeof onProgress === 'function') onProgress({ phase: 'list-failed', error: e.message });
+    return { listed: 0, deleted: 0, failed: 0 };
+  }
+  const total = projects.length;
+  let deleted = 0;
+  let failed = 0;
+  if (typeof onProgress === 'function') onProgress({ phase: 'start', total });
+  for (let i = 0; i < projects.length; i++) {
+    try {
+      await deleteFlowProject(tabId, projects[i].projectId);
+      deleted++;
+    } catch {
+      failed++;
+    }
+    if (typeof onProgress === 'function') {
+      onProgress({ phase: 'progress', current: i + 1, total, deleted, failed });
+    }
+    await sleep(200);
+  }
+  if (typeof onProgress === 'function') onProgress({ phase: 'done', total, deleted, failed });
+  return { listed: total, deleted, failed };
 }

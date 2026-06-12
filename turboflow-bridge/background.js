@@ -6,8 +6,9 @@ import {
   fetchImageAsBase64,
   clearTokenCache,
   clearProjectIdCache,
-  resetRecoveryState,
   getSessionToken,
+  runRecoveryChain,
+  deleteAllUserProjects,
 } from './flow-api.js';
 
 const VERSION = '1.1.0';
@@ -16,7 +17,11 @@ const POLL_INTERVAL_MS = 500;
 const STAGGER_STEP_MS = 250;
 const CONCURRENCY = 4;
 const TRANSLATE_START_INTERVAL_MS = 20 * 1000;
-const PAUSE_STATE_STORAGE_KEY = 'bridgePauseState';
+const STOP_STATE_STORAGE_KEY = 'bridgeStopState';
+const RECOVERY_STATE_STORAGE_KEY = 'bridgeRecoveryState';
+const RECOVERY_SUCCESS_THRESHOLD = 20;
+const RECOVERY_DOWNLOAD_FAIL_THRESHOLD = 3;
+const LEGACY_PAUSE_STATE_STORAGE_KEY = 'bridgePauseState';
 const MAX_TASK_HISTORY = 50;
 const MAX_LOG_HISTORY = 500;
 // 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；网速慢时下载重试可达 120 秒；
@@ -28,12 +33,14 @@ const FAIL_REPORT_RETRY_BASE_MS = 1000;
 
 /**
  * 根据 translateImage 抛出的错误信息映射到上报用的 errorCode。
- * 与 flow-api.js 中 callFlowApi 抛出的特定文案保持同步。
+ * 与 flow-api.js 中 callFlowApi / fetchImageAsBase64 抛出的特定文案保持同步。
  */
 function classifyErrorCode(message) {
   const text = (message || '').toLowerCase();
-  // 每日额度耗尽是账号级硬性限制，重试只会加重风控，需走 pausePoll 等账号自然恢复
+  // 每日额度耗尽是账号级硬性限制 — 走 stopAndDelete 终态，删 project 等账号自然恢复
   if (text.includes('daily_quota_reached') || text.includes('resource_exhausted')) return 'DAILY_QUOTA_REACHED';
+  // 下载结果图失败（fetchImageAsBase64 全部重试都失败）— 连续 3 张触发 L1 恢复
+  if (text.includes('[download_failed]')) return 'DOWNLOAD_FAILED';
   // reCAPTCHA 风控：包含 callFlowApi 抛出的 'reCAPTCHA blocked' 和 'No reCAPTCHA token' 两种
   if (text.includes('recaptcha blocked') || text.includes('no recaptcha token')) return 'RECAPTCHA_BLOCKED';
   if (text.includes('blocked by google (403)') || text.includes('access denied (403)')) return 'GOOGLE_BLOCKED';
@@ -67,19 +74,26 @@ let lastTranslateStartAt = 0;
 let taskHistory = [];
 let logHistory = [];
 
-// reCAPTCHA 恢复全部失败时进入暂停：停止主动 poll，需用户在 sidepanel 点 Run Now 显式恢复。
+// "已停止"终态：触发条件是 L2 后仍 reCAPTCHA / 日限额 / 其它终态错误。
+// 不进 1 小时冷静期、不自动重开 Flow tab，必须用户在 sidepanel 点 Run Now 显式恢复。
+// 复用 pollPaused 变量名以避免改 sidepanel 的 BRIDGE_PAUSED / BRIDGE_RESUMED 事件协议。
 let pollPaused = false;
 let pauseReason = null;
 let pausedAt = 0;
-let pauseUntilAt = 0;
 let pauseReasonCode = null;
-let autoReopenTimer = null;
 
-// 1 小时强制冷静期：Google 账号级风控通常需要小时级冷却。冷静期内主动关闭 Flow tab 让账号完全离线，
-// 倒计时结束后自动重开 Flow tab 触发 watchdog 自动恢复 poll。
-const PAUSE_MIN_COOLDOWN_MS = 60 * 60 * 1000;
-const DAILY_QUOTA_TIME_ZONE = 'America/Los_Angeles';
-const DAILY_QUOTA_RESUME_BUFFER_MS = 5 * 60 * 1000;
+// reCAPTCHA 双档恢复状态机（持久化到 chrome.storage.local，service worker 重启后保留）：
+//   successSinceLastRecovery   自上次 L1/L2 触发以来 translateImage 全流程成功的图片数
+//   consecutiveDownloadFails   连续 [DOWNLOAD_FAILED] 计数；达 RECOVERY_DOWNLOAD_FAIL_THRESHOLD 触发 L1
+//   lastRecoveryLevel          'NONE' | 'L1' | 'L2'；决定下次 reCAPTCHA 是 L1 还是升 L2
+let recoveryState = {
+  successSinceLastRecovery: 0,
+  consecutiveDownloadFails: 0,
+  lastRecoveryLevel: 'NONE',
+};
+// 恢复链运行中的 Promise 门闩：scheduleLoop 在 pending 时不发起新 poll，
+// 4 并发场景下避免一边 reload 一边新 poll 拉 task 撞上半残页面。
+let recoveryPromise = null;
 
 // Flow 标签页可用性看门狗：每秒探测，标签关闭 → 立即阻断 poll；重新打开 → 自动恢复
 const FLOW_URL_RE = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
@@ -115,10 +129,7 @@ function startConnectionWatchdog() {
     if (ok) {
       addLog('info', '✅ Flow tab detected');
       broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: 'Verifying Flow connection...', projectId: null });
-      // 暂停态下尝试自动恢复：30 分钟冷却内 resumePoll 会返回 false 并写 warn 日志，提醒用户继续等待
-      if (pollPaused) {
-        resumePoll(false);
-      }
+      // 已停止终态下不再自动恢复 — 用户必须显式点 Run Now，避免日限额/L2 后风控未消时被动撞墙
       scheduleLoop(100);
     } else {
       const reason = 'Flow tab closed — open Google Flow to resume';
@@ -154,214 +165,225 @@ function safeAction(fn) {
   }
 }
 
-/**
- * 关闭所有 Flow 标签页：冷静期内让 Google 完全看不到该用户的扩展活动。
- */
-async function closeFlowTabs() {
-  try {
-    const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
-    const targets = tabs.filter((t) => t.url && FLOW_URL_RE.test(t.url));
-    for (const t of targets) {
-      if (t.id) {
-        await chrome.tabs.remove(t.id).catch(() => {});
-      }
-    }
-    if (targets.length > 0) {
-      addLog('warn', `🔌 已关闭 ${targets.length} 个 Flow 标签页（冷静期）`);
-    }
-  } catch (e) {
-    addLog('warn', 'closeFlowTabs failed: ' + (e.message || e));
+// ── recoveryState 持久化 ──────────────────────────────────────────
+
+function persistRecoveryState() {
+  chrome.storage.local.set({ [RECOVERY_STATE_STORAGE_KEY]: recoveryState }).catch(() => {});
+}
+
+async function loadRecoveryState() {
+  const stored = await chrome.storage.local.get([RECOVERY_STATE_STORAGE_KEY]);
+  const s = stored[RECOVERY_STATE_STORAGE_KEY];
+  if (s && typeof s === 'object') {
+    recoveryState = {
+      successSinceLastRecovery: Number(s.successSinceLastRecovery) || 0,
+      consecutiveDownloadFails: Number(s.consecutiveDownloadFails) || 0,
+      lastRecoveryLevel: ['NONE', 'L1', 'L2'].includes(s.lastRecoveryLevel) ? s.lastRecoveryLevel : 'NONE',
+    };
   }
 }
 
-/**
- * 计划在冷静期结束时主动重开 Flow 标签页。
- * watchdog 检测到新 tab 后会自动尝试 resumePoll（此时 cooldown 已过，可成功）。
- */
-function getTimeZoneParts(date, timeZone) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.filter((p) => p.type !== 'literal').map((p) => [p.type, Number(p.value)]));
-  return {
-    year: values.year,
-    month: values.month,
-    day: values.day,
-    hour: values.hour,
-    minute: values.minute,
-    second: values.second,
+function resetRecoveryStateAll() {
+  recoveryState = {
+    successSinceLastRecovery: 0,
+    consecutiveDownloadFails: 0,
+    lastRecoveryLevel: 'NONE',
   };
+  persistRecoveryState();
 }
 
-function getTimeZoneOffsetMs(date, timeZone) {
-  const p = getTimeZoneParts(date, timeZone);
-  const localAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
-  return localAsUtc - date.getTime();
-}
+// ── 已停止终态 + 用户显式恢复 ─────────────────────────────────────
 
-function zonedTimeToUtcMs(year, month, day, hour, minute, second, timeZone) {
-  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
-  let utc = localAsUtc;
-  for (let i = 0; i < 3; i++) {
-    utc = localAsUtc - getTimeZoneOffsetMs(new Date(utc), timeZone);
-  }
-  return utc;
-}
-
-function getNextDailyQuotaResumeAt(nowMs = Date.now()) {
-  const nowPacific = getTimeZoneParts(new Date(nowMs), DAILY_QUOTA_TIME_ZONE);
-  const nextPacificDate = new Date(Date.UTC(nowPacific.year, nowPacific.month - 1, nowPacific.day + 1));
-  return zonedTimeToUtcMs(
-    nextPacificDate.getUTCFullYear(),
-    nextPacificDate.getUTCMonth() + 1,
-    nextPacificDate.getUTCDate(),
-    0,
-    0,
-    0,
-    DAILY_QUOTA_TIME_ZONE
-  ) + DAILY_QUOTA_RESUME_BUFFER_MS;
-}
-
-function getPauseUntilAt() {
-  return pauseUntilAt || (pausedAt + PAUSE_MIN_COOLDOWN_MS);
-}
-
-function getPauseRemainingMs() {
-  return pollPaused ? Math.max(0, getPauseUntilAt() - Date.now()) : 0;
-}
-
-function persistPauseState() {
+function persistStopState() {
   chrome.storage.local.set({
-    [PAUSE_STATE_STORAGE_KEY]: {
-      pollPaused,
-      pauseReason,
-      pausedAt,
-      pauseUntilAt: getPauseUntilAt(),
-      pauseReasonCode,
-    },
+    [STOP_STATE_STORAGE_KEY]: { pollPaused, pauseReason, pausedAt, pauseReasonCode },
   }).catch(() => {});
 }
 
-function clearPauseState() {
-  chrome.storage.local.remove([PAUSE_STATE_STORAGE_KEY]).catch(() => {});
-}
-
-function scheduleAutoReopenFlow() {
-  if (autoReopenTimer) {
-    clearTimeout(autoReopenTimer);
-    autoReopenTimer = null;
-  }
-  const remaining = getPauseRemainingMs();
-  if (remaining <= 0) {
-    autoReopenFlow();
-    return;
-  }
-  autoReopenTimer = setTimeout(autoReopenFlow, remaining);
-  const minutes = Math.ceil(remaining / 60000);
-  addLog('info', `⏱️ ${minutes} 分钟后将自动重开 Flow 标签页并恢复 poll`);
-}
-
-async function autoReopenFlow() {
-  autoReopenTimer = null;
-  if (!pollPaused) return;
-  addLog('info', '⏱️ 冷静期结束，主动打开 Flow 标签页');
-  try {
-    await chrome.tabs.create({ url: FLOW_URL });
-  } catch (e) {
-    addLog('warn', 'autoReopenFlow failed: ' + (e.message || e));
-  }
+function clearStopState() {
+  chrome.storage.local.remove([STOP_STATE_STORAGE_KEY]).catch(() => {});
 }
 
 /**
- * 进入暂停态：清掉待执行 timer、关闭 Flow tab、设置 action badge 强提示、广播状态给 sidepanel。
- * 触发条件：reCAPTCHA 恢复机制穷尽后仍失败（errorCode === RECAPTCHA_BLOCKED / GOOGLE_BLOCKED）。
- * 幂等：并发场景下多个 in-flight 任务可能同时调用，重复调用时仅刷新 reason，不重复广播日志。
+ * 进入"已停止"终态：停 poll、写 badge、广播给 sidepanel。
+ * 与旧版冷静期不同 — 不关 Flow tab、不计划自动重开、不限制 Run Now 时机。
+ * 触发条件：日限额、L2 后仍 reCAPTCHA、其它终态错误。复用 BRIDGE_PAUSED 事件名以兼容 sidepanel。
+ * 实际"删除所有 project"动作由 stopAndDelete 包装这个函数。
  */
 function pausePoll(reason, options = {}) {
   const alreadyPaused = pollPaused;
-  const now = Date.now();
-  const requestedPauseUntilAt = options.untilAt || (now + PAUSE_MIN_COOLDOWN_MS);
   pollPaused = true;
   pauseReason = reason;
   pauseReasonCode = options.code || pauseReasonCode || null;
-  pauseUntilAt = Math.max(pauseUntilAt || 0, requestedPauseUntilAt);
   nextPollAt = 0;
   if (timerId) {
     clearTimeout(timerId);
     timerId = null;
   }
   if (alreadyPaused) {
-    persistPauseState();
-    scheduleAutoReopenFlow();
+    persistStopState();
     return;
   }
-  pausedAt = now;
+  pausedAt = Date.now();
   safeAction((action) => action.setBadgeText({ text: '!' }));
   safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
   lastStatus = { connected: false, message: reason };
   broadcast({ type: 'BRIDGE_PAUSED', reason });
   broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: reason, projectId: null });
   broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt: 0 });
-  addLog('error', '⛔ Poll paused: ' + reason);
-  // 1 小时硬冷静期：关闭 Flow tab + 计划自动重开
-  persistPauseState();
-  closeFlowTabs();
-  scheduleAutoReopenFlow();
+  addLog('error', '⛔ Poll stopped: ' + reason);
+  persistStopState();
 }
 
 /**
- * 恢复 poll。
- * - force=false：受 PAUSE_MIN_COOLDOWN_MS 限制，避免短时反复 Run Now 加重 Google 风控
- * - force=true：强制恢复（例如用户在 sidepanel 显式确认后）
- * 返回是否真的恢复成功。
+ * 用户在 sidepanel 显式点 Run Now 恢复（已无冷却限制，force 参数保留只为兼容旧 RUN_NOW 协议）。
+ * 同时把 recoveryState 全部清零，让恢复后的批次从干净状态开始。
  */
-function resumePoll(force = false) {
+function resumePoll(_force = false) {
   if (!pollPaused) return false;
-  const remainingMs = getPauseRemainingMs();
-  if (remainingMs > 0 && (pauseReasonCode === 'DAILY_QUOTA_REACHED' || !force)) {
-    const remainingMin = Math.ceil(remainingMs / 60000);
-    addLog('warn',
-      `⏳ Google 风控冷静期中：还需 ${remainingMin} 分钟。短时强制恢复可能加重风控甚至触发临时封禁。`);
-    return false;
-  }
   pollPaused = false;
   pauseReason = null;
   pausedAt = 0;
-  pauseUntilAt = 0;
   pauseReasonCode = null;
-  if (autoReopenTimer) {
-    clearTimeout(autoReopenTimer);
-    autoReopenTimer = null;
-  }
-  clearPauseState();
-  resetRecoveryState();
+  clearStopState();
+  resetRecoveryStateAll();
   safeAction((action) => action.setBadgeText({ text: '' }));
   broadcast({ type: 'BRIDGE_RESUMED' });
-  addLog('info', force ? '✅ Poll force-resumed by user' : '✅ Poll auto-resumed after cooldown');
-  // 冷静期内 Flow tab 已被 closeFlowTabs 关闭；恢复时主动打开，watchdog 会接管后续
-  ensureFlowTabOpen();
+  addLog('info', '✅ Poll resumed by user');
   return true;
 }
 
+// ── reCAPTCHA 恢复 + 终态停止 + 删除所有 project ───────────────────
+
 /**
- * 如果当前没有可用的 Flow tab（如冷静期内被关闭），主动打开一个。
+ * 决定下次 reCAPTCHA 应走 L1 还是 L2：
+ *   首次（lastRecoveryLevel='NONE'）→ L1
+ *   上次 L1 后连续生成 >= 20 张才再次踩到 → 仍按"L1 见效"评估，重新做 L1
+ *   上次 L1 后不到 20 张就再踩到 → 升级 L2（多清 _GRECAPTCHA cookie）
+ *   上次 L2 后仍 reCAPTCHA → 调用方应直接 stopAndDelete，不再调本函数
  */
-async function ensureFlowTabOpen() {
-  try {
-    const ok = await probeFlowTabAvailable();
-    if (!ok) {
-      await chrome.tabs.create({ url: FLOW_URL });
-      addLog('info', '🔄 已打开 Flow 标签页');
+function decideRecoveryLevel() {
+  if (recoveryState.lastRecoveryLevel === 'NONE') return 'L1';
+  if (recoveryState.lastRecoveryLevel === 'L1') {
+    return recoveryState.successSinceLastRecovery >= RECOVERY_SUCCESS_THRESHOLD ? 'L1' : 'L2';
+  }
+  return 'L2';
+}
+
+/**
+ * 触发一次恢复链。设置 recoveryPromise 门闩阻止 scheduleLoop 发起新 poll；
+ * 成功 → 更新 lastRecoveryLevel + 计数归零 + 恢复 poll；
+ * 失败 → 调 stopAndDelete 进入终态。
+ * 并发安全：多个 in-flight task 同时抛 reCAPTCHA 时，第二个之后的调用 await 同一个 Promise，不会重复触发恢复链。
+ */
+async function triggerRecovery(level) {
+  if (recoveryPromise) return recoveryPromise;
+  if (pollPaused) return false;
+  recoveryPromise = (async () => {
+    const conn = await checkConnection().catch(() => null);
+    const tabId = conn?.tabId;
+    if (!tabId) {
+      addLog('error', `⛔ Recovery ${level} failed: no Flow tab`);
+      await stopAndDelete(`Recovery ${level} failed: no Flow tab`, { code: 'RECOVERY_FAILED' });
+      return false;
     }
+    addLog('warn', `🔄 Recovery ${level} starting — clearing storage${level === 'L2' ? ' + _GRECAPTCHA cookie' : ''}, reloading, creating new project`);
+    broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: `Recovery ${level} in progress…`, projectId: null });
+    try {
+      const newProjectId = await runRecoveryChain(tabId, level);
+      recoveryState.lastRecoveryLevel = level;
+      recoveryState.successSinceLastRecovery = 0;
+      recoveryState.consecutiveDownloadFails = 0;
+      persistRecoveryState();
+      addLog('info', `✅ Recovery ${level} succeeded — new project ${newProjectId}`);
+      return true;
+    } catch (e) {
+      addLog('error', `⛔ Recovery ${level} failed: ${e.message}`);
+      // L1 失败 → 升级 L2；L2 失败 → stopAndDelete（按方案 A 的兜底）
+      if (level === 'L1') {
+        recoveryState.lastRecoveryLevel = 'L1';
+        persistRecoveryState();
+        return await triggerRecoveryInner('L2');
+      }
+      await stopAndDelete(`Recovery L2 failed: ${e.message}`, { code: 'RECOVERY_FAILED' });
+      return false;
+    }
+  })();
+  try {
+    const ok = await recoveryPromise;
+    if (ok) {
+      // 恢复成功 — 立即排一次 poll 拉新 task
+      scheduleLoop(100);
+    }
+    return ok;
+  } finally {
+    recoveryPromise = null;
+  }
+}
+
+/**
+ * triggerRecovery 内部的升档实现：不再设置 recoveryPromise（外层已设），直接跑链。
+ */
+async function triggerRecoveryInner(level) {
+  const conn = await checkConnection().catch(() => null);
+  const tabId = conn?.tabId;
+  if (!tabId) {
+    await stopAndDelete(`Recovery ${level} failed: no Flow tab`, { code: 'RECOVERY_FAILED' });
+    return false;
+  }
+  addLog('warn', `🔄 Recovery ${level} starting (escalated)`);
+  try {
+    const newProjectId = await runRecoveryChain(tabId, level);
+    recoveryState.lastRecoveryLevel = level;
+    recoveryState.successSinceLastRecovery = 0;
+    recoveryState.consecutiveDownloadFails = 0;
+    persistRecoveryState();
+    addLog('info', `✅ Recovery ${level} succeeded — new project ${newProjectId}`);
+    return true;
   } catch (e) {
-    addLog('warn', 'ensureFlowTabOpen failed: ' + (e.message || e));
+    addLog('error', `⛔ Recovery ${level} failed: ${e.message}`);
+    await stopAndDelete(`Recovery ${level} failed: ${e.message}`, { code: 'RECOVERY_FAILED' });
+    return false;
+  }
+}
+
+/**
+ * 终态停止：先 pausePoll 进入"已停止"，再列举并删除账号下所有 project（fire-and-forget）。
+ * 删除进度通过 BRIDGE_LOG 上报到 sidepanel；不阻塞 stop 状态切换。
+ * 幂等：多个 in-flight 任务并发触发终态时只删一轮 project。
+ */
+let deletingProjects = false;
+async function stopAndDelete(reason, options = {}) {
+  const wasAlreadyPaused = pollPaused;
+  pausePoll(reason, options);
+  if (wasAlreadyPaused || deletingProjects) {
+    // 已经在停止态或正在删除中 — 不重复发起 deleteAllUserProjects
+    return;
+  }
+  deletingProjects = true;
+  try {
+    const conn = await checkConnection().catch(() => null);
+    const tabId = conn?.tabId;
+    if (!tabId) {
+      addLog('warn', '⚠️ 无可用 Flow tab — 跳过删除 project 步骤');
+      return;
+    }
+    addLog('info', '🧹 开始列举并删除账号下所有 project');
+    await deleteAllUserProjects(tabId, (progress) => {
+      if (progress.phase === 'list-failed') {
+        addLog('error', `🧹 列举 project 失败: ${progress.error}`);
+      } else if (progress.phase === 'start') {
+        addLog('info', `🧹 共 ${progress.total} 个 project 待删除`);
+      } else if (progress.phase === 'progress' && (progress.current % 10 === 0 || progress.current === progress.total)) {
+        addLog('info', `🧹 删除中: ${progress.current}/${progress.total}（成功 ${progress.deleted} / 失败 ${progress.failed}）`);
+      } else if (progress.phase === 'done') {
+        addLog('info', `🧹 删除完成: 成功 ${progress.deleted} / 失败 ${progress.failed} / 总计 ${progress.total}`);
+      }
+    });
+  } catch (e) {
+    addLog('error', `🧹 删除 project 失败: ${e.message}`);
+  } finally {
+    deletingProjects = false;
   }
 }
 
@@ -424,7 +446,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_STATUS') {
-    const cooldownRemainingMs = getPauseRemainingMs();
+    // 已停止终态无冷却倒计时：cooldownRemainingMs / pauseUntilAt 始终为 0，
+    // sidepanel 的 "Run Now (X min)" 标签会自动退化为 "Run Now"
     sendResponse({
       running,
       currentTask: currentTasks[0] || null,
@@ -435,27 +458,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       pauseReason,
       pauseReasonCode,
       pausedAt: pollPaused ? pausedAt : 0,
-      pauseUntilAt: pollPaused ? getPauseUntilAt() : 0,
-      cooldownRemainingMs,
+      pauseUntilAt: 0,
+      cooldownRemainingMs: 0,
+      recoveryState,
     });
     return false;
   }
 
   if (msg.type === 'RUN_NOW') {
-    // 用户主动触发：尊重冷却时间，msg.force=true 时强制（即用户在 confirm 对话框中明确确认）
-    const wasPaused = pollPaused;
-    const resumed = resumePoll(msg.force === true);
-    if (wasPaused && !resumed) {
-      const remainingMs = getPauseRemainingMs();
-      sendResponse({
-        ok: false,
-        requireConfirm: pauseReasonCode !== 'DAILY_QUOTA_REACHED',
-        remainingMs,
-        pauseReason,
-        pauseReasonCode,
-      });
-      return false;
-    }
+    // 用户主动触发：终态停止下点击即恢复（已无冷却限制）；force 字段仍接受以兼容旧 sidepanel
+    resumePoll(msg.force === true);
     scheduleLoop(100);
     sendResponse({ ok: true });
     return false;
@@ -629,21 +641,29 @@ async function ensureBridgeId() {
 }
 
 async function loadPersistedState() {
-  const stored = await chrome.storage.local.get(['taskHistory', 'logHistory', PAUSE_STATE_STORAGE_KEY]);
+  const stored = await chrome.storage.local.get([
+    'taskHistory',
+    'logHistory',
+    STOP_STATE_STORAGE_KEY,
+    LEGACY_PAUSE_STATE_STORAGE_KEY,
+  ]);
   taskHistory = Array.isArray(stored.taskHistory) ? stored.taskHistory : [];
   logHistory = Array.isArray(stored.logHistory) ? stored.logHistory : [];
-  const pauseState = stored[PAUSE_STATE_STORAGE_KEY];
-  if (pauseState?.pollPaused && pauseState.pauseUntilAt > Date.now()) {
-    pollPaused = true;
-    pauseReason = pauseState.pauseReason || 'Poll paused';
-    pausedAt = pauseState.pausedAt || Date.now();
-    pauseUntilAt = pauseState.pauseUntilAt;
-    pauseReasonCode = pauseState.pauseReasonCode || null;
-    lastStatus = { connected: false, message: pauseReason };
-    scheduleAutoReopenFlow();
-  } else if (pauseState) {
-    clearPauseState();
+  // 旧版冷静期遗留 state：直接清掉，新方案不再使用
+  if (stored[LEGACY_PAUSE_STATE_STORAGE_KEY]) {
+    chrome.storage.local.remove([LEGACY_PAUSE_STATE_STORAGE_KEY]).catch(() => {});
   }
+  const stopState = stored[STOP_STATE_STORAGE_KEY];
+  if (stopState?.pollPaused) {
+    pollPaused = true;
+    pauseReason = stopState.pauseReason || 'Poll stopped';
+    pausedAt = stopState.pausedAt || Date.now();
+    pauseReasonCode = stopState.pauseReasonCode || null;
+    lastStatus = { connected: false, message: pauseReason };
+    safeAction((action) => action.setBadgeText({ text: '!' }));
+    safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
+  }
+  await loadRecoveryState();
 }
 
 async function loadConfig() {
@@ -687,6 +707,10 @@ function persistLogs() {
 function scheduleLoop(delayMs) {
   // 暂停态下不再触发任何 poll，必须等用户点 Run Now 显式恢复
   if (pollPaused) {
+    return;
+  }
+  // reCAPTCHA 恢复链运行中（reload + 建 project + settle）— 不发起新 poll，避免撞上半残 Flow tab
+  if (recoveryPromise) {
     return;
   }
   // Flow tab 不可用时不发起 poll，等 watchdog 检测到重新打开再自动 schedule
@@ -833,14 +857,14 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    // 不再在每任务成功后清零 reCAPTCHA 恢复计数：对齐 nano-b 仅在批次开始/resumePoll 时清零的粒度，
-    // 避免反复风控期间恢复预算被打穿（每次成功就回血 3 次，会让总恢复尝试远超 MAX_TOTAL_RECOVERY）。
+    // 成功 → successSinceLastRecovery++ + consecutiveDownloadFails 清零，状态持久化
+    recoveryState.successSinceLastRecovery++;
+    recoveryState.consecutiveDownloadFails = 0;
+    persistRecoveryState();
     scheduleLoop(POLL_INTERVAL_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
     const errorCode = classifyErrorCode(e.message);
-    // retryable 保持 true：服务端 failTask 当前不读 errorCode，沿用原有重试语义；
-    // 实际"风控冷却"在插件端通过 scheduleLoop 的差异化延迟实现。
     await reportFailWithRetry(service, {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -864,16 +888,34 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    // RECAPTCHA_BLOCKED / GOOGLE_BLOCKED / DAILY_QUOTA_REACHED 都是账号级问题，自动重试无意义 → 暂停 poll；
-    // 其它错误（FLOW_DISCONNECTED 由 watchdog 兜底，TIMEOUT 等可能自动恢复）走 500ms 后重试。
-    if (errorCode === 'RECAPTCHA_BLOCKED' || errorCode === 'GOOGLE_BLOCKED') {
-      pausePoll('⚠️ Google 风控触发 — 关闭并重开 Flow 标签页后点 Run Now');
-    } else if (errorCode === 'DAILY_QUOTA_REACHED') {
-      pausePoll('Google daily quota reached; paused until the next Pacific Time quota window', {
-        code: 'DAILY_QUOTA_REACHED',
-        untilAt: getNextDailyQuotaResumeAt(),
-      });
+
+    // 错误处理状态机：
+    // - DAILY_QUOTA_REACHED → 终态停止 + 删 project（账号级硬限制，重试无意义）
+    // - RECAPTCHA_BLOCKED   → 决策 L1/L2 触发恢复链；recovery 失败由 triggerRecovery 内部走 stopAndDelete
+    // - DOWNLOAD_FAILED     → 连续计数；达 3 张触发 L1 恢复
+    // - FLOW_DISCONNECTED / GOOGLE_BLOCKED / TIMEOUT / 其它 → 不动 recoveryState，500ms 后正常重试
+    if (errorCode === 'DAILY_QUOTA_REACHED') {
+      stopAndDelete('Google daily quota reached — stopped and deleting all projects', { code: 'DAILY_QUOTA_REACHED' });
+    } else if (errorCode === 'RECAPTCHA_BLOCKED') {
+      if (recoveryState.lastRecoveryLevel === 'L2') {
+        // L2 后仍 reCAPTCHA → 终态停止 + 删 project（策略第 6 条）
+        stopAndDelete('reCAPTCHA blocked after L2 recovery — stopped and deleting all projects', { code: 'RECAPTCHA_BLOCKED_AFTER_L2' });
+      } else {
+        const level = decideRecoveryLevel();
+        triggerRecovery(level);
+      }
+    } else if (errorCode === 'DOWNLOAD_FAILED') {
+      recoveryState.consecutiveDownloadFails++;
+      persistRecoveryState();
+      if (recoveryState.consecutiveDownloadFails >= RECOVERY_DOWNLOAD_FAIL_THRESHOLD) {
+        addLog('warn', `🔄 连续 ${recoveryState.consecutiveDownloadFails} 张下载失败 — 触发 L1 恢复`);
+        const level = decideRecoveryLevel();
+        triggerRecovery(level);
+      } else {
+        scheduleLoop(POLL_INTERVAL_MS);
+      }
     } else {
+      // FLOW_DISCONNECTED / GOOGLE_BLOCKED / TIMEOUT / 其它：reload 副伤等被动失败 — 不动 counter
       scheduleLoop(POLL_INTERVAL_MS);
     }
   }
