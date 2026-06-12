@@ -196,6 +196,19 @@ application:
     base-url: ${CONFIG_CENTER_BASE_URL}
   cloak:
     base-url: ${CLOAK_BASE_URL}
+  # 前端机 agent 接口（/front-agent/**）配置，详见 docs/superpowers/specs/2026-06-12-nginx-config-refactor-design.md
+  front-agent:
+    # 静态 Bearer token，逗号分隔支持多值并存（双 token 轮换窗口）；为空 = 接口禁用（一律 401）
+    tokens: ${FRONT_AGENT_TOKENS:}
+    # 证书根目录，布局：{certs-dir}/{companyId}/{domain}/fullchain.pem|privkey.pem
+    certs-dir: /www/certs/
+    # manifest 内存快照有效期（毫秒），吸收多台前端机轮询
+    manifest-cache-millis: 3000
+    # 各服务类型的 upstream 地址（host:port，逗号分隔可多个），供前端 nginx 渲染 upstream 块
+    services:
+      NUXT_MALL: ${FRONT_AGENT_SERVICE_NUXT_MALL:}
+      VIKE: ${FRONT_AGENT_SERVICE_VIKE:}
+      THYMELEAF: ${FRONT_AGENT_SERVICE_THYMELEAF:}
   s3:
     access-key-id: ${S3_ACCESS_KEY_ID}
     endpoint: ${S3_ENDPOINT}
