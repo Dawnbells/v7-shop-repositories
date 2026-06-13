@@ -128,13 +128,59 @@ func TestRunCycleCrossCompanyConflict(t *testing.T) {
 		t.Fatalf("先到的公司应正常应用: %+v", state.Company("aaa"))
 	}
 	bbb := state.Company("bbb")
-	if bbb.LastStatus != "error" || !strings.Contains(bbb.LastError, "已属于公司") {
+	if bbb.LastStatus != "error" || !strings.Contains(bbb.LastError, "已被其他公司占用") {
 		t.Fatalf("后到的公司应被冲突拒绝: %+v", bbb)
 	}
 	// 冲突公司的域名不应出现在任何渲染产物里
 	routes, _ := os.ReadFile(filepath.Join(activeTarget(cfg.DataDir), "bbb", "routes.map"))
 	if strings.Contains(string(routes), "shared.com") {
 		t.Fatalf("被拒公司的 routes.map 不应包含冲突域名")
+	}
+}
+
+// 评审 bug_007 的实际场景：B 此前已合法应用 shared.com（state 里有），
+// A 随后才声明同域。旧实现里 B 的 d.domains 仍 = prev.Domains，会把 shared.com
+// 照样渲染进 bbb/routes.map，与 aaa 的产生 nginx 重复 key。本用例锁死修复后的行为。
+func TestRunCycleCrossCompanyConflictCarryForward(t *testing.T) {
+	requireSymlink(t)
+
+	// B 先独占 shared.com 并应用
+	srvB := newFakeCompanyServer(t, "tokB")
+	srvB.manifest.Services = map[string][]string{"NUXT_MALL": {"10.0.0.6:3000"}}
+	srvB.setDomain("shared.com", "NUXT_MALL")
+
+	srvA := newFakeCompanyServer(t, "tokA")
+	srvA.manifest.Services = map[string][]string{"NUXT_MALL": {"10.0.0.5:3000"}}
+	// A 初始无任何域名
+
+	cfg, state, nc := newCycleEnv(t)
+	clients := []*companyClient{
+		srvA.companyClientFor(t, "aaa", cfg),
+		srvB.companyClientFor(t, "bbb", cfg),
+	}
+
+	// 第一轮：A 空、B 拿下 shared.com → B 的 state 持久化含 shared.com
+	runCycle(cfg, state, clients, nc)
+	if _, ok := state.Company("bbb").Domains["shared.com"]; !ok {
+		t.Fatalf("前置条件失败：B 应先合法持有 shared.com")
+	}
+
+	// 第二轮：A 现在也声明 shared.com（B 此时对 shared.com 处于 304/carry-forward）
+	srvA.setDomain("shared.com", "NUXT_MALL")
+	runCycle(cfg, state, clients, nc)
+
+	// A 先到（clients[0]）→ 占有 shared.com
+	aaaRoutes, _ := os.ReadFile(filepath.Join(activeTarget(cfg.DataDir), "aaa", "routes.map"))
+	if !strings.Contains(string(aaaRoutes), "shared.com") {
+		t.Fatalf("先到的 A 应渲染 shared.com:\n%s", aaaRoutes)
+	}
+	// B 携带的 shared.com 必须被剔除，绝不能同时出现在 bbb/routes.map（否则 nginx 重复 key）
+	bbbRoutes, _ := os.ReadFile(filepath.Join(activeTarget(cfg.DataDir), "bbb", "routes.map"))
+	if strings.Contains(string(bbbRoutes), "shared.com") {
+		t.Fatalf("carry-forward 的冲突域名必须从 B 剔除，实测仍在:\n%s", bbbRoutes)
+	}
+	if state.Company("bbb").LastStatus != "error" {
+		t.Fatalf("被剔除冲突域名的 B 应回报 error: %+v", state.Company("bbb"))
 	}
 }
 

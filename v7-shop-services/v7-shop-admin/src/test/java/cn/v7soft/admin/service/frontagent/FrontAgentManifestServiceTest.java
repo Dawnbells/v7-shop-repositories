@@ -56,7 +56,10 @@ class FrontAgentManifestServiceTest {
         properties = new FrontAgentProperties();
         properties.setCertsDir(certsDir.toString());
         properties.setManifestCacheMillis(0); // 关闭快照缓存，保证每次断言都走真实构建
-        properties.setServices(Map.of(NginxConfigType.NUXT_MALL, List.of("127.0.0.1:3000")));
+        // 两种类型都配地址，使「serviceType 默认 THYMELEAF」等用例不被 bug_004 的跳过逻辑影响
+        properties.setServices(Map.of(
+                NginxConfigType.NUXT_MALL, List.of("127.0.0.1:3000"),
+                NginxConfigType.THYMELEAF, List.of("127.0.0.1:8080")));
         service = new FrontAgentManifestService(
                 topLevelDomainRepository, frontAgentReportRepository, properties, new CertFingerprintCache());
     }
@@ -114,6 +117,22 @@ class FrontAgentManifestServiceTest {
         assertEquals("ok.com", body.get("domains").get(0).get("domain").asText());
         assertEquals("THYMELEAF", body.get("domains").get(0).get("serviceType").asText(),
                 "与旧 NginxConfigWriter 的默认值保持一致");
+    }
+
+    @Test
+    @DisplayName("manifest: 未配 upstream 地址的服务类型，其域名被 per-domain 跳过（评审 bug_004）")
+    void manifestSkipsDomainsWhoseServiceTypeHasNoAddress() throws IOException {
+        writeCert("nuxt.com");
+        writeCert("vike.com");
+        // VIKE 未在 services 中配置地址 → 只应跳过 vike.com，绝不影响 nuxt.com
+        when(topLevelDomainRepository.findAllAgentServableDomains())
+                .thenReturn(List.of(domain("nuxt.com", NginxConfigType.NUXT_MALL), domain("vike.com", NginxConfigType.VIKE)));
+
+        JsonNode body = mapper.readTree(service.getManifest().body());
+
+        assertEquals(1, body.get("domains").size(), "未配地址类型的域名应被跳过，不拖垮整单");
+        assertEquals("nuxt.com", body.get("domains").get(0).get("domain").asText());
+        assertNull(body.get("services").get("VIKE"), "未配地址的服务类型不应出现在 services");
     }
 
     @Test

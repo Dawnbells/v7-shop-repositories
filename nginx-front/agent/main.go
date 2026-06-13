@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -115,10 +116,8 @@ func runCycle(cfg *Config, state *State, clients []*companyClient, nc NginxContr
 	}
 	wg.Wait()
 
-	// ── 3. 组装期望状态（state ∪ 新结果）+ 跨公司冲突检查 ─────────
+	// ── 3a. 组装每家公司的期望状态（state ∪ 新结果）──────────────
 	desiredAll := make(map[string]*desiredState, len(clients))
-	claimed := map[string]string{} // 域名 → 公司（冲突检测）
-
 	for i, client := range clients {
 		name := client.cfg.Name
 		prev := state.Company(name)
@@ -130,29 +129,51 @@ func runCycle(cfg *Config, state *State, clients []*companyClient, nc NginxContr
 			prev.LastStatus, prev.LastError = "error", res.Err.Error()
 			logError("公司 %s 本轮失败: %v", name, res.Err)
 		} else if res.Changed {
-			// 跨公司冲突：检查新清单是否抢占了别家（已登记）的域名
-			conflict := ""
-			for domain := range res.Domains {
-				if owner, ok := claimed[domain]; ok && owner != name {
-					conflict = fmt.Sprintf("域名 %s 已属于公司 %s，拒绝本次更新（防配置错误劫持他家域名）", domain, owner)
-					break
-				}
-			}
-			if conflict != "" {
-				prev.LastStatus, prev.LastError = "error", conflict
-				logError("公司 %s: %s", name, conflict)
-			} else {
-				d.services, d.domains, d.newCerts, d.changed = res.Services, res.Domains, res.Certs, true
-			}
+			d.services, d.domains, d.newCerts, d.changed = res.Services, res.Domains, res.Certs, true
 		} else {
 			// 304：沿用现状，状态恢复 ok
 			prev.LastStatus, prev.LastError = "ok", ""
 		}
+		desiredAll[name] = d
+	}
 
+	// ── 3b. 跨公司域名冲突去重：按 clients 顺序「先到者占有」域名 ──
+	// 后到公司携带的冲突域名——无论来自新 manifest 还是上一轮遗留的 prev.Domains
+	// （这正是评审 bug_007 揭示的漏洞：被拒公司的 prev.Domains 仍会把争议域名渲染出去）
+	// ——一律剔除并回报 error。既防一家公司配置错误劫持他家域名，也杜绝同名域名在两家
+	// routes.map 里产生 nginx hostnames 重复 key。
+	claimed := map[string]string{}
+	for _, client := range clients {
+		name := client.cfg.Name
+		d := desiredAll[name]
+		var stolen []string
+		for domain := range d.domains {
+			if owner, ok := claimed[domain]; ok && owner != name {
+				stolen = append(stolen, domain)
+			}
+		}
+		if len(stolen) > 0 {
+			// 写时复制：d.domains 可能与 state 里的 prev.Domains 是同一个 map 引用，
+			// 直接删会污染持久状态，必须先拷贝再剔除冲突域名。
+			filtered := make(map[string]DomainState, len(d.domains))
+			for domain, st := range d.domains {
+				if owner := claimed[domain]; owner == "" || owner == name {
+					filtered[domain] = st
+				}
+			}
+			d.domains = filtered
+			// changed 置 false：跳过 adoptResults 的「ok 改写」以保住 error 状态；
+			// 剔除后的域名仍由后续 section 4 渲染，内容哈希稳定后自然零动作收敛。
+			d.changed = false
+			sort.Strings(stolen)
+			prev := state.Company(name)
+			prev.LastStatus = "error"
+			prev.LastError = fmt.Sprintf("域名 %v 已被其他公司占用，已从本公司配置剔除（防配置错误劫持他家域名）", stolen)
+			logError("公司 %s: %s", name, prev.LastError)
+		}
 		for domain := range d.domains {
 			claimed[domain] = name
 		}
-		desiredAll[name] = d
 	}
 
 	// ── 4. 渲染并构建候选 release ───────────────────────────────

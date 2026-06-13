@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -34,9 +35,10 @@ public class CertFingerprintCache {
      * 返回文件内容的 SHA-256（小写 hex）；文件不存在或不可读返回 null。
      */
     public String sha256(Path file) {
+        // key 上移到 try 首行：NoSuchFileException 分支也能据此清掉已删文件的残留条目
+        String key = file.toAbsolutePath().toString();
         try {
             BasicFileAttributes attrs = Files.readAttributes(file, BasicFileAttributes.class);
-            String key = file.toAbsolutePath().toString();
             long mtime = attrs.lastModifiedTime().toMillis();
             Fingerprint hit = cache.get(key);
             if (hit != null && hit.lastModifiedMillis() == mtime && hit.size() == attrs.size()) {
@@ -47,10 +49,21 @@ public class CertFingerprintCache {
             cache.put(key, new Fingerprint(mtime, attrs.size(), sha));
             return sha;
         } catch (NoSuchFileException e) {
+            cache.remove(key); // 文件已删：清掉缓存条目，避免孤儿常驻
             return null;
         } catch (Exception e) {
             log.warn("读取证书指纹失败: {}", file, e);
             return null;
         }
+    }
+
+    /**
+     * 反向清扫：只保留 liveKeys 中的条目，丢弃其余孤儿。
+     * 由 manifest 构建末尾调用（liveKeys = 本轮所有有效域名访问过的证书路径），
+     * 覆盖「域名删除后 manifest 不再查询其 path」这类被动分支兜不到的孤儿，
+     * 防 ConcurrentHashMap 在万级店铺多年 churn 下单调增长。
+     */
+    public void retainAll(Set<String> liveKeys) {
+        cache.keySet().retainAll(liveKeys);
     }
 }

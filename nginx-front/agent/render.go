@@ -98,7 +98,11 @@ type releaseCompany struct {
 
 // buildRelease 在 releases/ 下构建候选目录并计算内容哈希。
 // 返回 (候选目录路径, 内容哈希, error)。调用方负责后续的幂等比对/校验/切换/清理。
-func buildRelease(dataDir string, in releaseInput, activeDir string) (string, string, error) {
+//
+// 用命名返回值 + defer：任何中途错误都就地清掉 .building-* 临时目录，
+// 不依赖调用方（调用方拿到的是空路径，且 defer 注册在错误检查之后，兜不住）。
+// pruneReleases 又故意跳过点开头目录，泄漏的临时目录永远不会被回收——必须在这里自清。
+func buildRelease(dataDir string, in releaseInput, activeDir string) (releasePath string, contentHash string, retErr error) {
 	releasesDir := filepath.Join(dataDir, "releases")
 	if err := os.MkdirAll(releasesDir, 0o755); err != nil {
 		return "", "", err
@@ -108,6 +112,12 @@ func buildRelease(dataDir string, in releaseInput, activeDir string) (string, st
 	if err != nil {
 		return "", "", err
 	}
+	// 仅错误路径清理；成功路径由 finalizeRelease 先 rename 走，这里的 RemoveAll 落空无害
+	defer func() {
+		if retErr != nil {
+			_ = os.RemoveAll(building)
+		}
+	}()
 
 	// _system 调优配置
 	sysDir := filepath.Join(building, "_system")

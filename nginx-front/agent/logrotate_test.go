@@ -3,6 +3,8 @@ package main
 // logrotate_test.go —— 日志轮转与保留份数测试。
 
 import (
+	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,9 +40,43 @@ func TestRotateLogsCompressesAndSignals(t *testing.T) {
 	if len(gz) != 1 {
 		t.Fatalf("轮转文件应被 gzip, got %v", gz)
 	}
+	// 评审 bug_006：原子化后不得残留 .gz.tmp 半成品
+	tmp, _ := filepath.Glob(filepath.Join(logsDir, "*.gz.tmp"))
+	if len(tmp) != 0 {
+		t.Fatalf("不应残留 .gz.tmp 半成品: %v", tmp)
+	}
 	// error.log 未超限不动
 	if _, err := os.Stat(filepath.Join(logsDir, "error.log")); err != nil {
 		t.Fatalf("未超限的 error.log 不应被动")
+	}
+}
+
+// 评审 bug_006：gzipFile 成功后只留完整 .gz，绝无 .gz.tmp；产物可被 gunzip 还原。
+func TestGzipFileAtomicAndValid(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "x.log.20260101T000000")
+	want := strings.Repeat("hello-log\n", 1000)
+	if err := os.WriteFile(src, []byte(want), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipFile(src); err != nil {
+		t.Fatalf("gzipFile 失败: %v", err)
+	}
+	if _, err := os.Stat(src + ".gz.tmp"); !os.IsNotExist(err) {
+		t.Fatalf("不应残留 .gz.tmp")
+	}
+	f, err := os.Open(src + ".gz")
+	if err != nil {
+		t.Fatalf("应生成 .gz: %v", err)
+	}
+	defer f.Close()
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf(".gz 不可解压（半成品）: %v", err)
+	}
+	got, _ := io.ReadAll(gr)
+	if string(got) != want {
+		t.Fatalf("解压内容不一致")
 	}
 }
 

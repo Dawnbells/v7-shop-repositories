@@ -19,12 +19,14 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -142,16 +144,40 @@ public class FrontAgentManifestService {
      * {"version":"sha256:..","services":{"NUXT_MALL":["host:port"]},"domains":[{domain,serviceType,fullchainSha256,privkeySha256}]}
      */
     private ManifestSnapshot build() {
+        // 先组装 services（服务类型 → upstream 地址），供下方域名循环按类型过滤。
+        // TreeMap：服务类型按名称排序，保证序列化顺序确定。
+        Map<String, Object> services = new TreeMap<>();
+        properties.getServices().forEach((type, addresses) -> {
+            List<String> cleaned = addresses == null ? List.of()
+                    : addresses.stream().map(String::trim).filter(s -> !s.isEmpty()).toList();
+            if (!cleaned.isEmpty()) {
+                services.put(type.name(), cleaned);
+            }
+        });
+
         List<TopLevelDomain> domains = new ArrayList<>(topLevelDomainRepository.findAllAgentServableDomains());
         domains.sort(Comparator.comparing(TopLevelDomain::getName));
+
+        // 本轮访问过的证书文件 key，供 build 末尾反向清扫 fingerprintCache 的孤儿条目
+        Set<String> touchedCertKeys = new HashSet<>();
 
         List<Map<String, Object>> domainEntries = new ArrayList<>(domains.size());
         for (TopLevelDomain domain : domains) {
             // 与旧 NginxConfigWriter 的默认值保持一致：未指定类型按 THYMELEAF 处理
             NginxConfigType type = domain.getNginxConfigType() == null ? NginxConfigType.THYMELEAF : domain.getNginxConfigType();
+            // 某服务类型未配 upstream 地址时，只跳过它名下的域名（per-domain），
+            // 绝不能让一个未配置的老类型域名拖垮整个 manifest 冻结全公司（评审 bug_004）。
+            if (!services.containsKey(type.name())) {
+                log.warn("manifest 跳过未配置 upstream 地址的域名: {} (serviceType={})", domain.getName(), type);
+                continue;
+            }
             Path certDir = Paths.get(properties.getCertsDir(), String.valueOf(domain.getCompanyId()), domain.getName());
-            String fullchainSha = fingerprintCache.sha256(certDir.resolve("fullchain.pem"));
-            String privkeySha = fingerprintCache.sha256(certDir.resolve("privkey.pem"));
+            Path fullchainPath = certDir.resolve("fullchain.pem");
+            Path privkeyPath = certDir.resolve("privkey.pem");
+            touchedCertKeys.add(fullchainPath.toAbsolutePath().toString());
+            touchedCertKeys.add(privkeyPath.toAbsolutePath().toString());
+            String fullchainSha = fingerprintCache.sha256(fullchainPath);
+            String privkeySha = fingerprintCache.sha256(privkeyPath);
             if (fullchainSha == null || privkeySha == null) {
                 // 证书目录不存在 = 不满足「有效域名」（正常绑定流程会先写占位证书，此处属异常残留）
                 log.warn("manifest 跳过缺少证书文件的域名: {} ({})", domain.getName(), certDir);
@@ -165,15 +191,9 @@ public class FrontAgentManifestService {
             domainEntries.add(entry);
         }
 
-        // TreeMap：服务类型按名称排序，保证序列化顺序确定
-        Map<String, Object> services = new TreeMap<>();
-        properties.getServices().forEach((type, addresses) -> {
-            List<String> cleaned = addresses == null ? List.of()
-                    : addresses.stream().map(String::trim).filter(s -> !s.isEmpty()).toList();
-            if (!cleaned.isEmpty()) {
-                services.put(type.name(), cleaned);
-            }
-        });
+        // 反向清扫：丢弃不再被任何有效域名引用的指纹缓存条目（覆盖「域名删除后 manifest
+        // 不再查询其 path」的孤儿，防 ConcurrentHashMap 单调增长，评审 bug_003）
+        fingerprintCache.retainAll(touchedCertKeys);
 
         try {
             Map<String, Object> inner = new LinkedHashMap<>();

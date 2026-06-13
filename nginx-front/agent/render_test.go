@@ -167,6 +167,32 @@ func TestHashTreeIgnoresDotFiles(t *testing.T) {
 	}
 }
 
+// 评审 bug_001：buildRelease 中途出错时不得残留 .building-* 临时目录
+// （pruneReleases 故意跳过点开头目录，泄漏将永不回收并与磁盘水位保护自放大）。
+func TestBuildReleaseCleansUpOnError(t *testing.T) {
+	dataDir := t.TempDir()
+	// 域名证书不在 NewCerts 里，且 activeDir 为空 → linkOrCopy 找不到源文件而失败
+	input := releaseInput{
+		SystemFiles: map[string]string{"main.conf": "worker_processes 1;\n"},
+		Companies: []releaseCompany{{
+			Name:     "xyz",
+			Files:    CompanyFiles{},
+			Domains:  map[string]DomainState{"a.com": {ServiceType: "NUXT_MALL"}},
+			NewCerts: nil, // 强制走「从 active 复用」分支
+		}},
+	}
+	_, _, err := buildRelease(dataDir, input, "" /* activeDir 缺失 */)
+	if err == nil {
+		t.Fatalf("缺少证书来源时 buildRelease 应返回错误")
+	}
+	entries, _ := os.ReadDir(filepath.Join(dataDir, "releases"))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".building-") {
+			t.Fatalf("出错后不应残留临时目录: %s", e.Name())
+		}
+	}
+}
+
 func TestWriteShadowConfReplacesActivePath(t *testing.T) {
 	dir := t.TempDir()
 	mainConf := filepath.Join(dir, "nginx.conf")

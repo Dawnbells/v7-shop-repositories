@@ -83,22 +83,41 @@ func pruneRotated(logsDir, name string, keep int) {
 	}
 }
 
-func gzipFile(path string) error {
+// gzipFile 把 path 压缩为 path+".gz"。
+// 原子化：先写 .gz.tmp，全部成功后 rename 到 .gz；任何错误删临时文件后返回。
+// 这样 pruneRotated 的 glob `*.gz` 永远只看到完整文件——杜绝半成品 .gz 因时间戳最新
+// 被当成「最新有效份」保留、把真正有效的旧日志挤掉（评审 bug_006）。
+func gzipFile(path string) (retErr error) {
 	in, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(path + ".gz")
+
+	tmp := path + ".gz.tmp"
+	out, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	// 错误时清掉半成品临时文件，绝不留下能被 glob 命中的 .gz
+	defer func() {
+		if retErr != nil {
+			out.Close()
+			_ = os.Remove(tmp)
+		}
+	}()
+
 	gw := gzip.NewWriter(out)
 	if _, err := io.Copy(gw, in); err != nil {
 		return err
 	}
-	return gw.Close() // Close 才会把压缩尾块刷出去，必须检查错误
+	if err := gw.Close(); err != nil { // Close 才会把压缩尾块刷出去，必须检查错误
+		return err
+	}
+	if err := out.Close(); err != nil { // 显式 Close 以捕获最终 flush 错误
+		return err
+	}
+	return os.Rename(tmp, path+".gz") // 原子落定：要么完整 .gz，要么没有
 }
 
 // checkDiskWatermark 检查数据卷水位。

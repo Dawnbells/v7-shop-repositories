@@ -27,8 +27,10 @@ services:
     # CPU/内存配额（空 = 不限，即宿主机全量；agent 的自动调优读取同样的值）
     cpus: ${FRONT_CPU_LIMIT:-0}
     mem_limit: ${FRONT_MEM_LIMIT:-0}
+    # nofile 上限必须 ≥ agent 自动调优渲染的 worker_rlimit_nofile（公式上限 131072），
+    # 否则 nginx setrlimit 静默被截断、有效 fd 容量减半。默认 1048576 高于任何调优/覆盖值。
     ulimits:
-      nofile: { soft: 65536, hard: 65536 }
+      nofile: { soft: ${FRONT_NOFILE_LIMIT:-1048576}, hard: ${FRONT_NOFILE_LIMIT:-1048576} }
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 443 || exit 1"]
       interval: 30s
