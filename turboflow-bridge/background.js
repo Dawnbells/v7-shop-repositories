@@ -16,7 +16,10 @@ const FLOW_URL = 'https://labs.google/fx/zh/tools/flow/';
 const POLL_INTERVAL_MS = 500;
 const STAGGER_STEP_MS = 250;
 const CONCURRENCY = 4;
-const TRANSLATE_START_INTERVAL_MS = 20 * 1000;
+// 两次「启动翻译任务」之间的最小间隔，每次启动时在 [MIN, MAX] 内随机摇定一个下次允许时间戳
+// （见 nextTranslateAllowedAt）。随机化对齐本扩展整体的反风控风格，避免固定节拍被识别。
+const TRANSLATE_START_INTERVAL_MIN_MS = 2 * 1000;
+const TRANSLATE_START_INTERVAL_MAX_MS = 5 * 1000;
 const STOP_STATE_STORAGE_KEY = 'bridgeStopState';
 const RECOVERY_STATE_STORAGE_KEY = 'bridgeRecoveryState';
 const RECOVERY_SUCCESS_THRESHOLD = 20;
@@ -70,7 +73,9 @@ let timerId = null;
 let serviceCursor = 0;
 let lastStatus = { connected: false, message: 'Not checked' };
 let nextPollAt = 0;
-let lastTranslateStartAt = 0;
+// 启动任务时摇定的「下次允许启动翻译」时间戳（now + random(2~5s)）；runLoop 只跟这个固定值比较，
+// 避免每个 poll tick 重新摇随机导致阈值乱跳。
+let nextTranslateAllowedAt = 0;
 let taskHistory = [];
 let logHistory = [];
 
@@ -746,7 +751,7 @@ async function runLoop() {
       return;
     }
 
-    const waitForTranslateSlot = lastTranslateStartAt + TRANSLATE_START_INTERVAL_MS - Date.now();
+    const waitForTranslateSlot = nextTranslateAllowedAt - Date.now();
     if (waitForTranslateSlot > 0) {
       scheduleLoop(waitForTranslateSlot);
       scheduleNext = false;
@@ -775,7 +780,10 @@ async function runLoop() {
         const staggerIndex = currentTasks.length; // 当前已占槽位 0..3，对齐 nano-b 的 250*i 错峰
         addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
         serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
-        lastTranslateStartAt = Date.now();
+        // 启动这一刻摇定下次允许时间：2~5s 均匀随机
+        const interval = TRANSLATE_START_INTERVAL_MIN_MS
+          + Math.random() * (TRANSLATE_START_INTERVAL_MAX_MS - TRANSLATE_START_INTERVAL_MIN_MS);
+        nextTranslateAllowedAt = Date.now() + interval;
         executeTask(service, task, staggerIndex, conn).catch((e) => addLog('error', `Task runner error: ${e.message}`));
         break;
       }
