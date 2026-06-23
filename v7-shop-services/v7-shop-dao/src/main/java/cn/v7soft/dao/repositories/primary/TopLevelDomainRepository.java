@@ -30,4 +30,20 @@ public interface TopLevelDomainRepository extends BaseRepository<TopLevelDomain>
      */
     @Query("SELECT d FROM TopLevelDomain d LEFT JOIN FETCH d.owner WHERE d.status <> 'DELETED'")
     List<TopLevelDomain> findAllValidDomains();
+
+    /**
+     * 前端机 agent manifest 用：当前公司下所有「存在已绑定商城的活跃 WEBSITE 子域名」的一级域名。
+     * 判定口径与旧 NginxConfigWriter 的写入条件对齐（绑定商城域名时才写 nginx 配置）。
+     * 注意：依赖 Hibernate @TenantId 自动过滤当前公司，必须在已设置租户的请求上下文中调用。
+     */
+    @Query("SELECT DISTINCT d FROM TopLevelDomain d WHERE d.status <> 'DELETED' AND EXISTS (" +
+            "SELECT s.id FROM SubDomain s WHERE s.parentDomain = d AND s.type = 'WEBSITE' " +
+            "AND s.status <> 'DELETED' AND s.website IS NOT NULL)")
+    List<TopLevelDomain> findAllAgentServableDomains();
+
+    /**
+     * 按域名名称查询未删除的一级域名（租户内）。前端机 agent 下载证书前用于校验域名归属。
+     */
+    @Query("FROM TopLevelDomain WHERE name = :name AND status <> 'DELETED'")
+    List<TopLevelDomain> findValidByName(@Param("name") String name);
 }
