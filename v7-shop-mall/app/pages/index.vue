@@ -29,7 +29,12 @@ const hasTheme = computed(() => hasThemeConfig.value && !!pageSchema.value)
 
 // 设置页面标题
 useHead({
-  title: computed(() => siteConfig.value?.globalConfig?.siteName || '首页'),
+  title: computed(
+    () =>
+      siteConfig.value?.globalConfig?.seoTitle ||
+      siteConfig.value?.globalConfig?.siteName ||
+      '首页',
+  ),
 })
 
 // 提供编辑器状态（非编辑器模式）

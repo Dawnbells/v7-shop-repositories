@@ -1,19 +1,78 @@
 <script setup lang="ts">
-// RTL 模式：根据站点功能设置给 <html> 设置 dir
-// 仅作用于真实店铺前台；/builder 编辑器路由强制 ltr，避免编辑器界面整体翻转
+// Set document-level attributes and metadata from site config.
+// The builder route stays ltr so the editor UI is not mirrored.
 const { siteConfig } = usePageContext()
+const { buildImageUrl } = useImageUrl()
 const route = useRoute()
+
+const globalConfig = computed(() => siteConfig.value?.globalConfig || {})
 
 const htmlDir = computed(() => {
   if (route.path.startsWith('/builder')) return 'ltr'
-  return siteConfig.value?.globalConfig?.rtlMode ? 'rtl' : 'ltr'
+  return globalConfig.value.rtlMode ? 'rtl' : 'ltr'
 })
 
-useHead({
+const faviconHref = computed(() => buildImageUrl(globalConfig.value.favicon))
+const titleSuffix = computed(() => globalConfig.value.browserTabTitle || '')
+const metaDescription = computed(
+  () => globalConfig.value.seoDescription || globalConfig.value.description || '',
+)
+const metaKeywords = computed(() => globalConfig.value.seoKeywords || '')
+
+function formatTitle(title?: string) {
+  const suffix = titleSuffix.value
+  if (!title) return suffix || ''
+  if (!suffix || title === suffix || title.endsWith(` - ${suffix}`)) {
+    return title
+  }
+  return `${title} - ${suffix}`
+}
+
+useHead(() => ({
   htmlAttrs: {
-    dir: htmlDir,
+    dir: htmlDir.value,
   },
-})
+  titleTemplate: formatTitle,
+  link: faviconHref.value
+    ? [
+        {
+          key: 'site-favicon',
+          rel: 'icon',
+          href: faviconHref.value,
+        },
+        {
+          key: 'site-shortcut-icon',
+          rel: 'shortcut icon',
+          href: faviconHref.value,
+        },
+      ]
+    : [],
+  meta: [
+    ...(metaDescription.value
+      ? [
+          {
+            key: 'description',
+            name: 'description',
+            content: metaDescription.value,
+          },
+          {
+            key: 'og-description',
+            property: 'og:description',
+            content: metaDescription.value,
+          },
+        ]
+      : []),
+    ...(metaKeywords.value
+      ? [
+          {
+            key: 'keywords',
+            name: 'keywords',
+            content: metaKeywords.value,
+          },
+        ]
+      : []),
+  ],
+}))
 </script>
 
 <template>

@@ -3,9 +3,10 @@
  * 用于在客户端渲染时解析组件的属性绑定和样式绑定
  * 
  * 绑定路径前缀映射：
- * - custom.xxx     -> variableValues[xxx]
- * - siteConfig.xxx -> siteConfig[xxx] 或 siteConfig.globalConfig[xxx]
- * - globalStyle.xxx -> siteConfig.globalStyle[xxx]
+ * - custom.xxx      -> variableValues[xxx]
+ * - globalConfig.xxx -> siteConfig.globalConfig[xxx]
+ * - siteConfig.xxx   -> siteConfig[xxx]
+ * - globalStyle.xxx  -> siteConfig.globalStyle[xxx]
  * - product.xxx    -> inject('productData')[xxx]
  * - article.xxx    -> inject('articleData')[xxx]
  */
@@ -72,6 +73,8 @@ export function useBindingResolver() {
     if (variableKey.startsWith('custom.')) {
       // 自定义变量：custom.logo -> variableValues.logo
       value = getValueByPath(context.custom, variableKey.slice(7))
+    } else if (variableKey.startsWith('globalConfig.')) {
+      value = getValueByPath(context.siteConfig, variableKey.slice(13))
     } else if (variableKey.startsWith('siteConfig.')) {
       // 站点配置：siteConfig.siteName -> siteConfig.siteName
       value = getValueByPath(context.siteConfig, variableKey.slice(11))
