@@ -1,116 +1,119 @@
-/**
- * useImageUrl - 图片 URL 处理 Composable
- * 
- * 用于前端渲染时处理图片 URL：
- * - 自动添加 CDN 前缀（相对路径）
- * - 支持降级 URL（主链接失败时重试）
- */
+type ImagePublicRuntimeConfig = {
+  imageBaseUrl?: string
+  imageFallbackUrl?: string
+  [key: string]: unknown
+}
 
-/**
- * 构建完整的图片 URL
- * - 如果是 http:// 或 https:// 开头，直接返回
- * - 否则拼接 imageBaseUrl 前缀
- */
-export function buildImageUrl(path: string | undefined | null): string {
+type ImageRuntimeConfig = {
+  public?: ImagePublicRuntimeConfig
+}
+
+type ImageUrlBuilders = {
+  buildImageUrl: (path: string | undefined | null) => string
+  buildFallbackImageUrl: (path: string | undefined | null) => string
+}
+
+function getPublicConfigValue(
+  config: ImageRuntimeConfig,
+  key: 'imageBaseUrl' | 'imageFallbackUrl',
+): string {
+  const value = config.public?.[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function isAbsoluteUrl(path: string): boolean {
+  return path.startsWith('http://') || path.startsWith('https://')
+}
+
+function isLocalMockAsset(path: string): boolean {
+  return path.startsWith('/mock/')
+}
+
+function joinImageBaseUrl(path: string | undefined | null, baseUrl: string): string {
   if (!path) return ''
-  
-  // 已经是完整 URL，直接返回
-  if (path.startsWith('http://') || path.startsWith('https://')) {
+
+  if (isAbsoluteUrl(path) || isLocalMockAsset(path) || !baseUrl) {
     return path
   }
-  
-  // public/mock 目录下的本地资源，直接使用相对路径
-  if (path.startsWith('/mock/')) {
-    return path
-  }
-  
-  const config = useRuntimeConfig()
-  const baseUrl = config.public.imageBaseUrl as string
-  
-  if (!baseUrl) {
-    return path
-  }
-  
-  // 拼接 URL
+
   const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
   const cleanPath = path.startsWith('/') ? path : `/${path}`
-  
+
   return `${cleanBaseUrl}${cleanPath}`
 }
 
-/**
- * 构建降级图片 URL
- * - 使用 imageFallbackUrl 替代 imageBaseUrl
- */
-export function buildFallbackImageUrl(path: string | undefined | null): string {
+function joinFallbackImageBaseUrl(path: string | undefined | null, fallbackUrl: string): string {
   if (!path) return ''
-  
-  // 已经是完整 URL，无法降级
-  if (path.startsWith('http://') || path.startsWith('https://')) {
+
+  if (isAbsoluteUrl(path) || isLocalMockAsset(path) || !fallbackUrl) {
     return ''
   }
-  
-  // public/mock 目录下的本地资源，不需要降级
-  if (path.startsWith('/mock/')) {
-    return ''
-  }
-  
-  const config = useRuntimeConfig()
-  const fallbackUrl = config.public.imageFallbackUrl as string
-  
-  if (!fallbackUrl) {
-    return ''
-  }
-  
-  // 拼接 URL
+
   const cleanBaseUrl = fallbackUrl.endsWith('/') ? fallbackUrl.slice(0, -1) : fallbackUrl
   const cleanPath = path.startsWith('/') ? path : `/${path}`
-  
+
   return `${cleanBaseUrl}${cleanPath}`
 }
 
+function createImageUrlBuilders(config: ImageRuntimeConfig): ImageUrlBuilders {
+  const imageBaseUrl = getPublicConfigValue(config, 'imageBaseUrl')
+  const imageFallbackUrl = getPublicConfigValue(config, 'imageFallbackUrl')
+
+  return {
+    buildImageUrl: (path) => joinImageBaseUrl(path, imageBaseUrl),
+    buildFallbackImageUrl: (path) => joinFallbackImageBaseUrl(path, imageFallbackUrl),
+  }
+}
+
 /**
- * useImageWithFallback - 带降级的图片 URL
- * 
- * 返回响应式的图片 URL，当主链接加载失败时自动切换到降级链接
- * 
- * @param originalPath - 原始图片路径（可以是响应式的）
- * @returns { currentUrl, handleError, isUsingFallback }
+ * Builds a full image URL.
  */
-export function useImageWithFallback(originalPath: MaybeRef<string | undefined | null>) {
+export function buildImageUrl(path: string | undefined | null): string {
+  const config = useRuntimeConfig() as unknown as ImageRuntimeConfig
+  return joinImageBaseUrl(path, getPublicConfigValue(config, 'imageBaseUrl'))
+}
+
+/**
+ * Builds a fallback image URL.
+ */
+export function buildFallbackImageUrl(path: string | undefined | null): string {
+  const config = useRuntimeConfig() as unknown as ImageRuntimeConfig
+  return joinFallbackImageBaseUrl(path, getPublicConfigValue(config, 'imageFallbackUrl'))
+}
+
+function useImageWithFallbackInternal(
+  originalPath: MaybeRef<string | undefined | null>,
+  builders: ImageUrlBuilders,
+) {
   const path = toRef(originalPath)
   const isUsingFallback = ref(false)
-  
-  // 当前使用的 URL
+
   const currentUrl = computed(() => {
     const p = path.value
     if (!p) return ''
-    
+
     if (isUsingFallback.value) {
-      const fallback = buildFallbackImageUrl(p)
-      return fallback || buildImageUrl(p)
+      const fallback = builders.buildFallbackImageUrl(p)
+      return fallback || builders.buildImageUrl(p)
     }
-    
-    return buildImageUrl(p)
+
+    return builders.buildImageUrl(p)
   })
-  
-  // 处理图片加载错误
+
   const handleError = (event: Event) => {
     const img = event.target as HTMLImageElement
-    const fallbackUrl = buildFallbackImageUrl(path.value)
-    
-    // 如果有降级 URL 且当前不是降级状态，切换到降级
+    const fallbackUrl = builders.buildFallbackImageUrl(path.value)
+
     if (fallbackUrl && !isUsingFallback.value) {
       isUsingFallback.value = true
       img.src = fallbackUrl
     }
   }
-  
-  // 当路径变化时重置降级状态
+
   watch(path, () => {
     isUsingFallback.value = false
   })
-  
+
   return {
     currentUrl,
     handleError,
@@ -119,13 +122,23 @@ export function useImageWithFallback(originalPath: MaybeRef<string | undefined |
 }
 
 /**
- * useImageUrl composable
- * 提供图片 URL 处理的工具方法
+ * Returns a reactive image URL with fallback handling.
+ */
+export function useImageWithFallback(originalPath: MaybeRef<string | undefined | null>) {
+  const builders = createImageUrlBuilders(useRuntimeConfig() as unknown as ImageRuntimeConfig)
+  return useImageWithFallbackInternal(originalPath, builders)
+}
+
+/**
+ * Provides image URL helpers bound to the current Nuxt setup context.
  */
 export function useImageUrl() {
+  const builders = createImageUrlBuilders(useRuntimeConfig() as unknown as ImageRuntimeConfig)
+
   return {
-    buildImageUrl,
-    buildFallbackImageUrl,
-    useImageWithFallback,
+    buildImageUrl: builders.buildImageUrl,
+    buildFallbackImageUrl: builders.buildFallbackImageUrl,
+    useImageWithFallback: (originalPath: MaybeRef<string | undefined | null>) =>
+      useImageWithFallbackInternal(originalPath, builders),
   }
 }
