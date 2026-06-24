@@ -1,6 +1,7 @@
 package cn.v7soft.admin.controller;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -291,8 +292,14 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
     @PostMapping("/copySpu")
     @SaCheckPermission("employee.copySpu")
     public Map<String, Object> copySpu(@Valid @RequestBody CopyEmployeeSpuRequest request) {
-        Long sourceUserId = Long.valueOf(request.getSourceUserId());
-        Long targetUserId = Long.valueOf(request.getTargetUserId());
+        Long sourceUserId;
+        Long targetUserId;
+        try {
+            sourceUserId = Long.valueOf(request.getSourceUserId());
+            targetUserId = Long.valueOf(request.getTargetUserId());
+        } catch (NumberFormatException e) {
+            throw ClientResponseEnum.PARAMETER_ILLEGAL.newException("员工ID不正确");
+        }
         ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(!Objects.equals(sourceUserId, targetUserId), "不能复制给员工自己");
 
         SystemUser sourceUser = service.findById(sourceUserId)
@@ -302,11 +309,13 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
 
         SystemUserDto loginUser = SaSessionUtil.getLoginUser();
         Long sourceDeptId = sourceUser.getDepartment() == null ? null : sourceUser.getDepartment().getId();
-        Long targetDeptId = targetUser.getDepartment() != null ? targetUser.getDepartment().getId() : 1L;
+        Long targetDeptId = targetUser.getDepartment() == null ? null : targetUser.getDepartment().getId();
 
-        // 操作者须对源员工有管理权
+        // 操作者须对源员工与目标员工都有管理权（目标侧校验防止越权把商品推给管辖范围外的员工）
         ClientResponseEnum.NO_PERMISSION.assertTrue(
                 loginUser.hasManagerPermission(sourceUserId, sourceDeptId), "您无权操作该员工名下的商品");
+        ClientResponseEnum.NO_PERMISSION.assertTrue(
+                loginUser.hasManagerPermission(targetUserId, targetDeptId), "您无权将商品复制给该目标员工");
         // 跨部门规则：非管理员/深度部门经理仅限同部门复制
         if (!loginUser.isAdmin() && !loginUser.isDeepDepartmentManager()) {
             ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(
@@ -323,15 +332,21 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
         long total = spuService.countSpuByOwner(sourceUserId);
         ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(total > 0, "该员工名下暂无可复制的商品");
 
+        // 目标部门可能为 null（无部门员工）；用 HashMap 以允许省略该键，
+        // 下游 getNextSpuUserCode(null) 会落到"无部门"序列，避免整批副本撞同一 code
+        Map<String, Object> taskParams = new HashMap<>();
+        taskParams.put("sourceUserId", String.valueOf(sourceUserId));
+        taskParams.put("targetUserId", String.valueOf(targetUserId));
+        if (targetDeptId != null) {
+            taskParams.put("targetDeptId", String.valueOf(targetDeptId));
+        }
+
         AsyncTask task = AsyncTask.builder()
                 .taskType(TaskType.EMPLOYEE_SPU_COPY)
                 .state(TaskState.PENDING)
                 .progress(0)
                 .name("复制商品：" + sourceUser.getName() + " → " + targetUser.getName())
-                .parameters(JSONUtil.toJsonStr(Map.of(
-                        "sourceUserId", String.valueOf(sourceUserId),
-                        "targetUserId", String.valueOf(targetUserId),
-                        "targetDeptId", String.valueOf(targetDeptId))))
+                .parameters(JSONUtil.toJsonStr(taskParams))
                 .dedupKey(dedupKey)
                 .build()
                 .fillOwner();

@@ -567,8 +567,8 @@ const submitCopy = async () => {
     } else {
       $baseMessage('复制任务已提交', 'success', 'hey')
     }
-  } catch (e: any) {
-    $baseMessage(e?.response?.data?.msg || '提交失败', 'error', 'hey')
+  } catch {
+    // 业务错误提示已由 request 响应拦截器统一弹出，这里不重复提示
   } finally {
     copySubmitting.value = false
   }
@@ -590,6 +590,11 @@ onActivated(() => {
   fetchAllDepartments()
   fetchData()
   tableRef.value.doLayout()
+})
+
+// keep-alive 缓存页面：切走时只触发 deactivated 而非 unmount，需在此停止本地轮询防定时器泄漏
+onDeactivated(() => {
+  stopCopyPolling()
 })
 
 onBeforeUnmount(() => {

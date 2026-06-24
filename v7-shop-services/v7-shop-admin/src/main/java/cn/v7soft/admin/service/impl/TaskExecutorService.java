@@ -278,8 +278,14 @@ public class TaskExecutorService implements ITaskExecutorService {
             result.put("failed", failed);
             result.put("failures", failures);
             task.setParameters(JSONUtil.toJsonStr(result));
-            task.setMessage("复制完成：新增 " + copied + " 个，跳过(已存在) " + skipped + " 个，失败 " + failed + " 个");
-            asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+            if (copied == 0 && failed > 0) {
+                // 全部失败：标记为 FAILED，避免前端显示绿色"成功"掩盖实质失败
+                task.setMessage("复制失败：" + failed + " 个全部失败，跳过(已存在) " + skipped + " 个");
+                asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+            } else {
+                task.setMessage("复制完成：新增 " + copied + " 个，跳过(已存在) " + skipped + " 个，失败 " + failed + " 个");
+                asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+            }
         } catch (Throwable e) {
             log.error("[employeeSpuCopy] taskId={} 执行失败", task.getId(), e);
             task.setMessage("复制失败: " + e.getMessage()
