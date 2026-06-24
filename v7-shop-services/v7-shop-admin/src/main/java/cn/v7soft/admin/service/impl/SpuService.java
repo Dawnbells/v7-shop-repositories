@@ -158,6 +158,10 @@ public class SpuService extends BaseDataRangeService<Spu, SpuRepository> impleme
     @Override
     @Transactional
     public boolean copySpuToTargetIfAbsent(Long sourceSpuId, Long targetUserId, Long targetDeptId) {
+        // 注意：本方法由 TaskExecutorService 的 @Async 线程调用，无 HTTP 请求 / sa-token 会话上下文。
+        // 因此只能使用 repository.* 原生方法与 getById；切勿改用依赖登录会话的 service 方法
+        //（findPaginated → AccessDataRangeAttribute → SaSessionUtil；service.save() → fillOwner() → getLoginOwner()），
+        // 否则会在异步线程抛 NotLoginException。租户上下文已由 submitAsyncTask.initTenantContext 恢复。
         // 去重：目标员工名下若已存在该来源 SPU 的有效副本则跳过，支持安全重跑
         if (repository.existsByOwnerIdAndSharedFromId(targetUserId, sourceSpuId)) {
             return false;
