@@ -2,6 +2,7 @@ package cn.v7soft.admin.controller;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -21,6 +22,8 @@ import cn.dev33.satoken.secure.BCrypt;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.DesensitizedUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
+import cn.v7soft.admin.controller.req.CopyEmployeeSpuRequest;
 import cn.v7soft.admin.controller.req.DispatchDepartmentRequest;
 import cn.v7soft.admin.controller.req.EditEmployeeRequest;
 import cn.v7soft.admin.controller.req.GrantRoleRequest;
@@ -31,6 +34,7 @@ import cn.v7soft.admin.controller.resp.EmployeeResponse;
 import cn.v7soft.admin.controller.resp.RoleResponse;
 import cn.v7soft.admin.service.IEmployeeService;
 import cn.v7soft.admin.service.ISpuService;
+import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.common.controller.req.attributes.SystemUserAccessDataRangeAttribute;
 import cn.v7soft.common.utils.ConvertUtils;
@@ -45,10 +49,14 @@ import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Department;
 import cn.v7soft.dao.entities.primary.Spu;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.SystemUserType;
+import cn.v7soft.dao.enums.TaskState;
+import cn.v7soft.dao.enums.TaskType;
+import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -65,10 +73,16 @@ import jakarta.validation.Valid;
 public class EmployeeController extends BaseDataRangeController<SystemUser, IEmployeeService, EmployeeResponse, QueryEmployeeRequest, EditEmployeeRequest> {
 
     private final ISpuService spuService;
+    private final AsyncTaskRepository asyncTaskRepository;
+    private final ITaskExecutorService taskExecutorService;
 
-    protected EmployeeController(IEmployeeService service, ISpuService spuService) {
+    protected EmployeeController(IEmployeeService service, ISpuService spuService,
+                                 AsyncTaskRepository asyncTaskRepository,
+                                 ITaskExecutorService taskExecutorService) {
         super(service);
         this.spuService = spuService;
+        this.asyncTaskRepository = asyncTaskRepository;
+        this.taskExecutorService = taskExecutorService;
     }
 
     @Override
@@ -257,6 +271,74 @@ public class EmployeeController extends BaseDataRangeController<SystemUser, IEmp
 //                .add(NotQueryAttribute.builder().name("id").value(loginUser.getLongId()).build()) // 不限制自己，允许自己复制
                 .add(EqualsQueryAttribute.builder().name("status").value(StatusEnum.VALID).build());
         return service.findOriginalPaginated(request).stream().map(this::convertEntityCopyId).collect(Collectors.toList());
+    }
+
+    @Operation(summary = "统计员工名下可复制SPU数量")
+    @GetMapping("/countOwnerSpu")
+    @SaCheckPermission("employee.copySpu")
+    public Map<String, Object> countOwnerSpu(@RequestParam("userId") Long userId) {
+        SystemUser sourceUser = service.findById(userId)
+                .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("员工不存在"));
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        Long sourceDeptId = sourceUser.getDepartment() == null ? null : sourceUser.getDepartment().getId();
+        ClientResponseEnum.NO_PERMISSION.assertTrue(
+                loginUser.hasManagerPermission(userId, sourceDeptId), "您无权查看该员工的商品");
+        long count = spuService.countSpuByOwner(userId);
+        return Map.of("count", count);
+    }
+
+    @Operation(summary = "复制员工名下全部SPU给指定员工")
+    @PostMapping("/copySpu")
+    @SaCheckPermission("employee.copySpu")
+    public Map<String, Object> copySpu(@Valid @RequestBody CopyEmployeeSpuRequest request) {
+        Long sourceUserId = Long.valueOf(request.getSourceUserId());
+        Long targetUserId = Long.valueOf(request.getTargetUserId());
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(!Objects.equals(sourceUserId, targetUserId), "不能复制给员工自己");
+
+        SystemUser sourceUser = service.findById(sourceUserId)
+                .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("源员工不存在"));
+        SystemUser targetUser = service.findById(targetUserId)
+                .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("目标员工不存在"));
+
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        Long sourceDeptId = sourceUser.getDepartment() == null ? null : sourceUser.getDepartment().getId();
+        Long targetDeptId = targetUser.getDepartment() != null ? targetUser.getDepartment().getId() : 1L;
+
+        // 操作者须对源员工有管理权
+        ClientResponseEnum.NO_PERMISSION.assertTrue(
+                loginUser.hasManagerPermission(sourceUserId, sourceDeptId), "您无权操作该员工名下的商品");
+        // 跨部门规则：非管理员/深度部门经理仅限同部门复制
+        if (!loginUser.isAdmin() && !loginUser.isDeepDepartmentManager()) {
+            ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(
+                    Objects.equals(sourceDeptId, targetDeptId), "仅限部门内复制");
+        }
+
+        // 并发防重：同一"源→目标"已有进行中的复制任务则拒绝
+        String dedupKey = "EMPLOYEE_SPU_COPY:" + sourceUserId + "->" + targetUserId;
+        List<AsyncTask> running = asyncTaskRepository.findByTaskTypeAndDedupKeyAndStateIn(
+                TaskType.EMPLOYEE_SPU_COPY, dedupKey, List.of(TaskState.PENDING, TaskState.PROCESSING));
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(running.isEmpty(), "该复制任务正在进行中，请稍后再试");
+
+        // 源员工无可复制商品则不建任务
+        long total = spuService.countSpuByOwner(sourceUserId);
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(total > 0, "该员工名下暂无可复制的商品");
+
+        AsyncTask task = AsyncTask.builder()
+                .taskType(TaskType.EMPLOYEE_SPU_COPY)
+                .state(TaskState.PENDING)
+                .progress(0)
+                .name("复制商品：" + sourceUser.getName() + " → " + targetUser.getName())
+                .parameters(JSONUtil.toJsonStr(Map.of(
+                        "sourceUserId", String.valueOf(sourceUserId),
+                        "targetUserId", String.valueOf(targetUserId),
+                        "targetDeptId", String.valueOf(targetDeptId))))
+                .dedupKey(dedupKey)
+                .build()
+                .fillOwner();
+        task = asyncTaskRepository.saveAndFlush(task);
+        taskExecutorService.submitAsyncTask(task.getId());
+
+        return Map.of("taskId", task.getId(), "total", total);
     }
 
     @Override

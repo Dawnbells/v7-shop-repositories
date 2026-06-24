@@ -105,12 +105,13 @@
           />
         </template>
       </el-table-column>
-      <el-table-column align="center" label="操作" width="400">
+      <el-table-column align="center" label="操作" width="460">
         <template #default="{ row }">
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button text type="primary" @click="handleDispatchDepartments(row)">部门</el-button>
           <el-button text type="primary" @click="handleGrantRole(row)">角色</el-button>
           <el-button text type="primary" @click="handleAiCredits(row)">AI额度</el-button>
+          <el-button text type="success" @click="handleCopy(row)">复制</el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -152,6 +153,101 @@
         <el-button type="primary" :loading="aiCreditsSaving" @click="saveAiCredits">确定</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="copyDialogVisible"
+      append-to-body
+      title="复制商品到指定员工"
+      width="480px"
+      @closed="onCopyDialogClosed"
+    >
+      <el-form label-width="90px">
+        <el-form-item label="源员工">
+          <el-text>{{ copyForm.sourceName }}</el-text>
+        </el-form-item>
+        <el-form-item label="可复制商品">
+          <el-text v-if="copyForm.countLoading" type="info">统计中...</el-text>
+          <el-text v-else :type="copyForm.count > 0 ? 'primary' : 'warning'">
+            {{ copyForm.count }} 个{{ copyForm.count > 0 ? '' : '（该员工名下暂无可复制商品）' }}
+          </el-text>
+        </el-form-item>
+        <el-form-item label="目标员工" required>
+          <el-select
+            v-model="copyForm.targetUserId"
+            filterable
+            :loading="copyForm.userLoading"
+            placeholder="搜索姓名/手机号选择目标员工"
+            remote
+            reserve-keyword
+            :remote-method="remoteQueryTarget"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in copyTargetOptions"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            >
+              <span style="float: left">{{ item.name }}</span>
+              <span style="float: right; font-size: 13px; color: var(--el-text-color-secondary)">
+                {{ item.department && item.department.name }}
+              </span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-alert :closable="false" show-icon type="info">
+            <template #title>
+              将把 <b>{{ copyForm.sourceName }}</b> 名下全部商品（含失效）复制一份给目标员工；副本归属目标员工、未上架到任何网站；重复执行只补未复制过的，不会产生重复副本。
+            </template>
+          </el-alert>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="copyDialogVisible = false">取消</el-button>
+        <el-button
+          :disabled="!copyForm.targetUserId || copyForm.count <= 0"
+          :loading="copySubmitting"
+          type="primary"
+          @click="submitCopy"
+        >
+          开始复制
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="copyProgressVisible"
+      append-to-body
+      :close-on-click-modal="false"
+      :title="copyProgress.title"
+      width="460px"
+      @closed="onProgressClosed"
+    >
+      <div style="padding: 4px 0">
+        <el-progress
+          :percentage="copyProgress.percent"
+          :status="copyProgress.status"
+          :stroke-width="16"
+          text-inside
+        />
+        <div
+          style="
+            margin-top: 10px;
+            color: var(--el-text-color-secondary);
+            font-size: 13px;
+            white-space: pre-wrap;
+          "
+        >
+          {{ copyProgress.message }}
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="copyProgressVisible = false">
+          {{ copyProgress.finished ? '关闭' : '后台运行' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -159,9 +255,19 @@
 import { Delete, Plus, Search } from '@element-plus/icons-vue'
 import type { Department } from '/@/api/department'
 import { getTree } from '/@/api/department'
-import { doDelete, page, setAiCredits, switchValidity } from '/@/api/employee'
+import {
+  copyEmployeeSpus,
+  countOwnerSpu,
+  doDelete,
+  getRemoteQuery,
+  page,
+  setAiCredits,
+  switchValidity,
+} from '/@/api/employee'
 import type { Role } from '/@/api/role'
 import { getList } from '/@/api/role'
+import { status as getTaskStatus } from '/@/api/taskManagement'
+import { useTasksStore } from '/@/store/modules/tasks'
 
 defineOptions({
   name: 'Employee',
@@ -321,6 +427,153 @@ const saveAiCredits = async () => {
   }
 }
 
+const tasksStore = useTasksStore()
+
+const copyDialogVisible = ref(false)
+const copySubmitting = ref(false)
+const copyTargetOptions = ref<any[]>([])
+const copyForm = reactive({
+  sourceUserId: 0 as number,
+  sourceName: '',
+  count: 0,
+  countLoading: false,
+  userLoading: false,
+  targetUserId: '' as string | number,
+})
+
+const copyProgressVisible = ref(false)
+const copyProgress = reactive({
+  title: '复制进度',
+  percent: 0,
+  status: '' as '' | 'success' | 'exception',
+  message: '',
+  finished: false,
+})
+let copyPollTimer: ReturnType<typeof setInterval> | null = null
+
+const handleCopy = (row: any) => {
+  copyForm.sourceUserId = row.id
+  copyForm.sourceName = row.name
+  copyForm.targetUserId = ''
+  copyForm.count = 0
+  copyTargetOptions.value = []
+  copyDialogVisible.value = true
+  copyForm.countLoading = true
+  countOwnerSpu(row.id)
+    .then((res: any) => {
+      copyForm.count = res?.data?.count ?? res?.count ?? 0
+    })
+    .catch(() => {
+      copyForm.count = 0
+    })
+    .finally(() => {
+      copyForm.countLoading = false
+    })
+}
+
+const remoteQueryTarget = async (query: string) => {
+  copyForm.userLoading = true
+  try {
+    const res: any = await getRemoteQuery(query || '')
+    const list = res?.data?.list ?? res?.data ?? []
+    // 排除源员工自己
+    copyTargetOptions.value = (Array.isArray(list) ? list : []).filter(
+      (item: any) => String(item.id) !== String(copyForm.sourceUserId)
+    )
+  } finally {
+    copyForm.userLoading = false
+  }
+}
+
+const onCopyDialogClosed = () => {
+  copyTargetOptions.value = []
+}
+
+const stopCopyPolling = () => {
+  if (copyPollTimer) {
+    clearInterval(copyPollTimer)
+    copyPollTimer = null
+  }
+}
+
+const startCopyPolling = (taskId: string) => {
+  stopCopyPolling()
+  copyPollTimer = setInterval(async () => {
+    try {
+      const res: any = await getTaskStatus(taskId)
+      const task = res?.data ?? res
+      const state: string = task?.state || ''
+      copyProgress.percent = task?.progress ?? 0
+      copyProgress.message = task?.message || ''
+      if (state === 'COMPLETED') {
+        copyProgress.percent = 100
+        copyProgress.status = 'success'
+        copyProgress.finished = true
+        stopCopyPolling()
+      } else if (state === 'FAILED') {
+        copyProgress.status = 'exception'
+        copyProgress.finished = true
+        stopCopyPolling()
+      } else if (state === 'CANCELLED') {
+        copyProgress.status = 'exception'
+        copyProgress.message = '任务已取消'
+        copyProgress.finished = true
+        stopCopyPolling()
+      }
+    } catch {
+      // 网络抖动不停止轮询
+    }
+  }, 1000)
+}
+
+// 关闭进度弹窗不影响后台任务，仅停止本地轮询（任务中心继续轮询）
+const onProgressClosed = () => {
+  stopCopyPolling()
+}
+
+const submitCopy = async () => {
+  if (!copyForm.targetUserId) {
+    $baseMessage('请选择目标员工', 'warning', 'hey')
+    return
+  }
+  copySubmitting.value = true
+  try {
+    const res: any = await copyEmployeeSpus(copyForm.sourceUserId, copyForm.targetUserId)
+    const data = res?.data ?? res
+    const taskId = String(data?.taskId ?? '')
+    const targetName =
+      copyTargetOptions.value.find((i: any) => String(i.id) === String(copyForm.targetUserId))?.name || ''
+    const label = `复制商品：${copyForm.sourceName} → ${targetName}`
+    copyDialogVisible.value = false
+    if (taskId) {
+      // 进入任务中心
+      tasksStore.addTask({
+        taskId,
+        taskType: 'EMPLOYEE_SPU_COPY',
+        name: label,
+        label,
+        state: 'PENDING',
+        progress: 0,
+        message: '任务已提交，正在处理...',
+      })
+      // 弹出可关闭的独立进度弹窗
+      copyProgress.title = label
+      copyProgress.percent = 0
+      copyProgress.status = ''
+      copyProgress.message = '任务已提交，正在处理...'
+      copyProgress.finished = false
+      copyProgressVisible.value = true
+      startCopyPolling(taskId)
+    } else {
+      $baseMessage('复制任务已提交', 'success', 'hey')
+    }
+  } catch (e: any) {
+    $baseMessage(e?.response?.data?.msg || '提交失败', 'error', 'hey')
+  } finally {
+    copySubmitting.value = false
+  }
+}
+
 const fetchAllRoles = () => {
   getList().then((data) => {
     allRoleList.value = data.data.list
@@ -337,5 +590,9 @@ onActivated(() => {
   fetchAllDepartments()
   fetchData()
   tableRef.value.doLayout()
+})
+
+onBeforeUnmount(() => {
+  stopCopyPolling()
 })
 </script>

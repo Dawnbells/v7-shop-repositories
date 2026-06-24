@@ -44,5 +44,20 @@ public interface SpuRepository extends BaseRepository<Spu> {
     @Query("UPDATE Spu s SET s.updateTime = CURRENT_TIMESTAMP WHERE s.id = :id")
     void refreshUpdateTime(@Param("id") Long id);
 
+    /**
+     * 查询某员工名下全部 SPU 的 ID（@SQLRestriction 自动排除 DELETED，含 VALID/INVALID）。
+     */
+    @Query("select s.id from Spu s where s.owner.id = :ownerId")
+    List<Long> findIdsByOwnerId(@Param("ownerId") Long ownerId);
+
+    /**
+     * 统计某员工名下 SPU 数量（自动排除 DELETED）。
+     */
+    long countByOwnerId(Long ownerId);
+
+    /**
+     * 判断目标员工名下是否已存在某来源 SPU 的有效副本（用于复制去重）。
+     */
+    boolean existsByOwnerIdAndSharedFromId(Long ownerId, Long sharedFromId);
 
 }

@@ -37,6 +37,7 @@ import cn.v7soft.admin.service.IAsyncTaskService;
 import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.IOrderTemplateService;
 import cn.v7soft.admin.service.IS3Service;
+import cn.v7soft.admin.service.ISpuService;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
@@ -81,12 +82,13 @@ public class TaskExecutorService implements ITaskExecutorService {
     private final AsyncTaskRepository asyncTaskRepository;
     private final ITaskExecutorService self;
     private final cn.v7soft.admin.service.ICompanyService companyService;
+    private final ISpuService spuService;
 
     public TaskExecutorService(IAsyncTaskService asyncTaskService, @Lazy IAddressService addressService,
                        @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
                        AsyncTaskRepository asyncTaskRepository, @Lazy ITaskExecutorService self,
-                       cn.v7soft.admin.service.ICompanyService companyService) {
+                       cn.v7soft.admin.service.ICompanyService companyService, @Lazy ISpuService spuService) {
         this.asyncTaskService = asyncTaskService;
         this.addressService = addressService;
         this.orderService = orderService;
@@ -96,6 +98,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         this.asyncTaskRepository = asyncTaskRepository;
         this.self = self;
         this.companyService = companyService;
+        this.spuService = spuService;
     }
 
     @Override
@@ -153,6 +156,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 executeThirdPartyOrderSyncUpload(task, owner);
             } else if (task.getTaskType() == TaskType.ADDRESS_IMPORT) {
                 executeAddressImport(task);
+            } else if (task.getTaskType() == TaskType.EMPLOYEE_SPU_COPY) {
+                executeEmployeeSpuCopy(task);
             } else {
                 task.setMessage("未知任务类型: " + task.getTaskType());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, 100);
@@ -214,6 +219,71 @@ public class TaskExecutorService implements ITaskExecutorService {
         } catch (Throwable e) {
             log.error("[addressImport] taskId={} 导入失败", task.getId(), e);
             task.setMessage(e.getMessage());
+            asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
+        }
+    }
+
+    /**
+     * 复制员工名下全部 SPU 给指定员工：逐个 SPU 独立事务深拷贝，失败跳过并继续，
+     * 实时回写进度与"新增/跳过/失败"统计，结束后把明细写入 parameters。
+     */
+    private void executeEmployeeSpuCopy(AsyncTask task) {
+        int copied = 0;
+        int skipped = 0;
+        int failed = 0;
+        final List<String> failures = new ArrayList<>();
+        try {
+            task.setMessage("正在准备复制...");
+            asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, RUNNING_PROGRESS);
+
+            cn.hutool.json.JSONObject params = JSONUtil.parseObj(task.getParameters());
+            Long sourceUserId = params.getLong("sourceUserId");
+            Long targetUserId = params.getLong("targetUserId");
+            Long targetDeptId = params.getLong("targetDeptId");
+
+            List<Long> spuIds = spuService.findSpuIdsByOwner(sourceUserId);
+            int total = spuIds.size();
+            if (total == 0) {
+                task.setMessage("该员工名下暂无可复制的商品");
+                asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+                return;
+            }
+
+            for (int i = 0; i < total; i++) {
+                Long spuId = spuIds.get(i);
+                try {
+                    boolean done = spuService.copySpuToTargetIfAbsent(spuId, targetUserId, targetDeptId);
+                    if (done) {
+                        copied++;
+                    } else {
+                        skipped++;
+                    }
+                } catch (Exception e) {
+                    failed++;
+                    failures.add("SPU#" + spuId + ": " + e.getMessage());
+                    log.warn("[employeeSpuCopy] taskId={} 复制 SPU {} 失败", task.getId(), spuId, e);
+                }
+                int percent = (int) Math.max(RUNNING_PROGRESS, Math.min(RESOLVE_PROGRESS, (i + 1) * 100.0 / total));
+                task.setMessage("正在复制 " + (i + 1) + "/" + total
+                        + "（新增 " + copied + "，跳过 " + skipped + "，失败 " + failed + "）");
+                asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, percent);
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("sourceUserId", String.valueOf(sourceUserId));
+            result.put("targetUserId", String.valueOf(targetUserId));
+            result.put("total", total);
+            result.put("copied", copied);
+            result.put("skipped", skipped);
+            result.put("failed", failed);
+            result.put("failures", failures);
+            task.setParameters(JSONUtil.toJsonStr(result));
+            task.setMessage("复制完成：新增 " + copied + " 个，跳过(已存在) " + skipped + " 个，失败 " + failed + " 个");
+            asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+        } catch (Throwable e) {
+            log.error("[employeeSpuCopy] taskId={} 执行失败", task.getId(), e);
+            task.setMessage("复制失败: " + e.getMessage()
+                    + "（已新增 " + copied + "，跳过 " + skipped + "，失败 " + failed + "）");
             asyncTaskService.updateAsyncTask(task, TaskState.FAILED, COMPLETED_OR_FAILED_PROGRESS);
         }
     }

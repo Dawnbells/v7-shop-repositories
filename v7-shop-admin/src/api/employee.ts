@@ -77,3 +77,22 @@ export function setAiCredits(data: { id: number; monthlyAiCredits: number }) {
     data,
   })
 }
+
+export function countOwnerSpu(userId: number | string) {
+  return request({
+    url: '/employee/countOwnerSpu',
+    method: 'get',
+    params: { userId },
+  })
+}
+
+export function copyEmployeeSpus(sourceUserId: number | string, targetUserId: number | string) {
+  return request({
+    url: '/employee/copySpu',
+    method: 'post',
+    data: {
+      sourceUserId: String(sourceUserId),
+      targetUserId: String(targetUserId),
+    },
+  })
+}

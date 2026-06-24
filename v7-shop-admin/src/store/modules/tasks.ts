@@ -51,6 +51,7 @@ const taskTypeLabelMap: Record<string, string> = {
   ORDER_UPLOAD: '订单上传',
   THIRD_PARTY_ORDER_SYNC: '第三方订单同步',
   PRODUCT_AI_TRANSLATE: 'AI账号翻译',
+  EMPLOYEE_SPU_COPY: '复制商品',
 }
 
 export const useTasksStore = defineStore('tasks', {

@@ -58,4 +58,31 @@ public interface ISpuService extends IBaseDataRangeService<Spu> {
     void deleteAllSpuRelatedData(Long id);
 
     String generateSharedUrl(GenerateSharedUrlRequest request);
+
+    /**
+     * 统计某员工名下可复制的 SPU 数量（VALID + INVALID，自动排除 DELETED）。
+     *
+     * @param ownerId 员工ID
+     * @return 数量
+     */
+    long countSpuByOwner(Long ownerId);
+
+    /**
+     * 查询某员工名下全部可复制 SPU 的 ID 列表。
+     *
+     * @param ownerId 员工ID
+     * @return SPU ID 列表
+     */
+    List<Long> findSpuIdsByOwner(Long ownerId);
+
+    /**
+     * 将单个源 SPU 深拷贝分享给目标员工；若目标员工名下已存在该来源 SPU 的有效副本则跳过。
+     * 每次调用独立事务提交，供批量复制逐条调用。
+     *
+     * @param sourceSpuId  源 SPU ID
+     * @param targetUserId 目标员工ID
+     * @param targetDeptId 目标员工部门ID（用于分配新的 SPU code）
+     * @return true=已复制；false=已存在跳过
+     */
+    boolean copySpuToTargetIfAbsent(Long sourceSpuId, Long targetUserId, Long targetDeptId);
 }

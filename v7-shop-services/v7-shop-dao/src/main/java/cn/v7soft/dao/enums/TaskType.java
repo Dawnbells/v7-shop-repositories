@@ -25,4 +25,8 @@ public enum TaskType {
      * 商品 AI 实时翻译任务（编辑页 SSE/单图，单次请求即结算，不进入异步调度）
      */
     PRODUCT_AI_REALTIME_TRANSLATE,
+    /**
+     * 复制员工名下全部 SPU 给指定员工（批量深拷贝分享）
+     */
+    EMPLOYEE_SPU_COPY,
 }

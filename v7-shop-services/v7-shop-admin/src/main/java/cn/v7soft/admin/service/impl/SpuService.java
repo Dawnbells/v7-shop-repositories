@@ -140,6 +140,42 @@ public class SpuService extends BaseDataRangeService<Spu, SpuRepository> impleme
         boolean isOwner = Objects.equals(loginUser.getLongId(), spuOwner.getId());
         ClientResponseEnum.NO_PERMISSION.assertTrue(isAdmin || isDepartmentManager || isDeepDepartmentManager || isOwner || spu.getIsOpen(), "您无权限操作");
 
+        Spu shareSpu = buildSharedCopy(spu, targetOwner, departmentId);
+        Spu savedSpu = repository.save(shareSpu);
+        return SharedSpuResponse.convert(savedSpu);
+    }
+
+    @Override
+    public long countSpuByOwner(Long ownerId) {
+        return repository.countByOwnerId(ownerId);
+    }
+
+    @Override
+    public List<Long> findSpuIdsByOwner(Long ownerId) {
+        return repository.findIdsByOwnerId(ownerId);
+    }
+
+    @Override
+    @Transactional
+    public boolean copySpuToTargetIfAbsent(Long sourceSpuId, Long targetUserId, Long targetDeptId) {
+        // 去重：目标员工名下若已存在该来源 SPU 的有效副本则跳过，支持安全重跑
+        if (repository.existsByOwnerIdAndSharedFromId(targetUserId, sourceSpuId)) {
+            return false;
+        }
+        Spu source = getById(sourceSpuId);
+        // 仅需 owner 外键引用，无需完整加载目标员工
+        SystemUser targetOwner = SystemUser.builder().id(targetUserId).build();
+        Spu copy = buildSharedCopy(source, targetOwner, targetDeptId);
+        repository.save(copy);
+        return true;
+    }
+
+    /**
+     * 构建单个 SPU 的深拷贝副本（不落库）。Product/规格/规格属性/汇率深拷贝；
+     * SKU、图片沿用原记录引用；owner 全部指向目标员工；sharedFrom 指向来源 SPU；
+     * 副本不绑定任何网站。
+     */
+    private Spu buildSharedCopy(Spu spu, SystemUser targetOwner, Long departmentId) {
         List<CurrencyExchangeRate> exchangeRates = spu.getExchangeRates().stream()
                 .map(item ->
                              CurrencyExchangeRate.builder()
@@ -244,8 +280,7 @@ public class SpuService extends BaseDataRangeService<Spu, SpuRepository> impleme
         }).collect(Collectors.toList());
         // 设置产品
         shareSpu.setProductList(productList);
-        Spu savedSpu = repository.save(shareSpu);
-        return SharedSpuResponse.convert(savedSpu);
+        return shareSpu;
     }
 
     @Override
