@@ -9,6 +9,7 @@ import java.time.Instant;
 @Builder
 public class OrderStatisticsQueryResponse {
     private String state;
+    private String queryJobId;
     private String resultToken;
     private Instant snapshotExpiresAt;
     private OrderStatisticsResultResponse result;
