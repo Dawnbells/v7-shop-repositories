@@ -1,0 +1,168 @@
+package cn.v7soft.admin.service.impl;
+
+import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
+import cn.v7soft.admin.controller.resp.OrderStatisticsQueryResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
+import cn.v7soft.admin.service.IOrderStatisticsService;
+import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
+import cn.v7soft.dao.tenant.WebsiteContext;
+import cn.v7soft.dao.utils.SaSessionUtil;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.dao.DataAccessException;
+import org.springframework.stereotype.Service;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+
+@Service
+public class OrderStatisticsSubmissionService {
+
+    private final IOrderStatisticsService statisticsService;
+    private final OrderStatisticsSnapshotService snapshotService;
+    private final OrderStatisticsConfigService configService;
+    private final ObjectMapper objectMapper;
+
+    public OrderStatisticsSubmissionService(
+            IOrderStatisticsService statisticsService,
+            OrderStatisticsSnapshotService snapshotService,
+            OrderStatisticsConfigService configService,
+            ObjectMapper objectMapper
+    ) {
+        this.statisticsService = statisticsService;
+        this.snapshotService = snapshotService;
+        this.configService = configService;
+        this.objectMapper = objectMapper;
+    }
+
+    public OrderStatisticsQueryResponse submit(OrderStatisticsQueryRequest request) {
+        SystemUserDto user = SaSessionUtil.getLoginUser();
+        OrderStatisticsUserConfig config = configService.getOrCreate(null);
+        String fingerprint = fingerprint(request, user, config);
+        boolean redisAvailable = true;
+
+        if (!Boolean.TRUE.equals(request.getForceRefresh())) {
+            try {
+                String cachedToken = snapshotService.findCachedResultToken(
+                        user.getCompanyId(),
+                        user.getLongId(),
+                        fingerprint
+                );
+                if (cachedToken != null && !cachedToken.isBlank()) {
+                    try {
+                        return completed(
+                                snapshotService.get(
+                                        user.getCompanyId(),
+                                        user.getLongId(),
+                                        cachedToken
+                                ),
+                                true
+                        );
+                    } catch (IllegalArgumentException ignored) {
+                        // The result may have been removed while the short cache survived.
+                    }
+                }
+            } catch (DataAccessException exception) {
+                redisAvailable = false;
+            }
+        }
+
+        OrderStatisticsResultResponse result = statisticsService.query(request);
+        if (!redisAvailable) {
+            return degraded(result);
+        }
+        try {
+            OrderStatisticsStoredSnapshot snapshot = snapshotService.store(
+                    user.getCompanyId(),
+                    user.getLongId(),
+                    result
+            );
+            snapshotService.cacheResultToken(
+                    user.getCompanyId(),
+                    user.getLongId(),
+                    fingerprint,
+                    snapshot.resultToken()
+            );
+            return completed(snapshot, false);
+        } catch (DataAccessException exception) {
+            return degraded(result);
+        }
+    }
+
+    public OrderStatisticsResultResponse result(String resultToken) {
+        SystemUserDto user = SaSessionUtil.getLoginUser();
+        return snapshotService.get(
+                user.getCompanyId(),
+                user.getLongId(),
+                resultToken
+        ).result();
+    }
+
+    private OrderStatisticsQueryResponse completed(
+            OrderStatisticsStoredSnapshot snapshot,
+            boolean cached
+    ) {
+        return OrderStatisticsQueryResponse.builder()
+                .state("COMPLETED")
+                .resultToken(snapshot.resultToken())
+                .snapshotExpiresAt(snapshot.expiresAt())
+                .result(snapshot.result())
+                .cached(cached)
+                .degraded(false)
+                .build();
+    }
+
+    private OrderStatisticsQueryResponse degraded(OrderStatisticsResultResponse result) {
+        OrderStatisticsResultResponse limited = OrderStatisticsResultResponse.builder()
+                .targetCurrencyCode(result.getTargetCurrencyCode())
+                .summary(result.getSummary())
+                .buckets(result.getBuckets())
+                .groups(result.getGroups() == null
+                        ? List.of()
+                        : result.getGroups().stream().limit(100).toList())
+                .originalCurrencies(result.getOriginalCurrencies())
+                .missingRates(result.getMissingRates())
+                .build();
+        return OrderStatisticsQueryResponse.builder()
+                .state("COMPLETED")
+                .result(limited)
+                .cached(false)
+                .degraded(true)
+                .message("Redis 暂不可用，已返回同步降级结果；分页和导出不可用")
+                .build();
+    }
+
+    private String fingerprint(
+            OrderStatisticsQueryRequest request,
+            SystemUserDto user,
+            OrderStatisticsUserConfig config
+    ) {
+        LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+        payload.put("request", request);
+        payload.put("companyId", user.getCompanyId());
+        payload.put("userId", user.getId());
+        payload.put("userType", user.getUserType());
+        payload.put("departmentId", user.getDepartmentId());
+        payload.put("accessDepartmentIds", user.getAccessDepartmentIds());
+        payload.put("parentDepartmentIds", user.getParentDepartmentIds());
+        payload.put("crossDepartment", user.getIsCrossDepartment());
+        payload.put("manageDepartmentIds", user.getManageDepartmentIds());
+        payload.put("excludeDepartment", user.getIsExcludeDepartment());
+        payload.put("viewMode", SaSessionUtil.getViewMode());
+        payload.put("websiteScoped", WebsiteContext.isWebsiteAdmin());
+        payload.put("websiteId", WebsiteContext.getCurrentWebsiteId());
+        payload.put("timeZoneId", config.getTimeZoneId());
+        payload.put("personalExchangeRates", config.getExchangeRates());
+        try {
+            byte[] json = objectMapper.writeValueAsBytes(payload);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(json));
+        } catch (JsonProcessingException | NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("订单统计查询指纹生成失败", exception);
+        }
+    }
+}

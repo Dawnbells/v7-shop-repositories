@@ -7,10 +7,11 @@ import cn.v7soft.admin.controller.resp.OrderStatisticsConfigResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsContextResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsCurrencyOptionResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsOptionResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsQueryResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
 import cn.v7soft.admin.service.IOrderStatisticsConfigService;
-import cn.v7soft.admin.service.IOrderStatisticsService;
 import cn.v7soft.admin.service.impl.OrderStatisticsOptionService;
+import cn.v7soft.admin.service.impl.OrderStatisticsSubmissionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -32,17 +33,17 @@ import java.util.List;
 @Tag(name = "订单统计分析")
 public class OrderStatisticsController {
     private final IOrderStatisticsConfigService configService;
-    private final IOrderStatisticsService statisticsService;
     private final OrderStatisticsOptionService optionService;
+    private final OrderStatisticsSubmissionService submissionService;
 
     public OrderStatisticsController(
             IOrderStatisticsConfigService configService,
-            IOrderStatisticsService statisticsService,
-            OrderStatisticsOptionService optionService
+            OrderStatisticsOptionService optionService,
+            OrderStatisticsSubmissionService submissionService
     ) {
         this.configService = configService;
-        this.statisticsService = statisticsService;
         this.optionService = optionService;
+        this.submissionService = submissionService;
     }
 
     @SaCheckLogin
@@ -66,10 +67,19 @@ public class OrderStatisticsController {
     @SaCheckLogin
     @PostMapping("/query")
     @Operation(summary = "查询订单统计")
-    public OrderStatisticsResultResponse query(
+    public OrderStatisticsQueryResponse query(
             @RequestBody OrderStatisticsQueryRequest request
     ) {
-        return statisticsService.query(request);
+        return submissionService.submit(request);
+    }
+
+    @SaCheckLogin
+    @GetMapping("/results/{resultToken}")
+    @Operation(summary = "读取订单统计结果快照")
+    public OrderStatisticsResultResponse result(
+            @org.springframework.web.bind.annotation.PathVariable String resultToken
+    ) {
+        return submissionService.result(resultToken);
     }
 
     @SaCheckLogin
