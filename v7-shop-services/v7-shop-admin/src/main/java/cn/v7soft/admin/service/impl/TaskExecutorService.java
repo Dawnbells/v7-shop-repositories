@@ -83,12 +83,14 @@ public class TaskExecutorService implements ITaskExecutorService {
     private final ITaskExecutorService self;
     private final cn.v7soft.admin.service.ICompanyService companyService;
     private final ISpuService spuService;
+    private final OrderStatisticsExportExecutionService statisticsExportService;
 
     public TaskExecutorService(IAsyncTaskService asyncTaskService, @Lazy IAddressService addressService,
                        @Lazy IOrderService orderService, IS3Service s3Service,
                        @Lazy IThirdPartyWebsiteService thirdPartyWebsiteService, IOrderTemplateService orderTemplateService,
                        AsyncTaskRepository asyncTaskRepository, @Lazy ITaskExecutorService self,
-                       cn.v7soft.admin.service.ICompanyService companyService, @Lazy ISpuService spuService) {
+                       cn.v7soft.admin.service.ICompanyService companyService, @Lazy ISpuService spuService,
+                       OrderStatisticsExportExecutionService statisticsExportService) {
         this.asyncTaskService = asyncTaskService;
         this.addressService = addressService;
         this.orderService = orderService;
@@ -99,6 +101,7 @@ public class TaskExecutorService implements ITaskExecutorService {
         this.self = self;
         this.companyService = companyService;
         this.spuService = spuService;
+        this.statisticsExportService = statisticsExportService;
     }
 
     @Override
@@ -158,6 +161,8 @@ public class TaskExecutorService implements ITaskExecutorService {
                 executeAddressImport(task);
             } else if (task.getTaskType() == TaskType.EMPLOYEE_SPU_COPY) {
                 executeEmployeeSpuCopy(task);
+            } else if (task.getTaskType() == TaskType.ORDER_STATISTICS_EXPORT) {
+                statisticsExportService.execute(task, owner);
             } else {
                 task.setMessage("未知任务类型: " + task.getTaskType());
                 asyncTaskService.updateAsyncTask(task, TaskState.FAILED, 100);

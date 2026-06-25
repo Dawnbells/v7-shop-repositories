@@ -29,4 +29,8 @@ public enum TaskType {
      * 复制员工名下全部 SPU 给指定员工（批量深拷贝分享）
      */
     EMPLOYEE_SPU_COPY,
+    /**
+     * 订单统计聚合结果导出任务
+     */
+    ORDER_STATISTICS_EXPORT,
 }

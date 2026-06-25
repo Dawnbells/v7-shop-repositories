@@ -56,6 +56,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     private final LanguageRepository languageRepository;
     private final AiAccountRepository aiAccountRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final OrderStatisticsExportDownloadGuard statisticsExportDownloadGuard;
 
     public AsyncTaskService(AsyncTaskRepository repository,
                             IS3Service s3Service,
@@ -66,7 +67,8 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
                             CountryRepository countryRepository,
                             LanguageRepository languageRepository,
                             AiAccountRepository aiAccountRepository,
-                            ApplicationEventPublisher eventPublisher) {
+                            ApplicationEventPublisher eventPublisher,
+                            OrderStatisticsExportDownloadGuard statisticsExportDownloadGuard) {
         super(repository);
         this.asyncTaskRepository = repository;
         this.s3Service = s3Service;
@@ -78,6 +80,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
         this.languageRepository = languageRepository;
         this.aiAccountRepository = aiAccountRepository;
         this.eventPublisher = eventPublisher;
+        this.statisticsExportDownloadGuard = statisticsExportDownloadGuard;
     }
 
     @Override
@@ -212,6 +215,7 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     @Override
     public InputStream download(Long id) {
         AsyncTask task = getById(id);
+        statisticsExportDownloadGuard.validate(task);
         return s3Service.download(task.getExportRelativePath());
     }
 
