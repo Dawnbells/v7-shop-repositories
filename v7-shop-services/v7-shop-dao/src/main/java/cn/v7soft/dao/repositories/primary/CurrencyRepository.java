@@ -5,6 +5,7 @@ import cn.v7soft.dao.entities.primary.Currency;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface CurrencyRepository extends BaseRepository<Currency> {
@@ -26,4 +27,7 @@ public interface CurrencyRepository extends BaseRepository<Currency> {
             FROM Currency where code = :code
             """)
     Optional<Currency> findByCode(@Param("code") String currencyCode);
+
+    @Query("FROM Currency c WHERE c.status = 'VALID' ORDER BY c.code ASC")
+    List<Currency> findAllValid();
 }
