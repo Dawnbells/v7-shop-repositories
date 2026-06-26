@@ -21,6 +21,7 @@ public class OrderStatisticsSnapshotService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderStatisticsSnapshotService(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper

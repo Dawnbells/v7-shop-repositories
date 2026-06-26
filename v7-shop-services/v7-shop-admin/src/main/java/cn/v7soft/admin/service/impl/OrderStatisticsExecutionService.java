@@ -44,6 +44,7 @@ public class OrderStatisticsExecutionService {
     private final OrderStatisticsResultAssembler resultAssembler;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderStatisticsExecutionService(
             OrderStatisticsQueryRepository queryRepository,
             CurrencyRepository currencyRepository,

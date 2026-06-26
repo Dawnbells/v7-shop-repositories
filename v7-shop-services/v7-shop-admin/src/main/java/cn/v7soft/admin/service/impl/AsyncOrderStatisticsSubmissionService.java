@@ -50,6 +50,7 @@ public class AsyncOrderStatisticsSubmissionService
     private final Executor executor;
     private final Duration waitDuration;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public AsyncOrderStatisticsSubmissionService(
             IOrderStatisticsService synchronousService,
             OrderStatisticsSnapshotService snapshotService,

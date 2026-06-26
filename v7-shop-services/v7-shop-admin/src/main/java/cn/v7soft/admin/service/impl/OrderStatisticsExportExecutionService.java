@@ -28,6 +28,7 @@ public class OrderStatisticsExportExecutionService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderStatisticsExportExecutionService(
             OrderStatisticsSnapshotService snapshotService,
             OrderStatisticsWorkbookService workbookService,

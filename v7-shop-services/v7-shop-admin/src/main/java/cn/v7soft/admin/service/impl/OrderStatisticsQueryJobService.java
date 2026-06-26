@@ -19,6 +19,7 @@ public class OrderStatisticsQueryJobService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderStatisticsQueryJobService(
             StringRedisTemplate redisTemplate,
             ObjectMapper objectMapper

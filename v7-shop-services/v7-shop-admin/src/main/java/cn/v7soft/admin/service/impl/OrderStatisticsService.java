@@ -51,6 +51,7 @@ public class OrderStatisticsService implements IOrderStatisticsService {
     private final OrderStatisticsResultAssembler resultAssembler;
     private final Clock clock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderStatisticsService(
             OrderStatisticsQueryRepository queryRepository,
             OrderStatisticsConfigService configService,
