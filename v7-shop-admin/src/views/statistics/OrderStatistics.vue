@@ -323,6 +323,7 @@
 <script lang="ts" setup>
 import { CircleClose, Download, Refresh, Search } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
+import Decimal from 'decimal.js'
 import { ElMessage } from 'element-plus'
 import type {
   CurrencyOption,
@@ -787,15 +788,43 @@ watch(
   }
 )
 
-const formatRate = (value?: string) =>
-  value == null ? '—' : `${(Number(value) * 100).toFixed(2)}%`
+// 目标币种元数据（符号、小数位），用于金额展示格式化
+const targetCurrency = computed(() =>
+  currencies.value.find(
+    (currency) => currency.code === (result.value?.targetCurrencyCode || form.targetCurrencyCode)
+  )
+)
+
+// 金额一律用 decimal.js 高精度处理，禁止用 JS number 计算金额（规格 §8.6）。
+const groupThousands = (intPart: string) => intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+
+const formatRate = (value?: string) => {
+  if (value == null) return '—'
+  try {
+    return `${new Decimal(value).times(100).toFixed(2, Decimal.ROUND_HALF_UP)}%`
+  } catch {
+    return '—'
+  }
+}
+
 const formatMoney = (value?: string) => {
   if (value == null) return '—'
-  return new Intl.NumberFormat('zh-CN', {
-    style: 'currency',
-    currency: result.value?.targetCurrencyCode || form.targetCurrencyCode,
-    maximumFractionDigits: 2,
-  }).format(Number(value))
+  let amount: Decimal
+  try {
+    amount = new Decimal(value)
+  } catch {
+    return value
+  }
+  const currency = targetCurrency.value
+  const code = result.value?.targetCurrencyCode || form.targetCurrencyCode
+  // 后端已按目标币种 fractionDigits 舍入并返回十进制字符串，这里仅补零对齐 + 加千分位，数值零失真
+  const fractionDigits = currency?.fractionDigits ?? 2
+  const fixed = amount.toFixed(fractionDigits, Decimal.ROUND_HALF_UP)
+  const negative = fixed.startsWith('-')
+  const [intPart, fracPart] = (negative ? fixed.slice(1) : fixed).split('.')
+  const body = fracPart ? `${groupThousands(intPart)}.${fracPart}` : groupThousands(intPart)
+  const sign = negative ? '-' : ''
+  return currency?.symbol ? `${sign}${currency.symbol}${body}` : `${sign}${body} ${code}`
 }
 const formatDateTime = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm')
 

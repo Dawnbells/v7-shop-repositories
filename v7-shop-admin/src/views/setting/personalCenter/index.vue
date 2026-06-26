@@ -94,6 +94,7 @@
 </template>
 
 <script lang="ts" setup>
+import Decimal from 'decimal.js'
 import { ElMessage } from 'element-plus'
 import type {
   CurrencyOption,
@@ -137,11 +138,24 @@ const conversionExample = computed(() => {
   const rate =
     form.exchangeRates[code] ||
     currencies.value.find((currency) => currency.code === code)?.exchangeRate
-  return rate ? `100 USD = ${formatDecimal(Number(rate) * 100)} ${code}` : `等待设置 ${code} 汇率`
+  if (!rate) return `等待设置 ${code} 汇率`
+  // 汇率换算示例用 decimal.js 高精度计算，禁止用 JS number 算金额（规格 §8.6）
+  try {
+    return `100 USD = ${formatDecimal(new Decimal(rate).times(100))} ${code}`
+  } catch {
+    return `等待设置 ${code} 汇率`
+  }
 })
 
-const formatDecimal = (value: number) =>
-  new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 8 }).format(value)
+const formatDecimal = (value: Decimal) => {
+  // 最多 8 位小数、去尾零、加千分位，全程 Decimal 不经过 JS number
+  const fixed = value.toDecimalPlaces(8, Decimal.ROUND_HALF_UP).toString()
+  const negative = fixed.startsWith('-')
+  const [intPart, fracPart] = (negative ? fixed.slice(1) : fixed).split('.')
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const body = fracPart ? `${grouped}.${fracPart}` : grouped
+  return `${negative ? '-' : ''}${body}`
+}
 
 const responseData = <T,>(response: any): T => response?.data as T
 const responseList = <T,>(response: any): T[] =>
