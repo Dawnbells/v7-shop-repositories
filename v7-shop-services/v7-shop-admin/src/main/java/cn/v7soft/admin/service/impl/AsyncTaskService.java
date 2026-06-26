@@ -215,7 +215,15 @@ public class AsyncTaskService extends BaseDataRangeService<AsyncTask, AsyncTaskR
     @Override
     public InputStream download(Long id) {
         AsyncTask task = getById(id);
-        statisticsExportDownloadGuard.validate(task);
+        if (task.getTaskType() == TaskType.ORDER_STATISTICS_EXPORT) {
+            // 统计导出文件仅本人可下载：前端下载请求需携带 Authorization 才能取到登录态，
+            // 未登录会抛异常并被控制器统一转成 404（不泄露存在性）。owner id 走投影查询，避免懒加载。
+            Long currentUserId = SaSessionUtil.getLoginUser().getLongId();
+            Long ownerId = asyncTaskRepository.findOwnerIdById(id);
+            statisticsExportDownloadGuard.validate(task, currentUserId, ownerId);
+        } else {
+            statisticsExportDownloadGuard.validate(task, null, null);
+        }
         return s3Service.download(task.getExportRelativePath());
     }
 

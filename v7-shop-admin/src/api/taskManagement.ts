@@ -1,5 +1,6 @@
 import { getEnv } from '/@/utils/env'
 import request from '/@/utils/request'
+import { useUserStore } from '/@/store/modules/user'
 
 export function getList(params?: any) {
   return request({
@@ -43,7 +44,11 @@ export function downloadTaskFile(taskId: string | number) {
 
 export function downloadFile(taskId: string) {
   const href = `${getEnv('VITE_API_BASE_URL', window.location.origin)}/tasks/download/${taskId}`
-  return fetch(href)
+  // 统计导出文件需要后端做归属校验，下载请求必须携带登录 token（与 axios 拦截器同源）
+  const { token } = useUserStore()
+  return fetch(href, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
 }
 
 export function fetchUnacknowledged(params?: { pageNo?: number; pageSize?: number }) {

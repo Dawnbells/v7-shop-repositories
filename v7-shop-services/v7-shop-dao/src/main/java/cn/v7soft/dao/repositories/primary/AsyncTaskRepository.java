@@ -20,6 +20,13 @@ public interface AsyncTaskRepository extends BaseRepository<AsyncTask> {
     @Query("UPDATE AsyncTask t SET t.createTime = :time WHERE t.id = :id")
     void resetCreateTime(@Param("id") Long id, @Param("time") LocalDateTime time);
 
+    /**
+     * 仅取任务归属用户 id（引用 user_id 外键列，不 JOIN、不初始化 owner 关联），
+     * 用于下载归属校验，避免懒加载/OSIV 依赖。任务不存在或 owner 为空时返回 null。
+     */
+    @Query("SELECT t.owner.id FROM AsyncTask t WHERE t.id = :id")
+    Long findOwnerIdById(@Param("id") Long id);
+
     List<AsyncTask> findByTaskTypeAndParametersAndStateIn(TaskType taskType, String parameters, List<TaskState> states);
 
     List<AsyncTask> findByTaskTypeAndDedupKeyAndStateIn(TaskType taskType, String dedupKey, List<TaskState> states);

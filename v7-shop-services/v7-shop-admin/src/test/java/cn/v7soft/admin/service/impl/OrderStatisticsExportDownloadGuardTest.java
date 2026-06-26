@@ -14,6 +14,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class OrderStatisticsExportDownloadGuardTest {
 
+    private static final Long OWNER_ID = 100L;
+    private static final Long OTHER_USER_ID = 200L;
+
     private final OrderStatisticsExportDownloadGuard guard =
             new OrderStatisticsExportDownloadGuard(
                     Clock.fixed(
@@ -22,30 +25,67 @@ class OrderStatisticsExportDownloadGuardTest {
                     )
             );
 
+    private AsyncTask statisticsTask(String createTime) {
+        return AsyncTask.builder()
+                .taskType(TaskType.ORDER_STATISTICS_EXPORT)
+                .createTime(LocalDateTime.parse(createTime))
+                .build();
+    }
+
+    @Test
+    void allowsOwnerWithinTwentyFourHours() {
+        AsyncTask task = statisticsTask("2026-06-24T12:00:01");
+
+        assertThatCode(() -> guard.validate(task, OWNER_ID, OWNER_ID))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsNonOwner() {
+        AsyncTask task = statisticsTask("2026-06-24T12:00:01");
+
+        assertThatThrownBy(() -> guard.validate(task, OTHER_USER_ID, OWNER_ID))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("无权");
+    }
+
+    @Test
+    void rejectsAnonymousDownloadWhenCurrentUserIsNull() {
+        AsyncTask task = statisticsTask("2026-06-24T12:00:01");
+
+        assertThatThrownBy(() -> guard.validate(task, null, OWNER_ID))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("无权");
+    }
+
     @Test
     void rejectsStatisticsExportOlderThanTwentyFourHours() {
-        AsyncTask task = AsyncTask.builder()
-                .taskType(TaskType.ORDER_STATISTICS_EXPORT)
-                .createTime(LocalDateTime.parse("2026-06-24T11:59:59"))
-                .build();
+        AsyncTask task = statisticsTask("2026-06-24T11:59:59");
 
-        assertThatThrownBy(() -> guard.validate(task))
+        assertThatThrownBy(() -> guard.validate(task, OWNER_ID, OWNER_ID))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("过期");
     }
 
     @Test
-    void allowsRecentStatisticsExportAndOtherTaskTypes() {
-        AsyncTask recent = AsyncTask.builder()
-                .taskType(TaskType.ORDER_STATISTICS_EXPORT)
-                .createTime(LocalDateTime.parse("2026-06-24T12:00:01"))
-                .build();
+    void nonOwnerOnExpiredTaskReportsForbiddenNotExpired() {
+        // 非 owner 应优先报"无权"，不泄露文件是否已过期/是否存在（无 oracle）
+        AsyncTask task = statisticsTask("2026-06-24T11:59:59");
+
+        assertThatThrownBy(() -> guard.validate(task, OTHER_USER_ID, OWNER_ID))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("无权");
+    }
+
+    @Test
+    void allowsOtherTaskTypesWithoutOwnerOrLogin() {
+        // 其它任务类型早退，传 null 也放行 —— 证明对订单下载等其它下载零影响
         AsyncTask other = AsyncTask.builder()
                 .taskType(TaskType.ORDER_DOWNLOAD)
                 .createTime(LocalDateTime.parse("2020-01-01T00:00:00"))
                 .build();
 
-        assertThatCode(() -> guard.validate(recent)).doesNotThrowAnyException();
-        assertThatCode(() -> guard.validate(other)).doesNotThrowAnyException();
+        assertThatCode(() -> guard.validate(other, null, null))
+                .doesNotThrowAnyException();
     }
 }
