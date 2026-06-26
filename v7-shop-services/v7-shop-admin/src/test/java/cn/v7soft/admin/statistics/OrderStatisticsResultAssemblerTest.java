@@ -151,6 +151,68 @@ class OrderStatisticsResultAssemblerTest {
             assertThat(item.getMetrics().getDeliveryRate()).isNull();
         });
     }
+    @Test
+    void groupAndBucketRoundedSumsEqualSummaryDespiteRoundingRemainder() {
+        List<OrderStatisticsBucket> buckets = List.of(
+                bucket("2026-06-01"),
+                bucket("2026-06-02")
+        );
+        OrderStatisticsQueryCriteria criteria = new OrderStatisticsQueryCriteria(
+                LocalDate.parse("2026-06-01"),
+                LocalDate.parse("2026-06-02"),
+                OrderStatisticsGranularity.DAY,
+                OrderStatisticsDimension.EMPLOYEE,
+                List.of(101L, 102L),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                "USD",
+                Map.of(),
+                false
+        );
+        // 两笔各换算为 0.005 USD（CNY 0.05 ÷ 历史汇率 10），分属两组、两桶；
+        // 汇总未签收 = 0.01，但各自独立四舍五入会得 0.01+0.01=0.02 —— 余数分配须修正回 0.01
+        List<OrderStatisticsAggregateRow> rows = List.of(
+                row("2026-06-01", 101L, "A", "CNY", "10",
+                        OrderStatus.PENDING, 1, "0.05"),
+                row("2026-06-02", 102L, "B", "CNY", "10",
+                        OrderStatus.PENDING, 1, "0.05")
+        );
+
+        OrderStatisticsResultResponse result = assembler.assemble(
+                buckets,
+                criteria,
+                rows,
+                Map.of(),
+                Map.of("USD", BigDecimal.ONE),
+                Map.of(101L, "A", 102L, "B"),
+                2
+        );
+
+        assertThat(result.getSummary().getUndeliveredSalesAmount()).isEqualTo("0.01");
+        assertThat(result.getSummary().getTotalSalesAmount()).isEqualTo("0.01");
+
+        // §9.6 合计与卡片一致 / §20.2.1 汇总=分组合计
+        assertThat(sumAmounts(result.getGroups().stream()
+                .map(group -> group.getMetrics().getUndeliveredSalesAmount()).toList()))
+                .isEqualByComparingTo("0.01");
+        assertThat(sumAmounts(result.getGroups().stream()
+                .map(group -> group.getMetrics().getTotalSalesAmount()).toList()))
+                .isEqualByComparingTo("0.01");
+        // 时间桶合计也等于汇总（趋势与卡片一致）
+        assertThat(sumAmounts(result.getBuckets().stream()
+                .map(bucket -> bucket.getMetrics().getUndeliveredSalesAmount()).toList()))
+                .isEqualByComparingTo("0.01");
+        assertThat(sumAmounts(result.getBuckets().stream()
+                .map(bucket -> bucket.getMetrics().getTotalSalesAmount()).toList()))
+                .isEqualByComparingTo("0.01");
+    }
+
+    private static BigDecimal sumAmounts(List<String> amounts) {
+        return amounts.stream().map(BigDecimal::new).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     private OrderStatisticsBucket bucket(String key) {
         LocalDate date = LocalDate.parse(key);
         return new OrderStatisticsBucket(

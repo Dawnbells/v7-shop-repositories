@@ -108,16 +108,27 @@ public class OrderStatisticsResultAssembler {
             }
         }
 
-        List<OrderStatisticsBucketResponse> bucketResponses = buckets.stream()
-                .map(bucket -> OrderStatisticsBucketResponse.builder()
-                        .key(bucket.key())
-                        .startAt(bucket.startInstant().toString())
-                        .endAt(bucket.endInstant().toString())
-                        .partial(bucket.partial())
-                        .metrics(bucketMetrics.get(bucket.key())
-                                .toResponse(classifier, targetFractionDigits))
-                        .build())
+        // 汇总（卡片）作为权威合计：全量高精度后统一舍入
+        RoundedAmounts summaryRounded = roundEach(summary, targetFractionDigits);
+
+        // 时间桶：余数分配使各桶合计精确等于汇总（趋势与卡片一致）
+        List<MetricsAccumulator> bucketAccumulators = buckets.stream()
+                .map(bucket -> bucketMetrics.get(bucket.key()))
                 .toList();
+        List<RoundedAmounts> bucketRounded =
+                allocate(summary, bucketAccumulators, targetFractionDigits);
+        List<OrderStatisticsBucketResponse> bucketResponses = new ArrayList<>();
+        for (int index = 0; index < buckets.size(); index++) {
+            OrderStatisticsBucket bucket = buckets.get(index);
+            bucketResponses.add(OrderStatisticsBucketResponse.builder()
+                    .key(bucket.key())
+                    .startAt(bucket.startInstant().toString())
+                    .endAt(bucket.endInstant().toString())
+                    .partial(bucket.partial())
+                    .metrics(bucketMetrics.get(bucket.key())
+                            .toResponse(classifier, bucketRounded.get(index)))
+                    .build());
+        }
 
         List<GroupAccumulator> sortedGroups = groupMetrics.values().stream()
                 .sorted(Comparator.comparing(
@@ -126,10 +137,19 @@ public class OrderStatisticsResultAssembler {
                 ))
                 .toList();
 
-        List<OrderStatisticsGroupResponse> groupResponses = sortedGroups.stream()
-                .map(group -> group.toResponse(classifier, targetFractionDigits))
+        // 分组：余数分配使各组合计精确等于汇总（§9.6 合计与卡片一致 / §20.2.1 汇总=分组合计）
+        List<MetricsAccumulator> groupAccumulators = sortedGroups.stream()
+                .map(group -> group.metrics)
                 .toList();
+        List<RoundedAmounts> groupRounded =
+                allocate(summary, groupAccumulators, targetFractionDigits);
+        List<OrderStatisticsGroupResponse> groupResponses = new ArrayList<>();
+        for (int index = 0; index < sortedGroups.size(); index++) {
+            groupResponses.add(sortedGroups.get(index)
+                    .toResponse(classifier, groupRounded.get(index)));
+        }
 
+        // 时间×分组明细：作为二维明细各自舍入（不参与可加约束）
         List<OrderStatisticsBucketGroupResponse> bucketGroupResponses = new ArrayList<>();
         for (OrderStatisticsBucket bucket : buckets) {
             for (GroupAccumulator group : sortedGroups) {
@@ -143,14 +163,15 @@ public class OrderStatisticsResultAssembler {
                         .id(group.id == null ? null : String.valueOf(group.id))
                         .name(group.name)
                         .historical(group.historical)
-                        .metrics(metrics.toResponse(classifier, targetFractionDigits))
+                        .metrics(metrics.toResponse(
+                                classifier, roundEach(metrics, targetFractionDigits)))
                         .build());
             }
         }
 
         return OrderStatisticsResultResponse.builder()
                 .targetCurrencyCode(criteria.targetCurrencyCode())
-                .summary(summary.toResponse(classifier, targetFractionDigits))
+                .summary(summary.toResponse(classifier, summaryRounded))
                 .buckets(bucketResponses)
                 .groups(groupResponses)
                 .bucketGroups(bucketGroupResponses)
@@ -292,6 +313,107 @@ public class OrderStatisticsResultAssembler {
         return value.stripTrailingZeros().toPlainString();
     }
 
+    private RoundedAmounts roundEach(MetricsAccumulator accumulator, int fractionDigits) {
+        return new RoundedAmounts(
+                accumulator.invalidAmount.setScale(fractionDigits, RoundingMode.HALF_UP),
+                accumulator.undeliveredAmount.setScale(fractionDigits, RoundingMode.HALF_UP),
+                accumulator.deliveredAmount.setScale(fractionDigits, RoundingMode.HALF_UP)
+        );
+    }
+
+    /**
+     * 余数分配（最大余数法）：把各单元三类销售额舍入，并按舍入余数微调，使其和精确等于
+     * 汇总各类舍入值，从而分组合计、时间桶合计与汇总卡片完全一致（§9.6 / §20.2.1），
+     * 避免页面与 Excel 出现尾数差异（§3.2）。汇总仍是全量高精度统一舍入的权威值，
+     * 微调只在最小货币单位级别、按余数最公平地分摊。
+     *
+     * <p>前置条件：{@code units} 各高精度金额之和必须等于 {@code summary} 的对应高精度金额，
+     * 即 units 是同一批订单按某一维度（分组键 / 时间桶）的完整且互斥划分——当前调用方
+     * （按 groupKey、bucketKey 划分同一份聚合行）恒满足。若违反此前置条件，差额会被并入
+     * 现有单元：合计仍等于卡片，但个别单元金额会失真。
+     */
+    private List<RoundedAmounts> allocate(
+            MetricsAccumulator summary,
+            List<MetricsAccumulator> units,
+            int fractionDigits
+    ) {
+        List<BigDecimal> invalid = allocateComponent(
+                summary.invalidAmount,
+                units.stream().map(unit -> unit.invalidAmount).toList(),
+                fractionDigits
+        );
+        List<BigDecimal> undelivered = allocateComponent(
+                summary.undeliveredAmount,
+                units.stream().map(unit -> unit.undeliveredAmount).toList(),
+                fractionDigits
+        );
+        List<BigDecimal> delivered = allocateComponent(
+                summary.deliveredAmount,
+                units.stream().map(unit -> unit.deliveredAmount).toList(),
+                fractionDigits
+        );
+        List<RoundedAmounts> result = new ArrayList<>(units.size());
+        for (int index = 0; index < units.size(); index++) {
+            result.add(new RoundedAmounts(
+                    invalid.get(index),
+                    undelivered.get(index),
+                    delivered.get(index)
+            ));
+        }
+        return result;
+    }
+
+    private List<BigDecimal> allocateComponent(
+            BigDecimal total,
+            List<BigDecimal> units,
+            int fractionDigits
+    ) {
+        BigDecimal target = total.setScale(fractionDigits, RoundingMode.HALF_UP);
+        List<BigDecimal> rounded = new ArrayList<>(units.size());
+        for (BigDecimal unit : units) {
+            rounded.add(unit.setScale(fractionDigits, RoundingMode.HALF_UP));
+        }
+        if (units.isEmpty()) {
+            return rounded;
+        }
+        BigDecimal step = BigDecimal.ONE.movePointLeft(fractionDigits);
+        BigDecimal sum = rounded.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        int steps = target.subtract(sum)
+                .movePointRight(fractionDigits)
+                .setScale(0, RoundingMode.HALF_UP)
+                .intValueExact();
+        if (steps == 0) {
+            return rounded;
+        }
+        List<Integer> order = new ArrayList<>(units.size());
+        for (int index = 0; index < units.size(); index++) {
+            order.add(index);
+        }
+        // 舍入余数 = 高精度值 − 舍入值；steps>0 时优先补给“被向下舍入最多”的单元，反之扣减
+        Comparator<Integer> byRemainder = Comparator.comparing(
+                (Integer index) -> units.get(index).subtract(rounded.get(index))
+        );
+        order.sort(steps > 0 ? byRemainder.reversed() : byRemainder);
+        int adjustments = Math.min(Math.abs(steps), order.size());
+        for (int k = 0; k < adjustments; k++) {
+            int index = order.get(k);
+            rounded.set(index, steps > 0
+                    ? rounded.get(index).add(step)
+                    : rounded.get(index).subtract(step));
+        }
+        return rounded;
+    }
+
+    private record RoundedAmounts(
+            BigDecimal invalid,
+            BigDecimal undelivered,
+            BigDecimal delivered
+    ) {
+        private BigDecimal total() {
+            return invalid.add(undelivered).add(delivered);
+        }
+    }
+
     private static final class MetricsAccumulator {
         private long orderCount;
         private long invalidOrderCount;
@@ -331,17 +453,13 @@ public class OrderStatisticsResultAssembler {
 
         private OrderStatisticsMetricsResponse toResponse(
                 OrderStatisticsClassifier classifier,
-                int fractionDigits
+                RoundedAmounts amounts
         ) {
             OrderStatisticsCounts counts = classifier.summarize(
                     orderCount,
                     invalidOrderCount,
                     deliveredOrderCount
             );
-            BigDecimal roundedInvalid = invalidAmount.setScale(fractionDigits, RoundingMode.HALF_UP);
-            BigDecimal roundedUndelivered = undeliveredAmount.setScale(fractionDigits, RoundingMode.HALF_UP);
-            BigDecimal roundedDelivered = deliveredAmount.setScale(fractionDigits, RoundingMode.HALF_UP);
-            BigDecimal roundedTotal = roundedInvalid.add(roundedUndelivered).add(roundedDelivered);
             return OrderStatisticsMetricsResponse.builder()
                     .orderCount(counts.orderCount())
                     .validOrderCount(counts.validOrderCount())
@@ -351,10 +469,10 @@ public class OrderStatisticsResultAssembler {
                     .deliveryRate(counts.deliveryRate() == null
                             ? null
                             : counts.deliveryRate().toPlainString())
-                    .totalSalesAmount(roundedTotal.toPlainString())
-                    .invalidSalesAmount(roundedInvalid.toPlainString())
-                    .undeliveredSalesAmount(roundedUndelivered.toPlainString())
-                    .deliveredSalesAmount(roundedDelivered.toPlainString())
+                    .totalSalesAmount(amounts.total().toPlainString())
+                    .invalidSalesAmount(amounts.invalid().toPlainString())
+                    .undeliveredSalesAmount(amounts.undelivered().toPlainString())
+                    .deliveredSalesAmount(amounts.delivered().toPlainString())
                     .missingRateOrderCount(missingRateOrderCount)
                     .build();
         }
@@ -376,14 +494,14 @@ public class OrderStatisticsResultAssembler {
 
         private OrderStatisticsGroupResponse toResponse(
                 OrderStatisticsClassifier classifier,
-                int fractionDigits
+                RoundedAmounts amounts
         ) {
             return OrderStatisticsGroupResponse.builder()
                     .groupKey(key)
                     .id(id == null ? null : String.valueOf(id))
                     .name(name)
                     .historical(historical)
-                    .metrics(metrics.toResponse(classifier, fractionDigits))
+                    .metrics(metrics.toResponse(classifier, amounts))
                     .build();
         }
     }
