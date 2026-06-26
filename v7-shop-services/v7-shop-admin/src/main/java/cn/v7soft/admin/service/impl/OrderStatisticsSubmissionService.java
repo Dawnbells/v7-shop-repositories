@@ -9,7 +9,9 @@ import cn.v7soft.admin.controller.resp.OrderStatisticsQueryResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
 import cn.v7soft.admin.service.IOrderStatisticsService;
 import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
+import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -22,6 +24,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 
 @Service
 public class OrderStatisticsSubmissionService {
@@ -30,17 +35,20 @@ public class OrderStatisticsSubmissionService {
     private final OrderStatisticsSnapshotService snapshotService;
     private final OrderStatisticsConfigService configService;
     private final ObjectMapper objectMapper;
+    private final CurrencyRepository currencyRepository;
 
     public OrderStatisticsSubmissionService(
             IOrderStatisticsService statisticsService,
             OrderStatisticsSnapshotService snapshotService,
             OrderStatisticsConfigService configService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            CurrencyRepository currencyRepository
     ) {
         this.statisticsService = statisticsService;
         this.snapshotService = snapshotService;
         this.configService = configService;
         this.objectMapper = objectMapper;
+        this.currencyRepository = currencyRepository;
     }
 
     public OrderStatisticsQueryResponse submit(OrderStatisticsQueryRequest request) {
@@ -210,6 +218,7 @@ public class OrderStatisticsSubmissionService {
         payload.put("websiteId", WebsiteContext.getCurrentWebsiteId());
         payload.put("timeZoneId", config.getTimeZoneId());
         payload.put("personalExchangeRates", config.getExchangeRates());
+        payload.put("systemExchangeRates", systemRateFingerprint());
         try {
             byte[] json = objectMapper.writeValueAsBytes(payload);
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -217,5 +226,22 @@ public class OrderStatisticsSubmissionService {
         } catch (JsonProcessingException | NoSuchAlgorithmException exception) {
             throw new IllegalStateException("订单统计查询指纹生成失败", exception);
         }
+    }
+
+    /**
+     * 公司当前有效系统币种汇率指纹：纳入缓存指纹后，管理员修改公司汇率会立即使 1 分钟查询缓存失效
+     * （规格 §13.3 缓存指纹须包含生效汇率）。按币种代码排序保证确定性。
+     */
+    protected Map<String, String> systemRateFingerprint() {
+        Map<String, String> rates = new TreeMap<>();
+        for (Currency currency : currencyRepository.findAllValid()) {
+            if (currency.getCode() != null && currency.getExchangeRate() != null) {
+                rates.put(
+                        currency.getCode().toUpperCase(Locale.ROOT),
+                        currency.getExchangeRate().toPlainString()
+                );
+            }
+        }
+        return rates;
     }
 }

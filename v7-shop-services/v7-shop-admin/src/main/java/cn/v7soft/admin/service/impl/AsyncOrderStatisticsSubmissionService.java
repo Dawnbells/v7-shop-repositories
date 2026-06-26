@@ -8,6 +8,7 @@ import cn.v7soft.admin.service.IOrderStatisticsService;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
+import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import cn.v7soft.dao.utils.SaSessionUtil;
@@ -54,6 +55,7 @@ public class AsyncOrderStatisticsSubmissionService
             OrderStatisticsSnapshotService snapshotService,
             OrderStatisticsConfigService configService,
             ObjectMapper objectMapper,
+            CurrencyRepository currencyRepository,
             OrderStatisticsExecutionService executionService,
             OrderStatisticsQueryJobService jobService,
             ICompanyService companyService,
@@ -64,6 +66,7 @@ public class AsyncOrderStatisticsSubmissionService
                 snapshotService,
                 configService,
                 objectMapper,
+                currencyRepository,
                 executionService,
                 jobService,
                 companyService,
@@ -77,13 +80,14 @@ public class AsyncOrderStatisticsSubmissionService
             OrderStatisticsSnapshotService snapshotService,
             OrderStatisticsConfigService configService,
             ObjectMapper objectMapper,
+            CurrencyRepository currencyRepository,
             OrderStatisticsExecutionService executionService,
             OrderStatisticsQueryJobService jobService,
             ICompanyService companyService,
             Executor executor,
             Duration waitDuration
     ) {
-        super(synchronousService, snapshotService, configService, objectMapper);
+        super(synchronousService, snapshotService, configService, objectMapper, currencyRepository);
         this.snapshotService = snapshotService;
         this.configService = configService;
         this.objectMapper = objectMapper;
@@ -335,6 +339,7 @@ public class AsyncOrderStatisticsSubmissionService
         payload.put("websiteId", WebsiteContext.getCurrentWebsiteId());
         payload.put("timeZoneId", config.getTimeZoneId());
         payload.put("personalExchangeRates", config.getExchangeRates());
+        payload.put("systemExchangeRates", systemRateFingerprint());
         try {
             byte[] json = objectMapper.writeValueAsBytes(payload);
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

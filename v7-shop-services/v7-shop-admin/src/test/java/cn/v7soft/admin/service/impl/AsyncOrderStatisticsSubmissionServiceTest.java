@@ -8,6 +8,7 @@ import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.IOrderStatisticsService;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
+import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.enums.OrderStatisticsDimension;
 import cn.v7soft.dao.enums.OrderStatisticsGranularity;
 import cn.v7soft.dao.enums.SystemUserType;
@@ -56,6 +57,8 @@ class AsyncOrderStatisticsSubmissionServiceTest {
     private OrderStatisticsQueryJobService jobService;
     @Mock
     private ICompanyService companyService;
+    @Mock
+    private CurrencyRepository currencyRepository;
 
     private MockedStatic<SaSessionUtil> saSessionUtil;
     private MockedStatic<WebsiteContext> websiteContext;
@@ -79,6 +82,7 @@ class AsyncOrderStatisticsSubmissionServiceTest {
                 snapshotService,
                 configService,
                 objectMapper,
+                currencyRepository,
                 executionService,
                 jobService,
                 companyService,
@@ -98,6 +102,7 @@ class AsyncOrderStatisticsSubmissionServiceTest {
         websiteContext.when(WebsiteContext::isWebsiteAdmin).thenReturn(false);
         websiteContext.when(WebsiteContext::getCurrentWebsiteId).thenReturn(null);
         when(configService.getOrCreate(null)).thenReturn(config());
+        when(currencyRepository.findAllValid()).thenReturn(List.of());
         when(snapshotService.findCachedResultToken(
                 org.mockito.ArgumentMatchers.eq(9L),
                 org.mockito.ArgumentMatchers.eq(101L),

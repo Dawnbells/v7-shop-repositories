@@ -11,6 +11,7 @@ import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
 import cn.v7soft.admin.service.IOrderStatisticsService;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
+import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.enums.OrderStatisticsDimension;
 import cn.v7soft.dao.enums.OrderStatisticsGranularity;
 import cn.v7soft.dao.enums.SystemUserType;
@@ -50,6 +51,8 @@ class OrderStatisticsSubmissionServiceTest {
     private OrderStatisticsSnapshotService snapshotService;
     @Mock
     private OrderStatisticsConfigService configService;
+    @Mock
+    private CurrencyRepository currencyRepository;
 
     private MockedStatic<SaSessionUtil> saSessionUtil;
     private MockedStatic<WebsiteContext> websiteContext;
@@ -61,8 +64,10 @@ class OrderStatisticsSubmissionServiceTest {
                 statisticsService,
                 snapshotService,
                 configService,
-                new ObjectMapper().findAndRegisterModules()
+                new ObjectMapper().findAndRegisterModules(),
+                currencyRepository
         );
+        lenient().when(currencyRepository.findAllValid()).thenReturn(List.of());
         SystemUserDto loginUser = SystemUserDto.builder()
                 .id("101")
                 .companyId(9L)
