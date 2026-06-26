@@ -72,7 +72,11 @@ const handleData = async ({ config, data, status, statusText }: any): Promise<an
   // 若data.code存在，覆盖默认code
   let code = data && data[statusName] ? data[statusName] : status
   // 若code属于操作正常code，则status修改为200
-  if (codeVerificationArray.indexOf(data[statusName]) + 1) code = 200
+  if (
+    codeVerificationArray.indexOf(code) + 1 ||
+    codeVerificationArray.indexOf(data?.[statusName]) + 1
+  )
+    code = 200
   console.log(`code = ${code}`)
   switch (code) {
     case 200: {

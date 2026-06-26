@@ -10,7 +10,7 @@ export const netConfig: {
   // 最长请求时间
   timeout: 10000,
   // 操作正常code，支持String、Array、int多种类型
-  successCode: [200, 0, '200', '0'],
+  successCode: [200, 202, 0, '200', '202', '0'],
   // 数据状态的字段名称
   statusName: 'code',
   // 状态信息的字段名称

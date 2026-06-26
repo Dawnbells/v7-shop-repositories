@@ -89,6 +89,35 @@ export const asyncRoutes: VabRouteRecord[] = [
           icon: 'shield-line',
         },
       },
+      {
+        path: 'statistics',
+        name: 'OrderStatistics',
+        component: () => import('/@/views/statistics/OrderStatistics.vue'),
+        meta: {
+          title: '统计分析',
+          icon: 'line-chart-line',
+        },
+      },
+    ],
+  },
+  {
+    path: '/setting',
+    name: 'PersonalSetting',
+    component: Layout,
+    meta: {
+      title: '个人设置',
+      hidden: true,
+    },
+    children: [
+      {
+        path: 'personalCenter',
+        name: 'PersonalCenter',
+        component: () => import('/@/views/setting/personalCenter/index.vue'),
+        meta: {
+          title: '个人中心',
+          hidden: true,
+        },
+      },
     ],
   },
   // AI 管理
