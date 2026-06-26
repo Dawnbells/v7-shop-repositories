@@ -3,9 +3,12 @@ package cn.v7soft.admin.service.impl;
 import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsQueryResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
+import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.IOrderStatisticsService;
 import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
+import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,6 +45,7 @@ public class AsyncOrderStatisticsSubmissionService
     private final ObjectMapper objectMapper;
     private final OrderStatisticsExecutionService executionService;
     private final OrderStatisticsQueryJobService jobService;
+    private final ICompanyService companyService;
     private final Executor executor;
     private final Duration waitDuration;
 
@@ -52,6 +56,7 @@ public class AsyncOrderStatisticsSubmissionService
             ObjectMapper objectMapper,
             OrderStatisticsExecutionService executionService,
             OrderStatisticsQueryJobService jobService,
+            ICompanyService companyService,
             @Qualifier("threadPoolTaskExecutor") ThreadPoolTaskExecutor executor
     ) {
         this(
@@ -61,6 +66,7 @@ public class AsyncOrderStatisticsSubmissionService
                 objectMapper,
                 executionService,
                 jobService,
+                companyService,
                 executor,
                 DEFAULT_WAIT
         );
@@ -73,6 +79,7 @@ public class AsyncOrderStatisticsSubmissionService
             ObjectMapper objectMapper,
             OrderStatisticsExecutionService executionService,
             OrderStatisticsQueryJobService jobService,
+            ICompanyService companyService,
             Executor executor,
             Duration waitDuration
     ) {
@@ -82,6 +89,7 @@ public class AsyncOrderStatisticsSubmissionService
         this.objectMapper = objectMapper;
         this.executionService = executionService;
         this.jobService = jobService;
+        this.companyService = companyService;
         this.executor = executor;
         this.waitDuration = waitDuration;
     }
@@ -134,7 +142,7 @@ public class AsyncOrderStatisticsSubmissionService
 
         CompletableFuture<OrderStatisticsResultResponse> future =
                 CompletableFuture.supplyAsync(
-                        () -> executionService.execute(request, context),
+                        () -> executeWithTenant(request, context),
                         executor
                 );
         try {
@@ -175,6 +183,29 @@ public class AsyncOrderStatisticsSubmissionService
                 throw runtimeException;
             }
             throw new IllegalStateException("订单统计查询失败", exception.getCause());
+        }
+    }
+
+    /**
+     * 异步查询在 threadPoolTaskExecutor 工作线程上执行，请求线程的 TenantContext 不会随之传递；
+     * 若不重建，TenantIdentifierResolver 会解析为 root(-1) 并绕过公司租户过滤，导致 currencyRepository、
+     * systemUserRepository、departmentRepository 等 @TenantId 查询跨公司返回（串汇率、泄露员工/部门姓名）。
+     * 故在工作线程上按捕获的 companyId 重建租户上下文，结束后清理（线程池复用，避免污染后续任务）。
+     * 与 {@link TaskExecutorService#submitAsyncTask} 建立租户上下文的方式保持一致。
+     * 注意：降级路径（Redis 不可用）直接在请求线程调用 executionService.execute，沿用请求线程已有的
+     * TenantContext，不经过本方法。
+     */
+    private OrderStatisticsResultResponse executeWithTenant(
+            OrderStatisticsQueryRequest request,
+            OrderStatisticsExecutionContext context
+    ) {
+        Long companyId = context.user().getCompanyId();
+        Company company = companyId == null ? null : companyService.companyCached(companyId);
+        TenantContext.setCurrentTenant(companyId, company);
+        try {
+            return executionService.execute(request, context);
+        } finally {
+            TenantContext.clear();
         }
     }
 

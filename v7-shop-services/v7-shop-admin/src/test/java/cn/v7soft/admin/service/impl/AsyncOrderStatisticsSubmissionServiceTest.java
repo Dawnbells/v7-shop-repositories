@@ -4,6 +4,7 @@ import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsMetricsResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsQueryResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
+import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.IOrderStatisticsService;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
@@ -11,6 +12,7 @@ import cn.v7soft.dao.enums.OrderStatisticsDimension;
 import cn.v7soft.dao.enums.OrderStatisticsGranularity;
 import cn.v7soft.dao.enums.SystemUserType;
 import cn.v7soft.dao.enums.ViewMode;
+import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,6 +54,8 @@ class AsyncOrderStatisticsSubmissionServiceTest {
     private OrderStatisticsExecutionService executionService;
     @Mock
     private OrderStatisticsQueryJobService jobService;
+    @Mock
+    private ICompanyService companyService;
 
     private MockedStatic<SaSessionUtil> saSessionUtil;
     private MockedStatic<WebsiteContext> websiteContext;
@@ -77,6 +81,7 @@ class AsyncOrderStatisticsSubmissionServiceTest {
                 objectMapper,
                 executionService,
                 jobService,
+                companyService,
                 executor,
                 Duration.ofMillis(20)
         );
@@ -145,6 +150,23 @@ class AsyncOrderStatisticsSubmissionServiceTest {
         verify(jobService, timeout(1000))
                 .complete(9L, 101L, "job-1", "token-1");
         verify(executionService).execute(any(), any());
+    }
+
+    @Test
+    void asyncExecutionRunsWithCompanyTenant() {
+        // 回归：异步查询在工作线程上执行时必须重建公司租户，避免 @TenantId 查询解析为 root(-1) 跨公司泄露
+        java.util.concurrent.atomic.AtomicReference<Long> tenantDuringExecute =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(executionService.execute(any(), any())).thenAnswer(invocation -> {
+            tenantDuringExecute.set(TenantContext.getCurrentTenant());
+            return result();
+        });
+        when(snapshotService.store(9L, 101L, result())).thenReturn(snapshot());
+        when(jobService.complete(9L, 101L, "job-1", "token-1")).thenReturn(true);
+
+        service.submit(request());
+
+        assertThat(tenantDuringExecute.get()).isEqualTo(9L);
     }
 
     private OrderStatisticsExecutionContext executionContext() {
