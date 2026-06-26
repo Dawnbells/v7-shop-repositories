@@ -1,6 +1,7 @@
 package cn.v7soft.admin.service.impl;
 
 import cn.v7soft.admin.controller.resp.OrderStatisticsBucketResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsBucketGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsMetricsResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
@@ -41,6 +42,27 @@ class OrderStatisticsWorkbookServiceTest {
         }
     }
 
+    @Test
+    void writesBucketGroupDetailRows() throws Exception {
+        OrderStatisticsWorkbookService service =
+                new OrderStatisticsWorkbookService();
+
+        byte[] bytes = service.create(result());
+
+        try (Workbook workbook = WorkbookFactory.create(
+                new ByteArrayInputStream(bytes)
+        )) {
+            var sheet = workbook.getSheet("时间分组明细");
+            assertThat(sheet.getRow(1).getCell(0).getStringCellValue())
+                    .isEqualTo("2026-06-01");
+            assertThat(sheet.getRow(1).getCell(1).getStringCellValue())
+                    .isEqualTo("Alice");
+            assertThat(sheet.getRow(1).getCell(2).getNumericCellValue())
+                    .isEqualTo(10D);
+            assertThat(sheet.getRow(1).getCell(8).getStringCellValue())
+                    .isEqualTo("100.00");
+        }
+    }
     private OrderStatisticsResultResponse result() {
         OrderStatisticsMetricsResponse metrics =
                 OrderStatisticsMetricsResponse.builder()
@@ -63,6 +85,13 @@ class OrderStatisticsWorkbookServiceTest {
                         .metrics(metrics)
                         .build()))
                 .groups(List.of(OrderStatisticsGroupResponse.builder()
+                        .groupKey("EMPLOYEE:101")
+                        .id("101")
+                        .name("Alice")
+                        .metrics(metrics)
+                        .build()))
+                .bucketGroups(List.of(OrderStatisticsBucketGroupResponse.builder()
+                        .bucketKey("2026-06-01")
                         .groupKey("EMPLOYEE:101")
                         .id("101")
                         .name("Alice")

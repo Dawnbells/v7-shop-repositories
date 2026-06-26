@@ -1,6 +1,7 @@
 package cn.v7soft.admin.statistics;
 
 import cn.v7soft.admin.controller.resp.OrderStatisticsBucketResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsBucketGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsMetricsResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsMissingRateResponse;
@@ -44,6 +45,7 @@ public class OrderStatisticsResultAssembler {
         Map<String, BigDecimal> personalRates = parseRates(personalRateStrings);
         MetricsAccumulator summary = new MetricsAccumulator();
         Map<String, MetricsAccumulator> bucketMetrics = new LinkedHashMap<>();
+        Map<String, MetricsAccumulator> bucketGroupMetrics = new LinkedHashMap<>();
         Map<String, GroupAccumulator> groupMetrics = new LinkedHashMap<>();
         Map<String, OriginalCurrencyAccumulator> originalCurrencies = new LinkedHashMap<>();
         Map<String, MissingRateAccumulator> missingRates = new LinkedHashMap<>();
@@ -51,6 +53,7 @@ public class OrderStatisticsResultAssembler {
         for (OrderStatisticsBucket bucket : buckets) {
             bucketMetrics.put(bucket.key(), new MetricsAccumulator());
         }
+        initializeSelectedGroups(criteria, currentGroupNames, groupMetrics);
 
         for (OrderStatisticsAggregateRow row : rows) {
             OrderStatisticsCategory category = classifier.classify(row.orderStatus());
@@ -73,7 +76,7 @@ public class OrderStatisticsResultAssembler {
                     .add(row.orderCount(), category, conversion);
 
             String groupKey = makeGroupKey(criteria, row.groupId());
-            groupMetrics.computeIfAbsent(
+            GroupAccumulator groupAccumulator = groupMetrics.computeIfAbsent(
                     groupKey,
                     ignored -> new GroupAccumulator(
                             groupKey,
@@ -81,7 +84,12 @@ public class OrderStatisticsResultAssembler {
                             resolveGroupName(criteria, row, currentGroupNames),
                             row.groupId() != null && !currentGroupNames.containsKey(row.groupId())
                     )
-            ).metrics.add(row.orderCount(), category, conversion);
+            );
+            groupAccumulator.metrics.add(row.orderCount(), category, conversion);
+            bucketGroupMetrics.computeIfAbsent(
+                    makeBucketGroupKey(row.bucketKey(), groupKey),
+                    ignored -> new MetricsAccumulator()
+            ).add(row.orderCount(), category, conversion);
 
             originalCurrencies.computeIfAbsent(
                     currencyCode,
@@ -111,19 +119,41 @@ public class OrderStatisticsResultAssembler {
                         .build())
                 .toList();
 
-        List<OrderStatisticsGroupResponse> groupResponses = groupMetrics.values().stream()
-                .map(group -> group.toResponse(classifier, targetFractionDigits))
+        List<GroupAccumulator> sortedGroups = groupMetrics.values().stream()
                 .sorted(Comparator.comparing(
-                        response -> new BigDecimal(response.getMetrics().getTotalSalesAmount()),
+                        (GroupAccumulator group) -> group.metrics.totalAmount(),
                         Comparator.reverseOrder()
                 ))
                 .toList();
+
+        List<OrderStatisticsGroupResponse> groupResponses = sortedGroups.stream()
+                .map(group -> group.toResponse(classifier, targetFractionDigits))
+                .toList();
+
+        List<OrderStatisticsBucketGroupResponse> bucketGroupResponses = new ArrayList<>();
+        for (OrderStatisticsBucket bucket : buckets) {
+            for (GroupAccumulator group : sortedGroups) {
+                MetricsAccumulator metrics = bucketGroupMetrics.getOrDefault(
+                        makeBucketGroupKey(bucket.key(), group.key),
+                        new MetricsAccumulator()
+                );
+                bucketGroupResponses.add(OrderStatisticsBucketGroupResponse.builder()
+                        .bucketKey(bucket.key())
+                        .groupKey(group.key)
+                        .id(group.id == null ? null : String.valueOf(group.id))
+                        .name(group.name)
+                        .historical(group.historical)
+                        .metrics(metrics.toResponse(classifier, targetFractionDigits))
+                        .build());
+            }
+        }
 
         return OrderStatisticsResultResponse.builder()
                 .targetCurrencyCode(criteria.targetCurrencyCode())
                 .summary(summary.toResponse(classifier, targetFractionDigits))
                 .buckets(bucketResponses)
                 .groups(groupResponses)
+                .bucketGroups(bucketGroupResponses)
                 .originalCurrencies(originalCurrencies.values().stream()
                         .map(OriginalCurrencyAccumulator::toResponse)
                         .toList())
@@ -166,6 +196,59 @@ public class OrderStatisticsResultAssembler {
     ) {
         return criteria.dimension().name() + ":"
                 + (groupId == null ? "UNASSIGNED" : groupId);
+    }
+
+    private void initializeSelectedGroups(
+            OrderStatisticsQueryCriteria criteria,
+            Map<Long, String> currentGroupNames,
+            Map<String, GroupAccumulator> groupMetrics
+    ) {
+        for (Long groupId : selectedGroupIds(criteria)) {
+            if (groupId == null) {
+                continue;
+            }
+            String groupKey = makeGroupKey(criteria, groupId);
+            groupMetrics.computeIfAbsent(
+                    groupKey,
+                    ignored -> new GroupAccumulator(
+                            groupKey,
+                            groupId,
+                            resolveSelectedGroupName(criteria, groupId, currentGroupNames),
+                            !currentGroupNames.containsKey(groupId)
+                    )
+            );
+        }
+        if (criteria.includeUnassigned()) {
+            String groupKey = makeGroupKey(criteria, null);
+            groupMetrics.computeIfAbsent(
+                    groupKey,
+                    ignored -> new GroupAccumulator(groupKey, null, "未归属", false)
+            );
+        }
+    }
+
+    private List<Long> selectedGroupIds(OrderStatisticsQueryCriteria criteria) {
+        if ("EMPLOYEE".equals(criteria.dimension().name())) {
+            return criteria.employeeIds() == null ? List.of() : criteria.employeeIds();
+        }
+        return criteria.departmentIds() == null ? List.of() : criteria.departmentIds();
+    }
+
+    private String resolveSelectedGroupName(
+            OrderStatisticsQueryCriteria criteria,
+            Long groupId,
+            Map<Long, String> currentGroupNames
+    ) {
+        String currentName = currentGroupNames.get(groupId);
+        if (currentName != null && !currentName.isBlank()) {
+            return currentName;
+        }
+        return (criteria.dimension().name().equals("EMPLOYEE") ? "历史员工（" : "历史部门（")
+                + groupId + "）";
+    }
+
+    private String makeBucketGroupKey(String bucketKey, String groupKey) {
+        return bucketKey + "\u0000" + groupKey;
     }
 
     private String resolveGroupName(
@@ -240,6 +323,10 @@ public class OrderStatisticsResultAssembler {
             } else {
                 undeliveredAmount = undeliveredAmount.add(conversion.amount());
             }
+        }
+
+        private BigDecimal totalAmount() {
+            return invalidAmount.add(undeliveredAmount).add(deliveredAmount);
         }
 
         private OrderStatisticsMetricsResponse toResponse(

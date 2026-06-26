@@ -1,6 +1,10 @@
 package cn.v7soft.admin.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.v7soft.admin.controller.req.OrderStatisticsPageRequest;
+import cn.v7soft.admin.controller.resp.OrderStatisticsBucketGroupResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsGroupResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsPageResponse;
 import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
 import cn.v7soft.admin.controller.req.SaveOrderStatisticsConfigRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsConfigResponse;
@@ -15,8 +19,10 @@ import cn.v7soft.admin.service.impl.OrderStatisticsSubmissionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -67,21 +73,44 @@ public class OrderStatisticsController {
     @SaCheckLogin
     @PostMapping("/query")
     @Operation(summary = "查询订单统计")
-    public OrderStatisticsQueryResponse query(
+    public ResponseEntity<OrderStatisticsQueryResponse> query(
             @RequestBody OrderStatisticsQueryRequest request
     ) {
-        return submissionService.submit(request);
+        OrderStatisticsQueryResponse response = submissionService.submit(request);
+        if ("PROCESSING".equals(response.getState())) {
+            return ResponseEntity.accepted().body(response);
+        }
+        return ResponseEntity.ok(response);
     }
 
     @SaCheckLogin
     @GetMapping("/results/{resultToken}")
     @Operation(summary = "读取订单统计结果快照")
     public OrderStatisticsResultResponse result(
-            @org.springframework.web.bind.annotation.PathVariable String resultToken
+            @PathVariable String resultToken
     ) {
         return submissionService.result(resultToken);
     }
 
+    @SaCheckLogin
+    @PostMapping("/results/{resultToken}/groups/page")
+    @Operation(summary = "分页读取订单统计分组汇总快照")
+    public OrderStatisticsPageResponse<OrderStatisticsGroupResponse> groupsPage(
+            @PathVariable String resultToken,
+            @Valid @RequestBody OrderStatisticsPageRequest request
+    ) {
+        return submissionService.groupsPage(resultToken, request);
+    }
+
+    @SaCheckLogin
+    @PostMapping("/results/{resultToken}/bucket-groups/page")
+    @Operation(summary = "分页读取订单统计时间分组明细快照")
+    public OrderStatisticsPageResponse<OrderStatisticsBucketGroupResponse> bucketGroupsPage(
+            @PathVariable String resultToken,
+            @Valid @RequestBody OrderStatisticsPageRequest request
+    ) {
+        return submissionService.bucketGroupsPage(resultToken, request);
+    }
     @SaCheckLogin
     @GetMapping("/options/context")
     @Operation(summary = "获取订单统计页面上下文")

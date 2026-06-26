@@ -1,5 +1,9 @@
 package cn.v7soft.admin.service.impl;
 
+import cn.v7soft.admin.controller.req.OrderStatisticsPageRequest;
+import cn.v7soft.admin.controller.resp.OrderStatisticsBucketGroupResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsGroupResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsPageResponse;
 import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsMetricsResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsQueryResponse;
@@ -27,9 +31,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -69,7 +75,7 @@ class OrderStatisticsSubmissionServiceTest {
         websiteContext = mockStatic(WebsiteContext.class);
         websiteContext.when(WebsiteContext::isWebsiteAdmin).thenReturn(false);
         websiteContext.when(WebsiteContext::getCurrentWebsiteId).thenReturn(null);
-        when(configService.getOrCreate(null)).thenReturn(OrderStatisticsUserConfig.builder()
+        lenient().when(configService.getOrCreate(null)).thenReturn(OrderStatisticsUserConfig.builder()
                 .defaultTargetCurrencyCode("USD")
                 .timeZoneId("Asia/Shanghai")
                 .exchangeRates(Map.of("USD", "1"))
@@ -160,6 +166,57 @@ class OrderStatisticsSubmissionServiceTest {
         assertThat(response.getMessage()).contains("Redis");
     }
 
+    @Test
+    void groupsPageReadsImmutableSnapshotAndSlicesList() {
+        OrderStatisticsPageRequest pageRequest = new OrderStatisticsPageRequest();
+        pageRequest.setPageNo(2);
+        pageRequest.setPageSize(5);
+        when(snapshotService.get(9L, 101L, "token-1"))
+                .thenReturn(new OrderStatisticsStoredSnapshot(
+                        9L,
+                        101L,
+                        "token-1",
+                        Instant.parse("2026-06-24T12:00:00Z"),
+                        Instant.parse("2026-06-24T12:30:00Z"),
+                        resultWithGroups(12)
+                ));
+
+        OrderStatisticsPageResponse<OrderStatisticsGroupResponse> page =
+                service.groupsPage("token-1", pageRequest);
+
+        assertThat(page.getTotal()).isEqualTo(12);
+        assertThat(page.getPageNo()).isEqualTo(2);
+        assertThat(page.getPageSize()).isEqualTo(5);
+        assertThat(page.getTotalPages()).isEqualTo(3);
+        assertThat(page.getList())
+                .extracting(OrderStatisticsGroupResponse::getName)
+                .containsExactly("Group 6", "Group 7", "Group 8", "Group 9", "Group 10");
+    }
+
+    @Test
+    void bucketGroupsPageReadsImmutableSnapshotAndSlicesList() {
+        OrderStatisticsPageRequest pageRequest = new OrderStatisticsPageRequest();
+        pageRequest.setPageNo(1);
+        pageRequest.setPageSize(5);
+        when(snapshotService.get(9L, 101L, "token-1"))
+                .thenReturn(new OrderStatisticsStoredSnapshot(
+                        9L,
+                        101L,
+                        "token-1",
+                        Instant.parse("2026-06-24T12:00:00Z"),
+                        Instant.parse("2026-06-24T12:30:00Z"),
+                        resultWithBucketGroups(8)
+                ));
+
+        OrderStatisticsPageResponse<OrderStatisticsBucketGroupResponse> page =
+                service.bucketGroupsPage("token-1", pageRequest);
+
+        assertThat(page.getTotal()).isEqualTo(8);
+        assertThat(page.getTotalPages()).isEqualTo(2);
+        assertThat(page.getList())
+                .extracting(OrderStatisticsBucketGroupResponse::getBucketKey)
+                .containsExactly("2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05");
+    }
     private OrderStatisticsQueryRequest request(boolean forceRefresh) {
         return OrderStatisticsQueryRequest.builder()
                 .startDate(LocalDate.parse("2026-06-01"))
@@ -172,6 +229,48 @@ class OrderStatisticsSubmissionServiceTest {
                 .build();
     }
 
+    private OrderStatisticsResultResponse resultWithGroups(int count) {
+        return OrderStatisticsResultResponse.builder()
+                .targetCurrencyCode("USD")
+                .summary(OrderStatisticsMetricsResponse.builder().orderCount(count).build())
+                .buckets(List.of())
+                .groups(IntStream.rangeClosed(1, count)
+                        .mapToObj(index -> OrderStatisticsGroupResponse.builder()
+                                .groupKey("EMPLOYEE:" + index)
+                                .id(String.valueOf(index))
+                                .name("Group " + index)
+                                .metrics(OrderStatisticsMetricsResponse.builder()
+                                        .orderCount(index)
+                                        .build())
+                                .build())
+                        .toList())
+                .bucketGroups(List.of())
+                .originalCurrencies(List.of())
+                .missingRates(List.of())
+                .build();
+    }
+
+    private OrderStatisticsResultResponse resultWithBucketGroups(int count) {
+        return OrderStatisticsResultResponse.builder()
+                .targetCurrencyCode("USD")
+                .summary(OrderStatisticsMetricsResponse.builder().orderCount(count).build())
+                .buckets(List.of())
+                .groups(List.of())
+                .bucketGroups(IntStream.rangeClosed(1, count)
+                        .mapToObj(index -> OrderStatisticsBucketGroupResponse.builder()
+                                .bucketKey("2026-06-" + String.format("%02d", index))
+                                .groupKey("EMPLOYEE:101")
+                                .id("101")
+                                .name("Alice")
+                                .metrics(OrderStatisticsMetricsResponse.builder()
+                                        .orderCount(index)
+                                        .build())
+                                .build())
+                        .toList())
+                .originalCurrencies(List.of())
+                .missingRates(List.of())
+                .build();
+    }
     private OrderStatisticsResultResponse result() {
         return OrderStatisticsResultResponse.builder()
                 .targetCurrencyCode("USD")

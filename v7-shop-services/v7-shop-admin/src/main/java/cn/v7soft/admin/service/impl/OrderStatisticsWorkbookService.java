@@ -1,6 +1,7 @@
 package cn.v7soft.admin.service.impl;
 
 import cn.v7soft.admin.controller.resp.OrderStatisticsBucketResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsBucketGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsMetricsResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsMissingRateResponse;
@@ -30,7 +31,7 @@ public class OrderStatisticsWorkbookService {
             writeSummary(workbook, result, headerStyle);
             writeBuckets(workbook, result, headerStyle);
             writeGroups(workbook, result, headerStyle);
-            writeBucketGroups(workbook, headerStyle);
+            writeBucketGroups(workbook, result, headerStyle);
             writeOriginalCurrencies(workbook, result, headerStyle);
             writeRateInfo(workbook, result, headerStyle);
             writeMissingRates(workbook, result, headerStyle);
@@ -100,12 +101,55 @@ public class OrderStatisticsWorkbookService {
 
     private void writeBucketGroups(
             XSSFWorkbook workbook,
+            OrderStatisticsResultResponse result,
             CellStyle headerStyle
     ) {
         Sheet sheet = workbook.createSheet("时间分组明细");
-        row(sheet, 0, headerStyle, "时间桶", "分组", "订单数", "销售额");
-        row(sheet, 1, null, "当前版本快照未包含时间×分组明细", "", "", "");
-        autoSize(sheet, 4);
+        row(
+                sheet,
+                0,
+                headerStyle,
+                "时间桶",
+                "分组",
+                "订单数",
+                "有效订单数",
+                "无效订单数",
+                "签收订单数",
+                "未签收订单数",
+                "签收率",
+                "总销售额",
+                "无效销售额",
+                "未签收销售额",
+                "签收销售额",
+                "缺失汇率订单数"
+        );
+        int index = 1;
+        for (OrderStatisticsBucketGroupResponse item : safe(result.getBucketGroups())) {
+            OrderStatisticsMetricsResponse metrics = item.getMetrics();
+            if (metrics == null) {
+                row(sheet, index++, null, item.getBucketKey(), item.getName());
+                continue;
+            }
+            row(
+                    sheet,
+                    index++,
+                    null,
+                    item.getBucketKey(),
+                    item.getName() + (item.isHistorical() ? "（历史）" : ""),
+                    metrics.getOrderCount(),
+                    metrics.getValidOrderCount(),
+                    metrics.getInvalidOrderCount(),
+                    metrics.getDeliveredOrderCount(),
+                    metrics.getUndeliveredOrderCount(),
+                    metrics.getDeliveryRate(),
+                    metrics.getTotalSalesAmount(),
+                    metrics.getInvalidSalesAmount(),
+                    metrics.getUndeliveredSalesAmount(),
+                    metrics.getDeliveredSalesAmount(),
+                    metrics.getMissingRateOrderCount()
+            );
+        }
+        autoSize(sheet, 13);
     }
 
     private void writeOriginalCurrencies(

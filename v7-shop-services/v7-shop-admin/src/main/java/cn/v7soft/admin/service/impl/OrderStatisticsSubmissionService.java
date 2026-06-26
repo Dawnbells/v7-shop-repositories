@@ -1,5 +1,9 @@
 package cn.v7soft.admin.service.impl;
 
+import cn.v7soft.admin.controller.req.OrderStatisticsPageRequest;
+import cn.v7soft.admin.controller.resp.OrderStatisticsBucketGroupResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsGroupResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsPageResponse;
 import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsQueryResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
@@ -102,6 +106,52 @@ public class OrderStatisticsSubmissionService {
         ).result();
     }
 
+    public OrderStatisticsPageResponse<OrderStatisticsGroupResponse> groupsPage(
+            String resultToken,
+            OrderStatisticsPageRequest request
+    ) {
+        SystemUserDto user = SaSessionUtil.getLoginUser();
+        OrderStatisticsResultResponse result = snapshotService.get(
+                user.getCompanyId(),
+                user.getLongId(),
+                resultToken
+        ).result();
+        return page(result.getGroups(), request);
+    }
+
+    public OrderStatisticsPageResponse<OrderStatisticsBucketGroupResponse> bucketGroupsPage(
+            String resultToken,
+            OrderStatisticsPageRequest request
+    ) {
+        SystemUserDto user = SaSessionUtil.getLoginUser();
+        OrderStatisticsResultResponse result = snapshotService.get(
+                user.getCompanyId(),
+                user.getLongId(),
+                resultToken
+        ).result();
+        return page(result.getBucketGroups(), request);
+    }
+
+    private <T> OrderStatisticsPageResponse<T> page(
+            List<T> items,
+            OrderStatisticsPageRequest request
+    ) {
+        List<T> source = items == null ? List.of() : items;
+        int pageNo = Math.max(1, request == null ? 1 : request.getPageNo());
+        int pageSize = request == null ? 20 : request.getPageSize();
+        pageSize = Math.min(100, Math.max(5, pageSize));
+        int total = source.size();
+        int fromIndex = Math.min((pageNo - 1) * pageSize, total);
+        int toIndex = Math.min(fromIndex + pageSize, total);
+        int totalPages = total == 0 ? 0 : (int) Math.ceil((double) total / pageSize);
+        return OrderStatisticsPageResponse.<T>builder()
+                .list(source.subList(fromIndex, toIndex))
+                .total(total)
+                .pageNo(pageNo)
+                .pageSize(pageSize)
+                .totalPages(totalPages)
+                .build();
+    }
     private OrderStatisticsQueryResponse completed(
             OrderStatisticsStoredSnapshot snapshot,
             boolean cached
@@ -124,6 +174,9 @@ public class OrderStatisticsSubmissionService {
                 .groups(result.getGroups() == null
                         ? List.of()
                         : result.getGroups().stream().limit(100).toList())
+                .bucketGroups(result.getBucketGroups() == null
+                        ? List.of()
+                        : result.getBucketGroups().stream().limit(100).toList())
                 .originalCurrencies(result.getOriginalCurrencies())
                 .missingRates(result.getMissingRates())
                 .build();

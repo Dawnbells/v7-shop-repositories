@@ -103,6 +103,54 @@ class OrderStatisticsResultAssemblerTest {
         });
     }
 
+    @Test
+    void assemblesBucketGroupsForEachBucketAndSelectedGroupWithZeroRows() {
+        List<OrderStatisticsBucket> buckets = List.of(
+                bucket("2026-06-01"),
+                bucket("2026-06-02")
+        );
+        OrderStatisticsQueryCriteria criteria = new OrderStatisticsQueryCriteria(
+                LocalDate.parse("2026-06-01"),
+                LocalDate.parse("2026-06-02"),
+                OrderStatisticsGranularity.DAY,
+                OrderStatisticsDimension.EMPLOYEE,
+                List.of(101L),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                "USD",
+                Map.of(),
+                false
+        );
+
+        OrderStatisticsResultResponse result = assembler.assemble(
+                buckets,
+                criteria,
+                List.of(row("2026-06-01", 101L, "Alice", "USD", "1",
+                        OrderStatus.DELIVERED, 1, "25")),
+                Map.of(),
+                Map.of("USD", BigDecimal.ONE),
+                Map.of(101L, "Alice"),
+                2
+        );
+
+        assertThat(result.getBucketGroups()).hasSize(2);
+        assertThat(result.getBucketGroups().get(0)).satisfies(item -> {
+            assertThat(item.getBucketKey()).isEqualTo("2026-06-01");
+            assertThat(item.getGroupKey()).isEqualTo("EMPLOYEE:101");
+            assertThat(item.getName()).isEqualTo("Alice");
+            assertThat(item.getMetrics().getOrderCount()).isEqualTo(1);
+            assertThat(item.getMetrics().getDeliveredSalesAmount()).isEqualTo("25.00");
+        });
+        assertThat(result.getBucketGroups().get(1)).satisfies(item -> {
+            assertThat(item.getBucketKey()).isEqualTo("2026-06-02");
+            assertThat(item.getGroupKey()).isEqualTo("EMPLOYEE:101");
+            assertThat(item.getName()).isEqualTo("Alice");
+            assertThat(item.getMetrics().getOrderCount()).isZero();
+            assertThat(item.getMetrics().getDeliveryRate()).isNull();
+        });
+    }
     private OrderStatisticsBucket bucket(String key) {
         LocalDate date = LocalDate.parse(key);
         return new OrderStatisticsBucket(

@@ -16,6 +16,7 @@ public class OrderStatisticsResultResponse {
     private OrderStatisticsMetricsResponse summary;
     private List<OrderStatisticsBucketResponse> buckets;
     private List<OrderStatisticsGroupResponse> groups;
+    private List<OrderStatisticsBucketGroupResponse> bucketGroups;
     private List<OrderStatisticsOriginalCurrencyResponse> originalCurrencies;
     private List<OrderStatisticsMissingRateResponse> missingRates;
 }
