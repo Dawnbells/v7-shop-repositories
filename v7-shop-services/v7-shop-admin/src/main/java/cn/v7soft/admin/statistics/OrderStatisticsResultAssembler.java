@@ -224,20 +224,27 @@ public class OrderStatisticsResultAssembler {
             Map<Long, String> currentGroupNames,
             Map<String, GroupAccumulator> groupMetrics
     ) {
-        for (Long groupId : selectedGroupIds(criteria)) {
-            if (groupId == null) {
-                continue;
+        // 仅按部门维度预置选中分组：部门 ID 已在 OrderStatisticsQueryNormalizer 经权限校验，
+        // 零数据部门可安全显示（含名称）。员工 ID 在管理者模式未做范围二次校验，若为每个提交
+        // 员工 ID 预置零数据分组并回显当前姓名，会被用来枚举权限范围外员工的姓名（§7.4）；
+        // 故员工维度只从实际命中订单（已按数据权限裁剪）的数据行产生分组——管理者只能看到其
+        // 授权范围内确有订单的员工。
+        if ("DEPARTMENT".equals(criteria.dimension().name())) {
+            for (Long groupId : selectedGroupIds(criteria)) {
+                if (groupId == null) {
+                    continue;
+                }
+                String groupKey = makeGroupKey(criteria, groupId);
+                groupMetrics.computeIfAbsent(
+                        groupKey,
+                        ignored -> new GroupAccumulator(
+                                groupKey,
+                                groupId,
+                                resolveSelectedGroupName(criteria, groupId, currentGroupNames),
+                                !currentGroupNames.containsKey(groupId)
+                        )
+                );
             }
-            String groupKey = makeGroupKey(criteria, groupId);
-            groupMetrics.computeIfAbsent(
-                    groupKey,
-                    ignored -> new GroupAccumulator(
-                            groupKey,
-                            groupId,
-                            resolveSelectedGroupName(criteria, groupId, currentGroupNames),
-                            !currentGroupNames.containsKey(groupId)
-                    )
-            );
         }
         if (criteria.includeUnassigned()) {
             String groupKey = makeGroupKey(criteria, null);

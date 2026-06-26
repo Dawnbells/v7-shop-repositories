@@ -4,6 +4,7 @@ import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
 import cn.v7soft.admin.statistics.OrderStatisticsAccessScope;
 import cn.v7soft.admin.statistics.OrderStatisticsAccessScopeResolver;
+import cn.v7soft.admin.statistics.OrderStatisticsAggregateRow;
 import cn.v7soft.admin.statistics.OrderStatisticsBucket;
 import cn.v7soft.admin.statistics.OrderStatisticsBucketFactory;
 import cn.v7soft.admin.statistics.OrderStatisticsClassifier;
@@ -13,8 +14,6 @@ import cn.v7soft.admin.statistics.OrderStatisticsQueryNormalizer;
 import cn.v7soft.admin.statistics.OrderStatisticsQueryRepository;
 import cn.v7soft.admin.statistics.OrderStatisticsResultAssembler;
 import cn.v7soft.dao.entities.primary.Currency;
-import cn.v7soft.dao.entities.primary.Department;
-import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.enums.OrderStatisticsDimension;
 import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.repositories.primary.DepartmentRepository;
@@ -30,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class OrderStatisticsExecutionService {
@@ -127,31 +127,39 @@ public class OrderStatisticsExecutionService {
             }
         });
 
+        List<OrderStatisticsAggregateRow> rows =
+                queryRepository.query(buckets, criteria, scope);
         return resultAssembler.assemble(
                 buckets,
                 criteria,
-                queryRepository.query(buckets, criteria, scope),
+                rows,
                 executionContext.config().getExchangeRates(),
                 systemRates,
-                loadCurrentGroupNames(criteria),
+                loadCurrentGroupNames(criteria, rows),
                 targetCurrency.getFractionDigits()
         );
     }
 
     private Map<Long, String> loadCurrentGroupNames(
-            OrderStatisticsQueryCriteria criteria
+            OrderStatisticsQueryCriteria criteria,
+            List<OrderStatisticsAggregateRow> rows
     ) {
         LinkedHashMap<Long, String> result = new LinkedHashMap<>();
         if (criteria.dimension() == OrderStatisticsDimension.EMPLOYEE) {
-            Iterable<SystemUser> users =
-                    systemUserRepository.findAllById(criteria.employeeIds());
-            users.forEach(user -> result.put(user.getId(), user.getName()));
+            // 仅解析实际命中订单（已按数据权限裁剪）的员工，避免把权限范围外伪造 ID 的姓名
+            // 读入内存（§7.4 防御纵深）；员工分组本就只从命中行产生，无需提交 ID 的名称。
+            List<Long> hitEmployeeIds = rows.stream()
+                    .map(OrderStatisticsAggregateRow::groupId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            systemUserRepository.findAllById(hitEmployeeIds)
+                    .forEach(user -> result.put(user.getId(), user.getName()));
         } else {
-            Iterable<Department> departments =
-                    departmentRepository.findAllById(criteria.departmentIds());
-            departments.forEach(department ->
-                    result.put(department.getId(), department.getName())
-            );
+            // 部门 ID 已在 normalizer 经权限校验，可安全解析（含零数据部门，用于预置显示）
+            departmentRepository.findAllById(criteria.departmentIds())
+                    .forEach(department ->
+                            result.put(department.getId(), department.getName()));
         }
         return result;
     }

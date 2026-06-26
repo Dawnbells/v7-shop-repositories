@@ -213,6 +213,81 @@ class OrderStatisticsResultAssemblerTest {
         return amounts.stream().map(BigDecimal::new).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    @Test
+    void employeeModeOmitsSelectedEmployeesWithoutDataToPreventNameLeak() {
+        List<OrderStatisticsBucket> buckets = List.of(bucket("2026-06-01"));
+        OrderStatisticsQueryCriteria criteria = new OrderStatisticsQueryCriteria(
+                LocalDate.parse("2026-06-01"),
+                LocalDate.parse("2026-06-01"),
+                OrderStatisticsGranularity.DAY,
+                OrderStatisticsDimension.EMPLOYEE,
+                List.of(101L, 999L),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                "USD",
+                Map.of(),
+                false
+        );
+        // 只有 101 有订单；999 为权限范围外的伪造 ID（currentGroupNames 含其姓名以模拟泄露面）
+        List<OrderStatisticsAggregateRow> rows = List.of(
+                row("2026-06-01", 101L, "Alice", "USD", "1",
+                        OrderStatus.DELIVERED, 1, "10"));
+
+        OrderStatisticsResultResponse result = assembler.assemble(
+                buckets,
+                criteria,
+                rows,
+                Map.of(),
+                Map.of("USD", BigDecimal.ONE),
+                Map.of(101L, "Alice", 999L, "范围外Bob"),
+                2
+        );
+
+        // 999 无命中订单 → 不预置零数据分组 → 不出现、绝不回显其姓名（§7.4）
+        assertThat(result.getGroups())
+                .extracting(group -> group.getId())
+                .containsExactly("101");
+    }
+
+    @Test
+    void departmentModeRetainsSelectedDepartmentsWithoutData() {
+        List<OrderStatisticsBucket> buckets = List.of(bucket("2026-06-01"));
+        OrderStatisticsQueryCriteria criteria = new OrderStatisticsQueryCriteria(
+                LocalDate.parse("2026-06-01"),
+                LocalDate.parse("2026-06-01"),
+                OrderStatisticsGranularity.DAY,
+                OrderStatisticsDimension.DEPARTMENT,
+                List.of(),
+                List.of(201L, 202L),
+                false,
+                List.of(),
+                List.of(),
+                "USD",
+                Map.of(),
+                false
+        );
+        // 部门 ID 已经过权限校验，零数据部门 202 仍应预置显示（与员工维度的安全裁剪相区分）
+        List<OrderStatisticsAggregateRow> rows = List.of(
+                row("2026-06-01", 201L, "销售部", "USD", "1",
+                        OrderStatus.DELIVERED, 1, "10"));
+
+        OrderStatisticsResultResponse result = assembler.assemble(
+                buckets,
+                criteria,
+                rows,
+                Map.of(),
+                Map.of("USD", BigDecimal.ONE),
+                Map.of(201L, "销售部", 202L, "市场部"),
+                2
+        );
+
+        assertThat(result.getGroups())
+                .extracting(group -> group.getId())
+                .containsExactlyInAnyOrder("201", "202");
+    }
+
     private OrderStatisticsBucket bucket(String key) {
         LocalDate date = LocalDate.parse(key);
         return new OrderStatisticsBucket(
