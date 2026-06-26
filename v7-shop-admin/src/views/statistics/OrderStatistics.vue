@@ -867,7 +867,10 @@ const orderChartOption = computed(() => ({
 
 const deliveryChartOption = computed(() => ({
   ...chartBase,
-  tooltip: { trigger: 'axis', valueFormatter: (value: number) => `${value.toFixed(2)}%` },
+  tooltip: {
+    trigger: 'axis',
+    valueFormatter: (value: number | null) => (value == null ? '--' : `${value.toFixed(2)}%`),
+  },
   xAxis: { ...chartBase.xAxis, data: result.value?.buckets.map((bucket) => bucket.key) || [] },
   yAxis: { ...chartBase.yAxis, axisLabel: { formatter: '{value}%' }, max: 100 },
   series: [
@@ -876,7 +879,11 @@ const deliveryChartOption = computed(() => ({
       type: 'line',
       smooth: true,
       areaStyle: { opacity: 0.12 },
-      data: result.value?.buckets.map((bucket) => Number(bucket.metrics.deliveryRate || 0) * 100) || [],
+      // 无有效订单的桶签收率为 null → 用 null 让折线断开，而非画成 0%（§6.3）
+      data:
+        result.value?.buckets.map((bucket) =>
+          bucket.metrics.deliveryRate == null ? null : Number(bucket.metrics.deliveryRate) * 100
+        ) || [],
     },
   ],
 }))
