@@ -81,6 +81,7 @@ export interface StatisticsBucketGroup extends StatisticsGroup {
 export interface StatisticsPageRequest {
   pageNo: number
   pageSize: number
+  sortBy?: string
 }
 
 export interface StatisticsPageResponse<T> {
@@ -107,6 +108,8 @@ export interface MissingRateSummary {
 }
 
 export interface StatisticsResult {
+  generatedAt?: string
+  timeZoneId?: string
   targetCurrencyCode: string
   summary: StatisticsMetrics
   buckets: StatisticsBucket[]

@@ -20,6 +20,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
@@ -27,6 +30,9 @@ public class OrderStatisticsWorkbookService {
 
     private static final String RAW_AMOUNT_FORMAT = "#,##0.########";
     private static final String PERCENT_FORMAT = "0.00%";
+    private static final String DATABASE_TIME_ZONE = "Asia/Shanghai";
+    private static final DateTimeFormatter GENERATED_AT_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public byte[] create(OrderStatisticsResultResponse result) {
         try (XSSFWorkbook workbook = new XSSFWorkbook();
@@ -54,10 +60,45 @@ public class OrderStatisticsWorkbookService {
     ) {
         Sheet sheet = workbook.createSheet("查询说明");
         headerRow(sheet, 0, styles, "项目", "内容");
-        row(sheet, 1, styles, "生成时间", Instant.now().toString());
-        row(sheet, 2, styles, "目标币种", result.getTargetCurrencyCode());
-        row(sheet, 3, styles, "数据口径", "订单当前状态的聚合快照");
+        row(sheet, 1, styles, "生成时间", formatGeneratedAt(result));
+        row(sheet, 2, styles, "用户时区", resolveZoneId(result));
+        row(sheet, 3, styles, "数据库时间基准", DATABASE_TIME_ZONE);
+        row(sheet, 4, styles, "目标币种", result.getTargetCurrencyCode());
+        row(sheet, 5, styles, "数据口径", "订单当前状态的聚合快照");
         autoSize(sheet, 2);
+    }
+
+    /** 按用户时区格式化生成时间；老快照/空值兜底，绝不抛 NPE。 */
+    private String formatGeneratedAt(OrderStatisticsResultResponse result) {
+        ZoneId zone = parseZone(result == null ? null : result.getTimeZoneId());
+        Instant instant = parseInstant(result == null ? null : result.getGeneratedAt());
+        return GENERATED_AT_FORMAT.withZone(zone).format(instant) + " (" + zone.getId() + ")";
+    }
+
+    private String resolveZoneId(OrderStatisticsResultResponse result) {
+        return parseZone(result == null ? null : result.getTimeZoneId()).getId();
+    }
+
+    private ZoneId parseZone(String zoneId) {
+        if (zoneId == null || zoneId.isBlank()) {
+            return ZoneOffset.UTC;
+        }
+        try {
+            return ZoneId.of(zoneId);
+        } catch (RuntimeException ignored) {
+            return ZoneOffset.UTC;
+        }
+    }
+
+    private Instant parseInstant(String value) {
+        if (value == null || value.isBlank()) {
+            return Instant.now();
+        }
+        try {
+            return Instant.parse(value);
+        } catch (RuntimeException ignored) {
+            return Instant.now();
+        }
     }
 
     private void writeSummary(

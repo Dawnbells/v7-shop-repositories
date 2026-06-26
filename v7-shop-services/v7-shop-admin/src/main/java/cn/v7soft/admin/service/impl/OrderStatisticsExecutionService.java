@@ -136,7 +136,9 @@ public class OrderStatisticsExecutionService {
                 executionContext.config().getExchangeRates(),
                 systemRates,
                 loadCurrentGroupNames(criteria, rows),
-                targetCurrency.getFractionDigits()
+                targetCurrency.getFractionDigits(),
+                now,
+                userZone
         );
     }
 

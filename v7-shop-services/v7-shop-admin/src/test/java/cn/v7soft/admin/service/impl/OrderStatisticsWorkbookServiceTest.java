@@ -97,6 +97,28 @@ class OrderStatisticsWorkbookServiceTest {
             assertThat(total.getCellStyle().getDataFormatString()).isEqualTo("#,##0.00");
         }
     }
+    @Test
+    void writesGeneratedAtInUserTimeZone() throws Exception {
+        OrderStatisticsResultResponse result = result();
+        result.setGeneratedAt("2026-06-25T00:00:00Z");
+        result.setTimeZoneId("Asia/Shanghai");
+
+        byte[] bytes = new OrderStatisticsWorkbookService().create(result);
+
+        try (Workbook workbook = WorkbookFactory.create(
+                new ByteArrayInputStream(bytes)
+        )) {
+            var sheet = workbook.getSheet("查询说明");
+            // Asia/Shanghai = UTC+8 → 00:00Z 即 08:00
+            assertThat(sheet.getRow(1).getCell(1).getStringCellValue())
+                    .isEqualTo("2026-06-25 08:00:00 (Asia/Shanghai)");
+            assertThat(sheet.getRow(2).getCell(1).getStringCellValue())
+                    .isEqualTo("Asia/Shanghai");
+            assertThat(sheet.getRow(3).getCell(1).getStringCellValue())
+                    .isEqualTo("Asia/Shanghai");
+        }
+    }
+
     private OrderStatisticsResultResponse result() {
         OrderStatisticsMetricsResponse metrics =
                 OrderStatisticsMetricsResponse.builder()

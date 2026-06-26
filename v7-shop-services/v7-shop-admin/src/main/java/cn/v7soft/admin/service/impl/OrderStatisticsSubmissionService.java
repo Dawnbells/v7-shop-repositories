@@ -3,6 +3,7 @@ package cn.v7soft.admin.service.impl;
 import cn.v7soft.admin.controller.req.OrderStatisticsPageRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsBucketGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsGroupResponse;
+import cn.v7soft.admin.controller.resp.OrderStatisticsMetricsResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsPageResponse;
 import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsQueryResponse;
@@ -19,14 +20,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Function;
 
 @Service
 public class OrderStatisticsSubmissionService {
@@ -124,7 +130,7 @@ public class OrderStatisticsSubmissionService {
                 user.getLongId(),
                 resultToken
         ).result();
-        return page(result.getGroups(), request);
+        return page(result.getGroups(), request, OrderStatisticsGroupResponse::getMetrics);
     }
 
     public OrderStatisticsPageResponse<OrderStatisticsBucketGroupResponse> bucketGroupsPage(
@@ -137,14 +143,16 @@ public class OrderStatisticsSubmissionService {
                 user.getLongId(),
                 resultToken
         ).result();
-        return page(result.getBucketGroups(), request);
+        return page(result.getBucketGroups(), request, OrderStatisticsBucketGroupResponse::getMetrics);
     }
 
     private <T> OrderStatisticsPageResponse<T> page(
             List<T> items,
-            OrderStatisticsPageRequest request
+            OrderStatisticsPageRequest request,
+            Function<T, OrderStatisticsMetricsResponse> metricsExtractor
     ) {
-        List<T> source = items == null ? List.of() : items;
+        List<T> source = sortItems(
+                items == null ? List.of() : items, request, metricsExtractor);
         int pageNo = Math.max(1, request == null ? 1 : request.getPageNo());
         int pageSize = request == null ? 20 : request.getPageSize();
         pageSize = Math.min(100, Math.max(5, pageSize));
@@ -160,6 +168,77 @@ public class OrderStatisticsSubmissionService {
                 .totalPages(totalPages)
                 .build();
     }
+    private static final Set<String> SORTABLE_KEYS = Set.of(
+            "orderCount", "validOrderCount", "invalidOrderCount",
+            "deliveredOrderCount", "undeliveredOrderCount", "deliveryRate",
+            "totalSalesAmount", "deliveredSalesAmount",
+            "undeliveredSalesAmount", "invalidSalesAmount"
+    );
+
+    /**
+     * 按 sortBy（"键 方向"）对全量快照排序后再分页（§9.6 服务端排序，合计基于全部分组）。
+     * 默认/空/非白名单键（含父类默认 id desc）→ 保持快照原序（已按总销售额降序）。
+     * 计数/金额/签收率统一按 BigDecimal 比较（避免字符串字典序）；null（如无有效订单的签收率）
+     * 恒排末尾、不随方向翻转。
+     */
+    private <T> List<T> sortItems(
+            List<T> source,
+            OrderStatisticsPageRequest request,
+            Function<T, OrderStatisticsMetricsResponse> metricsExtractor
+    ) {
+        if (request == null || source.size() < 2) {
+            return source;
+        }
+        String sortBy = request.getSortBy();
+        if (sortBy == null || sortBy.isBlank()) {
+            return source;
+        }
+        String[] parts = sortBy.split(",")[0].trim().split("\\s+");
+        String key = parts[0];
+        if (!SORTABLE_KEYS.contains(key)) {
+            return source;
+        }
+        boolean asc = parts.length > 1 && "asc".equalsIgnoreCase(parts[1]);
+        Comparator<BigDecimal> valueOrder =
+                asc ? Comparator.naturalOrder() : Comparator.reverseOrder();
+        List<T> sorted = new ArrayList<>(source);
+        sorted.sort(Comparator.<T, BigDecimal>comparing(
+                item -> sortKey(metricsExtractor.apply(item), key),
+                Comparator.nullsLast(valueOrder)
+        ));
+        return sorted;
+    }
+
+    private static BigDecimal sortKey(OrderStatisticsMetricsResponse metrics, String key) {
+        if (metrics == null) {
+            return null;
+        }
+        return switch (key) {
+            case "orderCount" -> BigDecimal.valueOf(metrics.getOrderCount());
+            case "validOrderCount" -> BigDecimal.valueOf(metrics.getValidOrderCount());
+            case "invalidOrderCount" -> BigDecimal.valueOf(metrics.getInvalidOrderCount());
+            case "deliveredOrderCount" -> BigDecimal.valueOf(metrics.getDeliveredOrderCount());
+            case "undeliveredOrderCount" -> BigDecimal.valueOf(metrics.getUndeliveredOrderCount());
+            case "deliveryRate" -> toAmount(metrics.getDeliveryRate());
+            case "totalSalesAmount" -> toAmount(metrics.getTotalSalesAmount());
+            case "deliveredSalesAmount" -> toAmount(metrics.getDeliveredSalesAmount());
+            case "undeliveredSalesAmount" -> toAmount(metrics.getUndeliveredSalesAmount());
+            case "invalidSalesAmount" -> toAmount(metrics.getInvalidSalesAmount());
+            default -> null;
+        };
+    }
+
+    private static BigDecimal toAmount(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     private OrderStatisticsQueryResponse completed(
             OrderStatisticsStoredSnapshot snapshot,
             boolean cached
@@ -176,6 +255,8 @@ public class OrderStatisticsSubmissionService {
 
     private OrderStatisticsQueryResponse degraded(OrderStatisticsResultResponse result) {
         OrderStatisticsResultResponse limited = OrderStatisticsResultResponse.builder()
+                .generatedAt(result.getGeneratedAt())
+                .timeZoneId(result.getTimeZoneId())
                 .targetCurrencyCode(result.getTargetCurrencyCode())
                 .summary(result.getSummary())
                 .buckets(result.getBuckets())

@@ -300,6 +300,8 @@ public class AsyncOrderStatisticsSubmissionService
 
     private OrderStatisticsQueryResponse degraded(OrderStatisticsResultResponse result) {
         OrderStatisticsResultResponse limited = OrderStatisticsResultResponse.builder()
+                .generatedAt(result.getGeneratedAt())
+                .timeZoneId(result.getTimeZoneId())
                 .targetCurrencyCode(result.getTargetCurrencyCode())
                 .summary(result.getSummary())
                 .buckets(result.getBuckets())

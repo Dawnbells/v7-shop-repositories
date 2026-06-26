@@ -222,6 +222,72 @@ class OrderStatisticsSubmissionServiceTest {
                 .extracting(OrderStatisticsBucketGroupResponse::getBucketKey)
                 .containsExactly("2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05");
     }
+    @Test
+    void groupsPageSortsByOrderCountDescendingAcrossWholeSnapshot() {
+        OrderStatisticsPageRequest pageRequest = new OrderStatisticsPageRequest();
+        pageRequest.setPageNo(1);
+        pageRequest.setPageSize(5);
+        pageRequest.setSortBy("orderCount desc");
+        when(snapshotService.get(9L, 101L, "token-1"))
+                .thenReturn(new OrderStatisticsStoredSnapshot(
+                        9L, 101L, "token-1",
+                        Instant.parse("2026-06-24T12:00:00Z"),
+                        Instant.parse("2026-06-24T12:30:00Z"),
+                        resultWithGroups(12)));
+
+        OrderStatisticsPageResponse<OrderStatisticsGroupResponse> page =
+                service.groupsPage("token-1", pageRequest);
+
+        // 全量按 orderCount 降序后首页：Group 12..8（而非快照原序 Group 1..5）
+        assertThat(page.getList())
+                .extracting(OrderStatisticsGroupResponse::getName)
+                .containsExactly("Group 12", "Group 11", "Group 10", "Group 9", "Group 8");
+    }
+
+    @Test
+    void groupsPageSortsBySalesAmountNumericallyNotLexicographically() {
+        OrderStatisticsPageRequest pageRequest = new OrderStatisticsPageRequest();
+        pageRequest.setPageNo(1);
+        pageRequest.setPageSize(5);
+        pageRequest.setSortBy("totalSalesAmount asc");
+        OrderStatisticsResultResponse result = OrderStatisticsResultResponse.builder()
+                .targetCurrencyCode("USD")
+                .summary(OrderStatisticsMetricsResponse.builder().orderCount(2).build())
+                .buckets(List.of())
+                .groups(List.of(
+                        groupWithTotal("big", "1234.00"),
+                        groupWithTotal("small", "9.00")))
+                .bucketGroups(List.of())
+                .originalCurrencies(List.of())
+                .missingRates(List.of())
+                .build();
+        when(snapshotService.get(9L, 101L, "token-1"))
+                .thenReturn(new OrderStatisticsStoredSnapshot(
+                        9L, 101L, "token-1",
+                        Instant.parse("2026-06-24T12:00:00Z"),
+                        Instant.parse("2026-06-24T12:30:00Z"),
+                        result));
+
+        OrderStatisticsPageResponse<OrderStatisticsGroupResponse> page =
+                service.groupsPage("token-1", pageRequest);
+
+        // 升序应为 9.00 < 1234.00（数值）；字典序会把 "1234.00" 排前
+        assertThat(page.getList())
+                .extracting(OrderStatisticsGroupResponse::getName)
+                .containsExactly("small", "big");
+    }
+
+    private OrderStatisticsGroupResponse groupWithTotal(String name, String total) {
+        return OrderStatisticsGroupResponse.builder()
+                .groupKey("EMPLOYEE:" + name)
+                .id(name)
+                .name(name)
+                .metrics(OrderStatisticsMetricsResponse.builder()
+                        .totalSalesAmount(total)
+                        .build())
+                .build();
+    }
+
     private OrderStatisticsQueryRequest request(boolean forceRefresh) {
         return OrderStatisticsQueryRequest.builder()
                 .startDate(LocalDate.parse("2026-06-01"))

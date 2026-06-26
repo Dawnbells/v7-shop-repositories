@@ -10,6 +10,8 @@ import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -39,7 +41,9 @@ public class OrderStatisticsResultAssembler {
             Map<String, String> personalRateStrings,
             Map<String, BigDecimal> systemRates,
             Map<Long, String> currentGroupNames,
-            int targetFractionDigits
+            int targetFractionDigits,
+            Instant generatedAt,
+            ZoneId userZone
     ) {
         Map<String, BigDecimal> temporaryRates = parseRates(criteria.temporaryExchangeRates());
         Map<String, BigDecimal> personalRates = parseRates(personalRateStrings);
@@ -170,6 +174,8 @@ public class OrderStatisticsResultAssembler {
         }
 
         return OrderStatisticsResultResponse.builder()
+                .generatedAt(generatedAt.toString())
+                .timeZoneId(userZone.getId())
                 .targetCurrencyCode(criteria.targetCurrencyCode())
                 .summary(summary.toResponse(classifier, summaryRounded))
                 .buckets(bucketResponses)

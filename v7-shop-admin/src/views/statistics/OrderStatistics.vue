@@ -200,6 +200,9 @@
     <template v-if="result">
       <div class="result-meta">
         <span>{{ queryMeta.cached ? '一分钟缓存结果' : '新生成结果' }}</span>
+        <span v-if="result.generatedAt">
+          生成时间 {{ formatGeneratedAt(result.generatedAt, result.timeZoneId) }}
+        </span>
         <span v-if="queryMeta.snapshotExpiresAt">
           快照有效至 {{ formatDateTime(queryMeta.snapshotExpiresAt) }}
         </span>
@@ -252,7 +255,12 @@
             </el-tag>
           </div>
         </template>
-        <el-table v-loading="groupPage.loading" :data="groupPage.list" stripe>
+        <el-table
+          v-loading="groupPage.loading"
+          :data="groupPage.list"
+          stripe
+          @sort-change="handleGroupSortChange"
+        >
           <el-table-column label="名称" min-width="180">
             <template #default="{ row }">
               <span>{{ row.name }}</span>
@@ -261,28 +269,28 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="订单数" prop="metrics.orderCount" sortable width="110" />
-          <el-table-column label="有效订单" prop="metrics.validOrderCount" sortable width="120" />
-          <el-table-column label="无效订单" prop="metrics.invalidOrderCount" sortable width="120" />
-          <el-table-column label="签收率" width="110">
+          <el-table-column label="订单数" prop="metrics.orderCount" sortable="custom" width="110" />
+          <el-table-column label="有效订单" prop="metrics.validOrderCount" sortable="custom" width="120" />
+          <el-table-column label="无效订单" prop="metrics.invalidOrderCount" sortable="custom" width="120" />
+          <el-table-column label="签收率" prop="metrics.deliveryRate" sortable="custom" width="110">
             <template #default="{ row }">{{ formatRate(row.metrics.deliveryRate) }}</template>
           </el-table-column>
-          <el-table-column label="总销售额" min-width="150">
+          <el-table-column label="总销售额" prop="metrics.totalSalesAmount" sortable="custom" min-width="150">
             <template #default="{ row }">
               {{ formatMoney(row.metrics.totalSalesAmount) }}
             </template>
           </el-table-column>
-          <el-table-column label="签收销售额" min-width="150">
+          <el-table-column label="签收销售额" prop="metrics.deliveredSalesAmount" sortable="custom" min-width="150">
             <template #default="{ row }">
               {{ formatMoney(row.metrics.deliveredSalesAmount) }}
             </template>
           </el-table-column>
-          <el-table-column label="未签收销售额" min-width="160">
+          <el-table-column label="未签收销售额" prop="metrics.undeliveredSalesAmount" sortable="custom" min-width="160">
             <template #default="{ row }">
               {{ formatMoney(row.metrics.undeliveredSalesAmount) }}
             </template>
           </el-table-column>
-          <el-table-column label="无效销售额" min-width="150">
+          <el-table-column label="无效销售额" prop="metrics.invalidSalesAmount" sortable="custom" min-width="150">
             <template #default="{ row }">
               {{ formatMoney(row.metrics.invalidSalesAmount) }}
             </template>
@@ -323,6 +331,8 @@
 <script lang="ts" setup>
 import { CircleClose, Download, Refresh, Search } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+import timezone from 'dayjs/plugin/timezone'
 import Decimal from 'decimal.js'
 import { ElMessage } from 'element-plus'
 import type {
@@ -353,6 +363,9 @@ import {
   getStatisticsQueryJob,
   queryOrderStatistics,
 } from '/@/api/orderStatistics'
+
+dayjs.extend(utc)
+dayjs.extend(timezone)
 
 defineOptions({ name: 'OrderStatistics' })
 
@@ -385,6 +398,7 @@ const groupPage = reactive({
   pageSize: 20,
   totalPages: 0,
   loading: false,
+  sortBy: '',
 })
 const departmentTreeRef = ref<any>()
 const temporaryRates = reactive<Record<string, string>>({ USD: '1' })
@@ -604,6 +618,7 @@ const loadGroupPage = async (pageNo = 1) => {
       await getOrderStatisticsGroupsPage(currentResultToken.value, {
         pageNo,
         pageSize: groupPage.pageSize,
+        sortBy: groupPage.sortBy || undefined,
       })
     )
     Object.assign(groupPage, {
@@ -616,6 +631,16 @@ const loadGroupPage = async (pageNo = 1) => {
   } finally {
     groupPage.loading = false
   }
+}
+
+const handleGroupSortChange = ({ prop, order }: { prop: string; order: string | null }) => {
+  if (!order || !prop) {
+    groupPage.sortBy = ''
+  } else {
+    const key = prop.replace('metrics.', '')
+    groupPage.sortBy = `${key} ${order === 'ascending' ? 'asc' : 'desc'}`
+  }
+  void loadGroupPage(1)
 }
 
 const handleGroupPageChange = (pageNo: number) => {
@@ -827,6 +852,9 @@ const formatMoney = (value?: string) => {
   return currency?.symbol ? `${sign}${currency.symbol}${body}` : `${sign}${body} ${code}`
 }
 const formatDateTime = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm')
+// 生成时间按快照冻结的用户 IANA 时区渲染（§9.2 / §12.1），而非浏览器本地时区
+const formatGeneratedAt = (value: string, zone?: string) =>
+  zone ? dayjs(value).tz(zone).format('YYYY-MM-DD HH:mm') : dayjs(value).format('YYYY-MM-DD HH:mm')
 
 const metricCards = computed(() => {
   const metrics = result.value?.summary

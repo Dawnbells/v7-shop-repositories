@@ -117,6 +117,8 @@ class OrderStatisticsExecutionServiceTest {
         OrderStatisticsResultResponse result = service.execute(request(), context);
 
         assertThat(result.getSummary().getDeliveredSalesAmount()).isEqualTo("25.00");
+        assertThat(result.getGeneratedAt()).isEqualTo("2026-06-10T12:00:00Z");
+        assertThat(result.getTimeZoneId()).isEqualTo("Asia/Shanghai");
         ArgumentCaptor<OrderStatisticsAccessScope> scope =
                 ArgumentCaptor.forClass(OrderStatisticsAccessScope.class);
         org.mockito.Mockito.verify(queryRepository).query(any(), any(), scope.capture());

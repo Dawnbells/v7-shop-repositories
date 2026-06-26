@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -62,7 +63,9 @@ class OrderStatisticsResultAssemblerTest {
                 Map.of(),
                 Map.of("USD", BigDecimal.ONE),
                 Map.of(101L, "Alice"),
-                2
+                2,
+                Instant.parse("2026-06-10T12:00:00Z"),
+                ZoneId.of("Asia/Shanghai")
         );
 
         assertThat(result.getSummary().getOrderCount()).isEqualTo(5);
@@ -101,6 +104,8 @@ class OrderStatisticsResultAssemblerTest {
             assertThat(item.getOrderCount()).isEqualTo(1);
             assertThat(item.getOriginalAmount()).isEqualTo("20");
         });
+        assertThat(result.getGeneratedAt()).isEqualTo("2026-06-10T12:00:00Z");
+        assertThat(result.getTimeZoneId()).isEqualTo("Asia/Shanghai");
     }
 
     @Test
@@ -132,7 +137,9 @@ class OrderStatisticsResultAssemblerTest {
                 Map.of(),
                 Map.of("USD", BigDecimal.ONE),
                 Map.of(101L, "Alice"),
-                2
+                2,
+                Instant.parse("2026-06-10T12:00:00Z"),
+                ZoneId.of("Asia/Shanghai")
         );
 
         assertThat(result.getBucketGroups()).hasSize(2);
@@ -187,7 +194,9 @@ class OrderStatisticsResultAssemblerTest {
                 Map.of(),
                 Map.of("USD", BigDecimal.ONE),
                 Map.of(101L, "A", 102L, "B"),
-                2
+                2,
+                Instant.parse("2026-06-10T12:00:00Z"),
+                ZoneId.of("Asia/Shanghai")
         );
 
         assertThat(result.getSummary().getUndeliveredSalesAmount()).isEqualTo("0.01");
@@ -242,7 +251,9 @@ class OrderStatisticsResultAssemblerTest {
                 Map.of(),
                 Map.of("USD", BigDecimal.ONE),
                 Map.of(101L, "Alice", 999L, "范围外Bob"),
-                2
+                2,
+                Instant.parse("2026-06-10T12:00:00Z"),
+                ZoneId.of("Asia/Shanghai")
         );
 
         // 999 无命中订单 → 不预置零数据分组 → 不出现、绝不回显其姓名（§7.4）
@@ -280,7 +291,9 @@ class OrderStatisticsResultAssemblerTest {
                 Map.of(),
                 Map.of("USD", BigDecimal.ONE),
                 Map.of(201L, "销售部", 202L, "市场部"),
-                2
+                2,
+                Instant.parse("2026-06-10T12:00:00Z"),
+                ZoneId.of("Asia/Shanghai")
         );
 
         assertThat(result.getGroups())
@@ -317,7 +330,9 @@ class OrderStatisticsResultAssemblerTest {
                 Map.of("CNY", "not-a-number", "EUR", "0.92"),
                 Map.of("USD", BigDecimal.ONE),
                 Map.of(101L, "Alice"),
-                2
+                2,
+                Instant.parse("2026-06-10T12:00:00Z"),
+                ZoneId.of("Asia/Shanghai")
         );
 
         assertThat(result.getSummary().getDeliveredSalesAmount()).isEqualTo("10.00");

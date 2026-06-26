@@ -145,7 +145,9 @@ public class OrderStatisticsService implements IOrderStatisticsService {
                 config.getExchangeRates(),
                 systemRates,
                 loadCurrentGroupNames(criteria),
-                targetCurrency.getFractionDigits()
+                targetCurrency.getFractionDigits(),
+                now,
+                userZone
         );
     }
 
