@@ -5,6 +5,7 @@ import cn.v7soft.admin.controller.resp.OrderStatisticsBucketGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsGroupResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsMetricsResponse;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.junit.jupiter.api.Test;
@@ -59,8 +60,41 @@ class OrderStatisticsWorkbookServiceTest {
                     .isEqualTo("Alice");
             assertThat(sheet.getRow(1).getCell(2).getNumericCellValue())
                     .isEqualTo(10D);
-            assertThat(sheet.getRow(1).getCell(8).getStringCellValue())
-                    .isEqualTo("100.00");
+            // 签收率（列 7）：比例数值 + 百分比格式，而非文本
+            var rate = sheet.getRow(1).getCell(7);
+            assertThat(rate.getCellType()).isEqualTo(CellType.NUMERIC);
+            assertThat(rate.getNumericCellValue()).isEqualTo(0.75D);
+            assertThat(rate.getCellStyle().getDataFormatString()).isEqualTo("0.00%");
+            // 总销售额（列 8）：数值 + 金额格式，而非文本
+            var total = sheet.getRow(1).getCell(8);
+            assertThat(total.getCellType()).isEqualTo(CellType.NUMERIC);
+            assertThat(total.getNumericCellValue()).isEqualTo(100D);
+            assertThat(total.getCellStyle().getDataFormatString()).isEqualTo("#,##0.00");
+        }
+    }
+
+    @Test
+    void writesSummaryAmountsAndRateAsFormattedNumbers() throws Exception {
+        OrderStatisticsWorkbookService service =
+                new OrderStatisticsWorkbookService();
+
+        byte[] bytes = service.create(result());
+
+        try (Workbook workbook = WorkbookFactory.create(
+                new ByteArrayInputStream(bytes)
+        )) {
+            var row = workbook.getSheet("汇总").getRow(1); // “全部”行
+            // 列：0范围,1订单数,...,6签收率,7总销售额,8无效销售额,9未签收销售额,10签收销售额
+            assertThat(row.getCell(1).getCellType()).isEqualTo(CellType.NUMERIC);
+            assertThat(row.getCell(1).getNumericCellValue()).isEqualTo(10D);
+            var rate = row.getCell(6);
+            assertThat(rate.getCellType()).isEqualTo(CellType.NUMERIC);
+            assertThat(rate.getNumericCellValue()).isEqualTo(0.75D);
+            assertThat(rate.getCellStyle().getDataFormatString()).isEqualTo("0.00%");
+            var total = row.getCell(7);
+            assertThat(total.getCellType()).isEqualTo(CellType.NUMERIC);
+            assertThat(total.getNumericCellValue()).isEqualTo(100D);
+            assertThat(total.getCellStyle().getDataFormatString()).isEqualTo("#,##0.00");
         }
     }
     private OrderStatisticsResultResponse result() {
