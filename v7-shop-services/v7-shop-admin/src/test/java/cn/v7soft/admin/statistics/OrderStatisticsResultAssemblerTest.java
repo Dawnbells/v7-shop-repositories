@@ -288,6 +288,41 @@ class OrderStatisticsResultAssemblerTest {
                 .containsExactlyInAnyOrder("201", "202");
     }
 
+    @Test
+    void malformedPersonalRateIsSkippedInsteadOfFailingQuery() {
+        List<OrderStatisticsBucket> buckets = List.of(bucket("2026-06-01"));
+        OrderStatisticsQueryCriteria criteria = new OrderStatisticsQueryCriteria(
+                LocalDate.parse("2026-06-01"),
+                LocalDate.parse("2026-06-01"),
+                OrderStatisticsGranularity.DAY,
+                OrderStatisticsDimension.EMPLOYEE,
+                List.of(101L),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                "USD",
+                Map.of(),
+                false
+        );
+        List<OrderStatisticsAggregateRow> rows = List.of(
+                row("2026-06-01", 101L, "Alice", "USD", "1",
+                        OrderStatus.DELIVERED, 1, "10"));
+
+        // 个人汇率含历史脏数据（非法值）时，跳过该条而非让整个查询抛错（§8.3）
+        OrderStatisticsResultResponse result = assembler.assemble(
+                buckets,
+                criteria,
+                rows,
+                Map.of("CNY", "not-a-number", "EUR", "0.92"),
+                Map.of("USD", BigDecimal.ONE),
+                Map.of(101L, "Alice"),
+                2
+        );
+
+        assertThat(result.getSummary().getDeliveredSalesAmount()).isEqualTo("10.00");
+    }
+
     private OrderStatisticsBucket bucket(String key) {
         LocalDate date = LocalDate.parse(key);
         return new OrderStatisticsBucket(

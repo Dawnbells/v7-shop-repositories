@@ -303,10 +303,17 @@ public class OrderStatisticsResultAssembler {
             return Map.of();
         }
         LinkedHashMap<String, BigDecimal> result = new LinkedHashMap<>();
-        rates.forEach((code, value) -> result.put(
-                code.toUpperCase(Locale.ROOT),
-                new BigDecimal(value)
-        ));
+        rates.forEach((code, value) -> {
+            if (code == null || value == null) {
+                return;
+            }
+            try {
+                result.put(code.toUpperCase(Locale.ROOT), new BigDecimal(value));
+            } catch (NumberFormatException ignored) {
+                // 跳过历史脏数据中的非法汇率，避免单条坏数据使整个查询 500；
+                // 该币种因无有效个人/临时汇率，最终按其它优先级或"缺失汇率"处理（§8.3）。
+            }
+        });
         return result;
     }
 
