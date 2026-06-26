@@ -7,13 +7,15 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.Objects;
 
 @Component
 public class OrderStatisticsExportDownloadGuard {
 
     private static final Duration DOWNLOAD_TTL = Duration.ofHours(24);
+    // 数据库 createTime 为无时区 LocalDateTime，基准为 Asia/Shanghai；比较 now 须用同一基准
+    private static final ZoneId DATABASE_ZONE = ZoneId.of("Asia/Shanghai");
     private final Clock clock;
 
     public OrderStatisticsExportDownloadGuard() {
@@ -45,7 +47,7 @@ public class OrderStatisticsExportDownloadGuard {
             throw expired();
         }
         LocalDateTime expiresAt = createTime.plus(DOWNLOAD_TTL);
-        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), DATABASE_ZONE);
         if (!expiresAt.isAfter(now)) {
             throw expired();
         }

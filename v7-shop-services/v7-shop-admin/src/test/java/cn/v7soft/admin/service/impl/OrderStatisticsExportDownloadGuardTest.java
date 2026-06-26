@@ -19,8 +19,9 @@ class OrderStatisticsExportDownloadGuardTest {
 
     private final OrderStatisticsExportDownloadGuard guard =
             new OrderStatisticsExportDownloadGuard(
+                    // 04:00Z == Asia/Shanghai 12:00:00；guard 按 Shanghai 解释 now，故 now = 2026-06-25T12:00:00
                     Clock.fixed(
-                            Instant.parse("2026-06-25T12:00:00Z"),
+                            Instant.parse("2026-06-25T04:00:00Z"),
                             ZoneOffset.UTC
                     )
             );
