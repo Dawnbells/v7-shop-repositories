@@ -2,8 +2,10 @@ package cn.v7soft.admin.service.impl;
 
 import cn.v7soft.admin.controller.req.SaveOrderStatisticsConfigRequest;
 import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
 import cn.v7soft.dao.enums.SystemUserType;
+import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.repositories.primary.OrderStatisticsUserConfigRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import org.junit.jupiter.api.AfterEach;
@@ -16,6 +18,7 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -31,6 +34,8 @@ class OrderStatisticsConfigServiceTest {
 
     @Mock
     private OrderStatisticsUserConfigRepository repository;
+    @Mock
+    private CurrencyRepository currencyRepository;
 
     private OrderStatisticsConfigService service;
     private MockedStatic<SaSessionUtil> saSessionUtil;
@@ -44,7 +49,7 @@ class OrderStatisticsConfigServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OrderStatisticsConfigService(repository);
+        service = new OrderStatisticsConfigService(repository, currencyRepository);
         saSessionUtil = mockStatic(SaSessionUtil.class);
         saSessionUtil.when(SaSessionUtil::getLoginUser).thenReturn(loginUser);
     }
@@ -97,6 +102,8 @@ class OrderStatisticsConfigServiceTest {
         when(repository.findByCompanyIdAndOwnerId(9L, 101L)).thenReturn(Optional.of(existing));
         when(repository.save(any(OrderStatisticsUserConfig.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(currencyRepository.findAllValid())
+                .thenReturn(List.of(Currency.builder().code("CNY").build()));
 
         LinkedHashMap<String, String> rates = new LinkedHashMap<>();
         rates.put("usd", "3");

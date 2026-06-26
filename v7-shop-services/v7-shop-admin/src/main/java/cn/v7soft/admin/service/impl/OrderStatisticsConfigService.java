@@ -6,6 +6,7 @@ import cn.v7soft.admin.service.IOrderStatisticsConfigService;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
+import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.repositories.primary.OrderStatisticsUserConfigRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import org.springframework.stereotype.Service;
@@ -28,16 +29,22 @@ public class OrderStatisticsConfigService implements IOrderStatisticsConfigServi
     private static final Pattern CURRENCY_CODE_PATTERN = Pattern.compile("^[A-Za-z]{3}$");
 
     private final OrderStatisticsUserConfigRepository repository;
+    private final CurrencyRepository currencyRepository;
 
-    public OrderStatisticsConfigService(OrderStatisticsUserConfigRepository repository) {
+    public OrderStatisticsConfigService(
+            OrderStatisticsUserConfigRepository repository,
+            CurrencyRepository currencyRepository
+    ) {
         this.repository = repository;
+        this.currencyRepository = currencyRepository;
     }
 
     @Transactional
     @Override
     public OrderStatisticsUserConfig getOrCreate(String browserTimeZoneId) {
         SystemUserDto loginUser = currentUser();
-        return repository.findByCompanyIdAndOwnerId(loginUser.getCompanyId(), loginUser.getLongId())
+        OrderStatisticsUserConfig config = repository
+                .findByCompanyIdAndOwnerId(loginUser.getCompanyId(), loginUser.getLongId())
                 .orElseGet(() -> repository.save(OrderStatisticsUserConfig.builder()
                         .companyId(loginUser.getCompanyId())
                         .owner(loginUser.toOwner())
@@ -45,6 +52,12 @@ public class OrderStatisticsConfigService implements IOrderStatisticsConfigServi
                         .timeZoneId(validTimeZoneOrDefault(browserTimeZoneId))
                         .exchangeRates(defaultRates())
                         .build()));
+        // 默认目标币种已停用/不存在时回退 USD（§8.4），避免后续以停用币查询报错
+        if (!isSelectableTargetCurrency(config.getDefaultTargetCurrencyCode())) {
+            config.setDefaultTargetCurrencyCode(USD);
+            config = repository.save(config);
+        }
+        return config;
     }
 
     @Transactional
@@ -53,6 +66,11 @@ public class OrderStatisticsConfigService implements IOrderStatisticsConfigServi
         ClientResponseEnum.PARAMETER_ILLEGAL.notNull(request, "配置不能为空");
         SystemUserDto loginUser = currentUser();
         String targetCurrencyCode = normalizeCurrencyCode(request.getDefaultTargetCurrencyCode());
+        // 目标币种只能是 USD 或公司当前有效币种（§8.4）
+        ClientResponseEnum.PARAMETER_ILLEGAL.isTrue(
+                isSelectableTargetCurrency(targetCurrencyCode),
+                "目标币种必须是公司当前有效币种"
+        );
         String timeZoneId = validateTimeZone(request.getTimeZoneId());
         Map<String, String> exchangeRates = normalizeRates(request.getExchangeRates());
 
@@ -134,6 +152,20 @@ public class OrderStatisticsConfigService implements IOrderStatisticsConfigServi
         LinkedHashMap<String, String> rates = new LinkedHashMap<>();
         rates.put(USD, "1");
         return rates;
+    }
+
+    /**
+     * 目标币种是否可选：USD 始终可选，其余必须是公司当前有效币种（§8.4）。code 为空视为不可选。
+     */
+    private boolean isSelectableTargetCurrency(String code) {
+        if (code == null) {
+            return false;
+        }
+        if (USD.equalsIgnoreCase(code)) {
+            return true;
+        }
+        return currencyRepository.findAllValid().stream()
+                .anyMatch(currency -> code.equalsIgnoreCase(currency.getCode()));
     }
 
     private SystemUserDto currentUser() {
