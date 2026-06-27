@@ -21,7 +21,7 @@ public class OrderStatisticsSqlBuilder {
         }
 
         LinkedHashMap<String, Object> parameters = new LinkedHashMap<>();
-        String bucketCte = buildBucketCte(buckets, parameters);
+        String bucketKeyExpression = buildBucketCase(buckets, parameters);
         String groupId = criteria.dimension() == OrderStatisticsDimension.EMPLOYEE
                 ? "ci.sales_uid"
                 : "ci.department_id";
@@ -34,18 +34,27 @@ public class OrderStatisticsSqlBuilder {
         conditions.add("o.status <> 'DELETED'");
         parameters.put("companyId", scope.companyId());
 
+        // 全局时间范围使用常量边界，可命中 order_time 索引做单次范围扫描；
+        // 桶之间连续无缝（见 OrderStatisticsBucketFactory），所以 [rangeStart, rangeEnd)
+        // 恰好等于所有桶区间的并集，每行落在唯一的桶里，bucketKey 表达式不会产生 NULL。
+        conditions.add("o.order_time >= :rangeStart");
+        conditions.add("o.order_time < :rangeEnd");
+        parameters.put("rangeStart", buckets.get(0).queryStart());
+        parameters.put("rangeEnd", buckets.get(buckets.size() - 1).queryEnd());
+
         addPermissionCondition(conditions, parameters, scope);
         addWebsiteCondition(conditions, parameters, scope);
         addDimensionSelection(conditions, parameters, criteria);
         addPlatforms(conditions, parameters, criteria.platforms());
         addDomains(conditions, parameters, criteria.domains());
 
+        // 旧实现把每个桶作为一行 UNION ALL，再用范围条件 JOIN t_orders；MySQL 会先把订单
+        // 全表扫描物化，再与 N 个桶行做无条件 hash join（笛卡尔积 N × 订单数）后才过滤时间，
+        // 复杂度 O(桶数 × 订单数)，order_time 索引完全用不上。这里改为对 t_orders 单次范围
+        // 扫描，桶归属由 CASE 在每行上就地计算，复杂度降为 O(范围内订单数)。
         String sql = """
-                WITH bucket_ranges AS (
-                %s
-                )
                 SELECT
-                    b.bucket_key,
+                    %s AS bucket_key,
                     %s AS group_id,
                     MAX(%s) AS group_name,
                     ci.currency_code,
@@ -53,22 +62,19 @@ public class OrderStatisticsSqlBuilder {
                     o.order_status,
                     COUNT(*) AS order_count,
                     COALESCE(SUM(o.total_amount), 0) AS original_amount
-                FROM bucket_ranges b
-                JOIN t_orders o
-                  ON o.order_time >= b.bucket_start
-                 AND o.order_time < b.bucket_end
+                FROM t_orders o
                 LEFT JOIN t_order_context_infos ci ON ci.id = o.context_info_id
                 LEFT JOIN t_system_users owner_user ON owner_user.id = o.user_id
                 WHERE %s
                 GROUP BY
-                    b.bucket_key,
+                    bucket_key,
                     %s,
                     ci.currency_code,
                     ci.currency_exchange_rate,
                     o.order_status
-                ORDER BY b.bucket_key ASC, group_id ASC
+                ORDER BY bucket_key ASC, group_id ASC
                 """.formatted(
-                bucketCte,
+                bucketKeyExpression,
                 groupId,
                 groupName,
                 String.join("\n  AND ", conditions),
@@ -77,23 +83,23 @@ public class OrderStatisticsSqlBuilder {
         return new OrderStatisticsSqlPlan(sql, Map.copyOf(parameters));
     }
 
-    private String buildBucketCte(
+    private String buildBucketCase(
             List<OrderStatisticsBucket> buckets,
             Map<String, Object> parameters
     ) {
-        List<String> selects = new ArrayList<>();
+        StringBuilder caseExpression = new StringBuilder("CASE");
         for (int index = 0; index < buckets.size(); index++) {
             OrderStatisticsBucket bucket = buckets.get(index);
             parameters.put("bucketKey" + index, bucket.key());
             parameters.put("bucketStart" + index, bucket.queryStart());
             parameters.put("bucketEnd" + index, bucket.queryEnd());
-            String select = (index == 0 ? "SELECT " : "UNION ALL SELECT ")
-                    + ":bucketKey" + index + " AS bucket_key, "
-                    + ":bucketStart" + index + " AS bucket_start, "
-                    + ":bucketEnd" + index + " AS bucket_end";
-            selects.add(select);
+            caseExpression
+                    .append("\n        WHEN o.order_time >= :bucketStart").append(index)
+                    .append(" AND o.order_time < :bucketEnd").append(index)
+                    .append(" THEN :bucketKey").append(index);
         }
-        return String.join("\n", selects);
+        caseExpression.append("\n    END");
+        return caseExpression.toString();
     }
 
     private void addPermissionCondition(

@@ -62,6 +62,52 @@ class OrderStatisticsSqlBuilderTest {
     }
 
     @Test
+    void buildsSingleRangeScanWithBucketCaseInsteadOfUnionJoin() {
+        OrderStatisticsBucket first = new OrderStatisticsBucket(
+                "2026-06-01",
+                Instant.parse("2026-06-01T00:00:00Z"),
+                Instant.parse("2026-06-02T00:00:00Z"),
+                LocalDateTime.parse("2026-06-01T08:00:00"),
+                LocalDateTime.parse("2026-06-02T08:00:00"),
+                false
+        );
+        OrderStatisticsBucket second = new OrderStatisticsBucket(
+                "2026-06-02",
+                Instant.parse("2026-06-02T00:00:00Z"),
+                Instant.parse("2026-06-03T00:00:00Z"),
+                LocalDateTime.parse("2026-06-02T08:00:00"),
+                LocalDateTime.parse("2026-06-03T08:00:00"),
+                false
+        );
+
+        OrderStatisticsSqlPlan plan = builder.build(
+                List.of(first, second),
+                employeeCriteria(),
+                new OrderStatisticsAccessScope(
+                        9L, 101L, true, false, Set.of(), Set.of(),
+                        false, false, null, ViewMode.TEAM
+                )
+        );
+
+        // 单次范围扫描：常量全局区间 + 每行就地 CASE 计算桶归属，不再有 UNION 桶表 / 笛卡尔 JOIN
+        assertThat(plan.sql())
+                .doesNotContain("bucket_ranges")
+                .doesNotContain("JOIN t_orders")
+                .contains("FROM t_orders o")
+                .contains("o.order_time >= :rangeStart")
+                .contains("o.order_time < :rangeEnd")
+                .contains("WHEN o.order_time >= :bucketStart0 AND o.order_time < :bucketEnd0 THEN :bucketKey0")
+                .contains("WHEN o.order_time >= :bucketStart1 AND o.order_time < :bucketEnd1 THEN :bucketKey1")
+                .contains("GROUP BY\n    bucket_key");
+        // 全局区间 = 第一个桶起点 .. 最后一个桶终点
+        assertThat(plan.parameters())
+                .containsEntry("rangeStart", LocalDateTime.parse("2026-06-01T08:00:00"))
+                .containsEntry("rangeEnd", LocalDateTime.parse("2026-06-03T08:00:00"))
+                .containsEntry("bucketKey0", "2026-06-01")
+                .containsEntry("bucketKey1", "2026-06-02");
+    }
+
+    @Test
     void buildsDepartmentPermissionAndSelectionAsSeparateConditions() {
         OrderStatisticsQueryCriteria criteria = new OrderStatisticsQueryCriteria(
                 LocalDate.parse("2026-06-01"),

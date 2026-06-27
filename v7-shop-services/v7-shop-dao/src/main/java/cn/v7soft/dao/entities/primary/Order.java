@@ -46,6 +46,9 @@ import lombok.experimental.SuperBuilder;
         @Index(name = "idx_phone_last8", columnList = "phone_last_8"),
         @Index(name = "idx_createTime", columnList = "create_time"),
         @Index(name = "idx_order_time", columnList = "order_time"),
+        // 多租户订单统计按 (公司 + 下单时间区间) 单次范围扫描，现有 idx_company_user_time
+        // 中间列是 user_id，order_time 无法用于范围；这里补齐 (company_id, order_time) 前缀
+        @Index(name = "idx_company_order_time", columnList = "company_id,order_time"),
         @Index(name = "idx_status", columnList = "status"),
         @Index(name = "idx_origin_order_id", columnList = "origin_order_id"),
         @Index(name = "idx_platform", columnList = "platform"),
