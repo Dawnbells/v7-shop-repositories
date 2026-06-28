@@ -14,6 +14,7 @@ public class OrderStatisticsQueryRepository {
     private final EntityManager entityManager;
     private final OrderStatisticsSqlBuilder sqlBuilder;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public OrderStatisticsQueryRepository(EntityManager entityManager) {
         this(entityManager, new OrderStatisticsSqlBuilder());
     }
