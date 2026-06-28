@@ -27,6 +27,10 @@
               type="daterange"
               value-format="YYYY-MM-DD"
             />
+            <div class="date-hint">
+              含起止两天（如 01-01~01-02 = 两天）；按时区
+              <strong>{{ config.timeZoneId || browserTimeZone }}</strong> 划分日界
+            </div>
           </el-form-item>
 
           <el-form-item label="时间粒度">
@@ -1032,6 +1036,13 @@ onBeforeUnmount(() => {
 .hero-config-link:hover {
   text-decoration: underline;
   opacity: 1;
+}
+
+.date-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ledger-muted, #909399);
 }
 
 .filter-card,
