@@ -9,6 +9,10 @@
       <div class="hero-meta">
         <span>{{ context?.websiteScoped ? '当前网站范围' : '公司权限范围' }}</span>
         <strong>{{ config.timeZoneId || browserTimeZone }}</strong>
+        <router-link class="hero-config-link" to="/setting/personalCenter">
+          <vab-icon icon="settings-3-line" />
+          个人汇率 / 时区设置
+        </router-link>
       </div>
     </section>
 
@@ -1010,6 +1014,24 @@ onBeforeUnmount(() => {
 .hero-meta span {
   font-size: 11px;
   opacity: 0.64;
+}
+
+.hero-config-link {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  justify-self: end;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #e2e8f0;
+  text-decoration: none;
+  opacity: 0.82;
+  transition: opacity 0.15s ease;
+}
+
+.hero-config-link:hover {
+  text-decoration: underline;
+  opacity: 1;
 }
 
 .filter-card,
