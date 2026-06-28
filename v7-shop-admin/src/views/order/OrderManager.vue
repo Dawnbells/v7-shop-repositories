@@ -572,9 +572,6 @@ import { getTicket } from '~/src/api/user'
 import { useRoutesStore } from '~/src/store/modules/routes'
 import { useMainDomain } from '~/src/utils/window'
 import { doEdit as doEditIpBlacklist } from '/@/api/ipBlacklist'
-import dayjs from 'dayjs'
-import utc from 'dayjs/plugin/utc'
-import timezone from 'dayjs/plugin/timezone'
 import {
   download,
   page,
@@ -583,10 +580,7 @@ import {
   updateOrderCheckRemark,
   updateOrderStatus,
 } from '/@/api/orderManager'
-import { getStatisticsConfig } from '/@/api/orderStatistics'
-
-dayjs.extend(utc)
-dayjs.extend(timezone)
+import { useReportTimeZone } from '/@/composables/useReportTimeZone'
 
 const route = useRoute()
 const router = useRouter()
@@ -609,31 +603,8 @@ const props = defineProps({
 
 const { isAudit, isContact } = toRefs(props)
 
-// 下单时间筛选所用时区：取自个人统计配置（与统计分析口径一致），未配置时回退浏览器时区。
-// 用户在选择器里按本地显示挑选时间，发请求前按此时区重新解释，使「同一天」与统计查询同一时间窗。
-const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
-const reportTimeZone = ref(browserTimeZone)
-onMounted(async () => {
-  try {
-    const res: any = await getStatisticsConfig(browserTimeZone)
-    if (res?.data?.timeZoneId) reportTimeZone.value = res.data.timeZoneId
-  } catch {
-    // 忽略，保持浏览器时区回退
-  }
-})
-const toReportZoneRange = (range: any) => {
-  if (
-    !Array.isArray(range) ||
-    range.length !== 2 ||
-    !range.every((item) => item instanceof Date)
-  ) {
-    return range
-  }
-  // 把（按浏览器本地显示的）墙钟时间，重新按个人配置时区解释，得到正确的瞬时点
-  return range.map((item) =>
-    dayjs.tz(dayjs(item).format('YYYY-MM-DD HH:mm:ss'), reportTimeZone.value).toDate()
-  )
-}
+// 下单时间按【个人中心配置的报表时区】解释，与统计分析口径一致（详见 useReportTimeZone）
+const { reportTimeZone, toReportZoneRange } = useReportTimeZone()
 
 const $baseMessage = inject<any>('$baseMessage')
 const chooseOrderTemplateDialogRef = ref<any>()

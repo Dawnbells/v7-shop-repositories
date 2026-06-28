@@ -4,6 +4,8 @@
     <order-query-param-layout
       v-model="queryForm"
       :is-audit="isAudit"
+      :is-contact="false"
+      :report-time-zone="reportTimeZone"
       :list-loading="listLoading"
       :task-downloading="taskDownloading"
       :updating-order-status="updatingOrderStatus"
@@ -408,6 +410,7 @@ import { useRoute } from 'vue-router'
 import { downloadFile, status } from '~/src/api/taskManagement'
 import { getTicket } from '~/src/api/user'
 import { download, page } from '/@/api/orderManager'
+import { useReportTimeZone } from '/@/composables/useReportTimeZone'
 
 const route = useRoute()
 defineOptions({
@@ -422,6 +425,9 @@ const props = defineProps({
 })
 
 const { isAudit } = toRefs(props)
+
+// 下单时间按【个人中心配置的报表时区】解释，与统计分析口径一致（详见 useReportTimeZone）
+const { reportTimeZone, toReportZoneRange } = useReportTimeZone()
 
 const $baseConfirm = inject<any>('$baseConfirm')
 const $baseMessage = inject<any>('$baseMessage')
@@ -456,7 +462,10 @@ const queryForm = reactive<any>({
 
 const fetchData = async () => {
   listLoading.value = true
-  const { data } = await page(queryForm)
+  const { data } = await page({
+    ...queryForm,
+    dateRange: toReportZoneRange(queryForm.dateRange),
+  })
   if (data) {
     list.value = data.list
     total.value = data.total
