@@ -245,8 +245,12 @@
         </el-button>
       </div>
 
-      <section class="metric-grid">
-        <article v-for="metric in metricCards" :key="metric.label" class="metric-card">
+      <section
+        v-for="(metricRow, rowIndex) in metricCardRows"
+        :key="rowIndex"
+        class="metric-grid"
+      >
+        <article v-for="metric in metricRow" :key="metric.label" class="metric-card">
           <span>{{ metric.label }}</span>
           <strong :class="metric.tone">{{ metric.value }}</strong>
           <small>{{ metric.note }}</small>
@@ -364,6 +368,7 @@ import { ElMessage } from 'element-plus'
 import type {
   CurrencyOption,
   StatisticsContext,
+  StatisticsMetrics,
   StatisticsPageResponse,
   StatisticsGroup,
   StatisticsDimension,
@@ -887,19 +892,37 @@ const formatDateTime = (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm'
 const formatGeneratedAt = (value: string, zone?: string) =>
   zone ? dayjs(value).tz(zone).format('YYYY-MM-DD HH:mm') : dayjs(value).format('YYYY-MM-DD HH:mm')
 
-const metricCards = computed(() => {
+// 有效订单销售额 = 总销售额 − 无效订单销售额 = 签收 + 未签收（后端未单列该字段，前端精确相减）
+const validSalesAmount = (metrics: StatisticsMetrics) => {
+  try {
+    return new Decimal(metrics.totalSalesAmount || '0')
+      .minus(metrics.invalidSalesAmount || '0')
+      .toString()
+  } catch {
+    return metrics.totalSalesAmount || '0'
+  }
+}
+
+// 两行展示：第一行为「数量」类指标，第二行为「销售额」类指标，便于核对
+// 总销售额 = 有效订单销售额 + 无效订单销售额；有效订单销售额 = 签收销售额 + 未签收销售额
+const metricCardRows = computed(() => {
   const metrics = result.value?.summary
   if (!metrics) return []
   return [
-    { label: '订单数', value: metrics.orderCount.toLocaleString(), note: '当前筛选全部订单', tone: '' },
-    { label: '有效订单数', value: metrics.validOrderCount.toLocaleString(), note: '排除 INVALID', tone: 'positive' },
-    { label: '无效订单数', value: metrics.invalidOrderCount.toLocaleString(), note: 'OrderStatus.INVALID', tone: 'negative' },
-    { label: '已签收订单数', value: metrics.deliveredOrderCount.toLocaleString(), note: '有效订单中已签收', tone: 'positive' },
-    { label: '签收率', value: formatRate(metrics.deliveryRate), note: '签收 ÷ 有效订单', tone: 'accent' },
-    { label: '总销售额', value: formatMoney(metrics.totalSalesAmount), note: '统一目标币种', tone: '' },
-    { label: '签收销售额', value: formatMoney(metrics.deliveredSalesAmount), note: '已签收有效订单', tone: 'positive' },
-    { label: '未签收销售额', value: formatMoney(metrics.undeliveredSalesAmount), note: '有效但尚未签收', tone: 'accent' },
-    { label: '无效订单销售额', value: formatMoney(metrics.invalidSalesAmount), note: '无效订单金额', tone: 'negative' },
+    [
+      { label: '订单数', value: metrics.orderCount.toLocaleString(), note: '当前筛选全部订单', tone: '' },
+      { label: '有效订单数', value: metrics.validOrderCount.toLocaleString(), note: '排除 INVALID', tone: 'positive' },
+      { label: '无效订单数', value: metrics.invalidOrderCount.toLocaleString(), note: 'OrderStatus.INVALID', tone: 'negative' },
+      { label: '已签收订单数', value: metrics.deliveredOrderCount.toLocaleString(), note: '有效订单中已签收', tone: 'positive' },
+      { label: '签收率', value: formatRate(metrics.deliveryRate), note: '签收 ÷ 有效订单', tone: 'accent' },
+    ],
+    [
+      { label: '总销售额', value: formatMoney(metrics.totalSalesAmount), note: '有效 + 无效（不含缺汇率单）', tone: '' },
+      { label: '有效订单销售额', value: formatMoney(validSalesAmount(metrics)), note: '签收 + 未签收', tone: 'positive' },
+      { label: '无效订单销售额', value: formatMoney(metrics.invalidSalesAmount), note: '无效订单金额', tone: 'negative' },
+      { label: '签收销售额', value: formatMoney(metrics.deliveredSalesAmount), note: '已签收有效订单', tone: 'positive' },
+      { label: '未签收销售额', value: formatMoney(metrics.undeliveredSalesAmount), note: '有效但尚未签收', tone: 'accent' },
+    ],
   ]
 })
 
@@ -1164,8 +1187,12 @@ onBeforeUnmount(() => {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
+}
+
+.metric-grid + .metric-grid {
+  margin-top: 12px;
 }
 
 .metric-card {
