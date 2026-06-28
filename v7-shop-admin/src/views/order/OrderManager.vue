@@ -1001,6 +1001,8 @@ const handleChooseOrderTemplateConfirm = async (templateData: {
     taskDownloading.value = true
     let downloadQueryForm = {
       ...queryForm,
+      // 导出与列表保持同一时区口径（按个人配置时区解释下单时间）
+      dateRange: toReportZoneRange(queryForm.dateRange),
       templateId: templateData.templateId,
       isAudit: isAudit.value ? true : undefined,
     }

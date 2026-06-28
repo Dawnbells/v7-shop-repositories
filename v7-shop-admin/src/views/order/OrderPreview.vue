@@ -563,7 +563,11 @@ const handleDownload = async (type: string) => {
   if (taskDownloading.value) {
     return
   }
-  let downloadQueryForm = { ...queryForm }
+  // 导出与列表保持同一时区口径（按个人配置时区解释下单时间）
+  let downloadQueryForm = {
+    ...queryForm,
+    dateRange: toReportZoneRange(queryForm.dateRange),
+  }
   if (type === 'selected') {
     downloadQueryForm.orderIds = undefined
     if (selectRows.value.length > 0) {
