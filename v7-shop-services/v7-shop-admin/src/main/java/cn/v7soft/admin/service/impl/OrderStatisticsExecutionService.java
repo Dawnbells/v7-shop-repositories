@@ -18,6 +18,7 @@ import cn.v7soft.dao.enums.OrderStatisticsDimension;
 import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.repositories.primary.DepartmentRepository;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+@Slf4j
 @Service
 public class OrderStatisticsExecutionService {
 
@@ -111,6 +113,14 @@ public class OrderStatisticsExecutionService {
                 now
         );
 
+        OrderStatisticsBucket firstBucket = buckets.get(0);
+        OrderStatisticsBucket lastBucket = buckets.get(buckets.size() - 1);
+        log.info("[统计调试] execute 日期={}~{} 粒度={} 维度={} | 配置时区={} userZone={} | 桶数={} 首桶 key={} startInstant={} queryStart={} | 末桶 queryEnd={} now={}",
+                criteria.startDate(), criteria.endDate(), criteria.granularity(), criteria.dimension(),
+                executionContext.config().getTimeZoneId(), userZone,
+                buckets.size(), firstBucket.key(), firstBucket.startInstant(), firstBucket.queryStart(),
+                lastBucket.queryEnd(), now);
+
         List<Currency> currencies = currencyRepository.findAllValid();
         Currency targetCurrency = currencies.stream()
                 .filter(currency -> criteria.targetCurrencyCode()
@@ -130,6 +140,11 @@ public class OrderStatisticsExecutionService {
 
         List<OrderStatisticsAggregateRow> rows =
                 queryRepository.query(buckets, criteria, scope);
+        log.info("[统计调试] execute 聚合行数={} SUM(order_count)={} | scope.companyWide={} personalOnly={} excludedDept={} allowedDept={}",
+                rows.size(),
+                rows.stream().mapToLong(OrderStatisticsAggregateRow::orderCount).sum(),
+                scope.companyWide(), scope.personalOnly(),
+                scope.excludedDepartmentIds(), scope.allowedDepartmentIds());
         return resultAssembler.assemble(
                 buckets,
                 criteria,

@@ -9,6 +9,7 @@ import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
 import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.repositories.primary.OrderStatisticsUserConfigRepository;
 import cn.v7soft.dao.utils.SaSessionUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+@Slf4j
 @Service
 public class OrderStatisticsConfigService implements IOrderStatisticsConfigService {
 
@@ -57,6 +59,9 @@ public class OrderStatisticsConfigService implements IOrderStatisticsConfigServi
             config.setDefaultTargetCurrencyCode(USD);
             config = repository.save(config);
         }
+        log.info("[统计调试] getOrCreate(browserTz={}) 用户={}:{} -> configId={} 时区={} 目标币种={}",
+                browserTimeZoneId, loginUser.getCompanyId(), loginUser.getLongId(),
+                config.getId(), config.getTimeZoneId(), config.getDefaultTargetCurrencyCode());
         return config;
     }
 
@@ -86,7 +91,11 @@ public class OrderStatisticsConfigService implements IOrderStatisticsConfigServi
         config.setDefaultTargetCurrencyCode(targetCurrencyCode);
         config.setTimeZoneId(timeZoneId);
         config.setExchangeRates(exchangeRates);
-        return repository.save(config);
+        OrderStatisticsUserConfig saved = repository.save(config);
+        log.info("[统计调试] save 用户={}:{} -> configId={} 保存时区={} 目标币种={}",
+                loginUser.getCompanyId(), loginUser.getLongId(),
+                saved.getId(), saved.getTimeZoneId(), saved.getDefaultTargetCurrencyCode());
+        return saved;
     }
 
     private Map<String, String> normalizeRates(Map<String, String> rawRates) {
