@@ -99,10 +99,12 @@ class OrderStatisticsSqlBuilderTest {
                 .contains("WHEN o.order_time >= :bucketStart0 AND o.order_time < :bucketEnd0 THEN :bucketKey0")
                 .contains("WHEN o.order_time >= :bucketStart1 AND o.order_time < :bucketEnd1 THEN :bucketKey1")
                 .contains("GROUP BY\n    bucket_key");
-        // 全局区间 = 第一个桶起点 .. 最后一个桶终点
+        // 全局区间 = 第一个桶起点 .. 最后一个桶终点；时间参数以数据库墙钟字符串绑定（不受 JVM 时区影响）
         assertThat(plan.parameters())
-                .containsEntry("rangeStart", LocalDateTime.parse("2026-06-01T08:00:00"))
-                .containsEntry("rangeEnd", LocalDateTime.parse("2026-06-03T08:00:00"))
+                .containsEntry("rangeStart", "2026-06-01 08:00:00.000000")
+                .containsEntry("rangeEnd", "2026-06-03 08:00:00.000000")
+                .containsEntry("bucketStart0", "2026-06-01 08:00:00.000000")
+                .containsEntry("bucketEnd0", "2026-06-02 08:00:00.000000")
                 .containsEntry("bucketKey0", "2026-06-01")
                 .containsEntry("bucketKey1", "2026-06-02");
     }

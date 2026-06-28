@@ -3,6 +3,8 @@ package cn.v7soft.admin.statistics;
 import cn.v7soft.dao.enums.OrderStatisticsDimension;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -10,6 +12,20 @@ import java.util.List;
 import java.util.Map;
 
 public class OrderStatisticsSqlBuilder {
+
+    /**
+     * 时间范围参数以「数据库墙钟字符串」绑定，而不是 LocalDateTime。
+     * 原因：order_time 是 Asia/Shanghai 墙钟存储，桶边界 queryStart/queryEnd 也是该口径的
+     * LocalDateTime；但原生查询 setParameter(LocalDateTime) 在绑定时会按 JVM 默认时区做转换，
+     * 若运行机时区不是 Asia/Shanghai（如美西 LA），过滤窗口会整体平移十几小时，导致计数错误。
+     * 绑定为 'yyyy-MM-dd HH:mm:ss.SSSSSS' 字符串后，MySQL 与 datetime 列按字面比较，与 JVM 时区无关。
+     */
+    private static final DateTimeFormatter SQL_TIMESTAMP =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
+
+    private static String toSqlTimestamp(LocalDateTime value) {
+        return value.format(SQL_TIMESTAMP);
+    }
 
     public OrderStatisticsSqlPlan build(
             List<OrderStatisticsBucket> buckets,
@@ -39,8 +55,8 @@ public class OrderStatisticsSqlBuilder {
         // 恰好等于所有桶区间的并集，每行落在唯一的桶里，bucketKey 表达式不会产生 NULL。
         conditions.add("o.order_time >= :rangeStart");
         conditions.add("o.order_time < :rangeEnd");
-        parameters.put("rangeStart", buckets.get(0).queryStart());
-        parameters.put("rangeEnd", buckets.get(buckets.size() - 1).queryEnd());
+        parameters.put("rangeStart", toSqlTimestamp(buckets.get(0).queryStart()));
+        parameters.put("rangeEnd", toSqlTimestamp(buckets.get(buckets.size() - 1).queryEnd()));
 
         addPermissionCondition(conditions, parameters, scope);
         addWebsiteCondition(conditions, parameters, scope);
@@ -91,8 +107,8 @@ public class OrderStatisticsSqlBuilder {
         for (int index = 0; index < buckets.size(); index++) {
             OrderStatisticsBucket bucket = buckets.get(index);
             parameters.put("bucketKey" + index, bucket.key());
-            parameters.put("bucketStart" + index, bucket.queryStart());
-            parameters.put("bucketEnd" + index, bucket.queryEnd());
+            parameters.put("bucketStart" + index, toSqlTimestamp(bucket.queryStart()));
+            parameters.put("bucketEnd" + index, toSqlTimestamp(bucket.queryEnd()));
             caseExpression
                     .append("\n        WHEN o.order_time >= :bucketStart").append(index)
                     .append(" AND o.order_time < :bucketEnd").append(index)
