@@ -70,6 +70,15 @@
                 start-placeholder="起始时间"
                 type="datetimerange"
               />
+              <el-tooltip
+                v-if="reportTimeZone"
+                :content="`所选时间按此时区解释（取自个人统计配置），与统计分析口径一致`"
+                placement="top"
+              >
+                <span style="margin-left: 8px; font-size: 12px; color: #909399; cursor: help">
+                  时区：{{ reportTimeZone }}
+                </span>
+              </el-tooltip>
             </el-form-item>
             <!-- <el-button class="hidden-xs-only" text type="primary" @click="handleFold">
               <span v-if="fold">展开</span>
@@ -568,6 +577,8 @@ const props = defineProps<{
   isContact: boolean
   taskDownloading: boolean
   updatingOrderStatus: boolean
+  // 下单时间筛选所用时区（取自个人统计配置），所选时间按此时区解释，与统计分析口径一致
+  reportTimeZone?: string
 }>()
 
 const emit = defineEmits<{
