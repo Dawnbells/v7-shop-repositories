@@ -235,15 +235,15 @@
       <section class="chart-grid">
         <el-card shadow="never">
           <template #header><strong>订单趋势</strong></template>
-          <vab-chart :option="orderChartOption" />
+          <vab-chart class="trend-chart" :option="orderChartOption" />
         </el-card>
         <el-card shadow="never">
           <template #header><strong>签收率趋势</strong></template>
-          <vab-chart :option="deliveryChartOption" />
+          <vab-chart class="trend-chart" :option="deliveryChartOption" />
         </el-card>
         <el-card class="sales-chart" shadow="never">
           <template #header><strong>销售额趋势</strong></template>
-          <vab-chart :option="salesChartOption" />
+          <vab-chart class="sales-trend-chart" :option="salesChartOption" />
         </el-card>
       </section>
 
@@ -1160,8 +1160,18 @@ onBeforeUnmount(() => {
   gap: 14px;
 }
 
+/* 卡片高度由图表撑开（vab-chart 默认 height:100% 在父级高度未传导时会塌到 90px，
+   导致 Y 轴刻度堆叠），这里给图表显式像素高度并让 card body 自适应。 */
 .chart-grid :deep(.el-card__body) {
-  height: 290px;
+  height: auto;
+}
+
+.chart-grid :deep(.trend-chart) {
+  height: 320px !important;
+}
+
+.chart-grid :deep(.sales-trend-chart) {
+  height: 380px !important;
 }
 
 .chart-grid .sales-chart {
