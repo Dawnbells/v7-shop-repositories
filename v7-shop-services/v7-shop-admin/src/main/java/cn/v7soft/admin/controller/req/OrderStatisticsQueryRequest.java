@@ -41,6 +41,11 @@ public class OrderStatisticsQueryRequest {
     @Builder.Default
     private Boolean includeUnassigned = false;
 
+    @Schema(description = "全部模式：不限员工/部门，统计数据权限范围内的所有订单"
+            + "（含归属已失效、未归属），口径等同订单管理")
+    @Builder.Default
+    private Boolean selectAll = false;
+
     @Builder.Default
     private List<WebsiteTypeEnum> platforms = List.of();
 

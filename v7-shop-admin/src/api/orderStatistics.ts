@@ -129,6 +129,8 @@ export interface StatisticsQuery {
   employeeIds: string[]
   departmentIds: string[]
   includeUnassigned: boolean
+  // 全部模式：不限员工/部门，统计数据权限范围内的所有订单（含归属已失效、未归属）
+  selectAll: boolean
   platforms: StatisticsPlatform[]
   domains: string[]
   targetCurrencyCode: string

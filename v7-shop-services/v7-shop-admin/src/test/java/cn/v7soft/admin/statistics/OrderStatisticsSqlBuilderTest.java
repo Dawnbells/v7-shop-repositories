@@ -110,6 +110,42 @@ class OrderStatisticsSqlBuilderTest {
     }
 
     @Test
+    void selectAllOmitsDimensionFilterButKeepsCompanyAndTimeRange() {
+        OrderStatisticsQueryCriteria criteria = new OrderStatisticsQueryCriteria(
+                LocalDate.parse("2026-06-01"),
+                LocalDate.parse("2026-06-01"),
+                OrderStatisticsGranularity.DAY,
+                OrderStatisticsDimension.EMPLOYEE,
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                List.of(),
+                "USD",
+                Map.of(),
+                false,
+                true
+        );
+
+        OrderStatisticsSqlPlan plan = builder.build(
+                List.of(bucket()),
+                criteria,
+                new OrderStatisticsAccessScope(
+                        9L, 1L, true, false, Set.of(), Set.of(),
+                        false, false, null, ViewMode.TEAM
+                )
+        );
+
+        // 全部模式：保留公司/时间/状态约束，但不再有员工/部门维度过滤条件
+        assertThat(plan.sql())
+                .contains("o.company_id = :companyId")
+                .contains("o.order_time >= :rangeStart")
+                .doesNotContain("ci.sales_uid IN")
+                .doesNotContain("ci.sales_uid IS NULL")
+                .doesNotContain("ci.department_id IN");
+    }
+
+    @Test
     void buildsDepartmentPermissionAndSelectionAsSeparateConditions() {
         OrderStatisticsQueryCriteria criteria = new OrderStatisticsQueryCriteria(
                 LocalDate.parse("2026-06-01"),

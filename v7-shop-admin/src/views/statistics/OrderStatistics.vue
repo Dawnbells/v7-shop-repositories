@@ -62,7 +62,7 @@
               placeholder="搜索姓名、手机号或内部 ID"
               remote
               :remote-method="loadEmployees"
-              :disabled="context?.employeeLocked"
+              :disabled="context?.employeeLocked || form.selectAll"
             >
               <el-option
                 v-for="item in employeeOptions"
@@ -76,13 +76,18 @@
                 </div>
               </el-option>
             </el-select>
-            <el-checkbox
-              v-if="!context?.employeeLocked"
-              v-model="form.includeHistorical"
-              class="history-toggle"
-            >
-              包含历史员工
-            </el-checkbox>
+            <div v-if="!context?.employeeLocked" class="select-toggles">
+              <el-checkbox v-model="form.selectAll" class="history-toggle">
+                全部员工（不限对象，含已离职/未归属）
+              </el-checkbox>
+              <el-checkbox
+                v-model="form.includeHistorical"
+                class="history-toggle"
+                :disabled="form.selectAll"
+              >
+                包含历史员工
+              </el-checkbox>
+            </div>
           </el-form-item>
 
           <el-form-item v-else label="部门">
@@ -93,6 +98,7 @@
               collapse-tags
               collapse-tags-tooltip
               :data="departmentTree"
+              :disabled="form.selectAll"
               filterable
               multiple
               node-key="id"
@@ -100,9 +106,18 @@
               show-checkbox
               @check="handleDepartmentCheck"
             />
-            <el-checkbox v-model="form.includeHistorical" class="history-toggle">
-              包含历史部门
-            </el-checkbox>
+            <div class="select-toggles">
+              <el-checkbox v-model="form.selectAll" class="history-toggle">
+                全部部门（不限对象，含已删除/未归属）
+              </el-checkbox>
+              <el-checkbox
+                v-model="form.includeHistorical"
+                class="history-toggle"
+                :disabled="form.selectAll"
+              >
+                包含历史部门
+              </el-checkbox>
+            </div>
           </el-form-item>
 
           <el-form-item label="订单平台">
@@ -148,7 +163,9 @@
               v-model="form.includeUnassigned"
               active-text="纳入统计"
               inactive-text="不统计"
+              :disabled="form.selectAll"
             />
+            <span v-if="form.selectAll" class="toggle-hint">全部模式已包含未归属订单</span>
           </el-form-item>
         </div>
 
@@ -425,6 +442,7 @@ const form = reactive({
   departmentIds: [] as string[],
   includeHistorical: false,
   includeUnassigned: false,
+  selectAll: false,
   platforms: [] as StatisticsPlatform[],
   domains: [] as string[],
   targetCurrencyCode: 'USD',
@@ -541,6 +559,7 @@ const initialize = async () => {
 const handleDimensionChange = () => {
   form.includeHistorical = false
   form.includeUnassigned = false
+  form.selectAll = false
   if (form.dimension === 'EMPLOYEE') form.departmentIds = []
   else form.employeeIds = []
 }
@@ -568,12 +587,14 @@ const validateQuery = () => {
   if (form.granularity === 'MONTH' && end.diff(start, 'month') + 1 > 60)
     return '按月统计最多选择五年'
   if (
+    !form.selectAll &&
     form.dimension === 'EMPLOYEE' &&
     !form.employeeIds.length &&
     !form.includeUnassigned
   )
     return '至少选择一个员工'
   if (
+    !form.selectAll &&
     form.dimension === 'DEPARTMENT' &&
     !form.departmentIds.length &&
     !form.includeUnassigned
@@ -730,9 +751,10 @@ const runQuery = async (forceRefresh: boolean) => {
     endDate: form.dateRange[1],
     granularity: form.granularity,
     dimension: form.dimension,
-    employeeIds: form.dimension === 'EMPLOYEE' ? form.employeeIds : [],
-    departmentIds: form.dimension === 'DEPARTMENT' ? form.departmentIds : [],
+    employeeIds: form.selectAll || form.dimension !== 'EMPLOYEE' ? [] : form.employeeIds,
+    departmentIds: form.selectAll || form.dimension !== 'DEPARTMENT' ? [] : form.departmentIds,
     includeUnassigned: form.includeUnassigned,
+    selectAll: form.selectAll,
     platforms: form.platforms,
     domains: form.domains.map((domain) => domain.trim().toLowerCase()),
     targetCurrencyCode: form.targetCurrencyCode,
@@ -1066,6 +1088,19 @@ onBeforeUnmount(() => {
 
 .history-toggle {
   margin-top: 7px;
+}
+
+.select-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+}
+
+.toggle-hint {
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .option-row {

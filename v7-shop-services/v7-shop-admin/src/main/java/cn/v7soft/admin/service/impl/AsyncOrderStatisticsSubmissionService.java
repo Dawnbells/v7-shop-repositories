@@ -111,9 +111,6 @@ public class AsyncOrderStatisticsSubmissionService
                 config
         );
         String fingerprint = fingerprint(request, user, config);
-        log.info("[统计调试] submit 用户={}:{} forceRefresh={} | getOrCreate(null) 返回时区={} 目标币种={} | fingerprint={}",
-                user.getCompanyId(), user.getLongId(), request.getForceRefresh(),
-                config.getTimeZoneId(), config.getDefaultTargetCurrencyCode(), fingerprint);
 
         if (!Boolean.TRUE.equals(request.getForceRefresh())) {
             try {
@@ -123,7 +120,6 @@ public class AsyncOrderStatisticsSubmissionService
                         fingerprint
                 );
                 if (cachedToken != null && !cachedToken.isBlank()) {
-                    log.info("[统计调试] submit 命中1分钟缓存 token={}，直接返回旧快照（不重算）", cachedToken);
                     try {
                         return completed(
                                 snapshotService.get(

@@ -100,6 +100,43 @@ class OrderStatisticsQueryNormalizerTest {
     }
 
     @Test
+    void selectAllBypassesDepartmentSelectionRequirement() {
+        OrderStatisticsQueryRequest request = baseRequest();
+        request.setDimension(OrderStatisticsDimension.DEPARTMENT);
+        request.setSelectAll(true);
+        // 提交了部门 ID，但全部模式应忽略它们，不按 ID 过滤
+        request.setDepartmentIds(List.of("10"));
+
+        OrderStatisticsQueryCriteria criteria = normalizer.normalize(request, companyScope());
+
+        assertThat(criteria.selectAll()).isTrue();
+        assertThat(criteria.departmentIds()).isEmpty();
+    }
+
+    @Test
+    void selectAllBypassesEmployeeSelectionRequirement() {
+        OrderStatisticsQueryRequest request = baseRequest();
+        request.setDimension(OrderStatisticsDimension.EMPLOYEE);
+        request.setSelectAll(true);
+
+        OrderStatisticsQueryCriteria criteria = normalizer.normalize(request, companyScope());
+
+        assertThat(criteria.selectAll()).isTrue();
+        assertThat(criteria.employeeIds()).isEmpty();
+    }
+
+    @Test
+    void personalScopeRejectsSelectAll() {
+        OrderStatisticsQueryRequest request = baseRequest();
+        request.setDimension(OrderStatisticsDimension.EMPLOYEE);
+        request.setSelectAll(true);
+
+        assertThatThrownBy(() -> normalizer.normalize(request, personalScope()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("本人");
+    }
+
+    @Test
     void rejectsInvalidIdAndTemporaryRate() {
         OrderStatisticsQueryRequest invalidId = baseRequest();
         invalidId.setDimension(OrderStatisticsDimension.EMPLOYEE);

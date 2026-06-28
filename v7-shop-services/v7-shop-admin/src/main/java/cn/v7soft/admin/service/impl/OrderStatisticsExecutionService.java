@@ -18,7 +18,6 @@ import cn.v7soft.dao.enums.OrderStatisticsDimension;
 import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.repositories.primary.DepartmentRepository;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,12 +26,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-@Slf4j
 @Service
 public class OrderStatisticsExecutionService {
 
@@ -113,14 +112,6 @@ public class OrderStatisticsExecutionService {
                 now
         );
 
-        OrderStatisticsBucket firstBucket = buckets.get(0);
-        OrderStatisticsBucket lastBucket = buckets.get(buckets.size() - 1);
-        log.info("[统计调试] execute 日期={}~{} 粒度={} 维度={} | 配置时区={} userZone={} | 桶数={} 首桶 key={} startInstant={} queryStart={} | 末桶 queryEnd={} now={}",
-                criteria.startDate(), criteria.endDate(), criteria.granularity(), criteria.dimension(),
-                executionContext.config().getTimeZoneId(), userZone,
-                buckets.size(), firstBucket.key(), firstBucket.startInstant(), firstBucket.queryStart(),
-                lastBucket.queryEnd(), now);
-
         List<Currency> currencies = currencyRepository.findAllValid();
         Currency targetCurrency = currencies.stream()
                 .filter(currency -> criteria.targetCurrencyCode()
@@ -140,11 +131,6 @@ public class OrderStatisticsExecutionService {
 
         List<OrderStatisticsAggregateRow> rows =
                 queryRepository.query(buckets, criteria, scope);
-        log.info("[统计调试] execute 聚合行数={} SUM(order_count)={} | scope.companyWide={} personalOnly={} excludedDept={} allowedDept={}",
-                rows.size(),
-                rows.stream().mapToLong(OrderStatisticsAggregateRow::orderCount).sum(),
-                scope.companyWide(), scope.personalOnly(),
-                scope.excludedDepartmentIds(), scope.allowedDepartmentIds());
         return resultAssembler.assemble(
                 buckets,
                 criteria,
@@ -174,8 +160,15 @@ public class OrderStatisticsExecutionService {
             systemUserRepository.findAllById(hitEmployeeIds)
                     .forEach(user -> result.put(user.getId(), user.getName()));
         } else {
-            // 部门 ID 已在 normalizer 经权限校验，可安全解析（含零数据部门，用于预置显示）
-            departmentRepository.findAllById(criteria.departmentIds())
+            // 部门 ID 已在 normalizer 经权限校验，可安全解析（含零数据部门，用于预置显示）；
+            // 全部模式下 departmentIds 为空，故并入「实际命中行」的部门 ID（同样已按数据权限裁剪），
+            // 使现存部门显示当前名、不被误标为历史，孤儿部门（已删除）仍回落快照名并标历史。
+            LinkedHashSet<Long> departmentIds = new LinkedHashSet<>(criteria.departmentIds());
+            rows.stream()
+                    .map(OrderStatisticsAggregateRow::groupId)
+                    .filter(Objects::nonNull)
+                    .forEach(departmentIds::add);
+            departmentRepository.findAllById(departmentIds)
                     .forEach(department ->
                             result.put(department.getId(), department.getName()));
         }

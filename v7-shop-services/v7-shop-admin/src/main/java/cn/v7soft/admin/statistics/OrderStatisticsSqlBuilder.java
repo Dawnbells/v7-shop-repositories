@@ -163,6 +163,11 @@ public class OrderStatisticsSqlBuilder {
             Map<String, Object> parameters,
             OrderStatisticsQueryCriteria criteria
     ) {
+        // 全部模式：不按员工/部门 ID 过滤，仅保留数据权限/平台/域名等约束，
+        // 使统计口径与订单管理一致——归属已失效（部门/销售员已删除）及未归属的订单全部纳入。
+        if (criteria.selectAll()) {
+            return;
+        }
         String expression;
         List<Long> selectedIds;
         String parameterPrefix;

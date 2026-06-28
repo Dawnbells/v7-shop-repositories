@@ -36,20 +36,22 @@ public class OrderStatisticsQueryNormalizer {
         List<Long> employeeIds = normalizeIds(request.getEmployeeIds());
         List<Long> departmentIds = normalizeIds(request.getDepartmentIds());
         boolean includeUnassigned = Boolean.TRUE.equals(request.getIncludeUnassigned());
+        boolean selectAll = Boolean.TRUE.equals(request.getSelectAll());
 
         if (request.getDimension() == OrderStatisticsDimension.EMPLOYEE) {
             if (!departmentIds.isEmpty()) {
                 throw new IllegalArgumentException("按员工统计时不能提交部门条件");
             }
-            if (employeeIds.isEmpty() && !includeUnassigned) {
+            // 全部模式不按 ID 过滤，无需选择具体员工；个人模式仍只能统计本人（全部模式由下方拦截）
+            if (!selectAll && employeeIds.isEmpty() && !includeUnassigned) {
                 throw new IllegalArgumentException("至少选择一个员工或未归属");
             }
-            validatePersonalSelection(scope, employeeIds, includeUnassigned);
+            validatePersonalSelection(scope, employeeIds, includeUnassigned, selectAll);
         } else {
             if (!employeeIds.isEmpty()) {
                 throw new IllegalArgumentException("按部门统计时不能提交员工条件");
             }
-            if (departmentIds.isEmpty() && !includeUnassigned) {
+            if (!selectAll && departmentIds.isEmpty() && !includeUnassigned) {
                 throw new IllegalArgumentException("至少选择一个部门或未归属");
             }
             validateDepartmentSelection(scope, departmentIds);
@@ -64,26 +66,31 @@ public class OrderStatisticsQueryNormalizer {
                 request.getEndDate(),
                 request.getGranularity(),
                 request.getDimension(),
-                List.copyOf(employeeIds),
-                List.copyOf(departmentIds),
+                // 全部模式忽略具体 ID（SQL 不按 ID 过滤），避免预置选中分组造成口径混淆
+                selectAll ? List.of() : List.copyOf(employeeIds),
+                selectAll ? List.of() : List.copyOf(departmentIds),
                 includeUnassigned,
                 normalizePlatforms(request.getPlatforms()),
                 normalizeDomains(request.getDomains()),
                 normalizeCurrencyCode(request.getTargetCurrencyCode()),
                 normalizeRates(request.getTemporaryExchangeRates()),
-                Boolean.TRUE.equals(request.getForceRefresh())
+                Boolean.TRUE.equals(request.getForceRefresh()),
+                selectAll
         );
     }
 
     private void validatePersonalSelection(
             OrderStatisticsAccessScope scope,
             List<Long> employeeIds,
-            boolean includeUnassigned
+            boolean includeUnassigned,
+            boolean selectAll
     ) {
         if (!scope.personalOnly()) {
             return;
         }
-        if (includeUnassigned
+        // 个人模式只能统计本人：不允许「全部」「未归属」，且必须且仅选自己
+        if (selectAll
+                || includeUnassigned
                 || employeeIds.size() != 1
                 || employeeIds.get(0) != scope.requesterUserId()) {
             throw new IllegalArgumentException("个人模式只能统计本人");
