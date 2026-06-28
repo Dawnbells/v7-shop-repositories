@@ -138,14 +138,17 @@ public class OrderStatisticsOptionService {
     }
 
     private OrderStatisticsCurrencyOptionResponse toCurrencyOption(Currency currency) {
-        BigDecimal exchangeRate = currency.getExchangeRate();
+        // 统计页/个人中心的汇率口径统一为「1 美元 = N 个该币种」(units-per-usd)，与个人/临时汇率
+        // 录入口径一致；而 t_currencies.exchange_rate 存的是「1 个该币种 = N 美元」，故取倒数后再下发。
+        BigDecimal unitsPerUsd = cn.v7soft.admin.statistics.OrderStatisticsCurrencyConverter
+                .usdPerUnitToUnitsPerUsd(currency.getExchangeRate());
         return OrderStatisticsCurrencyOptionResponse.builder()
                 .code(currency.getCode().trim().toUpperCase(Locale.ROOT))
                 .name(currency.getName())
                 .symbol(currency.getSymbol())
-                .exchangeRate(exchangeRate == null
+                .exchangeRate(unitsPerUsd == null
                         ? null
-                        : exchangeRate.stripTrailingZeros().toPlainString())
+                        : unitsPerUsd.stripTrailingZeros().toPlainString())
                 .fractionDigits(currency.getFractionDigits())
                 .build();
     }

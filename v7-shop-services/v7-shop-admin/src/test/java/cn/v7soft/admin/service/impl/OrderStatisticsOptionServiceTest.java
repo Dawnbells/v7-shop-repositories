@@ -89,12 +89,13 @@ class OrderStatisticsOptionServiceTest {
 
     @Test
     void currenciesAlwaysContainUsdAndAreSorted() {
+        // t_currencies 存「1 币种 = N 美元」：CNY 0.125（1 CNY=0.125 USD）
         when(currencyRepository.findAllValid()).thenReturn(List.of(
                 Currency.builder()
                         .code("CNY")
                         .name("人民币")
                         .symbol("¥")
-                        .exchangeRate(new BigDecimal("7.2"))
+                        .exchangeRate(new BigDecimal("0.125"))
                         .fractionDigits(2)
                         .build()
         ));
@@ -103,6 +104,8 @@ class OrderStatisticsOptionServiceTest {
 
         assertThat(result).extracting(OrderStatisticsCurrencyOptionResponse::getCode)
                 .containsExactly("CNY", "USD");
+        // 下发口径统一为「1 美元 = N 币种」(units-per-usd)：0.125 取倒数为 8，USD 恒为 1
+        assertThat(result.get(0).getExchangeRate()).isEqualTo("8");
         assertThat(result.get(1).getExchangeRate()).isEqualTo("1");
     }
 

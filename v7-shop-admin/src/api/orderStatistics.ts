@@ -7,6 +7,7 @@ export type StatisticsPlatform = 'V7_SHOP' | 'SHOPLINE' | 'XYZ'
 export interface StatisticsConfig {
   defaultTargetCurrencyCode: string
   timeZoneId: string
+  // 个人汇率，口径「1 美元 = N 个该币种」(units-per-usd)，与个人中心录入一致
   exchangeRates: Record<string, string>
 }
 
@@ -40,6 +41,7 @@ export interface CurrencyOption {
   code: string
   name: string
   symbol?: string
+  // 系统参考汇率，已统一为「1 美元 = N 个该币种」(units-per-usd)，与个人/临时汇率口径一致
   exchangeRate?: string
   fractionDigits: number
 }
