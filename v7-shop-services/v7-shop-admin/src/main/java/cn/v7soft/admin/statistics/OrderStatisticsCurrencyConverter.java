@@ -11,6 +11,21 @@ public class OrderStatisticsCurrencyConverter {
     private static final String USD = "USD";
     private static final int WORKING_SCALE = 16;
 
+    /**
+     * 约定转换：系统汇率(t_currencies.exchange_rate)与订单历史汇率
+     * (t_order_context_infos.currency_exchange_rate)均以「1 个该币种 = N 美元」
+     * （每单位的美元价值，如 EUR=1.06、IDR=0.0001）存储；而本换算器内部统一以
+     * 「1 美元 = N 个该币种」（每美元可兑换的单位数，与个人/临时汇率一致）参与计算。
+     * 因此系统汇率与历史汇率喂入换算器前必须取倒数。入参为 null 或非正时返回 null
+     * （视为该币种无有效汇率，由调用方按"缺失汇率"处理）。
+     */
+    public static BigDecimal usdPerUnitToUnitsPerUsd(BigDecimal usdPerUnit) {
+        if (usdPerUnit == null || usdPerUnit.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return BigDecimal.ONE.divide(usdPerUnit, WORKING_SCALE, RoundingMode.HALF_UP);
+    }
+
     public OrderStatisticsConversionResult convert(
             BigDecimal amount,
             String sourceCurrencyCode,

@@ -45,11 +45,12 @@ class OrderStatisticsResultAssemblerTest {
                 Map.of(),
                 false
         );
+        // 历史汇率按「1 币种 = N 美元」存储：CNY 0.1（即 1 美元 = 10 CNY）→ 1000 CNY 换 100 USD
         List<OrderStatisticsAggregateRow> rows = List.of(
-                row("2026-06-01", 101L, "Alice", "CNY", "7.2",
-                        OrderStatus.DELIVERED, 2, "720"),
-                row("2026-06-01", 101L, "Alice", "CNY", "7.2",
-                        OrderStatus.INVALID, 1, "72"),
+                row("2026-06-01", 101L, "Alice", "CNY", "0.1",
+                        OrderStatus.DELIVERED, 2, "1000"),
+                row("2026-06-01", 101L, "Alice", "CNY", "0.1",
+                        OrderStatus.INVALID, 1, "100"),
                 row("2026-06-01", 101L, "Alice", "USD", "1",
                         OrderStatus.PENDING, 1, "50"),
                 row("2026-06-01", 101L, "Alice", "EUR", null,
@@ -97,7 +98,7 @@ class OrderStatisticsResultAssemblerTest {
                 .singleElement()
                 .satisfies(item -> {
                     assertThat(item.getOrderCount()).isEqualTo(3);
-                    assertThat(item.getTotalAmount()).isEqualTo("792");
+                    assertThat(item.getTotalAmount()).isEqualTo("1100");
                 });
         assertThat(result.getMissingRates()).singleElement().satisfies(item -> {
             assertThat(item.getCurrencyCode()).isEqualTo("EUR");
@@ -178,12 +179,12 @@ class OrderStatisticsResultAssemblerTest {
                 Map.of(),
                 false
         );
-        // 两笔各换算为 0.005 USD（CNY 0.05 ÷ 历史汇率 10），分属两组、两桶；
+        // 两笔各换算为 0.005 USD（CNY 0.05 × 历史汇率 0.1，即 1 美元=10 CNY），分属两组、两桶；
         // 汇总未签收 = 0.01，但各自独立四舍五入会得 0.01+0.01=0.02 —— 余数分配须修正回 0.01
         List<OrderStatisticsAggregateRow> rows = List.of(
-                row("2026-06-01", 101L, "A", "CNY", "10",
+                row("2026-06-01", 101L, "A", "CNY", "0.1",
                         OrderStatus.PENDING, 1, "0.05"),
-                row("2026-06-02", 102L, "B", "CNY", "10",
+                row("2026-06-02", 102L, "B", "CNY", "0.1",
                         OrderStatus.PENDING, 1, "0.05")
         );
 

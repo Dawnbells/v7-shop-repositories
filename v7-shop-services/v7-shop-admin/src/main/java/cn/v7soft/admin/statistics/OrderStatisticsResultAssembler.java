@@ -47,6 +47,16 @@ public class OrderStatisticsResultAssembler {
     ) {
         Map<String, BigDecimal> temporaryRates = parseRates(criteria.temporaryExchangeRates());
         Map<String, BigDecimal> personalRates = parseRates(personalRateStrings);
+        // 系统汇率以「1 币种 = N 美元」存储，换算器内部用「1 美元 = N 币种」，统一取倒数；
+        // 个人/临时汇率本就是「1 美元 = N 币种」（个人中心录入口径），保持不变。
+        Map<String, BigDecimal> systemRatesUnitsPerUsd = new LinkedHashMap<>();
+        systemRates.forEach((code, usdPerUnit) -> {
+            BigDecimal unitsPerUsd =
+                    OrderStatisticsCurrencyConverter.usdPerUnitToUnitsPerUsd(usdPerUnit);
+            if (unitsPerUsd != null) {
+                systemRatesUnitsPerUsd.put(code, unitsPerUsd);
+            }
+        });
         MetricsAccumulator summary = new MetricsAccumulator();
         Map<String, MetricsAccumulator> bucketMetrics = new LinkedHashMap<>();
         Map<String, MetricsAccumulator> bucketGroupMetrics = new LinkedHashMap<>();
@@ -71,8 +81,10 @@ public class OrderStatisticsResultAssembler {
                     criteria.targetCurrencyCode(),
                     temporaryRates,
                     personalRates,
-                    row.historicalExchangeRate(),
-                    systemRates
+                    // 订单历史汇率同样以「1 币种 = N 美元」存储，取倒数后参与计算
+                    OrderStatisticsCurrencyConverter.usdPerUnitToUnitsPerUsd(
+                            row.historicalExchangeRate()),
+                    systemRatesUnitsPerUsd
             );
 
             summary.add(row.orderCount(), category, conversion);
