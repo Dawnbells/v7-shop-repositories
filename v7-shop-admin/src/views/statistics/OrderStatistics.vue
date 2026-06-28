@@ -297,6 +297,7 @@
           <el-table-column label="订单数" prop="metrics.orderCount" sortable="custom" width="110" />
           <el-table-column label="有效订单" prop="metrics.validOrderCount" sortable="custom" width="120" />
           <el-table-column label="无效订单" prop="metrics.invalidOrderCount" sortable="custom" width="120" />
+          <el-table-column label="签收订单数" prop="metrics.deliveredOrderCount" sortable="custom" width="120" />
           <el-table-column label="签收率" prop="metrics.deliveryRate" sortable="custom" width="110">
             <template #default="{ row }">{{ formatRate(row.metrics.deliveryRate) }}</template>
           </el-table-column>
@@ -893,6 +894,7 @@ const metricCards = computed(() => {
     { label: '订单数', value: metrics.orderCount.toLocaleString(), note: '当前筛选全部订单', tone: '' },
     { label: '有效订单数', value: metrics.validOrderCount.toLocaleString(), note: '排除 INVALID', tone: 'positive' },
     { label: '无效订单数', value: metrics.invalidOrderCount.toLocaleString(), note: 'OrderStatus.INVALID', tone: 'negative' },
+    { label: '已签收订单数', value: metrics.deliveredOrderCount.toLocaleString(), note: '有效订单中已签收', tone: 'positive' },
     { label: '签收率', value: formatRate(metrics.deliveryRate), note: '签收 ÷ 有效订单', tone: 'accent' },
     { label: '总销售额', value: formatMoney(metrics.totalSalesAmount), note: '统一目标币种', tone: '' },
     { label: '签收销售额', value: formatMoney(metrics.deliveredSalesAmount), note: '已签收有效订单', tone: 'positive' },
