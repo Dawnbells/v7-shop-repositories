@@ -912,16 +912,16 @@ const metricCardRows = computed(() => {
     [
       { label: '订单数', value: metrics.orderCount.toLocaleString(), note: '当前筛选全部订单', tone: '' },
       { label: '有效订单数', value: metrics.validOrderCount.toLocaleString(), note: '排除 INVALID', tone: 'positive' },
-      { label: '无效订单数', value: metrics.invalidOrderCount.toLocaleString(), note: 'OrderStatus.INVALID', tone: 'negative' },
       { label: '已签收订单数', value: metrics.deliveredOrderCount.toLocaleString(), note: '有效订单中已签收', tone: 'positive' },
       { label: '签收率', value: formatRate(metrics.deliveryRate), note: '签收 ÷ 有效订单', tone: 'accent' },
+      { label: '无效订单数', value: metrics.invalidOrderCount.toLocaleString(), note: 'OrderStatus.INVALID', tone: 'negative' },
     ],
     [
       { label: '总销售额', value: formatMoney(metrics.totalSalesAmount), note: '有效 + 无效（不含缺汇率单）', tone: '' },
       { label: '有效订单销售额', value: formatMoney(validSalesAmount(metrics)), note: '签收 + 未签收', tone: 'positive' },
-      { label: '无效订单销售额', value: formatMoney(metrics.invalidSalesAmount), note: '无效订单金额', tone: 'negative' },
       { label: '签收销售额', value: formatMoney(metrics.deliveredSalesAmount), note: '已签收有效订单', tone: 'positive' },
       { label: '未签收销售额', value: formatMoney(metrics.undeliveredSalesAmount), note: '有效但尚未签收', tone: 'accent' },
+      { label: '无效订单销售额', value: formatMoney(metrics.invalidSalesAmount), note: '无效订单金额', tone: 'negative' },
     ],
   ]
 })
