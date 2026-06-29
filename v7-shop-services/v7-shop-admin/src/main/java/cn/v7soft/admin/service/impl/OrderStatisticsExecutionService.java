@@ -11,9 +11,11 @@ import cn.v7soft.admin.statistics.OrderStatisticsClassifier;
 import cn.v7soft.admin.statistics.OrderStatisticsCurrencyConverter;
 import cn.v7soft.admin.statistics.OrderStatisticsQueryCriteria;
 import cn.v7soft.admin.statistics.OrderStatisticsQueryNormalizer;
+import cn.v7soft.admin.statistics.FxRateService;
 import cn.v7soft.admin.statistics.OrderStatisticsQueryRepository;
 import cn.v7soft.admin.statistics.OrderStatisticsResultAssembler;
 import cn.v7soft.dao.entities.primary.Currency;
+import cn.v7soft.dao.entities.primary.OrderStatisticsUserConfig;
 import cn.v7soft.dao.enums.OrderStatisticsDimension;
 import cn.v7soft.dao.repositories.primary.CurrencyRepository;
 import cn.v7soft.dao.repositories.primary.DepartmentRepository;
@@ -44,13 +46,15 @@ public class OrderStatisticsExecutionService {
     private final OrderStatisticsQueryNormalizer queryNormalizer;
     private final OrderStatisticsResultAssembler resultAssembler;
     private final Clock clock;
+    private final FxRateService fxRateService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public OrderStatisticsExecutionService(
             OrderStatisticsQueryRepository queryRepository,
             CurrencyRepository currencyRepository,
             SystemUserRepository systemUserRepository,
-            DepartmentRepository departmentRepository
+            DepartmentRepository departmentRepository,
+            FxRateService fxRateService
     ) {
         this(
                 queryRepository,
@@ -64,7 +68,8 @@ public class OrderStatisticsExecutionService {
                         new OrderStatisticsClassifier(),
                         new OrderStatisticsCurrencyConverter()
                 ),
-                Clock.systemUTC()
+                Clock.systemUTC(),
+                fxRateService
         );
     }
 
@@ -77,7 +82,8 @@ public class OrderStatisticsExecutionService {
             OrderStatisticsAccessScopeResolver scopeResolver,
             OrderStatisticsQueryNormalizer queryNormalizer,
             OrderStatisticsResultAssembler resultAssembler,
-            Clock clock
+            Clock clock,
+            FxRateService fxRateService
     ) {
         this.queryRepository = queryRepository;
         this.currencyRepository = currencyRepository;
@@ -88,6 +94,7 @@ public class OrderStatisticsExecutionService {
         this.queryNormalizer = queryNormalizer;
         this.resultAssembler = resultAssembler;
         this.clock = clock;
+        this.fxRateService = fxRateService;
     }
 
     @Transactional(readOnly = true)
@@ -135,13 +142,29 @@ public class OrderStatisticsExecutionService {
                 buckets,
                 criteria,
                 rows,
-                executionContext.config().getExchangeRates(),
+                effectiveExchangeRates(executionContext.config()),
                 systemRates,
                 loadCurrentGroupNames(criteria, rows),
                 targetCurrency.getFractionDigits(),
                 now,
                 userZone
         );
+    }
+
+    /**
+     * 统计换算用的「有效个人汇率」：以最新真实汇率打底（未配置的币种默认用真实最新值，
+     * 口径 units-per-usd），再用个人中心实际配置覆盖其上（用户手填的优先）。
+     * 这样既「默认用真实汇率」、又对未配置币种「查最新」，同时保留用户手动覆盖与临时汇率的最高优先级
+     * （临时 &gt; 个人(=真实底座+用户覆盖) &gt; 订单历史快照 &gt; USD）。
+     */
+    private Map<String, String> effectiveExchangeRates(OrderStatisticsUserConfig config) {
+        LinkedHashMap<String, String> rates = new LinkedHashMap<>();
+        fxRateService.latestUnitsPerUsd().forEach((code, rate) ->
+                rates.put(code, rate.stripTrailingZeros().toPlainString()));
+        if (config != null && config.getExchangeRates() != null) {
+            rates.putAll(config.getExchangeRates());
+        }
+        return rates;
     }
 
     private Map<Long, String> loadCurrentGroupNames(

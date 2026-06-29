@@ -42,7 +42,16 @@ class OrderStatisticsOptionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OrderStatisticsOptionService(currencyRepository, optionRepository);
+        service = new OrderStatisticsOptionService(
+                currencyRepository,
+                optionRepository,
+                new cn.v7soft.admin.statistics.FxRateService(null) {
+                    @Override
+                    public java.util.Map<String, BigDecimal> latestUnitsPerUsd() {
+                        // 仅含 USD：让测试里的 CNY 走「系统汇率取倒数」回退路径（断言 8）
+                        return java.util.Map.of("USD", BigDecimal.ONE);
+                    }
+                });
         loginUser = SystemUserDto.builder()
                 .id("101")
                 .companyId(9L)

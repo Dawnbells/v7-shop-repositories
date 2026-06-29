@@ -2,6 +2,7 @@ package cn.v7soft.admin.service.impl;
 
 import cn.v7soft.admin.controller.req.OrderStatisticsQueryRequest;
 import cn.v7soft.admin.controller.resp.OrderStatisticsResultResponse;
+import cn.v7soft.admin.statistics.FxRateService;
 import cn.v7soft.admin.statistics.OrderStatisticsAccessScope;
 import cn.v7soft.admin.statistics.OrderStatisticsAccessScopeResolver;
 import cn.v7soft.admin.statistics.OrderStatisticsAggregateRow;
@@ -69,7 +70,13 @@ class OrderStatisticsExecutionServiceTest {
                         new OrderStatisticsClassifier(),
                         new OrderStatisticsCurrencyConverter()
                 ),
-                Clock.fixed(Instant.parse("2026-06-10T12:00:00Z"), ZoneOffset.UTC)
+                Clock.fixed(Instant.parse("2026-06-10T12:00:00Z"), ZoneOffset.UTC),
+                new FxRateService(null) {
+                    @Override
+                    public Map<String, BigDecimal> latestUnitsPerUsd() {
+                        return Map.of("USD", BigDecimal.ONE);
+                    }
+                }
         );
     }
 

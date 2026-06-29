@@ -31,14 +31,17 @@ public class OrderStatisticsOptionService {
     private static final String USD = "USD";
     private final CurrencyRepository currencyRepository;
     private final OrderStatisticsOptionRepository optionRepository;
+    private final cn.v7soft.admin.statistics.FxRateService fxRateService;
     private final OrderStatisticsAccessScopeResolver scopeResolver;
 
     public OrderStatisticsOptionService(
             CurrencyRepository currencyRepository,
-            OrderStatisticsOptionRepository optionRepository
+            OrderStatisticsOptionRepository optionRepository,
+            cn.v7soft.admin.statistics.FxRateService fxRateService
     ) {
         this.currencyRepository = currencyRepository;
         this.optionRepository = optionRepository;
+        this.fxRateService = fxRateService;
         this.scopeResolver = new OrderStatisticsAccessScopeResolver();
     }
 
@@ -84,8 +87,9 @@ public class OrderStatisticsOptionService {
                 .build());
         Currency usd = currencies.get(USD);
         usd.setExchangeRate(BigDecimal.ONE);
+        Map<String, BigDecimal> realFxRates = fxRateService.latestUnitsPerUsd();
         return currencies.values().stream()
-                .map(this::toCurrencyOption)
+                .map(currency -> toCurrencyOption(currency, realFxRates))
                 .sorted(Comparator.comparing(OrderStatisticsCurrencyOptionResponse::getCode))
                 .toList();
     }
@@ -137,13 +141,21 @@ public class OrderStatisticsOptionService {
         return new ArrayList<>(result);
     }
 
-    private OrderStatisticsCurrencyOptionResponse toCurrencyOption(Currency currency) {
-        // 统计页/个人中心的汇率口径统一为「1 美元 = N 个该币种」(units-per-usd)，与个人/临时汇率
-        // 录入口径一致；而 t_currencies.exchange_rate 存的是「1 个该币种 = N 美元」，故取倒数后再下发。
-        BigDecimal unitsPerUsd = cn.v7soft.admin.statistics.OrderStatisticsCurrencyConverter
-                .usdPerUnitToUnitsPerUsd(currency.getExchangeRate());
+    private OrderStatisticsCurrencyOptionResponse toCurrencyOption(
+            Currency currency,
+            Map<String, BigDecimal> realFxRates
+    ) {
+        // 统计页/个人中心的汇率口径统一为「1 美元 = N 个该币种」(units-per-usd)。
+        // 参考汇率优先用统计真实汇率（与实际换算口径一致，未配置币种默认即用此值）；
+        // 真实汇率缺该币种时，回退 t_currencies.exchange_rate（存「1 币种 = N 美元」）取倒数。
+        String code = currency.getCode().trim().toUpperCase(Locale.ROOT);
+        BigDecimal unitsPerUsd = realFxRates.get(code);
+        if (unitsPerUsd == null) {
+            unitsPerUsd = cn.v7soft.admin.statistics.OrderStatisticsCurrencyConverter
+                    .usdPerUnitToUnitsPerUsd(currency.getExchangeRate());
+        }
         return OrderStatisticsCurrencyOptionResponse.builder()
-                .code(currency.getCode().trim().toUpperCase(Locale.ROOT))
+                .code(code)
                 .name(currency.getName())
                 .symbol(currency.getSymbol())
                 .exchangeRate(unitsPerUsd == null
