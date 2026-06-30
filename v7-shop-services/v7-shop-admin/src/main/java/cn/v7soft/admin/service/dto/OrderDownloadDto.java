@@ -429,6 +429,8 @@ public class OrderDownloadDto {
         headerAliasMap.put("totalAmount", "价格");
         headerAliasMap.put("country", "国家");
         headerAliasMap.put("fromPlatform", "订单来源");
+        headerAliasMap.put("deliveryChannel", "渠道");
+        headerAliasMap.put("storehouse", "仓库");
         headerAliasMap.put("createTime", "出单时间");
         return headerAliasMap;
     }
@@ -443,6 +445,7 @@ public class OrderDownloadDto {
         auditHeaderAliasMap.put("skuCode", "sku1");
         auditHeaderAliasMap.put("merchandise", "中文名称");
         auditHeaderAliasMap.put("waybillProductName", "面单品名");
+        auditHeaderAliasMap.put("deliveryChannel", "渠道");
         auditHeaderAliasMap.put("productName", "产品名称");
         auditHeaderAliasMap.put("email", "邮箱");
         auditHeaderAliasMap.put("specTitle", "产品套餐");
@@ -465,6 +468,7 @@ public class OrderDownloadDto {
         auditHeaderAliasMap.put("currencyCode", "币种");
         auditHeaderAliasMap.put("department", "部门");
         auditHeaderAliasMap.put("importDate", "导单日期");
+        auditHeaderAliasMap.put("storehouse", "仓库");
         auditHeaderAliasMap.put("remoteIp", "IP地址");
         auditHeaderAliasMap.put("ipDuplicationCount", "IP数");
         auditHeaderAliasMap.put("orderDuplicationCount", "订单数");
