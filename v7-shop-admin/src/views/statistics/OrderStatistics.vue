@@ -554,8 +554,14 @@ const initialize = async () => {
     temporaryRates[currency.code] = currency.code === 'USD' ? '1' : ''
   })
   if (context.value.employeeLocked) {
+    // 个人模式（EMPLOYEE / 个人视角）只能统计本人：强制清掉可能由 restoreFilters 带回的
+    // selectAll / includeUnassigned / 部门残留，否则 buildRequest 会把本人 ID 抹成 []，
+    // 触发后端「个人模式只能统计本人」。
     form.dimension = 'EMPLOYEE'
     form.employeeIds = [context.value.requesterUserId]
+    form.departmentIds = []
+    form.selectAll = false
+    form.includeUnassigned = false
   } else if (!context.value.dimensions.includes(form.dimension)) {
     form.dimension = context.value.dimensions[0]
   }
