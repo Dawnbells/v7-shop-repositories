@@ -60,9 +60,17 @@
           />
         </template>
       </el-table-column>
-      <el-table-column align="center" label="操作" width="150">
+      <el-table-column align="center" label="操作" width="220">
         <template #default="{ row }">
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
+          <el-button
+            v-if="hasPermission(['product-sku.replace'])"
+            text
+            type="warning"
+            @click="handleReplace(row)"
+          >
+            替换
+          </el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -79,12 +87,14 @@
       @size-change="handleSizeChange"
     />
     <sku-edit ref="editRef" @fetch-data="fetchData" />
+    <replace-sku ref="replaceRef" @fetch-data="fetchData" />
   </div>
 </template>
 
 <script lang="ts" setup>
 import { Delete, Plus, Search } from '@element-plus/icons-vue'
 import { doDelete, page, switchValidity } from '/@/api/sku'
+import { hasPermission } from '/@/utils/permission'
 
 defineOptions({
   name: 'Sku',
@@ -99,6 +109,7 @@ const props = defineProps({
 const $baseConfirm = inject<any>('$baseConfirm')
 const $baseMessage = inject<any>('$baseMessage')
 const editRef = ref<any>(null)
+const replaceRef = ref<any>(null)
 const tableRef = ref<any>(null)
 const fold = ref<boolean>(true)
 const list = ref<any>([])
@@ -150,6 +161,10 @@ const handleAdd = () => {
 
 const handleEdit = (row = {}) => {
   editRef.value.showEdit(row)
+}
+
+const handleReplace = (row = {}) => {
+  replaceRef.value.showEdit(row)
 }
 
 const handleDelete = (row: any) => {

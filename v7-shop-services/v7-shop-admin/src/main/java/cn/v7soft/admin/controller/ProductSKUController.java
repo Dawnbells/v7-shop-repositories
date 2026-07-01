@@ -1,9 +1,14 @@
 package cn.v7soft.admin.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.hutool.core.bean.BeanUtil;
 import cn.v7soft.admin.controller.req.EditProductSKURequest;
 import cn.v7soft.admin.controller.req.QueryProductSKURequest;
+import cn.v7soft.admin.controller.req.ReplaceSkuRequest;
+import cn.v7soft.admin.controller.req.SkuReplaceDistributionRequest;
 import cn.v7soft.admin.controller.resp.ProductSKUResponse;
+import cn.v7soft.admin.controller.resp.SkuReplaceDistributionResponse;
+import cn.v7soft.admin.controller.resp.SkuReplaceResultResponse;
 import cn.v7soft.admin.service.IProductSKUService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.controller.request.QueryPageRequest;
@@ -13,10 +18,13 @@ import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.jetbrains.annotations.Nullable;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -60,6 +68,20 @@ public class ProductSKUController extends BaseDataRangeController<ProductSKU, IP
                 .stream()
                 .map(this::convertEntityCopyId)
                 .collect(Collectors.toList());
+    }
+
+    @Operation(summary = "替换-源SKU市场分布")
+    @PostMapping("/replace-distribution")
+    @SaCheckPermission("product-sku.replace")
+    public List<SkuReplaceDistributionResponse> replaceDistribution(@Valid @RequestBody SkuReplaceDistributionRequest request) {
+        return service.findReplaceDistribution(request.getSourceSkuId());
+    }
+
+    @Operation(summary = "替换SKU")
+    @PostMapping("/replace")
+    @SaCheckPermission("product-sku.replace")
+    public SkuReplaceResultResponse replace(@Valid @RequestBody ReplaceSkuRequest request) {
+        return service.replaceSku(request);
     }
 
     @Override
