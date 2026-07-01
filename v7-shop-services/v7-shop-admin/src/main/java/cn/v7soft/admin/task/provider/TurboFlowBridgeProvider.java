@@ -92,6 +92,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     }
 
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> internalQueues = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> priorityInternalQueues = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, AiAccountTranslateSubTask> assignments = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, TurboFlowBridgeState> bridgeStates = new ConcurrentHashMap<>();
 
@@ -125,12 +126,15 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 callback.onSubTaskCompleted(subTask, SubTaskResult.builder().build());
                 return;
             }
-            internalQueues
-                    .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>())
-                    .offer(subTask);
-            log.debug("[TurboFlowBridge] image subtask queued for bridge poll: taskId={}, subTaskId={}, aiAccountId={}, queueSize={}",
+            boolean priority = subTask.consumePriorityRetry();
+            ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> targetQueues =
+                    priority ? priorityInternalQueues : internalQueues;
+            ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue = targetQueues
+                    .computeIfAbsent(subTask.getAiAccountId(), k -> new ConcurrentLinkedQueue<>());
+            queue.offer(subTask);
+            log.debug("[TurboFlowBridge] image subtask queued for bridge poll: taskId={}, subTaskId={}, aiAccountId={}, priority={}, queueSize={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), subTask.getAiAccountId(),
-                    internalQueues.get(subTask.getAiAccountId()).size());
+                    priority, queue.size());
         } else {
             subTask.start();
             subTask.getAttemptCount().incrementAndGet();
@@ -232,18 +236,15 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         log.debug("[TurboFlowBridge] poll received: bridgeId={}, matchedAccounts={}, flowConnected={}, busy={}",
                 bridgeId, accounts.size(), request.getFlowConnected(), request.getBusy());
 
-        // 2. 遍历所有匹配账号的队列，取第一个有任务的（FIFO）
+        // 2. 遍历所有匹配账号的队列，优先取失败重试任务，普通任务保持 FIFO
         AiAccountTranslateSubTask subTask = null;
         AiAccount account = null;
         for (AiAccount acc : accounts) {
-            ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue = internalQueues.get(acc.getId());
-            if (queue != null) {
-                AiAccountTranslateSubTask candidate = queue.poll();
-                if (candidate != null) {
-                    subTask = candidate;
-                    account = acc;
-                    break;
-                }
+            AiAccountTranslateSubTask candidate = pollQueuedSubTask(acc.getId());
+            if (candidate != null) {
+                subTask = candidate;
+                account = acc;
+                break;
             }
         }
         if (subTask == null || account == null) {
@@ -475,17 +476,9 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
 
     @Override
     public void onTaskCancelling(Long taskId) {
-        // 1. 从 internalQueues 移除：尚未分发给插件，不计费
-        for (ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue : internalQueues.values()) {
-            Iterator<AiAccountTranslateSubTask> it = queue.iterator();
-            while (it.hasNext()) {
-                AiAccountTranslateSubTask subTask = it.next();
-                if (taskId.equals(subTask.getTaskId())) {
-                    it.remove();
-                    callback.onSubTaskFailed(subTask, "task cancelled", false, null, null);
-                }
-            }
-        }
+        // 1. 从内部待 poll 队列移除：尚未分发给插件，不计费
+        removeQueuedSubTasks(taskId, priorityInternalQueues);
+        removeQueuedSubTasks(taskId, internalQueues);
         // 2. assignments：已分发给插件，但 TurboFlow 免费 AI 不计费
         Iterator<Map.Entry<String, AiAccountTranslateSubTask>> it = assignments.entrySet().iterator();
         while (it.hasNext()) {
@@ -518,6 +511,31 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     }
 
     // --- private helpers ---
+
+    private AiAccountTranslateSubTask pollQueuedSubTask(Long aiAccountId) {
+        ConcurrentLinkedQueue<AiAccountTranslateSubTask> priorityQueue = priorityInternalQueues.get(aiAccountId);
+        AiAccountTranslateSubTask subTask = priorityQueue == null ? null : priorityQueue.poll();
+        if (subTask != null) {
+            return subTask;
+        }
+
+        ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue = internalQueues.get(aiAccountId);
+        return queue == null ? null : queue.poll();
+    }
+
+    private void removeQueuedSubTasks(Long taskId,
+                                      ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> queues) {
+        for (ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue : queues.values()) {
+            Iterator<AiAccountTranslateSubTask> it = queue.iterator();
+            while (it.hasNext()) {
+                AiAccountTranslateSubTask subTask = it.next();
+                if (taskId.equals(subTask.getTaskId())) {
+                    it.remove();
+                    callback.onSubTaskFailed(subTask, "task cancelled", false, null, null);
+                }
+            }
+        }
+    }
 
     private List<AiAccount> findAllTurboFlowAccounts(String token) {
         if (StrUtil.isBlank(token)) {

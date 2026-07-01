@@ -1,6 +1,7 @@
 package cn.v7soft.admin.task;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import cn.hutool.core.util.StrUtil;
@@ -45,6 +46,7 @@ public class AiAccountTranslateSubTask {
     private volatile String assignedBridgeId;
     private volatile LocalDateTime leaseUntil;
     private final AtomicInteger attemptCount = new AtomicInteger(0);
+    private final AtomicBoolean priorityRetry = new AtomicBoolean(false);
     private volatile AiAccountTranslateSubTaskState state = AiAccountTranslateSubTaskState.PENDING;
     private volatile String message;
 
@@ -79,6 +81,7 @@ public class AiAccountTranslateSubTask {
     public void start() {
         this.state = AiAccountTranslateSubTaskState.PROCESSING;
         this.message = null;
+        this.priorityRetry.set(false);
     }
 
     public void dispatch(String bridgeId, String assignmentId, LocalDateTime leaseUntil) {
@@ -87,6 +90,7 @@ public class AiAccountTranslateSubTask {
         this.leaseUntil = leaseUntil;
         this.state = AiAccountTranslateSubTaskState.PROCESSING;
         this.message = null;
+        this.priorityRetry.set(false);
         this.attemptCount.incrementAndGet();
     }
 
@@ -118,6 +122,7 @@ public class AiAccountTranslateSubTask {
         this.assignmentId = null;
         this.assignedBridgeId = null;
         this.leaseUntil = null;
+        this.priorityRetry.set(true);
     }
 
     public void complete() {
@@ -126,6 +131,7 @@ public class AiAccountTranslateSubTask {
         this.assignmentId = null;
         this.assignedBridgeId = null;
         this.leaseUntil = null;
+        this.priorityRetry.set(false);
     }
 
     public void fail(String message) {
@@ -134,10 +140,15 @@ public class AiAccountTranslateSubTask {
         this.assignmentId = null;
         this.assignedBridgeId = null;
         this.leaseUntil = null;
+        this.priorityRetry.set(false);
     }
 
     public void resetAttemptCount() {
         this.attemptCount.set(0);
+    }
+
+    public boolean consumePriorityRetry() {
+        return this.priorityRetry.getAndSet(false);
     }
 
     public MultimediaFile resolveSourceFile(IMultimediaFileService multimediaFileService) {
