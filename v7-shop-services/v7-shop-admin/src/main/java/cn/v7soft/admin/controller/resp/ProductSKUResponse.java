@@ -1,5 +1,7 @@
 package cn.v7soft.admin.controller.resp;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import cn.v7soft.common.controller.resp.DataRangeResponse;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -27,6 +29,7 @@ public class ProductSKUResponse extends DataRangeResponse {
     private BigDecimal totalSalesRevenue;
 
     @Schema(title = "是否虚拟 SKU", example = "true")
+    @JsonProperty("isVirtual")
     private boolean isVirtual;
 
     public static ProductSKUResponse convertEntity(ProductSKU entity) {

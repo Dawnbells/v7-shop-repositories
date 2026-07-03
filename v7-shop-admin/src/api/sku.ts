@@ -37,6 +37,13 @@ export function getRemoteQuery(query: string) {
     params: { query },
   })
 }
+export function getReplaceTargetQuery(query: string) {
+  return request({
+    url: '/product-sku/replace-target-query',
+    method: 'get',
+    params: { query },
+  })
+}
 export function replaceDistribution(data: any) {
   return request({
     url: '/product-sku/replace-distribution',

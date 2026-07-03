@@ -32,9 +32,11 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -195,6 +197,24 @@ public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductS
         log.info("[SKU替换] operator={} source={} target={} countryIds={} affectedProducts={}",
                 SaSessionUtil.getLoginUser().getId(), sourceId, targetId, request.getCountryIds(), affected.size());
         return SkuReplaceResultResponse.builder().affectedProductCount(affected.size()).build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProductSKU> findReplaceTargets(String query) {
+        // 与 replaceSku 的目标校验(targetSkuScopeSpec)同口径：固定管理范围 + VALID，
+        // 保证下拉候选提交时不会被后端拒绝
+        Specification<ProductSKU> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(managementScopeAttribute().toPredicate(root, cq, cb));
+            predicates.add(cb.equal(root.get("status"), StatusEnum.VALID));
+            if (StringUtils.hasText(query)) {
+                String like = "%" + query.trim() + "%";
+                predicates.add(cb.or(cb.like(root.get("name"), like), cb.like(root.get("skuCode"), like)));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, PageRequest.of(0, 20)).getContent();
     }
 
     /**

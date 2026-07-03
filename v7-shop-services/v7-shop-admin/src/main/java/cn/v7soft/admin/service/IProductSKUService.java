@@ -55,6 +55,15 @@ public interface IProductSKUService extends IBaseDataRangeService<ProductSKU> {
     List<SkuReplaceDistributionResponse> findReplaceDistribution(Long sourceSkuId);
 
     /**
+     * 搜索可作为替换目标的 SKU：固定管理范围内 + VALID，与 {@link #replaceSku} 的目标校验口径一致，
+     * 避免下拉能选到提交时会被拒的 SKU。
+     *
+     * @param query 按品名/编码模糊搜索
+     * @return 候选 SKU（最多 20 条）
+     */
+    List<ProductSKU> findReplaceTargets(String query);
+
+    /**
      * 把选中市场(国家)下、管理范围内全部商品中的源 SKU 替换成目标 SKU。
      * 覆盖商品主 SKU、规格 SKU、备用 SKU 三处引用；不动源 SKU 实体、历史订单与销量统计。
      *

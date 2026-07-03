@@ -93,7 +93,7 @@
 </template>
 
 <script lang="ts" setup>
-import { getRemoteQuery, replaceDistribution, replaceSku } from '/@/api/sku'
+import { getReplaceTargetQuery, replaceDistribution, replaceSku } from '/@/api/sku'
 
 defineOptions({
   name: 'ReplaceSku',
@@ -141,7 +141,8 @@ const loadDistribution = async () => {
 const remoteQuerySku = async (query: string) => {
   skuLoading.value = true
   try {
-    const { data } = await getRemoteQuery(query)
+    // 按管理范围搜索（与后端目标校验同口径），避免选到提交时会被拒的 SKU
+    const { data } = await getReplaceTargetQuery(query)
     // 目标不能等于源 SKU
     skuOptions.value = (data.list || []).filter((s: any) => s.id !== sourceSku.value?.id)
   } finally {

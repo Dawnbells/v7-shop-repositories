@@ -114,6 +114,7 @@ declare module 'vue' {
     ProtocolEdit: typeof import('./../../../src/views/website/vabAutoComponents/ProtocolEdit.vue')['default']
     ProtocolGroupEdit: typeof import('./../../../src/views/website/vabAutoComponents/ProtocolGroupEdit.vue')['default']
     ProtocolTranslationEdit: typeof import('./../../../src/views/website/vabAutoComponents/ProtocolTranslationEdit.vue')['default']
+    ReplaceSku: typeof import('./../../../src/views/product/vabAutoComponents/ReplaceSku.vue')['default']
     RoleEdit: typeof import('./../../../src/views/system/vabAutoComponents/RoleEdit.vue')['default']
     RoleGrantAssignableRoles: typeof import('./../../../src/views/system/vabAutoComponents/RoleGrantAssignableRoles.vue')['default']
     RoleGrantPermission: typeof import('./../../../src/views/system/vabAutoComponents/RoleGrantPermission.vue')['default']

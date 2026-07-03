@@ -70,6 +70,15 @@ public class ProductSKUController extends BaseDataRangeController<ProductSKU, IP
                 .collect(Collectors.toList());
     }
 
+    @Operation(summary = "替换-目标SKU搜索（按管理范围）")
+    @GetMapping("/replace-target-query")
+    @SaCheckPermission("product-sku.replace")
+    public List<ProductSKUResponse> replaceTargetQuery(@RequestParam("query") String query) {
+        return service.findReplaceTargets(query).stream()
+                .map(this::convertEntityCopyId)
+                .collect(Collectors.toList());
+    }
+
     @Operation(summary = "替换-源SKU市场分布")
     @PostMapping("/replace-distribution")
     @SaCheckPermission("product-sku.replace")

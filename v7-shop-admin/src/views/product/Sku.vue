@@ -63,12 +63,7 @@
       <el-table-column align="center" label="操作" width="220">
         <template #default="{ row }">
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
-          <el-button
-            v-if="hasPermission(['product-sku.replace'])"
-            text
-            type="warning"
-            @click="handleReplace(row)"
-          >
+          <el-button v-if="canReplace" text type="warning" @click="handleReplace(row)">
             替换
           </el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
@@ -94,6 +89,7 @@
 <script lang="ts" setup>
 import { Delete, Plus, Search } from '@element-plus/icons-vue'
 import { doDelete, page, switchValidity } from '/@/api/sku'
+import { useAclStore } from '/@/store/modules/acl'
 import { hasPermission } from '/@/utils/permission'
 
 defineOptions({
@@ -108,6 +104,12 @@ const props = defineProps({
 
 const $baseConfirm = inject<any>('$baseConfirm')
 const $baseMessage = inject<any>('$baseMessage')
+const aclStore = useAclStore()
+// 权限系统尚未向前端下发 permissions（acl 为空）时默认显示，与后端 sa-token 全员放行的现状一致；
+// 一旦 userInfo 开始下发 permissions，则严格按 product-sku.replace 显隐
+const canReplace = computed(
+  () => aclStore.getPermission.length === 0 || hasPermission(['product-sku.replace'])
+)
 const editRef = ref<any>(null)
 const replaceRef = ref<any>(null)
 const tableRef = ref<any>(null)
