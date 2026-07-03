@@ -324,7 +324,13 @@
           :on-success="handleUploadSuccess"
           :show-file-list="false"
         >
-          <el-button :icon="Upload" :loading="progressVisible" type="success">上传订单</el-button>
+          <el-tooltip
+            content="表格包含渠道/仓库列时，留空将清除订单原有的渠道/仓库"
+            placement="top"
+            :trigger-keys="[]"
+          >
+            <el-button :icon="Upload" :loading="progressVisible" type="success">上传订单</el-button>
+          </el-tooltip>
         </el-upload>
         <el-upload
           v-if="isAudit"
@@ -339,14 +345,20 @@
           :on-success="handleUploadSuccess"
           :show-file-list="false"
         >
-          <el-button
-            :icon="Upload"
-            :loading="progressVisible"
-            type="warning"
-            @click.stop.prevent="handleTemplateUploadClick"
+          <el-tooltip
+            content="表格包含渠道/仓库列时，留空将清除订单原有的渠道/仓库"
+            placement="top"
+            :trigger-keys="[]"
           >
-            按模板上传订单
-          </el-button>
+            <el-button
+              :icon="Upload"
+              :loading="progressVisible"
+              type="warning"
+              @click.stop.prevent="handleTemplateUploadClick"
+            >
+              按模板上传订单
+            </el-button>
+          </el-tooltip>
         </el-upload>
       </vab-query-form-left-panel>
     </vab-query-form>

@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import cn.hutool.core.date.LocalDateTimeUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.utils.DateTimeHelper;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.dao.entities.meta.OrderDeliveryInfo;
@@ -226,17 +227,20 @@ public class OrderCheckInfoDto {
                 contextInfo.setDepartment(department);
             }
         }
+        // 渠道/仓库三态：null=列不存在不动；空白=清除（置 null）；非空=trim 后覆盖
         if (deliveryChannel != null || storehouse != null) {
             OrderLogisticsInfo logisticsInfo = order.getLogisticsInfo();
-            if (logisticsInfo == null) {
+            if (logisticsInfo == null && (StrUtil.isNotBlank(deliveryChannel) || StrUtil.isNotBlank(storehouse))) {
                 logisticsInfo = OrderLogisticsInfo.builder().build();
                 order.setLogisticsInfo(logisticsInfo);
             }
-            if (deliveryChannel != null) {
-                logisticsInfo.setDeliveryChannel(deliveryChannel);
-            }
-            if (storehouse != null) {
-                logisticsInfo.setStorehouse(storehouse);
+            if (logisticsInfo != null) {
+                if (deliveryChannel != null) {
+                    logisticsInfo.setDeliveryChannel(StrUtil.trimToNull(deliveryChannel));
+                }
+                if (storehouse != null) {
+                    logisticsInfo.setStorehouse(StrUtil.trimToNull(storehouse));
+                }
             }
         }
         if (orderTime != null) {

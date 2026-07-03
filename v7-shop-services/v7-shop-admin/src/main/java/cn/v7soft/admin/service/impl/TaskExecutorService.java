@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
@@ -358,19 +359,33 @@ public class TaskExecutorService implements ITaskExecutorService {
         }
     }
 
-    private static boolean hasUploadCell(List<?> rowCells, Map<String, Integer> rowNameMap,
-                                         Map<String, String> headerAliasMap, String key) {
+    /**
+     * 「列存在且为空 → 清除」字段：表头出现即视为该格存在，空单元格（含行尾被 xlsx
+     * 裁剪读不到的格子）统一按空串读出，交由 fillChangeOrder 置 null 清除原值。
+     */
+    static final Set<String> CLEAR_ON_BLANK_KEYS = Set.of("deliveryChannel", "storehouse");
+
+    static boolean hasUploadCell(List<?> rowCells, Map<String, Integer> rowNameMap,
+                                 Map<String, String> headerAliasMap, String key) {
         String headerName = headerAliasMap.get(key);
         Integer index = rowNameMap.get(headerName);
-        return StrUtil.isNotBlank(headerName) && index != null && index < rowCells.size();
+        if (StrUtil.isBlank(headerName) || index == null) {
+            return false;
+        }
+        return CLEAR_ON_BLANK_KEYS.contains(key) || index < rowCells.size();
     }
 
-    private static Object getUploadCellValue(List<?> rowCells, Map<String, Integer> rowNameMap,
-                                             Map<String, String> headerAliasMap, String key) {
+    static Object getUploadCellValue(List<?> rowCells, Map<String, Integer> rowNameMap,
+                                     Map<String, String> headerAliasMap, String key) {
         if (!hasUploadCell(rowCells, rowNameMap, headerAliasMap, key)) {
             return null;
         }
-        return rowCells.get(rowNameMap.get(headerAliasMap.get(key)));
+        Integer index = rowNameMap.get(headerAliasMap.get(key));
+        if (index >= rowCells.size()) {
+            return "";
+        }
+        Object value = rowCells.get(index);
+        return value == null && CLEAR_ON_BLANK_KEYS.contains(key) ? "" : value;
     }
 
     private void executeOrderDownload(AsyncTask task, SystemUserDto owner) {
