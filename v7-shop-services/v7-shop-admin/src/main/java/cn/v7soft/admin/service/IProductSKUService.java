@@ -50,9 +50,19 @@ public interface IProductSKUService extends IBaseDataRangeService<ProductSKU> {
      * 命中口径与 {@link #replaceSku} 一致：主 SKU / 规格 SKU / 备用 SKU 任一处引用即算。
      *
      * @param sourceSkuId 源 SKU ID
+     * @param spuIds      可选，限定归属 SPU（SPU 批量替换入口）；null/空则不限
      * @return 每个市场(国家)下受影响的商品数
      */
-    List<SkuReplaceDistributionResponse> findReplaceDistribution(Long sourceSkuId);
+    List<SkuReplaceDistributionResponse> findReplaceDistribution(Long sourceSkuId, List<Long> spuIds);
+
+    /**
+     * 查询源 SKU 交集候选：在每个选中 SPU 下（管理范围内，主/规格/备用任一引用，不限市场）
+     * 都出现的 SKU，供 SPU 批量替换弹框的源 SKU 下拉。源 SKU 状态不限（含 INVALID）。
+     *
+     * @param spuIds 选中的 SPU ID 列表
+     * @return 交集 SKU（按编码排序）
+     */
+    List<ProductSKU> findReplaceSourceCandidates(List<Long> spuIds);
 
     /**
      * 搜索可作为替换目标的 SKU：固定管理范围内 + VALID，与 {@link #replaceSku} 的目标校验口径一致，

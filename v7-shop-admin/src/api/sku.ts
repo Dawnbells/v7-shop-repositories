@@ -44,6 +44,13 @@ export function getReplaceTargetQuery(query: string) {
     params: { query },
   })
 }
+export function replaceSourceQuery(data: any) {
+  return request({
+    url: '/product-sku/replace-source-query',
+    method: 'post',
+    data,
+  })
+}
 export function replaceDistribution(data: any) {
   return request({
     url: '/product-sku/replace-distribution',

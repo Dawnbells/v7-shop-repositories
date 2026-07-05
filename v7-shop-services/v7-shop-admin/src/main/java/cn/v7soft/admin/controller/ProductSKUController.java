@@ -6,6 +6,7 @@ import cn.v7soft.admin.controller.req.EditProductSKURequest;
 import cn.v7soft.admin.controller.req.QueryProductSKURequest;
 import cn.v7soft.admin.controller.req.ReplaceSkuRequest;
 import cn.v7soft.admin.controller.req.SkuReplaceDistributionRequest;
+import cn.v7soft.admin.controller.req.SkuReplaceSourceQueryRequest;
 import cn.v7soft.admin.controller.resp.ProductSKUResponse;
 import cn.v7soft.admin.controller.resp.SkuReplaceDistributionResponse;
 import cn.v7soft.admin.controller.resp.SkuReplaceResultResponse;
@@ -79,11 +80,20 @@ public class ProductSKUController extends BaseDataRangeController<ProductSKU, IP
                 .collect(Collectors.toList());
     }
 
+    @Operation(summary = "替换-源SKU交集候选（选中SPU共同引用）")
+    @PostMapping("/replace-source-query")
+    @SaCheckPermission("product-sku.replace")
+    public List<ProductSKUResponse> replaceSourceQuery(@Valid @RequestBody SkuReplaceSourceQueryRequest request) {
+        return service.findReplaceSourceCandidates(request.getSpuIds()).stream()
+                .map(this::convertEntityCopyId)
+                .collect(Collectors.toList());
+    }
+
     @Operation(summary = "替换-源SKU市场分布")
     @PostMapping("/replace-distribution")
     @SaCheckPermission("product-sku.replace")
     public List<SkuReplaceDistributionResponse> replaceDistribution(@Valid @RequestBody SkuReplaceDistributionRequest request) {
-        return service.findReplaceDistribution(request.getSourceSkuId());
+        return service.findReplaceDistribution(request.getSourceSkuId(), request.getSpuIds());
     }
 
     @Operation(summary = "替换SKU")

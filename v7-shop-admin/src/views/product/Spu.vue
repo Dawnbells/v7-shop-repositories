@@ -34,6 +34,9 @@
       <vab-query-form-left-panel :span="24">
         <el-button :icon="Plus" type="primary" @click="handleAdd">添加</el-button>
         <el-button :icon="Delete" type="danger" @click="handleDelete">删除</el-button>
+        <el-button v-if="canReplace" :icon="Switch" type="warning" @click="handleReplaceSku">
+          替换SKU
+        </el-button>
       </vab-query-form-left-panel>
     </vab-query-form>
 
@@ -119,13 +122,16 @@
     <spu-currency-exchange-rate-edit ref="currencyExchangeRateEditRef" @fetch-data="fetchData" />
     <spu-share-edit ref="spuShareEditRef" @fetch-data="fetchData" />
     <product-translate-dialog ref="productTranslateRef" @fetch-data="fetchData" />
+    <replace-sku ref="replaceRef" @fetch-data="fetchData" />
   </div>
 </template>
 
 <script lang="ts" setup>
-import { Delete, Plus, Search } from '@element-plus/icons-vue'
+import { Delete, Plus, Search, Switch } from '@element-plus/icons-vue'
 import { doDelete as doDeleteProduct } from '/@/api/product'
 import { doDelete, page, switchOpen } from '/@/api/spu'
+import { useAclStore } from '/@/store/modules/acl'
+import { hasPermission } from '/@/utils/permission'
 
 defineOptions({
   name: 'Spu',
@@ -133,7 +139,14 @@ defineOptions({
 
 const $baseConfirm = inject<any>('$baseConfirm')
 const $baseMessage = inject<any>('$baseMessage')
+const aclStore = useAclStore()
+// 权限系统尚未向前端下发 permissions（acl 为空）时默认显示，与后端 sa-token 全员放行的现状一致；
+// 一旦 userInfo 开始下发 permissions，则严格按 product-sku.replace 显隐
+const canReplace = computed(
+  () => aclStore.getPermission.length === 0 || hasPermission(['product-sku.replace'])
+)
 const editRef = ref<any>(null)
+const replaceRef = ref<any>(null)
 const currencyExchangeRateEditRef = ref<any>(null)
 const productEditRef = ref<any>(null)
 const tableRef = ref<any>(null)
@@ -206,6 +219,14 @@ const handleEditCurrencyExchangeRate = (row: any) => {
 
 const handleShare = (row: any) => {
   spuShareEditRef.value.showEdit(row)
+}
+
+const handleReplaceSku = () => {
+  if (selectRows.value.length === 0) {
+    $baseMessage('您未选中任何行', 'warning', 'hey')
+    return
+  }
+  replaceRef.value.showSpuEdit(selectRows.value.map((item: any) => item.id))
 }
 
 const handleProductAITranslate = (spuRow: any, productRow: any) => {

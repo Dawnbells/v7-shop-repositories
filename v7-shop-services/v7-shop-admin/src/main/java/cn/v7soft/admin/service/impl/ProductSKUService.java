@@ -15,11 +15,13 @@ import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.dao.entities.primary.ProductSpecification;
+import cn.v7soft.dao.entities.primary.Spu;
 import cn.v7soft.dao.enums.ViewMode;
 //import cn.v7soft.dao.repositories.primary.OrderRepository;
 import cn.v7soft.dao.repositories.primary.OrderRepository;
 import cn.v7soft.dao.repositories.primary.ProductRepository;
 import cn.v7soft.dao.repositories.primary.ProductSKURepository;
+import cn.v7soft.dao.repositories.primary.SpuRepository;
 import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.utils.SaSessionUtil;
 
@@ -41,9 +43,13 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -51,12 +57,14 @@ import java.util.stream.Collectors;
 public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductSKURepository> implements IProductSKUService {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
+    private final SpuRepository spuRepository;
 
     public ProductSKUService(ProductSKURepository repository, OrderRepository orderRepository,
-                             ProductRepository productRepository) {
+                             ProductRepository productRepository, SpuRepository spuRepository) {
         super(repository);
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
+        this.spuRepository = spuRepository;
     }
 
     @Override
@@ -138,7 +146,7 @@ public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductS
 
     @Override
     @Transactional(readOnly = true)
-    public List<SkuReplaceDistributionResponse> findReplaceDistribution(Long sourceSkuId) {
+    public List<SkuReplaceDistributionResponse> findReplaceDistribution(Long sourceSkuId, List<Long> spuIds) {
         // 数据库侧按国家分组计数，避免物化全部命中商品实体；
         // 国家名走查询内 JOIN 取得（而非懒代理 getName），软删除国家不会触发 EntityNotFoundException。
         CriteriaBuilder cb = entityManager.getCriteriaBuilder();
@@ -146,7 +154,7 @@ public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductS
         Root<Product> root = cq.from(Product.class);
         Join<Object, Object> countryJoin = root.join("country");
         cq.multiselect(countryJoin.get("id"), countryJoin.get("name"), cb.countDistinct(root.get("id")))
-                .where(buildAffectedPredicate(root, cq, cb, sourceSkuId, null))
+                .where(buildAffectedPredicate(root, cq, cb, sourceSkuId, null, spuIds))
                 .groupBy(countryJoin.get("id"), countryJoin.get("name"));
         return entityManager.createQuery(cq).getResultList().stream()
                 .map(tuple -> SkuReplaceDistributionResponse.builder()
@@ -169,7 +177,26 @@ public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductS
         ProductSKU target = repository.findOne(targetSkuScopeSpec(targetId))
                 .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("目标 SKU 不存在、未启用或不在管理范围内"));
 
-        List<Product> affected = productRepository.findAll(affectedProductSpec(sourceId, request.getCountryIds()));
+        List<Long> spuIds = request.getSpuIds();
+        if (spuIds != null && !spuIds.isEmpty()) {
+            // SPU 批量入口的资格检查：源 SKU 必须在每个选中 SPU 下存在（管理范围内、不限市场），缺失则整体拒绝
+            Set<Long> covered = collectSkuSpuCoverage(spuIds, sourceId).getOrDefault(sourceId, Set.of());
+            List<Long> missing = spuIds.stream().distinct().filter(id -> !covered.contains(id)).toList();
+            if (!missing.isEmpty()) {
+                // 逐 id 回退拼装：解析到的显示 code(name)，解析不到（如并发被删）的直接列 id，保证拒绝清单完整
+                Map<Long, Spu> resolvedSpus = spuRepository.findAllById(missing).stream()
+                        .collect(Collectors.toMap(Spu::getId, spu -> spu));
+                String missingNames = missing.stream()
+                        .map(id -> {
+                            Spu spu = resolvedSpus.get(id);
+                            return spu != null ? spu.getCode() + "(" + spu.getName() + ")" : String.valueOf(id);
+                        })
+                        .collect(Collectors.joining("、"));
+                throw ClientResponseEnum.PARAMETER_ILLEGAL.newException("以下SPU下不存在源SKU，已取消替换：" + missingNames);
+            }
+        }
+
+        List<Product> affected = productRepository.findAll(affectedProductSpec(sourceId, request.getCountryIds(), spuIds));
         for (Product product : affected) {
             // 主 SKU
             if (product.getSku() != null && Objects.equals(product.getSku().getId(), sourceId)) {
@@ -194,8 +221,8 @@ public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductS
         }
         // 无需显式 saveAll：affected 在事务内均为受管实体，改动随事务提交自动 flush。
 
-        log.info("[SKU替换] operator={} source={} target={} countryIds={} affectedProducts={}",
-                SaSessionUtil.getLoginUser().getId(), sourceId, targetId, request.getCountryIds(), affected.size());
+        log.info("[SKU替换] operator={} source={} target={} countryIds={} spuIds={} affectedProducts={}",
+                SaSessionUtil.getLoginUser().getId(), sourceId, targetId, request.getCountryIds(), spuIds, affected.size());
         return SkuReplaceResultResponse.builder().affectedProductCount(affected.size()).build();
     }
 
@@ -217,6 +244,92 @@ public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductS
         return repository.findAll(spec, PageRequest.of(0, 20)).getContent();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProductSKU> findReplaceSourceCandidates(List<Long> spuIds) {
+        Set<Long> distinctSpuIds = new HashSet<>(spuIds);
+        // 交集：仅保留覆盖了全部选中 SPU 的 SKU（资格检查不限市场）
+        Map<Long, Set<Long>> coverage = collectSkuSpuCoverage(spuIds, null);
+        List<Long> intersection = coverage.entrySet().stream()
+                .filter(entry -> entry.getValue().size() >= distinctSpuIds.size())
+                .map(Map.Entry::getKey)
+                .toList();
+        if (intersection.isEmpty()) {
+            return List.of();
+        }
+        // 源 SKU 状态不限（含 INVALID），@SQLRestriction 已排除 DELETED
+        return repository.findAllById(intersection).stream()
+                .sorted(Comparator.comparing(ProductSKU::getSkuCode))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 收集选中 SPU 下（管理范围内、不限市场）出现的 SKU→SPU 覆盖关系，覆盖主/规格/备用三处引用。
+     * 归属仅算 product.spu_id，斗篷 show_spu 引用不算。
+     *
+     * @param onlySkuId 可选，仅统计该 SKU（用于 replaceSku 的资格复验）
+     * @return skuId → 覆盖到的 spuId 集合
+     */
+    private Map<Long, Set<Long>> collectSkuSpuCoverage(List<Long> spuIds, Long onlySkuId) {
+        Map<Long, Set<Long>> coverage = new HashMap<>();
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        // 主 SKU
+        {
+            CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+            Root<Product> root = cq.from(Product.class);
+            List<Predicate> predicates = coverageBasePredicates(root, cq, cb, spuIds);
+            predicates.add(root.get("sku").get("id").isNotNull());
+            if (onlySkuId != null) {
+                predicates.add(cb.equal(root.get("sku").get("id"), onlySkuId));
+            }
+            cq.multiselect(root.get("sku").get("id"), root.get("spu").get("id")).distinct(true)
+                    .where(cb.and(predicates.toArray(new Predicate[0])));
+            mergeCoverage(coverage, cq);
+        }
+        // 规格 SKU
+        {
+            CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+            Root<Product> root = cq.from(Product.class);
+            Join<Object, Object> specJoin = root.join("specificationList");
+            List<Predicate> predicates = coverageBasePredicates(root, cq, cb, spuIds);
+            predicates.add(specJoin.get("sku").get("id").isNotNull());
+            if (onlySkuId != null) {
+                predicates.add(cb.equal(specJoin.get("sku").get("id"), onlySkuId));
+            }
+            cq.multiselect(specJoin.get("sku").get("id"), root.get("spu").get("id")).distinct(true)
+                    .where(cb.and(predicates.toArray(new Predicate[0])));
+            mergeCoverage(coverage, cq);
+        }
+        // 备用 SKU
+        {
+            CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+            Root<Product> root = cq.from(Product.class);
+            Join<Object, Object> altJoin = root.join("alternativeSkus");
+            List<Predicate> predicates = coverageBasePredicates(root, cq, cb, spuIds);
+            if (onlySkuId != null) {
+                predicates.add(cb.equal(altJoin.get("id"), onlySkuId));
+            }
+            cq.multiselect(altJoin.get("id"), root.get("spu").get("id")).distinct(true)
+                    .where(cb.and(predicates.toArray(new Predicate[0])));
+            mergeCoverage(coverage, cq);
+        }
+        return coverage;
+    }
+
+    private List<Predicate> coverageBasePredicates(Root<Product> root, CriteriaQuery<?> query, CriteriaBuilder cb,
+                                                   List<Long> spuIds) {
+        List<Predicate> predicates = new ArrayList<>();
+        predicates.add(managementScopeAttribute().toPredicate(root, query, cb));
+        predicates.add(root.get("spu").get("id").in(spuIds));
+        return predicates;
+    }
+
+    private void mergeCoverage(Map<Long, Set<Long>> coverage, CriteriaQuery<Tuple> cq) {
+        entityManager.createQuery(cq).getResultList().forEach(tuple ->
+                coverage.computeIfAbsent(tuple.get(0, Long.class), key -> new HashSet<>())
+                        .add(tuple.get(1, Long.class)));
+    }
+
     /**
      * 目标 SKU 校验谓词：在管理范围内 + 指定 id + 状态 VALID。
      */
@@ -231,25 +344,29 @@ public class ProductSKUService extends BaseDataRangeService<ProductSKU, ProductS
     /**
      * 受影响商品的 Specification（供 replaceSku 的 findAll 使用，去重返回商品实体）。
      */
-    private Specification<Product> affectedProductSpec(Long sourceSkuId, List<Long> countryIds) {
+    private Specification<Product> affectedProductSpec(Long sourceSkuId, List<Long> countryIds, List<Long> spuIds) {
         return (root, query, cb) -> {
             query.distinct(true);
-            return buildAffectedPredicate(root, query, cb, sourceSkuId, countryIds);
+            return buildAffectedPredicate(root, query, cb, sourceSkuId, countryIds, spuIds);
         };
     }
 
     /**
-     * 受影响商品谓词：管理范围 + 市场(国家) + 源 SKU 命中主/规格/备用任一处引用。
+     * 受影响商品谓词：管理范围 + 市场(国家) + 归属SPU(可选) + 源 SKU 命中主/规格/备用任一处引用。
      * 含失效(INVALID)商品，实体自带 @SQLRestriction 已排除 DELETED。分布统计与实际替换共用同一套谓词。
      *
      * @param countryIds 为空表示不限国家（用于分布统计）
+     * @param spuIds     为空表示不限归属SPU（SKU 表格行级入口）；仅算 product.spu_id 归属，斗篷 show_spu 引用不算
      */
     private Predicate buildAffectedPredicate(Root<Product> root, CriteriaQuery<?> query, CriteriaBuilder cb,
-                                             Long sourceSkuId, List<Long> countryIds) {
+                                             Long sourceSkuId, List<Long> countryIds, List<Long> spuIds) {
         List<Predicate> predicates = new ArrayList<>();
         predicates.add(managementScopeAttribute().toPredicate(root, query, cb));
         if (countryIds != null && !countryIds.isEmpty()) {
             predicates.add(root.get("country").get("id").in(countryIds));
+        }
+        if (spuIds != null && !spuIds.isEmpty()) {
+            predicates.add(root.get("spu").get("id").in(spuIds));
         }
         // 规格命中：存在该商品的规格引用了源 SKU
         Subquery<Long> specSub = query.subquery(Long.class);
