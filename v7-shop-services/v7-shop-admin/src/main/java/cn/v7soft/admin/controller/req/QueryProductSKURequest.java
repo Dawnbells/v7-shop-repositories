@@ -13,7 +13,11 @@ import lombok.experimental.SuperBuilder;
 @NoArgsConstructor
 @SuperBuilder
 public class QueryProductSKURequest extends BasePageRequest {
-    // 添加自定义查询和过滤条件
+    @Schema(title = "SKU 编码", example = "SKU12345")
+    private String skuCode;
+
+    @Schema(title = "品名", example = "商品名称")
+    private String name;
 
     @Builder.Default
     @Schema(title = "是否是虚拟 SKU", example = "true")

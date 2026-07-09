@@ -2,12 +2,12 @@
   <div class="sku-container auto-height-container">
     <vab-query-form>
       <vab-query-form-top-panel>
-        <el-form inline label-width="49px" :model="queryForm" @submit.prevent>
-          <el-form-item label="标题">
-            <el-input v-model="queryForm.title" clearable placeholder="请输入标题" />
+        <el-form inline label-width="70px" :model="queryForm" @submit.prevent>
+          <el-form-item label="SKU编码">
+            <el-input v-model.trim="queryForm.skuCode" clearable placeholder="请输入SKU编码" />
           </el-form-item>
-          <el-form-item v-show="!fold" label="标题">
-            <el-input v-model="queryForm.title" clearable placeholder="请输入标题" />
+          <el-form-item label="品名">
+            <el-input v-model.trim="queryForm.name" clearable placeholder="请输入品名" />
           </el-form-item>
           <el-form-item>
             <el-button
@@ -18,15 +18,6 @@
               @click="queryData"
             >
               查询
-            </el-button>
-            <el-button class="hidden-xs-only" text type="primary" @click="handleFold">
-              <span v-if="fold">展开</span>
-              <span v-else>合并</span>
-              <vab-icon
-                class="vab-dropdown"
-                :class="{ 'vab-dropdown-active': fold }"
-                icon="arrow-up-s-line"
-              />
             </el-button>
           </el-form-item>
         </el-form>
@@ -113,7 +104,6 @@ const canReplace = computed(
 const editRef = ref<any>(null)
 const replaceRef = ref<any>(null)
 const tableRef = ref<any>(null)
-const fold = ref<boolean>(true)
 const list = ref<any>([])
 const listLoading = ref<boolean>(true)
 const total = ref<any>(0)
@@ -147,10 +137,6 @@ const handleCurrentChange = (value: number) => {
 const queryData = () => {
   queryForm.pageNo = 1
   fetchData()
-}
-
-const handleFold = () => {
-  fold.value = !fold.value
 }
 
 const setSelectRows = (value: string) => {

@@ -106,6 +106,20 @@ public class ProductSKUController extends BaseDataRangeController<ProductSKU, IP
     @Override
     protected QueryPageRequest<ProductSKU> convertQueryPageRequest(QueryProductSKURequest request) {
         return super.convertQueryPageRequest(request)
+                .addConstraint(
+                        StringUtils.hasText(request.getSkuCode()),
+                        LikeAttribute.builder()
+                                .name("skuCode")
+                                .value("%" + request.getSkuCode().trim() + "%")
+                                .build()
+                )
+                .addConstraint(
+                        StringUtils.hasText(request.getName()),
+                        LikeAttribute.builder()
+                                .name("name")
+                                .value("%" + request.getName().trim() + "%")
+                                .build()
+                )
                 .add(
                         EqualsQueryAttribute.builder()
                                 .name("isVirtual")
