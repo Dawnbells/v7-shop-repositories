@@ -12,6 +12,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -53,7 +54,17 @@ class ProductSKUControllerQueryTest {
         verify(root).get("name");
     }
 
-private static class TestProductSKUController extends ProductSKUController {
+    @Test
+    void pageQueryAllowsEmptySkuCodeAndNameFilters() {
+        QueryProductSKURequest request = QueryProductSKURequest.builder()
+                .pageNo(1)
+                .build();
+        TestProductSKUController controller = new TestProductSKUController(mock(IProductSKUService.class));
+
+        assertDoesNotThrow(() -> controller.exposeConvertQueryPageRequest(request));
+    }
+
+    private static class TestProductSKUController extends ProductSKUController {
         TestProductSKUController(IProductSKUService service) {
             super(service);
         }

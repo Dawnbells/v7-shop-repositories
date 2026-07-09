@@ -108,14 +108,14 @@ public class ProductSKUController extends BaseDataRangeController<ProductSKU, IP
         return super.convertQueryPageRequest(request)
                 .addConstraint(
                         StringUtils.hasText(request.getSkuCode()),
-                        LikeAttribute.builder()
+                        ignored -> LikeAttribute.builder()
                                 .name("skuCode")
                                 .value("%" + request.getSkuCode().trim() + "%")
                                 .build()
                 )
                 .addConstraint(
                         StringUtils.hasText(request.getName()),
-                        LikeAttribute.builder()
+                        ignored -> LikeAttribute.builder()
                                 .name("name")
                                 .value("%" + request.getName().trim() + "%")
                                 .build()
