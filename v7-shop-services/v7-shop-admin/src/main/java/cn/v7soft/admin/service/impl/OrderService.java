@@ -6,6 +6,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -15,12 +20,14 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.attributes.OrderAccessDataRangeAttribute;
 import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
+import cn.v7soft.admin.service.ICountryService;
 import cn.v7soft.admin.service.IOrderService;
 import cn.v7soft.admin.service.ITaskExecutorService;
 import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
@@ -35,6 +42,7 @@ import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Order;
+import cn.v7soft.dao.enums.AddressOrder;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.ViewMode;
@@ -52,12 +60,15 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     private final AsyncTaskRepository asyncTaskRepository;
     private final ITaskExecutorService taskExecutorService;
     private final TemporaryOrderRepository temporaryOrderRepository;
+    private final ICountryService countryService;
 
-    public OrderService(OrderRepository repository, AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService, TemporaryOrderRepository temporaryOrderRepository) {
+    public OrderService(OrderRepository repository, AsyncTaskRepository asyncTaskRepository, ITaskExecutorService taskExecutorService,
+                        TemporaryOrderRepository temporaryOrderRepository, ICountryService countryService) {
         super(repository);
         this.asyncTaskRepository = asyncTaskRepository;
         this.taskExecutorService = taskExecutorService;
         this.temporaryOrderRepository = temporaryOrderRepository;
+        this.countryService = countryService;
     }
 
     @Override
@@ -179,7 +190,27 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     @Override
     @Transactional(readOnly = true)
     public Page<OrderDownloadDto> findPaginatedForDownload(QueryPageRequest<Order> request, SystemUserDto owner, ViewMode viewMode) {
-        return findPaginated(request, owner, viewMode).map(OrderDownloadDto::convert);
+        return convertDownloadPage(findPaginated(request, owner, viewMode));
+    }
+
+    Page<OrderDownloadDto> convertDownloadPage(Page<Order> orders) {
+        Set<String> countryCodes = orders.stream()
+                .map(Order::getContextInfo)
+                .filter(Objects::nonNull)
+                .map(context -> context.getCountryCode())
+                .filter(StrUtil::isNotBlank)
+                .map(code -> code.trim().toUpperCase())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, AddressOrder> addressOrders = countryService.getAddressOrders(countryCodes);
+        return orders.map(order -> {
+            String countryCode = order.getContextInfo() == null
+                    ? null
+                    : order.getContextInfo().getCountryCode();
+            AddressOrder addressOrder = StrUtil.isBlank(countryCode)
+                    ? AddressOrder.REVERSE
+                    : addressOrders.getOrDefault(countryCode.trim().toUpperCase(), AddressOrder.REVERSE);
+            return OrderDownloadDto.convert(order, addressOrder);
+        });
     }
 
     @Override

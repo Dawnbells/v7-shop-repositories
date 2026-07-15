@@ -6,6 +6,7 @@ import java.util.stream.Collectors;
 import cn.v7soft.core.controller.response.IdResponse;
 import cn.v7soft.dao.entities.meta.CountryMeta;
 import cn.v7soft.dao.entities.primary.Country;
+import cn.v7soft.dao.enums.AddressOrder;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
 import lombok.Setter;
@@ -52,6 +53,9 @@ public class CountryResponse extends IdResponse {
     @Schema(title = "地址包含字段", example = "province,city,district,postal_code")
     private String addressFields;
 
+    @Schema(title = "地址拼接顺序", example = "REVERSE")
+    private AddressOrder addressOrder;
+
     @Schema(title = "是否使用全名", example = "true")
     private Boolean useFullName;
 
@@ -72,7 +76,8 @@ public class CountryResponse extends IdResponse {
                 .id(String.valueOf(country.getId()))
                 .name(country.getName())
                 .code(country.getCode())
-                .continentCode(country.getContinentCode());
+                .continentCode(country.getContinentCode())
+                .addressOrder(AddressOrder.REVERSE);
         if (country.getCurrency() != null) {
             builder.currency(CurrencyResponse.convertEntity(country.getCurrency()));
         }
@@ -89,6 +94,7 @@ public class CountryResponse extends IdResponse {
                     .phoneRule(meta.getPhoneRule())
                     .addressRule(meta.getAddressRule())
                     .addressFields(meta.getAddressFields())
+                    .addressOrder(AddressOrder.defaultIfNull(meta.getAddressOrder()))
                     .useFullName(meta.getUseFullName())
                     .footerCopyrightInfo(meta.getFooterCopyrightInfo())
                     .requiredPhone(meta.getRequiredPhone())

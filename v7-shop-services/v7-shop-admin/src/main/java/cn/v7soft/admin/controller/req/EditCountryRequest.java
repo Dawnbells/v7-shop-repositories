@@ -2,6 +2,7 @@ package cn.v7soft.admin.controller.req;
 
 import cn.v7soft.core.controller.request.IdRequest;
 import cn.v7soft.core.controller.validator.annotation.ListPattern;
+import cn.v7soft.dao.enums.AddressOrder;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -51,6 +52,9 @@ public class EditCountryRequest extends IdRequest {
 
     @Schema(title = "地址包含字段", example = "province,city,district,postal_code")
     private String addressFields;
+
+    @Schema(title = "地址拼接顺序", example = "REVERSE")
+    private AddressOrder addressOrder;
 
     @Schema(title = "是否使用全名", example = "true", description = "true-只输入一个名字，false-分开first name和last name")
     private Boolean useFullName;

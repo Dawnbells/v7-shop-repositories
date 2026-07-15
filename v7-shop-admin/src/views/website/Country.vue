@@ -121,6 +121,9 @@
                 </el-tooltip>
                 <span v-else>-</span>
               </el-descriptions-item>
+              <el-descriptions-item label="地址顺序">
+                <el-tag size="small">{{ row.addressOrder === 'FORWARD' ? '正序' : '逆序' }}</el-tag>
+              </el-descriptions-item>
             </el-descriptions>
             <el-descriptions :column="1" border size="small" style="margin-top: 12px" title="其他配置">
               <el-descriptions-item label="底部版权信息">

@@ -30,6 +30,7 @@ import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.entities.primary.Language;
+import cn.v7soft.dao.enums.AddressOrder;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -80,6 +81,7 @@ public class CountryController extends BaseController<Country, ICountryService, 
                 .phoneRule(request.getPhoneRule())
                 .addressRule(request.getAddressRule())
                 .addressFields(request.getAddressFields())
+                .addressOrder(AddressOrder.defaultIfNull(request.getAddressOrder()))
                 .useFullName(request.getUseFullName())
                 .footerCopyrightInfo(request.getFooterCopyrightInfo())
                 .requiredPhone(request.getRequiredPhone() != null ? request.getRequiredPhone() : false)

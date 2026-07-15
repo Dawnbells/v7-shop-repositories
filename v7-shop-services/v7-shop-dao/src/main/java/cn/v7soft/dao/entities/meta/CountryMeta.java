@@ -1,7 +1,10 @@
 package cn.v7soft.dao.entities.meta;
 
+import cn.v7soft.dao.enums.AddressOrder;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import lombok.*;
 
 @Embeddable
@@ -57,4 +60,12 @@ public class CountryMeta {
     @Builder.Default
     @Column(name = "address_fields")
     private String addressFields = "province,city,district,postal_code";
+
+    /**
+     * 订单下载时完整地址的拼接顺序。
+     */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "address_order", length = 16)
+    private AddressOrder addressOrder = AddressOrder.REVERSE;
 }

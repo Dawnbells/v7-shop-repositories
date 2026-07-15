@@ -6,6 +6,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.http.util.TextUtils;
 
@@ -21,6 +22,7 @@ import cn.v7soft.dao.entities.primary.OrderItemInfo;
 import cn.v7soft.dao.entities.primary.OrderLogisticsInfo;
 import cn.v7soft.dao.entities.primary.OrderRiskRecordInfo;
 import cn.v7soft.dao.entities.primary.OrderTemplateColumn;
+import cn.v7soft.dao.enums.AddressOrder;
 import cn.v7soft.dao.enums.PaymentMethod;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import lombok.Getter;
@@ -284,7 +286,29 @@ public class OrderDownloadDto {
      */
     private String domain;
 
+    static String buildFullAddress(AddressOrder addressOrder, String province, String city,
+                                   String district, String address) {
+        String normalizedProvince = normalizeRegion(province);
+        String normalizedCity = normalizeRegion(city);
+        String normalizedDistrict = normalizeRegion(district);
+        Stream<String> parts = addressOrder == AddressOrder.FORWARD
+                ? Stream.of(normalizedProvince, normalizedCity, normalizedDistrict, address)
+                : Stream.of(address, normalizedDistrict, normalizedCity, normalizedProvince);
+        return parts.filter(StrUtil::isNotBlank).collect(Collectors.joining(" "));
+    }
+
+    private static String normalizeRegion(String region) {
+        if (StrUtil.isBlank(region)) {
+            return region;
+        }
+        return region.split("/")[0];
+    }
+
     public static OrderDownloadDto convert(Order order) {
+        return convert(order, AddressOrder.REVERSE);
+    }
+
+    public static OrderDownloadDto convert(Order order, AddressOrder addressOrder) {
         String originOrderId = order.getOriginOrderId();
         int currencyFractionDigits = order.getContextInfo().getCurrencyFractionDigits();
         OrderDeliveryInfo deliveryInfo = order.getDeliveryInfo();
@@ -299,33 +323,15 @@ public class OrderDownloadDto {
         String orderNo = StrUtil.isBlank(orderNoAlias) ? String.valueOf(order.getId()) : orderNoAlias;
         Long quantity = orderItemInfos.stream().map(OrderItemInfo::getQuantity).reduce(0L, Long::sum);
 
-        String province = deliveryInfo.getProvince();
-        String city = deliveryInfo.getCity();
-        String district = deliveryInfo.getDistrict();
-        StringBuilder fullAddressBuffer = new StringBuilder();
+        String province = normalizeRegion(deliveryInfo.getProvince());
+        String city = normalizeRegion(deliveryInfo.getCity());
+        String district = normalizeRegion(deliveryInfo.getDistrict());
+        String fullAddress = buildFullAddress(addressOrder, province, city, district, deliveryInfo.getAddress());
         String importTime = LocalDateTimeUtil.format(order.getImportTime(), "yyyy-MM-dd");
         if (StrUtil.equalsIgnoreCase("1970-01-01", importTime)) {
             importTime = "";
         }
 
-        if (StrUtil.isNotBlank(deliveryInfo.getAddress())) {
-            fullAddressBuffer.append(deliveryInfo.getAddress()).append(" ");
-        }
-        if (StrUtil.isNotBlank(district)) {
-            district = district.split("/")[0];
-            fullAddressBuffer.append(district).append(" ");
-        }
-        if (StrUtil.isNotBlank(city)) {
-            city = city.split("/")[0];
-            fullAddressBuffer.append(city).append(" ");
-        }
-        if (StrUtil.isNotBlank(province)) {
-            province = province.split("/")[0];
-            fullAddressBuffer.append(province).append(" ");
-        }
-        if (!fullAddressBuffer.isEmpty()) {
-            fullAddressBuffer.deleteCharAt(fullAddressBuffer.length() - 1);
-        }
 
         if (logisticsInfo == null) {
             logisticsInfo = OrderLogisticsInfo.builder().build();
@@ -390,7 +396,7 @@ public class OrderDownloadDto {
                 .district(district)
                 .isRemoteArea(deliveryInfo.isRemoteArea() ? "是" : "否")
                 .address(deliveryInfo.getAddress())
-                .fullAddress(fullAddressBuffer.toString())
+                .fullAddress(fullAddress)
                 .isDelivered(logisticsInfo.isDelivered() ? "是" : "否")
                 .postalCode(deliveryInfo.getPostalCode())
                 .postalCode1(logisticsInfo.getPostal1())

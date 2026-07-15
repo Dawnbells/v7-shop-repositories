@@ -164,6 +164,16 @@
           </el-form-item>
         </el-col>
       </el-row>
+      <el-row :gutter="20">
+        <el-col :span="24">
+          <el-form-item label="地址拼接顺序" prop="addressOrder">
+            <el-radio-group v-model="form.addressOrder">
+              <el-radio value="FORWARD">正序（省→市→区→详细地址）</el-radio>
+              <el-radio value="REVERSE">逆序（详细地址→区→市→省）</el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-col>
+      </el-row>
 
       <!-- 其他设置 -->
       <el-divider content-position="left">其他设置</el-divider>
@@ -216,6 +226,7 @@ const form = reactive<any>({
   phoneRule: '',
   addressRule: '',
   addressFields: 'province,city,district,postal_code',
+  addressOrder: 'REVERSE',
   useFullName: false,
   footerCopyrightInfo: '',
   requiredPhone: false,
@@ -251,6 +262,7 @@ const showEdit = (row: any) => {
       form.phoneRule = row.phoneRule || ''
       form.addressRule = row.addressRule || ''
       form.addressFields = row.addressFields || 'province,city,district,postal_code'
+      form.addressOrder = row.addressOrder || 'REVERSE'
       form.useFullName = row.useFullName || false
       form.footerCopyrightInfo = row.footerCopyrightInfo || ''
       form.requiredPhone = row.requiredPhone || false
@@ -277,6 +289,7 @@ const close = () => {
     phoneRule: '',
     addressRule: '',
     addressFields: 'province,city,district,postal_code',
+    addressOrder: 'REVERSE',
     useFullName: false,
     footerCopyrightInfo: '',
     requiredPhone: false,
