@@ -13,6 +13,7 @@ public class SubTaskResult {
     private final String translatedHtml;
     private final Long elapsedMs;
     private final String resultMimeType;
+    private final String policyFallbackReason;
 
     private final int actualPromptTokens;
     private final int actualCompletionTokens;

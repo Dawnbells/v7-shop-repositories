@@ -69,12 +69,23 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
 
     @Schema(title = "是否跳过翻译（如动图）")
     private Boolean skipped;
+    @Schema(title = "是否因内容政策限制保留原图")
+    private Boolean policyFallback;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Schema(title = "政策回退提示")
+    private String policyFallbackMessage;
+
 
     // ---- ADMIN 专属字段，非 ADMIN 时为 null，序列化时跳过 ----
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @Schema(title = "缓存命中（仅ADMIN）")
     private Boolean cacheHit;
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Schema(title = "政策回退原始原因（仅ADMIN）")
+    private String policyFallbackReason;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @Schema(title = "实际 Prompt Tokens（仅ADMIN）")
@@ -124,6 +135,9 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
                 .actualCompletionTokens(record.getActualCompletionTokens())
                 .actualThinkingTokens(record.getActualThinkingTokens())
                 .actualTotalTokens(record.getActualTotalTokens())
+                .policyFallback(record.getPolicyFallbackReason() != null)
+                .policyFallbackMessage(policyFallbackMessage(record))
+                .policyFallbackReason(record.getPolicyFallbackReason())
                 .actualCost(record.getActualCost())
                 .build());
     }
@@ -146,7 +160,15 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
                 .sourceImageUrl(buildImageUrl(imageBaseUrl, record.getSourceImagePath()))
                 .translatedImageUrl(buildImageUrl(imageBaseUrl, record.getTranslatedImagePath()))
                 .skipped(record.getSkipped())
+                .policyFallback(record.getPolicyFallbackReason() != null)
+                .policyFallbackMessage(policyFallbackMessage(record))
                 .build());
+    }
+
+    private static String policyFallbackMessage(AiTokenUsageRecord record) {
+        return record.getPolicyFallbackReason() == null
+                ? null
+                : "图片因内容政策限制保留原图";
     }
 
     private static String buildImageUrl(String imageBaseUrl, String relativePath) {
@@ -155,6 +177,7 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
         }
         if (imageBaseUrl == null || imageBaseUrl.isBlank()) {
             return relativePath;
+
         }
         String base = imageBaseUrl.endsWith("/") ? imageBaseUrl : imageBaseUrl + "/";
         String path = relativePath.startsWith("/") ? relativePath.substring(1) : relativePath;

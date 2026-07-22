@@ -28,6 +28,7 @@ public class AiAccountTranslateTaskStatus {
     private final AtomicInteger processingSubTaskCount = new AtomicInteger(0);
     private final AtomicInteger completedSubTaskCount = new AtomicInteger(0);
     private final AtomicInteger failedSubTaskCount = new AtomicInteger(0);
+    private final AtomicInteger policyFallbackImageCount = new AtomicInteger(0);
     private final ConcurrentMap<String, AiAccountTranslateSubTask> subTasks = new ConcurrentHashMap<>();
     private final Long productId;
     private final Language language;
@@ -108,6 +109,12 @@ public class AiAccountTranslateTaskStatus {
         translatedImageMap.put(subTask.getContent(), translatedFile);
         completeSubTask(subTask);
     }
+    /** 图片因内容政策限制保留原图，但仍按成功完成计数。 */
+    public void completePolicyFallbackImageSubTask(AiAccountTranslateSubTask subTask) {
+        policyFallbackImageCount.incrementAndGet();
+        completeSubTask(subTask);
+    }
+
 
     /** 子任务重试，减少处理中计数但不增加完成/失败计数（子任务将重新入队） */
     public void retrySubTask(AiAccountTranslateSubTask subTask, String message) {
@@ -132,6 +139,22 @@ public class AiAccountTranslateTaskStatus {
         subTasks.put(subTask.getSubTaskId(), subTask);
         this.message = message;
         refreshProgress();
+    }
+
+    public String buildCompletionMessage() {
+        int failed = failedSubTaskCount.get();
+        int policyFallbacks = policyFallbackImageCount.get();
+        if (failed > 0 && policyFallbacks > 0) {
+            return "翻译完成，" + failed + " 个子任务失败；"
+                    + policyFallbacks + " 张图片因内容政策限制保留原图";
+        }
+        if (failed > 0) {
+            return "翻译完成，" + failed + " 个子任务失败";
+        }
+        if (policyFallbacks > 0) {
+            return "翻译完成，" + policyFallbacks + " 张图片因内容政策限制保留原图";
+        }
+        return "AI账号翻译任务完成";
     }
 
     public void complete() {

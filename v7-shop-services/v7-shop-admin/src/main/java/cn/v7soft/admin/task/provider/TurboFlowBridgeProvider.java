@@ -26,6 +26,7 @@ import cn.v7soft.admin.utils.TokenCostCalculator;
 import cn.v7soft.dao.entities.primary.AiAccount;
 import cn.v7soft.dao.entities.primary.AiTokenUsageRecord;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
+import cn.v7soft.dao.entities.primary.ImagePolicyCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
@@ -33,6 +34,7 @@ import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
+import cn.v7soft.dao.repositories.primary.ImagePolicyCacheRepository;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +69,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final IMultimediaFileService multimediaFileService;
     private final ILanguageService languageService;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
+    private final ImagePolicyCacheRepository imagePolicyCacheRepository;
     private final AiTokenUsageRecordRepository usageRecordRepository;
     private final GeminiTranslateService geminiTranslateService;
     private final ThreadPoolTaskExecutor executor;
@@ -78,6 +81,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             ILanguageService languageService,
             ImageTranslationCacheRepository imageTranslationCacheRepository,
             AiTokenUsageRecordRepository usageRecordRepository,
+            ImagePolicyCacheRepository imagePolicyCacheRepository,
             GeminiTranslateService geminiTranslateService,
             @Qualifier("translationExecutor") ThreadPoolTaskExecutor executor,
             RateLimiter geminiRateLimiter) {
@@ -86,6 +90,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         this.languageService = languageService;
         this.imageTranslationCacheRepository = imageTranslationCacheRepository;
         this.usageRecordRepository = usageRecordRepository;
+        this.imagePolicyCacheRepository = imagePolicyCacheRepository;
         this.geminiTranslateService = geminiTranslateService;
         this.executor = executor;
         this.rateLimiter = geminiRateLimiter;
@@ -94,6 +99,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> internalQueues = new ConcurrentHashMap<>();
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> priorityInternalQueues = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, AiAccountTranslateSubTask> assignments = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, LocalDateTime> completedAssignments = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, TurboFlowBridgeState> bridgeStates = new ConcurrentHashMap<>();
 
     private volatile TranslateProviderCallback callback;
@@ -277,42 +283,37 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             log.debug("[TurboFlowBridge] source image prepared for bridge dispatch: taskId={}, subTaskId={}, imageId={}, imageHash={}, bytes={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash, imageBytes.length);
 
-            // 4. 二次缓存检查：入队后到 poll 之间，其他任务可能已生成同图同语言的缓存
-            Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
+            // 4. 二次缓存检查：同图同语言的成功译图优先，其次是跨语言政策缓存。
+            Optional<ImageTranslationCache> translationCache = imageTranslationCacheRepository
                     .findByImageHashAndLanguageId(imageHash, Long.parseLong(subTask.getLanguageId()));
-            if (cached.isPresent()) {
-                MultimediaFile translatedFile = cached.get().isSkipped() ? null : cached.get().getTranslatedFile();
-                Language language = resolveLanguage(subTask);
-                log.debug("[TurboFlowBridge] image cache hit during bridge poll: taskId={}, subTaskId={}, imageId={}, imageHash={}, language={}, cacheSkipped={}",
-                        subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash,
-                        language.getName(), cached.get().isSkipped());
+            Language cacheLanguage = resolveLanguage(subTask);
+            if (translationCache.isPresent()
+                    && !translationCache.get().isSkipped()
+                    && translationCache.get().getTranslatedFile() != null) {
+                MultimediaFile translatedFile = translationCache.get().getTranslatedFile();
+                callback.onSubTaskCompleted(subTask,
+                        buildCachedImageResult(account, imageHash, cacheLanguage, sourceFile, translatedFile, null));
+                log.debug("[TurboFlowBridge] translated image cache hit during bridge poll: taskId={}, subTaskId={}, imageHash={}, language={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), imageHash, cacheLanguage.getName());
+                return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("translation cache hit").build();
+            }
 
-                int promptTokens;
-                int completionTokens;
-                int businessCredits;
-                Optional<AiTokenUsageRecord> historyOpt = usageRecordRepository
-                        .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
-                                imageHash, language.getName());
-                if (historyOpt.isPresent() && historyOpt.get().getBusinessCredits() > 0) {
-                    AiTokenUsageRecord history = historyOpt.get();
-                    promptTokens = history.getBusinessPromptTokens();
-                    completionTokens = history.getBusinessCompletionTokens();
-                    businessCredits = history.getBusinessCredits();
-                } else {
-                    promptTokens = 718;
-                    completionTokens = TokenCostCalculator.estimateImageTokens();
-                    businessCredits = TokenCostCalculator.estimateCredits(0, completionTokens, account);
-                }
+            Optional<ImagePolicyCache> policyCache = imagePolicyCacheRepository.findByImageHash(imageHash);
+            if (policyCache.isPresent()) {
+                String reason = policyCache.get().getReason();
+                callback.onSubTaskCompleted(subTask,
+                        buildCachedImageResult(account, imageHash, cacheLanguage, sourceFile, null, reason));
+                log.warn("[TurboFlowBridge] policy cache hit, keeping original image: taskId={}, subTaskId={}, imageHash={}, reason={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), imageHash, reason);
+                return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("policy cache hit").build();
+            }
 
-                SubTaskResult result = SubTaskResult.builder()
-                        .translatedFile(translatedFile)
-                        .businessPromptTokens(promptTokens)
-                        .businessCompletionTokens(completionTokens)
-                        .businessCredits(businessCredits)
-                        .cacheHit(true)
-                        .build();
-                callback.onSubTaskCompleted(subTask, result);
-                return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("cache hit").build();
+            if (translationCache.isPresent()) {
+                callback.onSubTaskCompleted(subTask,
+                        buildCachedImageResult(account, imageHash, cacheLanguage, sourceFile, null, null));
+                log.debug("[TurboFlowBridge] skipped image cache hit during bridge poll: taskId={}, subTaskId={}, imageHash={}, language={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), imageHash, cacheLanguage.getName());
+                return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("skipped cache hit").build();
             }
             log.debug("[TurboFlowBridge] image cache miss during bridge poll: taskId={}, subTaskId={}, imageId={}, imageHash={}, languageId={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), imageHash, subTask.getLanguageId());
@@ -363,6 +364,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         }
         AiAccountTranslateSubTask subTask = assignments.get(request.getAssignmentId());
         if (subTask == null) {
+            if (completedAssignments.containsKey(request.getAssignmentId())
+                    || isPersistedPolicyCompletion(request)) {
+                log.debug("[TurboFlowBridge] duplicate policy completion acknowledged: assignmentId={}, imageHash={}",
+                        request.getAssignmentId(), request.getImageHash());
+                return;
+            }
             throw new IllegalArgumentException("assignment not found or expired");
         }
         // 从匹配的账号中找出拥有该 subtask 的账号
@@ -370,6 +377,10 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 .filter(a -> a.getId().equals(subTask.getAiAccountId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("assignment does not belong to account"));
+        if (StrUtil.isNotBlank(request.getImageHash())
+                && !request.getImageHash().equals(subTask.getImageHash())) {
+            throw new IllegalArgumentException("policy fallback image hash does not match assignment");
+        }
         log.debug("[TurboFlowBridge] complete received: taskId={}, subTaskId={}, assignmentId={}, aiAccountId={}, elapsedMs={}",
                 subTask.getTaskId(), subTask.getSubTaskId(), request.getAssignmentId(),
                 account.getId(), request.getElapsedMs());
@@ -390,11 +401,46 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             throw new IllegalArgumentException("assignment not found or expired");
         }
         try {
+            if (Boolean.TRUE.equals(request.getPolicyFallback())) {
+                if (!"INVALID_ARGUMENT".equals(request.getPolicyFallbackStatus())) {
+                    throw new IllegalArgumentException("unsupported policy fallback status");
+                }
+                MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
+                String reason = StrUtil.blankToDefault(
+                        request.getPolicyFallbackReason(), request.getPolicyFallbackStatus());
+                saveImagePolicyCache(subTask.getImageHash(), sourceFile,
+                        request.getPolicyFallbackStatus(), reason);
+
+                int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
+                if (maxDim <= 0) maxDim = 512;
+                int promptTokens = TokenCostCalculator.imageBusinessPromptTokens(maxDim);
+                int completionTokens = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
+                int businessCredits = TokenCostCalculator.usdToCredits(
+                        TokenCostCalculator.calculateCost(TranslationContentType.IMAGE, account,
+                                promptTokens, completionTokens, 0));
+                SubTaskResult result = SubTaskResult.builder()
+                        .elapsedMs(request.getElapsedMs())
+                        .policyFallbackReason(reason)
+                        .businessPromptTokens(promptTokens)
+                        .businessCompletionTokens(completionTokens)
+                        .businessCredits(businessCredits)
+                        .actualPromptTokens(promptTokens)
+                        .actualCompletionTokens(completionTokens)
+                        .build();
+                log.warn("[TurboFlowBridge] image kept unchanged after upload policy rejection: taskId={}, subTaskId={}, imageHash={}, status={}, reason={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), subTask.getImageHash(),
+                        request.getPolicyFallbackStatus(), reason);
+                callback.onSubTaskCompleted(subTask, result);
+                completedAssignments.put(request.getAssignmentId(), LocalDateTime.now());
+                return;
+            }
+
             // 解码并保存翻译后的图片
             byte[] imageBytes = decodeBase64Image(request.getResultImageBase64());
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
             String suffix = suffixFromMimeType(request.getResultMimeType(), sourceFile.getSuffix());
             MultimediaFile translatedFile = multimediaFileService.saveTranslatedImage(imageBytes, suffix, subTask.getOwner());
+
             log.debug("[TurboFlowBridge] translated image saved from bridge result: taskId={}, subTaskId={}, sourceImageId={}, translatedFileId={}, bytes={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), translatedFile.getId(), imageBytes.length);
 
@@ -426,6 +472,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             log.debug("[TurboFlowBridge] completion result built: taskId={}, subTaskId={}, promptTokens={}, completionTokens={}, businessCredits={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), promptTokens, completionTokens, businessCredits);
             callback.onSubTaskCompleted(subTask, result);
+            completedAssignments.put(request.getAssignmentId(), LocalDateTime.now());
         } catch (Exception e) {
             callback.onSubTaskFailed(subTask, "complete processing failed: " + e.getMessage(), true, null, "COMPLETE_PROCESSING_FAILED");
             log.error("[TurboFlowBridge] completeTask 处理失败, 已推入重试队列: assignmentId={}",
@@ -495,6 +542,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     @Override
     public void reclaimExpiredAssignments() {
         LocalDateTime now = LocalDateTime.now();
+        completedAssignments.entrySet().removeIf(entry -> entry.getValue().isBefore(now.minusHours(24)));
         Iterator<Map.Entry<String, AiAccountTranslateSubTask>> it = assignments.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<String, AiAccountTranslateSubTask> entry = it.next();
@@ -591,6 +639,66 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         } catch (DataIntegrityViolationException e) {
             log.debug("[TurboFlowBridge] image cache already exists: sourceImageId={}, imageHash={}, languageId={}",
                     sourceFile.getId(), imageHash, language.getId());
+        }
+    }
+
+    private SubTaskResult buildCachedImageResult(AiAccount account, String imageHash, Language language,
+                                                 MultimediaFile sourceFile, MultimediaFile translatedFile, String policyFallbackReason) {
+        int promptTokens;
+        int completionTokens;
+        int businessCredits;
+        Optional<AiTokenUsageRecord> historyOpt = usageRecordRepository
+                .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
+                        imageHash, language.getName());
+        if (historyOpt.isPresent() && historyOpt.get().getBusinessCredits() > 0) {
+            AiTokenUsageRecord history = historyOpt.get();
+            promptTokens = history.getBusinessPromptTokens();
+            completionTokens = history.getBusinessCompletionTokens();
+            businessCredits = history.getBusinessCredits();
+        } else {
+            int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
+            if (maxDim <= 0) maxDim = 512;
+            promptTokens = TokenCostCalculator.imageBusinessPromptTokens(maxDim);
+            completionTokens = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
+            businessCredits = TokenCostCalculator.usdToCredits(
+                    TokenCostCalculator.calculateCost(TranslationContentType.IMAGE, account,
+                            promptTokens, completionTokens, 0));
+        }
+        return SubTaskResult.builder()
+                .translatedFile(translatedFile)
+                .policyFallbackReason(policyFallbackReason)
+                .businessPromptTokens(promptTokens)
+                .businessCompletionTokens(completionTokens)
+                .businessCredits(businessCredits)
+                .cacheHit(true)
+                .build();
+    }
+
+    private boolean isPersistedPolicyCompletion(TurboFlowBridgeCompleteRequest request) {
+        return Boolean.TRUE.equals(request.getPolicyFallback())
+                && "INVALID_ARGUMENT".equals(request.getPolicyFallbackStatus())
+                && StrUtil.isNotBlank(request.getImageHash())
+                && imagePolicyCacheRepository.findByImageHash(request.getImageHash()).isPresent();
+    }
+
+    private void saveImagePolicyCache(String imageHash, MultimediaFile sourceFile,
+                                      String apiStatus, String reason) {
+        if (StrUtil.isBlank(imageHash)) {
+            throw new IllegalArgumentException("policy fallback image hash is empty");
+        }
+        try {
+            imagePolicyCacheRepository.save(ImagePolicyCache.builder()
+                    .imageHash(imageHash)
+                    .sourceFile(sourceFile)
+                    .apiStatus(apiStatus)
+                    .reason(reason)
+                    .build());
+        } catch (DataIntegrityViolationException e) {
+            if (imagePolicyCacheRepository.findByImageHash(imageHash).isEmpty()) {
+                throw e;
+            }
+            log.debug("[TurboFlowBridge] image policy cache already exists: sourceImageId={}, imageHash={}",
+                    sourceFile.getId(), imageHash);
         }
     }
 

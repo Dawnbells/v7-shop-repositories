@@ -1,6 +1,7 @@
 import {
   checkConnection,
   uploadImageToFlow,
+  buildPolicyFallbackCompletion,
   generateWithReference,
   getMediaRedirectUrl,
   fetchImageAsBase64,
@@ -10,6 +11,14 @@ import {
   runRecoveryChain,
   deleteAllUserProjects,
 } from './flow-api.js';
+import {
+  findImagePolicyFallback,
+  rememberImagePolicyFallback,
+  clearPendingPolicyCompletion,
+  listPendingPolicyCompletions,
+  rememberPendingPolicyCompletion,
+  reportPolicyFallback,
+} from './policy-fallback-state.js';
 
 const VERSION = '1.1.0';
 const FLOW_URL = 'https://labs.google/fx/zh/tools/flow/';
@@ -33,6 +42,8 @@ const TRANSLATE_TIMEOUT_MS = 300 * 1000;
 // fail 上报失败的重试次数与基础间隔（指数退避）。尽量保证 server 端能及时收到失败信号，避免等到 lease 过期。
 const FAIL_REPORT_MAX_RETRIES = 3;
 const FAIL_REPORT_RETRY_BASE_MS = 1000;
+const PENDING_POLICY_REPORT_ALARM = 'retry-pending-policy-fallbacks';
+let pendingPolicyFlushRunning = false;
 
 /**
  * 根据 translateImage 抛出的错误信息映射到上报用的 errorCode。
@@ -416,9 +427,16 @@ chrome.runtime.onStartup.addListener(() => {
   startConnectionWatchdog();
   loadPersistedState().then(() => scheduleLoop(1000));
 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === PENDING_POLICY_REPORT_ALARM) {
+    flushPendingPolicyReports().catch((error) => addLog('warn', `Pending policy report flush failed: ${error.message}`));
+  }
+});
+
 
 // service worker 唤醒（含模块顶层执行）时也启动一次，覆盖 onInstalled/onStartup 都未触发的场景
 startConnectionWatchdog();
+startPendingPolicyReportRetry();
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CHECK_CONNECTION') {
@@ -679,6 +697,44 @@ async function loadConfig() {
     services: Array.isArray(stored.services) ? stored.services : [],
   };
 }
+function startPendingPolicyReportRetry() {
+  try {
+    const created = chrome.alarms.create(PENDING_POLICY_REPORT_ALARM, { periodInMinutes: 1 });
+    if (created && typeof created.catch === 'function') created.catch(() => {});
+  } catch {
+    // Immediate flush below still provides a retry opportunity on every worker start.
+  }
+  flushPendingPolicyReports().catch((error) =>
+    addLog('warn', `Pending policy report startup flush failed: ${error.message}`));
+}
+
+async function flushPendingPolicyReports() {
+  if (pendingPolicyFlushRunning) return;
+  pendingPolicyFlushRunning = true;
+  try {
+    const pendingReports = await listPendingPolicyCompletions(chrome.storage.local);
+    if (pendingReports.length === 0) return;
+    const config = await loadConfig();
+    for (const record of pendingReports) {
+      const service = config.services.find((candidate) =>
+        candidate.enabled !== false
+        && candidate.baseUrl
+        && candidate.token
+        && normalizeBaseUrl(candidate.baseUrl) === normalizeBaseUrl(record.serviceBaseUrl || ''));
+      if (!service) continue;
+      try {
+        await postJson(service, '/turboflow-bridge/tasks/complete', record.payload);
+        await clearPendingPolicyCompletion(chrome.storage.local, record);
+        addLog('info', `Pending policy fallback reported: ${record.payload.assignmentId}`);
+      } catch (error) {
+        addLog('warn', `Pending policy fallback still waiting: ${record.payload.assignmentId} (${error.message})`);
+      }
+    }
+  } finally {
+    pendingPolicyFlushRunning = false;
+  }
+}
+
 
 async function saveConfig(config) {
   const services = Array.isArray(config.services)
@@ -838,6 +894,17 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
 
   const startedAt = Date.now();
   try {
+    const cachedPolicy = await findImagePolicyFallback(chrome.storage.local, task.imageBase64);
+    if (cachedPolicy) {
+      addLog('warn', `Local policy cache hit [${cachedPolicy.reason}]: skipping upload for ${task.subTaskId}`);
+      await completePolicyFallbackTask(service, task, {
+        sourceThumb,
+        sourceImage,
+        targetLang,
+        startedAt,
+      }, cachedPolicy);
+      return;
+    }
     const result = await runWithTimeout(translateImage(task, conn), TRANSLATE_TIMEOUT_MS, 'translate timeout (180s)');
     await postJson(service, '/turboflow-bridge/tasks/complete', {
       bridgeId,
@@ -872,6 +939,19 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
     scheduleLoop(POLL_INTERVAL_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
+    if (e.code === 'FLOW_UPLOAD_POLICY_REJECTED') {
+      const policy = await rememberImagePolicyFallback(chrome.storage.local, task.imageBase64, {
+        apiStatus: e.apiStatus || 'INVALID_ARGUMENT',
+        reason: e.reason || e.apiStatus || 'INVALID_ARGUMENT',
+      });
+      await completePolicyFallbackTask(service, task, {
+        sourceThumb,
+        sourceImage,
+        targetLang,
+        startedAt,
+      }, policy);
+      return;
+    }
     const errorCode = classifyErrorCode(e.message);
     await reportFailWithRetry(service, {
       bridgeId,
@@ -940,6 +1020,97 @@ function runWithTimeout(promise, timeoutMs, timeoutMessage) {
       (value) => { clearTimeout(timer); resolve(value); },
       (err) => { clearTimeout(timer); reject(err); }
     );
+  });
+}
+
+/**
+ * 完成政策回退。上报失败时不把本地任务标记成已完成；图片摘要已经持久化，
+ * 服务端租约重派后会直接重发完成结果，绝不再次调用 Google 上传。
+ */
+async function completePolicyFallbackTask(service, task, context, policy) {
+  const elapsed = Date.now() - context.startedAt;
+  const reason = policy.reason || policy.apiStatus || 'INVALID_ARGUMENT';
+  const payload = buildPolicyFallbackCompletion({
+    bridgeId,
+    assignmentId: task.assignmentId,
+    imageHash: policy.imageHash,
+    apiStatus: policy.apiStatus || 'INVALID_ARGUMENT',
+    reason,
+    elapsedMs: elapsed,
+  });
+  const pendingRecord = await rememberPendingPolicyCompletion(chrome.storage.local, policy, {
+    serviceBaseUrl: service.baseUrl,
+    payload,
+  });
+  if (policy.storageError || pendingRecord.storageError) {
+    addLog('warn', 'Policy fallback is retained in memory because extension storage is unavailable');
+  }
+
+  try {
+    await reportPolicyFallbackWithRetry(service, payload);
+    await clearPendingPolicyCompletion(chrome.storage.local, pendingRecord);
+  } catch (error) {
+    addLog('warn', `Policy fallback completion report pending for ${task.subTaskId}: ${error.message}; upload remains blocked by local image digest`);
+    addTaskHistory({
+      taskId: task.taskId,
+      subTaskId: task.subTaskId,
+      service: service.baseUrl,
+      status: 'pending-report',
+      error: error.message,
+      elapsedMs: elapsed,
+      time: Date.now(),
+      sourceThumb: context.sourceThumb,
+      sourceImage: context.sourceImage,
+      resultThumb: context.sourceThumb,
+      resultImage: context.sourceImage,
+      targetLang: context.targetLang,
+      policyFallbackReason: reason,
+    });
+    removeCurrentTask(task.assignmentId);
+    scheduleLoop(POLL_INTERVAL_MS);
+    setTimeout(() => flushPendingPolicyReports().catch(() => {}), 15 * 1000);
+    return false;
+  }
+
+  addLog('warn', `Task policy fallback [${reason}]: kept original image for ${task.subTaskId}`);
+  addTaskHistory({
+    taskId: task.taskId,
+    subTaskId: task.subTaskId,
+    service: service.baseUrl,
+    status: 'completed',
+    elapsedMs: elapsed,
+    time: Date.now(),
+    sourceThumb: context.sourceThumb,
+    sourceImage: context.sourceImage,
+    resultThumb: context.sourceThumb,
+    resultImage: context.sourceImage,
+    targetLang: context.targetLang,
+    policyFallbackReason: reason,
+  });
+  removeCurrentTask(task.assignmentId);
+  recoveryState.successSinceLastRecovery++;
+  recoveryState.consecutiveDownloadFails = 0;
+  persistRecoveryState();
+  scheduleLoop(POLL_INTERVAL_MS);
+  return true;
+}
+
+/**
+ * 政策回退按完成上报；这里只重试上报本身，绝不重新上传或生成图片。
+ */
+async function reportPolicyFallbackWithRetry(service, payload) {
+  return reportPolicyFallback({
+    post: (completion) => postJson(service, '/turboflow-bridge/tasks/complete', completion),
+    payload,
+    maxRetries: FAIL_REPORT_MAX_RETRIES,
+    retryBaseMs: FAIL_REPORT_RETRY_BASE_MS,
+    sleep,
+    onRetry: (attempt, backoff, error) => {
+      addLog('warn', `Policy fallback report attempt ${attempt} failed (${error.message}), retrying in ${backoff}ms`);
+    },
+    onRecovered: (attempt) => {
+      addLog('info', `Policy fallback reported on retry ${attempt}: ${payload.assignmentId}`);
+    },
   });
 }
 

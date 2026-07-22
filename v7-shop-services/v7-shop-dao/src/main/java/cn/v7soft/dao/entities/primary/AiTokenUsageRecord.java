@@ -116,6 +116,9 @@ public class AiTokenUsageRecord extends BaseDataRangeEntity {
 
     @Column(name = "has_image_output")
     private Boolean hasImageOutput;
+    @Column(name = "policy_fallback_reason", length = 160)
+    private String policyFallbackReason;
+
 
     @Builder.Default
     @Column(name = "attempt_count")

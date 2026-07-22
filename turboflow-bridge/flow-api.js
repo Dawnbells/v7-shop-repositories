@@ -442,6 +442,26 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
   return result.data;
 }
 
+export function buildPolicyFallbackCompletion({
+  bridgeId,
+  assignmentId,
+  imageHash,
+  apiStatus,
+  reason,
+  elapsedMs,
+}) {
+  const completion = {
+    bridgeId,
+    assignmentId,
+    policyFallback: true,
+    policyFallbackStatus: apiStatus,
+    policyFallbackReason: reason || apiStatus,
+    elapsedMs,
+  };
+  if (imageHash) completion.imageHash = imageHash;
+  return completion;
+}
+
 // ── Upload image to Flow ───────────────────────────────────────────
 
 export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid, token }, retryCount = 0) {
@@ -467,7 +487,25 @@ export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid
         });
         if (!res.ok) {
           const errText = await res.text();
-          return { error: 'HTTP ' + res.status + ': ' + errText.substring(0, 300), status: res.status };
+          let apiStatus = null;
+          let reason = null;
+          try {
+            const errorBody = JSON.parse(errText);
+            apiStatus = errorBody?.error?.status || null;
+            const details = Array.isArray(errorBody?.error?.details) ? errorBody.error.details : [];
+            const errorInfo = details.find((detail) =>
+              detail?.['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo'
+              && typeof detail.reason === 'string');
+            reason = errorInfo?.reason || null;
+          } catch {
+            // 非 JSON 错误仍沿用原有 HTTP 错误处理。
+          }
+          return {
+            error: 'HTTP ' + res.status + ': ' + errText.substring(0, 300),
+            status: res.status,
+            apiStatus,
+            reason,
+          };
         }
         const json = await res.json();
         return { success: true, data: json };
@@ -488,6 +526,15 @@ export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid
   }
 
   if (result.error) {
+    if (result.apiStatus === 'INVALID_ARGUMENT') {
+      const error = new Error('Upload rejected by content policy: ' + result.error);
+      error.name = 'FlowUploadPolicyError';
+      error.code = 'FLOW_UPLOAD_POLICY_REJECTED';
+      error.apiStatus = result.apiStatus;
+      error.reason = result.reason || result.apiStatus;
+      error.httpStatus = result.status || null;
+      throw error;
+    }
     const isRetryable = result.isNetworkError || result.status === 429 || result.status === 500 || result.status === 502 || result.status === 503;
     if (isRetryable && retryCount < 2) {
       const backoff = result.status === 429

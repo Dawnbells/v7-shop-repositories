@@ -46,6 +46,7 @@ import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
+import cn.v7soft.dao.entities.primary.ImagePolicyCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.entities.primary.Product;
@@ -60,6 +61,7 @@ import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
+import cn.v7soft.dao.repositories.primary.ImagePolicyCacheRepository;
 import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -116,6 +118,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     private final ICountryService countryService;
     private final AiTokenUsageRecordRepository usageRecordRepository;
     private final ImageTranslationCacheRepository imageTranslationCacheRepository;
+    private final ImagePolicyCacheRepository imagePolicyCacheRepository;
     private final TextTranslationCacheRepository textTranslationCacheRepository;
     private final AiCreditsService aiCreditsService;
     private final TransactionTemplate transactionTemplate;
@@ -140,6 +143,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                                   ICountryService countryService,
                                   AiTokenUsageRecordRepository usageRecordRepository,
                                   ImageTranslationCacheRepository imageTranslationCacheRepository,
+                                  ImagePolicyCacheRepository imagePolicyCacheRepository,
                                   TextTranslationCacheRepository textTranslationCacheRepository,
                                   AiCreditsService aiCreditsService,
                                   TransactionTemplate transactionTemplate,
@@ -153,6 +157,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         this.countryService = countryService;
         this.usageRecordRepository = usageRecordRepository;
         this.imageTranslationCacheRepository = imageTranslationCacheRepository;
+        this.imagePolicyCacheRepository = imagePolicyCacheRepository;
         this.textTranslationCacheRepository = textTranslationCacheRepository;
         this.aiCreditsService = aiCreditsService;
         this.transactionTemplate = transactionTemplate;
@@ -244,6 +249,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         if (result.isCacheHit()) {
             record.setCacheHit(true);
         }
+        record.setPolicyFallbackReason(result.getPolicyFallbackReason());
         record.setAttemptCount(subTask.getAttemptCount().get());
         usageRecordRepository.save(record);
         log.debug("[AiAccountTranslateTask] usage record updated: taskId={}, subTaskId={}, type={}, actualTokens={}, businessCredits={}, cacheHit={}",
@@ -289,6 +295,9 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         if (result.getTranslatedFile() != null) {
             record.setTranslatedImagePath(result.getTranslatedFile().getRelativePath());
             record.setHasImageOutput(true);
+        }
+        if (result.getPolicyFallbackReason() != null) {
+            record.setHasImageOutput(false);
         }
         if (subTask.getType() == AiAccountTranslateSubTaskType.IMAGE) {
             try {
@@ -1029,7 +1038,8 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      * 分发前检查翻译缓存。命中时直接完成子任务，返回 true 跳过 Provider 执行。
      * TEXT/HTML 查 TextTranslationCache，IMAGE 查 ImageTranslationCache。
      */
-    private boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask,
+
+    boolean tryCompleteFromCache(AiAccountTranslateTaskStatus status, AiAccountTranslateSubTask subTask,
                                           AiAccount account) {
         try {
             Language language = status.getLanguage();
@@ -1067,6 +1077,21 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                 subTask.setImageHash(imageHash);
                 Optional<ImageTranslationCache> cached = imageTranslationCacheRepository
                         .findByImageHashAndLanguageId(imageHash, language.getId());
+                boolean successfulTranslationCache = cached.isPresent()
+                        && !cached.get().isSkipped()
+                        && cached.get().getTranslatedFile() != null;
+                if (!successfulTranslationCache) {
+                    Optional<ImagePolicyCache> policyCache = imagePolicyCacheRepository.findByImageHash(imageHash);
+                    if (policyCache.isPresent()) {
+                        String reason = policyCache.get().getReason();
+                        updatePolicyCacheHitUsageRecord(
+                                subTask, language.getName(), account, sourceFile, imageHash, reason);
+                        status.completePolicyFallbackImageSubTask(subTask);
+                        log.warn("[AiAccountTranslateTask] policy cache hit before provider dispatch: taskId={}, subTaskId={}, imageHash={}, reason={}",
+                                subTask.getTaskId(), subTask.getSubTaskId(), imageHash, reason);
+                        return true;
+                    }
+                }
                 if (cached.isPresent()) {
                     ImageTranslationCache cacheEntry = cached.get();
                     boolean cacheSkipped = cacheEntry.isSkipped();
@@ -1104,6 +1129,48 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
         return false;
     }
+    private void updatePolicyCacheHitUsageRecord(AiAccountTranslateSubTask subTask,
+                                                   String targetLanguage,
+                                                   AiAccount account,
+                                                   MultimediaFile sourceFile,
+                                                   String imageHash,
+                                                   String reason) {
+        try {
+            int promptTokens;
+            int completionTokens;
+            int businessCredits;
+            Optional<AiTokenUsageRecord> historyOpt = usageRecordRepository
+                    .findFirstByContentHashAndTargetLanguageAndCacheHitFalseOrderByCreateTimeDesc(
+                            imageHash, targetLanguage);
+            if (historyOpt.isPresent() && historyOpt.get().getBusinessCredits() > 0) {
+                AiTokenUsageRecord history = historyOpt.get();
+                promptTokens = history.getBusinessPromptTokens();
+                completionTokens = history.getBusinessCompletionTokens();
+                businessCredits = history.getBusinessCredits();
+            } else {
+                int maxDim = Math.max(sourceFile.getWidth(), sourceFile.getHeight());
+                if (maxDim <= 0) maxDim = 512;
+                promptTokens = TokenCostCalculator.imageBusinessPromptTokens(maxDim);
+                completionTokens = TokenCostCalculator.imageBusinessCompletionTokens(maxDim);
+                businessCredits = TokenCostCalculator.usdToCredits(
+                        TokenCostCalculator.calculateCost(TranslationContentType.IMAGE, account,
+                                promptTokens, completionTokens, 0));
+            }
+            SubTaskResult result = SubTaskResult.builder()
+                    .policyFallbackReason(reason)
+                    .businessPromptTokens(promptTokens)
+                    .businessCompletionTokens(completionTokens)
+                    .businessCredits(businessCredits)
+                    .cacheHit(true)
+                    .build();
+            usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
+                    .ifPresent(record -> applyResultAndSave(record, subTask, result));
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] policy cache usage update failed: taskId={}, subTaskId={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), e);
+        }
+    }
+
 
     /**
      * 缓存命中时，为对应的 AiTokenUsageRecord 写入 businessCredits。
@@ -1302,11 +1369,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             productService.assembleTranslatedProduct(
                     product, status.getLanguage(), country, status.getOwner(),
                     status.getTranslatedTextMap(), status.getTranslatedHtml(), status.getTranslatedImageMap());
-            if (status.getFailedSubTaskCount().get() > 0) {
-                status.complete("翻译完成(部分失败: " + status.getFailedSubTaskCount().get() + " 个子任务)");
-            } else {
-                status.complete();
-            }
+            status.complete(status.buildCompletionMessage());
             log.debug("[AiAccountTranslateTask] translated product finalized: taskId={}, completed={}, failed={}",
                     status.getTaskId(), status.getCompletedSubTaskCount().get(), status.getFailedSubTaskCount().get());
         } catch (Exception e) {

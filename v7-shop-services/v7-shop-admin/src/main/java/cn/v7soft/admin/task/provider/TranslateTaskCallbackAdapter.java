@@ -55,11 +55,13 @@ public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
             }
 
             taskContext.updateUsageRecord(subTask, result);
-            if (!result.isCacheHit()) {
+            if (!result.isCacheHit() && result.getPolicyFallbackReason() == null) {
                 taskContext.saveTranslationCache(subTask, result);
             }
 
-            if (result.getTranslatedFile() != null) {
+            if (result.getPolicyFallbackReason() != null) {
+                status.completePolicyFallbackImageSubTask(subTask);
+            } else if (result.getTranslatedFile() != null) {
                 status.completeImageSubTask(subTask, result.getTranslatedFile());
             } else if (result.getTranslatedHtml() != null) {
                 status.completeHtmlSubTask(subTask, result.getTranslatedHtml());
