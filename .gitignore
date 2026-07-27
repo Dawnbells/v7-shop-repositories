@@ -102,6 +102,10 @@ transfer.jpg
 transfer.txt
 orders/
 
+# Codex generated artifacts
+.codex-hatch-runs/
+hatch-row-staging/
+
 # ==================== 敏感文件 ====================
 
 # 后端配置文件 (包含密码、密钥等敏感信息)
