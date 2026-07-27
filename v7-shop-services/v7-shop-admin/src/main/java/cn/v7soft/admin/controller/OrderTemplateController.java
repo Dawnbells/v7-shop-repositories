@@ -19,7 +19,6 @@ import cn.v7soft.admin.controller.req.QueryOrderTemplateRequest;
 import cn.v7soft.admin.controller.resp.OrderTemplateResponse;
 import cn.v7soft.admin.service.IOrderTemplateService;
 import cn.v7soft.common.controller.BaseDataRangeController;
-import cn.v7soft.core.controller.request.BasePageRequest;
 import cn.v7soft.core.controller.request.DeleteRequest;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
@@ -101,7 +100,7 @@ public class OrderTemplateController extends BaseDataRangeController<
             @RequestParam(required = false) String keyword
     ) {
        return service.findPaginated(
-               QueryPageRequest.<OrderTemplate>fromRequest(BasePageRequest.builder().build())
+               QueryPageRequest.<OrderTemplate>fromUnLimit()
                        .add(EqualsQueryAttribute.builder().name("downloadTemplate").value("download".equalsIgnoreCase(type)).build())
                        .addConstraint(StrUtil.isNotBlank(keyword), LikeAttribute.builder().name("templateName").value(keyword).build())
                )
