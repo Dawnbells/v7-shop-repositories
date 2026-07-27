@@ -15,6 +15,6 @@ public class EmailSmtpTestRequest {
     @Email(message = "测试收件人邮箱格式不正确")
     private String recipient;
 
-    @NotNull(message = "SMTP 配置不能为空")
+    @NotNull(message = "邮件发送配置不能为空")
     private JSONObject emailConfig;
 }

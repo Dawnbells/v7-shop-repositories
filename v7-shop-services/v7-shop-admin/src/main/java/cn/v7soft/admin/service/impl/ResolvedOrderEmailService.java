@@ -47,14 +47,13 @@ public class ResolvedOrderEmailService implements IEmailService {
 
             JSONObject smtp = resolved.smtp();
             smtpSupport.sendHtml(
-                    smtpSupport.createMailSender(smtp),
-                    smtp.getStr("from"),
+                    smtp,
                     recipient,
                     buildSubject(resolved.template(), dto),
                     buildContent(resolved.template(), dto));
-            log.info("订单邮件发送成功: orderId={}, companyId={}, departmentId={}, recipient={}, smtpSource={}, templateSource={}",
+            log.info("订单邮件发送成功: orderId={}, companyId={}, departmentId={}, recipient={}, provider={}, smtpSource={}, templateSource={}",
                     dto.getId(), dto.getCompanyId(), dto.getDepartmentId(), maskEmail(recipient),
-                    resolved.smtpSource(), resolved.templateSource());
+                    smtpSupport.provider(smtp), resolved.smtpSource(), resolved.templateSource());
         } catch (Exception exception) {
             log.error("订单邮件发送失败: orderId={}, companyId={}, departmentId={}, recipient={}, errorType={}",
                     dto.getId(), dto.getCompanyId(), dto.getDepartmentId(), maskEmail(recipient),

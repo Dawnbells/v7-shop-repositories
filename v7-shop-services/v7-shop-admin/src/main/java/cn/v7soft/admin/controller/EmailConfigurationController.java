@@ -23,10 +23,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class EmailConfigurationController {
 
-    private static final String TEST_SUBJECT = "V7 Shop SMTP configuration test";
+    private static final String TEST_SUBJECT = "V7 Shop email configuration test";
     private static final String TEST_CONTENT = """
-            <p>This is a V7 Shop SMTP configuration test.</p>
-            <p>If you received this message, the SMTP host, credentials, sender and delivery path are working.</p>
+            <p>This is a V7 Shop email configuration test.</p>
+            <p>If you received this message, the credentials, sender and delivery path are working.</p>
             """;
 
     private final EmailSmtpSupport smtpSupport;
@@ -38,12 +38,7 @@ public class EmailConfigurationController {
     public JSONObject testCompanySmtp(@Valid @RequestBody EmailSmtpTestRequest request) throws Exception {
         requireCompanyAdmin();
         JSONObject email = request.getEmailConfig();
-        smtpSupport.sendHtml(
-                smtpSupport.createMailSender(email),
-                email.getStr("from"),
-                request.getRecipient(),
-                TEST_SUBJECT,
-                TEST_CONTENT);
+        smtpSupport.sendHtml(email, request.getRecipient(), TEST_SUBJECT, TEST_CONTENT);
         return new JSONObject()
                 .set("smtpTestSignature", smtpSupport.signature(email));
     }
@@ -72,7 +67,7 @@ public class EmailConfigurationController {
     private void requireCompanyAdmin() {
         SystemUserDto user = SaSessionUtil.getLoginUser();
         if (user == null || !user.isAdmin()) {
-            throw new IllegalArgumentException("只有公司管理员可以测试公司 SMTP");
+            throw new IllegalArgumentException("只有公司管理员可以测试公司邮件发送配置");
         }
     }
 }

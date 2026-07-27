@@ -17,6 +17,7 @@ dependencies {
 
     // Amazon S3 SDK
     implementation ("software.amazon.awssdk:s3:2.20.96")
+    implementation ("software.amazon.awssdk:sesv2:2.20.96")
     // Thumbnailator for image resizing
     implementation ("net.coobird:thumbnailator:0.4.14")
     // WebP image support

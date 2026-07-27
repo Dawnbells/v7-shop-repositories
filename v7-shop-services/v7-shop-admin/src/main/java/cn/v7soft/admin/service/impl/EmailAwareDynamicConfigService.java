@@ -96,11 +96,11 @@ public class EmailAwareDynamicConfigService implements IDynamicConfigService {
             return;
         }
         if (!email.getBool("open", false)) {
-            throw new IllegalArgumentException("开启公司统一 SMTP 前必须开启公司邮件通知");
+            throw new IllegalArgumentException("开启公司统一发送前必须开启公司邮件通知");
         }
         String expectedSignature = smtpSupport.signature(email);
         if (!expectedSignature.equals(email.getStr("smtp-test-signature"))) {
-            throw new IllegalArgumentException("公司 SMTP 配置尚未通过测试，或测试后配置已发生变化");
+            throw new IllegalArgumentException("公司邮件发送配置尚未通过测试，或测试后配置已发生变化");
         }
     }
 
