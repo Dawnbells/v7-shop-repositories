@@ -1,9 +1,8 @@
 <template>
   <vab-dialog v-model="visible" append-to-body :title="title" width="90%" @close="close">
-    <config-center-page
+    <email-configuration-page
       v-if="visible"
       :key="renderKey"
-      config-name="email"
       :department-id="departmentId"
       :page-title="pageTitle"
     />
@@ -11,7 +10,7 @@
 </template>
 
 <script lang="ts" setup>
-import ConfigCenterPage from '/@/views/system/vabAutoComponents/ConfigCenterPage.vue'
+import EmailConfigurationPage from '/@/views/system/vabAutoComponents/EmailConfigurationPage.vue'
 
 defineOptions({
   name: 'DepartmentConfigDialog',
@@ -46,5 +45,3 @@ const close = () => {
   departmentName.value = ''
 }
 </script>
-
-

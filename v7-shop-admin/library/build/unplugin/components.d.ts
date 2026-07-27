@@ -93,6 +93,7 @@ declare module 'vue' {
     ElTree: typeof import('element-plus/es')['ElTree']
     ElTreeSelect: typeof import('element-plus/es')['ElTreeSelect']
     ElUpload: typeof import('element-plus/es')['ElUpload']
+    EmailConfigurationPage: typeof import('./../../../src/views/system/vabAutoComponents/EmailConfigurationPage.vue')['default']
     EmployeeDispatchDepartments: typeof import('./../../../src/views/system/vabAutoComponents/EmployeeDispatchDepartments.vue')['default']
     EmployeeEdit: typeof import('./../../../src/views/system/vabAutoComponents/EmployeeEdit.vue')['default']
     EmployeeGrantRole: typeof import('./../../../src/views/system/vabAutoComponents/EmployeeGrantRole.vue')['default']
