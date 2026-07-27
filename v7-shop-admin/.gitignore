@@ -26,7 +26,6 @@ pnpm-debug.log*
 
 # Lock files
 yarn.lock
-pnpm-lock.yaml
 package-lock.json
 
 # Yarn v2 not using using Zero-Installs
