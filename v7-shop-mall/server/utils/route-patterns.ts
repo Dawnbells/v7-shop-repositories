@@ -1,4 +1,5 @@
 const STATIC_PREFIXES = ["/_nuxt", "/__nuxt", "/builder"];
+const PUBLIC_ROUTES = new Set(["/health"]);
 
 /**
  * 判断当前路径是否应跳过 server middleware 处理。
@@ -9,6 +10,12 @@ export function shouldSkipMiddleware(
   path: string,
   options?: { allowApiCheckout?: boolean },
 ): boolean {
+  const pathname = path.split("?", 1)[0];
+  const normalizedPath =
+    pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
+  if (PUBLIC_ROUTES.has(normalizedPath)) return true;
   for (const prefix of STATIC_PREFIXES) {
     if (path.startsWith(prefix)) return true;
   }
