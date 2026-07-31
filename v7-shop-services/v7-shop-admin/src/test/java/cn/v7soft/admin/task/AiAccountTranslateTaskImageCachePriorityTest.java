@@ -23,6 +23,7 @@ import cn.v7soft.dao.entities.primary.ImagePolicyCache;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.MultimediaFile;
+import cn.v7soft.dao.entities.primary.Product;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
@@ -94,5 +95,35 @@ class AiAccountTranslateTaskImageCachePriorityTest {
         assertEquals(1, status.getPolicyFallbackImageCount().get());
         assertEquals(1, status.getCompletedSubTaskCount().get());
         verify(imagePolicyCacheRepository).findByImageHash(anyString());
+    }
+
+    @Test
+    void staleHtmlImageReferenceIsExcludedFromImageSubTasks() {
+        AiAccountTranslateTask task = new AiAccountTranslateTask(
+                asyncTaskRepository, productService, aiAccountService, companyService,
+                multimediaFileService, languageService, countryService, usageRecordRepository,
+                imageTranslationCacheRepository, imagePolicyCacheRepository,
+                textTranslationCacheRepository, aiCreditsService, transactionTemplate, List.of());
+
+        Product product = Product.builder()
+                .id(10L)
+                .introduction("<p><img src=\"/multimedia/225733836167\"></p>")
+                .build();
+        when(productService.getByIdWithSpecifications(10L)).thenReturn(product);
+        when(multimediaFileService.findById(225733836167L)).thenReturn(Optional.empty());
+
+        TranslateByAIRequest request = new TranslateByAIRequest();
+        request.setProductId("10");
+        request.setCountryId("20");
+        request.setLanguageId("1");
+        request.setAiAccountId("7");
+
+        List<AiAccountTranslateSubTask> subTasks = task.buildSubTasks(1L, request);
+
+        assertTrue(subTasks.stream().noneMatch(
+                subTask -> subTask.getType() == AiAccountTranslateSubTaskType.IMAGE));
+        assertTrue(subTasks.stream().anyMatch(
+                subTask -> subTask.getType() == AiAccountTranslateSubTaskType.HTML));
+        verify(multimediaFileService).findById(225733836167L);
     }
 }

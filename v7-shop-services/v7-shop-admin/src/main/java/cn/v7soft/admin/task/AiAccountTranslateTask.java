@@ -907,7 +907,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     /** 从产品中提取所有需要翻译的内容（标题/摘要/规格文本 + 详情 HTML + 图片 ID），构建子任务列表 */
-    private List<AiAccountTranslateSubTask> buildSubTasks(Long taskId, TranslateByAIRequest request) {
+    List<AiAccountTranslateSubTask> buildSubTasks(Long taskId, TranslateByAIRequest request) {
         Product product = productService.getByIdWithSpecifications(Long.parseLong(request.getProductId()));
         List<AiAccountTranslateSubTask> subTasks = new ArrayList<>();
 
@@ -920,8 +920,24 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         }
 
         for (String imageId : collectImageIds(product)) {
+            Optional<MultimediaFile> sourceImage;
+            try {
+                sourceImage = multimediaFileService.findById(Long.parseLong(imageId));
+            } catch (Exception e) {
+                // 数据库/租户上下文等瞬时异常不能被误判为图片已删除，保留子任务交给分发阶段重试。
+                log.warn("[AiAccountTranslateTask] source image validation failed; keeping subtask: taskId={}, imageId={}",
+                        taskId, imageId, e);
+                sourceImage = null;
+            }
+            if (sourceImage != null && sourceImage.isEmpty()) {
+                // 产品详情 HTML 可能残留已删除的 /multimedia/{id}。这种永久性坏引用不应进入 Provider 队列。
+                log.warn("[AiAccountTranslateTask] stale source image reference ignored: taskId={}, productId={}, imageId={}",
+                        taskId, request.getProductId(), imageId);
+                continue;
+            }
+
             AiAccountTranslateSubTask imageSubTask = AiAccountTranslateSubTask.image(taskId, imageId, request);
-            if (isAnimatedImage(imageId)) {
+            if (sourceImage != null && isAnimatedImage(sourceImage.get())) {
                 imageSubTask.setSkipped(true);
                 imageSubTask.setSkipReason("animated image (gif / animated webp)");
                 log.debug("[AiAccountTranslateTask] image subtask marked skipped (animated): taskId={}, imageId={}",
@@ -992,19 +1008,17 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     /**
-     * 判断给定图片 ID 是否为动图（gif / animated webp）。
+     * 判断给定图片是否为动图（gif / animated webp）。
      * 用于 buildSubTasks 阶段标记子任务跳过翻译。失败时保守返回 false（按非动图处理）。
      */
-    private boolean isAnimatedImage(String imageId) {
+    private boolean isAnimatedImage(MultimediaFile image) {
         try {
-            MultimediaFile image = multimediaFileService.getById(Long.parseLong(imageId));
-            if (image == null) return false;
             String suffix = image.getSuffix();
             if ("gif".equalsIgnoreCase(suffix)) return true;
             if ("webp".equalsIgnoreCase(suffix) && isAnimatedWebp(image)) return true;
             return false;
         } catch (Exception e) {
-            log.warn("[AiAccountTranslateTask] check animated image failed: imageId={}", imageId, e);
+            log.warn("[AiAccountTranslateTask] check animated image failed: imageId={}", image.getId(), e);
             return false;
         }
     }

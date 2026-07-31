@@ -29,6 +29,8 @@ import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
 import cn.v7soft.admin.task.AiAccountTranslateSubTask;
 import cn.v7soft.admin.utils.TokenCostCalculator;
+import cn.v7soft.core.enums.ClientResponseEnum;
+import cn.v7soft.core.exception.ClientException;
 import cn.v7soft.dao.entities.primary.ImagePolicyCache;
 import cn.v7soft.dao.entities.primary.ImageTranslationCache;
 import cn.v7soft.dao.entities.primary.AiAccount;
@@ -342,6 +344,41 @@ class TurboFlowBridgeProviderTest {
         verify(callback, never()).onSubTaskCompleted(any(), any());
         verify(callback, never()).onSubTaskFailed(
                 any(), anyString(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+    }
+
+    @Test
+    void missingSourceImageFailsWithoutRetryingDispatch() {
+        TurboFlowBridgeProvider provider = provider();
+        AiAccount account = AiAccount.builder()
+                .id(7L)
+                .provider(AiProvider.TURBOFLOW_GEMINI)
+                .model("gemini-image")
+                .build();
+
+        when(aiAccountService.findAvailableAccountsByApiKey(AiProvider.TURBOFLOW_GEMINI, "token"))
+                .thenReturn(List.of(account));
+        when(callback.isTaskActive(anyLong())).thenReturn(true);
+        when(multimediaFileService.getById(225733836167L))
+                .thenThrow(new ClientException(
+                        ClientResponseEnum.PARAMETER_ILLEGAL,
+                        new Object[] {"225733836167"},
+                        "参数错：225733836167"));
+
+        AiAccountTranslateSubTask subTask = imageSubTask(88L, "225733836167");
+        provider.executeSubTask(subTask);
+
+        TurboFlowBridgePollRequest pollRequest = new TurboFlowBridgePollRequest();
+        pollRequest.setBridgeId("bridge-a");
+        TurboFlowBridgeTaskResponse response = provider.pollTask("token", pollRequest);
+
+        assertFalse(response.isHasTask());
+        assertEquals("source media not found: 225733836167", response.getMessage());
+        verify(callback).onSubTaskFailed(
+                eq(subTask),
+                eq("source media not found: 225733836167"),
+                eq(false),
+                eq(null),
+                eq("SOURCE_MEDIA_NOT_FOUND"));
     }
 
     private AiAccountTranslateSubTask imageSubTask(Long taskId, String imageId) {

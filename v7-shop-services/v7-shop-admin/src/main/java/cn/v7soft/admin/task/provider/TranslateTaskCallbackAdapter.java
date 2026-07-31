@@ -31,7 +31,6 @@ public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
             "FLOW_DISCONNECTED",
             "TIMEOUT",
             "LEASE_EXPIRED",
-            "DISPATCH_FAILED",
             "COMPLETE_PROCESSING_FAILED");
 
     private final TranslateTaskContext taskContext;

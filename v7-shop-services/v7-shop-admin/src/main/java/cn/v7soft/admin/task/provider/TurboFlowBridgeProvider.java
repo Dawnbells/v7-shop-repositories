@@ -32,6 +32,7 @@ import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
+import cn.v7soft.core.exception.ClientException;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import cn.v7soft.dao.repositories.primary.ImagePolicyCacheRepository;
@@ -274,9 +275,20 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("task missing").build();
         }
 
+        // 3. 读取源图片。记录不存在/租户不可见属于永久性数据错误，不能进入无限分发重试。
+        MultimediaFile sourceFile;
         try {
-            // 3. 读取源图片并计算哈希
-            MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
+            sourceFile = subTask.resolveSourceFile(multimediaFileService);
+        } catch (ClientException | NumberFormatException e) {
+            String message = "source media not found: " + subTask.getContent();
+            callback.onSubTaskFailed(subTask, message, false, null, "SOURCE_MEDIA_NOT_FOUND");
+            log.warn("[TurboFlowBridge] source media unavailable; subtask marked non-retryable: taskId={}, subTaskId={}, imageId={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getContent(), e);
+            return TurboFlowBridgeTaskResponse.builder().hasTask(false).message(message).build();
+        }
+
+        try {
+            // 读取图片内容并计算哈希
             byte[] imageBytes = TranslateProviderSupport.readImageBytes(multimediaFileService, sourceFile);
             String imageHash = DigestUtil.sha256Hex(imageBytes);
             subTask.setImageHash(imageHash);
