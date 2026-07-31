@@ -34,7 +34,7 @@ public class Sub2ApiImageTranslateTest {
     private static final String USER_AGENT =
             "codex-tui/0.125.0 (Windows 10.0.26100; x86_64) WarpTerminal (codex-tui; 0.125.0)";
     private static final String PROXY_HOST = "127.0.0.1";
-    private static final int PROXY_PORT = 8800;
+    private static final int PROXY_PORT = 7897;
 
     @Test
     public void translateImageToChinese() throws Exception {

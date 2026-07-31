@@ -23,10 +23,10 @@ goto :usage
 start "%PROJECT%" powershell -NoExit -Command ^
 "cd '%ROOT%\%PROJECT%'; ^
 $env:NODE_OPTIONS='--use-env-proxy'; ^
-$env:HTTP_PROXY='http://127.0.0.1:8800'; ^
-$env:HTTPS_PROXY='http://127.0.0.1:8800'; ^
-$env:http_proxy='http://127.0.0.1:8800'; ^
-$env:https_proxy='http://127.0.0.1:8800'; ^
+$env:HTTP_PROXY='http://127.0.0.1:7897'; ^
+$env:HTTPS_PROXY='http://127.0.0.1:7897'; ^
+$env:http_proxy='http://127.0.0.1:7897'; ^
+$env:https_proxy='http://127.0.0.1:7897'; ^
 Write-Host 'Starting %PROJECT%...'; ^
 pnpm dev"
 

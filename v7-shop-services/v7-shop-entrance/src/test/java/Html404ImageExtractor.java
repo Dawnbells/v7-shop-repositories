@@ -205,7 +205,7 @@ public class Html404ImageExtractor {
                     .userAgent("Mozilla/5.0")
                     .ignoreHttpErrors(true)
                     .ignoreContentType(true)
-                    .proxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 8800)))
+                    .proxy(new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 7897)))
                     .get();
 
             Elements images = doc.select("img[src], img[data-src]");

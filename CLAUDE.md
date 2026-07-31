@@ -16,7 +16,7 @@ This is a polyglot monorepo for **V7 Shop** — a multi-tenant, multi-website e-
 | `v7-shop-docs`     | Docusaurus 3 (React 19)                           | Documentation site.                                                                                |
 | `turboflow-bridge` | Chrome MV3 extension (vanilla JS)                 | Standalone browser extension for image translation via Google Flow; unrelated to the shop runtime. |
 
-Each subproject has its own dependency install and build — there is **no** root-level workspace orchestration. `start-dev.bat mall|admin` launches a frontend dev server on Windows with a local HTTP proxy (`127.0.0.1:8800`) pre-set.
+Each subproject has its own dependency install and build — there is **no** root-level workspace orchestration. `start-dev.bat mall|admin` launches a frontend dev server on Windows with a local HTTP proxy (`127.0.0.1:7897`) pre-set.
 
 ## Common commands
 

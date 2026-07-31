@@ -14,7 +14,7 @@ public class HttpsCertCheckerWithProxy {
 
     // 本地 HTTP 代理
     private static final String PROXY_HOST = "127.0.0.1";
-    private static final int PROXY_PORT = 8800;
+    private static final int PROXY_PORT = 7897;
 
 
     private static final SSLSocketFactory sslSocketFactory;

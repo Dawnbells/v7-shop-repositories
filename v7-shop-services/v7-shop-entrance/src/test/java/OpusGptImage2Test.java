@@ -103,7 +103,7 @@ public class OpusGptImage2Test {
 
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
-                .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", 8800)))
+                .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", 7897)))
                 .build();
 
         HttpRequest request = HttpRequest.newBuilder()
