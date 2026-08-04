@@ -202,7 +202,14 @@ export default defineEventHandler(async (event) => {
       spuId,
     });
   } catch (error) {
-    logger.error("[01-domain] Error querying domain:", error);
+    const requestUrl = getRequestURL(event, {
+      xForwardedHost: true,
+      xForwardedProto: true,
+    });
+    logger.error(
+      `[01-domain] Error querying domain, url=${requestUrl.href}:`,
+      error,
+    );
     showSafePage(SafePageType.SHOP_NOT_FOUND);
   }
 });
