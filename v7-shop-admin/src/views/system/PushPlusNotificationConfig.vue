@@ -16,7 +16,7 @@
               <el-switch v-model="form.open" />
             </el-form-item>
 
-            <el-form-item label="服务器IP切换通知">
+            <el-form-item label="服务器健康与DNS切换通知">
               <el-switch v-model="form.serverIpSwitchOpen" />
             </el-form-item>
 

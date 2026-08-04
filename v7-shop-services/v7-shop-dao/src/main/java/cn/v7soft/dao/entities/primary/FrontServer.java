@@ -35,25 +35,31 @@ public class FrontServer extends BaseTenantEntity {
     private String cnameRecord;
 
     /**
-     * 主IP 地址
+     * 主 IP 地址。
      */
-    @Column(name = "primary_ip", nullable = false, length = 45) // 45 是支持IPv6地址的长度
+    @Column(name = "primary_ip", nullable = false, length = 45)
     private String primaryIp;
 
     /**
-     * 故障转移 IP
+     * 备用 IP 地址。
      */
-    @Column(name = "failover_ip", nullable = false, length = 45) // 45 是支持IPv6地址的长度
+    @Column(name = "failover_ip", nullable = false, length = 45)
     private String failoverIp;
 
     /**
-     * 健康检查地址 (例如 https://domain.com/health)
+     * 最后兜底 IP 地址。
+     */
+    @Column(name = "fallback_ip", length = 45)
+    private String fallbackIp;
+
+    /**
+     * 历史健康检查地址。运行时不再读取，保留字段用于兼容线上旧表的非空约束。
      */
     @Column(name = "health_check_url", nullable = false, length = 255)
     private String healthCheckUrl;
 
     /**
-     * 是否已经发生过 IP 故障切换
+     * 历史故障切换标记。三级健康检查不再读取该字段。
      */
     @Column(name = "ip_switched", nullable = false)
     private boolean ipSwitched;

@@ -48,14 +48,8 @@
       <el-table-column align="center" label="服务器名称" prop="name" />
       <el-table-column align="center" label="CNAME记录" prop="cnameRecord" />
       <el-table-column align="center" label="主IP地址" prop="primaryIp" />
-      <el-table-column align="center" label="故障转移IP地址" prop="failoverIp" />
-      <el-table-column align="center" label="健康检查地址" prop="healthCheckUrl" />
-      <el-table-column align="center" label="是否已发生IP故障切换" prop="ipSwitched">
-        <template #default="{ row }">
-          <el-tag v-if="row.ipSwitched" type="warning">是</el-tag>
-          <el-tag v-else type="success">否</el-tag>
-        </template>
-      </el-table-column>
+      <el-table-column align="center" label="备用IP地址" prop="failoverIp" />
+      <el-table-column align="center" label="兜底IP地址" prop="fallbackIp" />
       <el-table-column align="center" label="当前有效解析数量" prop="activeResolutionCount" />
       <el-table-column align="center" label="解析次数" prop="resolutionCount" />
       <el-table-column align="center" label="状态" prop="status">
@@ -160,19 +154,18 @@ const handleDelete = (row: any) => {
       $baseMessage(msg, 'success', 'hey')
       await fetchData()
     })
+  } else if (selectRows.value.length > 0) {
+    const ids = selectRows.value.map((item: { id: any }) => item.id).join(',')
+    $baseConfirm('您确定要删除选中项吗', null, async () => {
+      const { msg }: any = await doDelete({ ids })
+      $baseMessage(msg, 'success', 'hey')
+      await fetchData()
+    })
   } else {
-    if (selectRows.value.length > 0) {
-      const ids = selectRows.value.map((item: { id: any }) => item.id).join(',')
-      $baseConfirm('您确定要删除选中项吗', null, async () => {
-        const { msg }: any = await doDelete({ ids })
-        $baseMessage(msg, 'success', 'hey')
-        await fetchData()
-      })
-    } else {
-      $baseMessage('您未选中任何行', 'warning', 'hey')
-    }
+    $baseMessage('您未选中任何行', 'warning', 'hey')
   }
 }
+
 const handleSwitchValidity = (
   newVal: boolean | string | number,
   row: { id: number; status: string; statusLoading: boolean }
@@ -187,6 +180,7 @@ const handleSwitchValidity = (
       row.status = newVal == 'VALID' ? 'INVALID' : 'VALID'
     })
 }
+
 onActivated(() => {
   tableRef.value.doLayout()
 })

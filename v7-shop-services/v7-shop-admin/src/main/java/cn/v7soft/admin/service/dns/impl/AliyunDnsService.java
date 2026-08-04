@@ -56,7 +56,7 @@ public class AliyunDnsService implements IDnsService {
                     // 删除精确匹配。
                     DeleteDomainRecordResponse deleteDomainRecordResponse = deleteDomainRecordWithOptions(client, exactRecord);
                     if (deleteDomainRecordResponse.getBody() != null && org.apache.commons.lang3.StringUtils.isNotBlank(deleteDomainRecordResponse.getBody().getRecordId())) {
-                        return false;
+                        return true;
                     }
                 }
                 if (exactRecord != null) {
@@ -67,7 +67,7 @@ public class AliyunDnsService implements IDnsService {
                     // 更新解析记录
                     UpdateDomainRecordResponse updateDomainRecordResponse = updateDomainRecordWithOptions(client, exactRecord, type, recordValue);
                     if (updateDomainRecordResponse.getBody() != null && org.apache.commons.lang3.StringUtils.isNotBlank(updateDomainRecordResponse.getBody().getRecordId())) {
-                        return false;
+                        return true;
                     }
                 }
             }

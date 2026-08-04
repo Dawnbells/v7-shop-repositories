@@ -12,21 +12,17 @@
         />
       </el-form-item>
       <el-form-item label="主IP地址" prop="primaryIp">
-        <el-input v-model.trim="form.primaryIp" clearable placeholder="请输入主IP地址" />
+        <el-input v-model.trim="form.primaryIp" clearable placeholder="IPv4，可选，优先级最高" />
       </el-form-item>
-      <el-form-item label="故障转移IP地址" prop="failoverIp">
-        <el-input v-model.trim="form.failoverIp" clearable placeholder="请输入故障转移IP地址（可选）" />
+      <el-form-item label="备用IP地址" prop="failoverIp">
+        <el-input v-model.trim="form.failoverIp" clearable placeholder="IPv4，可选，第二优先级" />
       </el-form-item>
-      <el-form-item label="健康检查地址" prop="healthCheckUrl">
-        <el-input
-          v-model.trim="form.healthCheckUrl"
-          clearable
-          placeholder="请输入健康检查地址，如 https://domain.com/health"
-        />
+      <el-form-item label="兜底IP地址" prop="fallbackIp">
+        <el-input v-model.trim="form.fallbackIp" clearable placeholder="IPv4，可选，最后兜底" />
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button type="primary" @click="save">保存</el-button>
+      <el-button :loading="saveLoading" type="primary" @click="save">保存</el-button>
     </template>
   </vab-dialog>
 </template>
@@ -42,7 +38,6 @@ const emit = defineEmits(['fetch-data'])
 const $baseMessage = inject<any>('$baseMessage')
 const formRef = ref<any>(null)
 const title = ref<string>('')
-const loading = ref<boolean>(false)
 const dialogFormVisible = ref<boolean>(false)
 const saveLoading = ref<boolean>(false)
 const form = reactive<any>({
@@ -51,44 +46,52 @@ const form = reactive<any>({
   cnameRecord: '',
   primaryIp: '',
   failoverIp: '',
-  healthCheckUrl: '',
+  fallbackIp: '',
 })
 
-// CNAME记录的正则验证
 const validateCnameRecord = (rule: any, value: any, callback: any) => {
   if (!value) {
     callback(new Error('CNAME记录不能为空'))
     return
   }
-  const pattern = /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,6}$/
-  if (pattern.test(value)) {
+  const pattern = /^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,63}$/
+  callback(pattern.test(value) ? undefined : new Error('绑定的CNAME域名不正确'))
+}
+
+const validateOptionalIpv4 = (rule: any, value: any, callback: any) => {
+  if (!value) {
     callback()
-  } else {
-    callback(new Error('绑定的CNAME域名不正确'))
+    return
   }
+  const pattern = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/
+  callback(pattern.test(value) ? undefined : new Error('只允许填写IPv4地址'))
 }
 
 const rules = reactive<any>({
   name: [{ required: true, trigger: 'blur', message: '服务器名称不能为空' }],
   cnameRecord: [{ required: true, trigger: 'blur', validator: validateCnameRecord }],
-  primaryIp: [{ required: true, trigger: 'blur', message: '主IP地址不能为空' }],
-  failoverIp: [{ required: false, trigger: 'blur' }],
-  healthCheckUrl: [{ required: true, trigger: 'blur', message: '健康检查地址不能为空' }],
+  primaryIp: [{ trigger: 'blur', validator: validateOptionalIpv4 }],
+  failoverIp: [{ trigger: 'blur', validator: validateOptionalIpv4 }],
+  fallbackIp: [{ trigger: 'blur', validator: validateOptionalIpv4 }],
 })
 
-const showEdit = (row: any) => {
+const resetForm = () => {
+  Object.assign(form, {
+    id: undefined,
+    name: '',
+    cnameRecord: '',
+    primaryIp: '',
+    failoverIp: '',
+    fallbackIp: '',
+  })
+}
+
+const showEdit = (row?: any) => {
   dialogFormVisible.value = true
   nextTick(() => {
+    resetForm()
     if (!row) {
       title.value = '添加'
-      Object.assign(form, {
-        id: undefined,
-        name: '',
-        cnameRecord: '',
-        primaryIp: '',
-        failoverIp: '',
-        healthCheckUrl: '',
-      })
     } else {
       title.value = '编辑'
       Object.assign(form, row)
@@ -103,29 +106,30 @@ defineExpose({
 const close = () => {
   formRef.value?.clearValidate()
   formRef.value?.resetFields()
-  Object.assign(form, {
-    id: undefined,
-    name: '',
-    cnameRecord: '',
-    primaryIp: '',
-    failoverIp: '',
-    healthCheckUrl: '',
-  })
+  resetForm()
   dialogFormVisible.value = false
   emit('fetch-data')
 }
 
 const save = () => {
+  const ips = [form.primaryIp, form.failoverIp, form.fallbackIp].filter(Boolean)
+  if (ips.length === 0) {
+    $baseMessage('主IP、备用IP、兜底IP至少填写一个', 'warning', 'hey')
+    return
+  }
+  if (new Set(ips).size !== ips.length) {
+    $baseMessage('主IP、备用IP、兜底IP不能重复', 'warning', 'hey')
+    return
+  }
   formRef.value.validate(async (valid: any) => {
-    if (valid) {
-      try {
-        saveLoading.value = true
-        const { msg }: any = await doEdit(form)
-        await $baseMessage(msg, 'success', 'hey')
-        dialogFormVisible.value = false
-      } finally {
-        saveLoading.value = false
-      }
+    if (!valid) return
+    try {
+      saveLoading.value = true
+      const { msg }: any = await doEdit(form)
+      await $baseMessage(msg, 'success', 'hey')
+      dialogFormVisible.value = false
+    } finally {
+      saveLoading.value = false
     }
   })
 }
