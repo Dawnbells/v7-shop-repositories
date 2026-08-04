@@ -206,8 +206,14 @@ export default defineEventHandler(async (event) => {
       xForwardedHost: true,
       xForwardedProto: true,
     });
+    const headers = getHeaders(event);
+    const clientIp =
+      (headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+      (headers["x-real-ip"] as string) ||
+      event.node.req.socket.remoteAddress ||
+      "unknown";
     logger.error(
-      `[01-domain] Error querying domain, url=${requestUrl.href}:`,
+      `[01-domain] Error querying domain, ip=${clientIp}, url=${requestUrl.href}:`,
       error,
     );
     showSafePage(SafePageType.SHOP_NOT_FOUND);
