@@ -1,8 +1,5 @@
 package cn.v7soft.admin.service.impl;
 
-import java.math.BigDecimal;
-import java.text.NumberFormat;
-import java.util.Currency;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -17,6 +14,7 @@ import cn.hutool.json.JSONObject;
 import cn.v7soft.admin.service.IDynamicConfigService;
 import cn.v7soft.admin.service.IEmailService;
 import cn.v7soft.admin.service.dto.OrderEmailDto;
+import cn.v7soft.admin.service.email.OrderEmailRenderer;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +28,7 @@ public class EmailService implements IEmailService {
     private static final String EMAIL_CONFIG_NAME = "email";
 
     private final IDynamicConfigService dynamicConfigService;
+    private final OrderEmailRenderer orderEmailRenderer;
 
     @Async
     @Override
@@ -79,10 +78,10 @@ public class EmailService implements IEmailService {
                 template = getDefaultTemplate(emailTemplate);
             }
 
-            String subject = buildSubject(template, dto);
-            String content = buildContent(template, dto);
+            OrderEmailRenderer.RenderedOrderEmail rendered = orderEmailRenderer.render(template, dto);
 
-            sendHtmlEmail(mailSender, emailConfig.getStr("from"), customerEmail, subject, content);
+            sendHtmlEmail(mailSender, emailConfig.getStr("from"), customerEmail,
+                    rendered.subject(), rendered.content());
             log.info("订单 {} 确认邮件发送成功，收件人: {}, 语言: {}", dto.getId(), customerEmail, languageCode);
 
         } catch (Exception e) {
@@ -145,72 +144,5 @@ public class EmailService implements IEmailService {
         return emailTemplate.getJSONObject(languageCode);
     }
 
-    private String buildSubject(JSONObject template, OrderEmailDto dto) {
-        if (template != null && StrUtil.isNotBlank(template.getStr("subject"))) {
-            return replaceVariables(template.getStr("subject"), dto);
-        }
-        return String.format("Order Confirmation - #%s", dto.getOriginOrderId());
-    }
-
-    private String buildContent(JSONObject template, OrderEmailDto dto) {
-        if (template != null && StrUtil.isNotBlank(template.getStr("content"))) {
-            return replaceVariables(template.getStr("content"), dto);
-        }
-        return String.format("""
-                                     <p>Dear %s %s,</p>
-                                     <p>Thank you for your order!</p>
-                                     <p>Order Number: %s</p>
-                                     <p>We will process your order shortly.</p>
-                                     <p>Best regards,<br>Customer Service Team</p>
-                                     """,
-                             dto.getFirstName(),
-                             dto.getLastName(),
-                             dto.getOriginOrderId()
-        );
-    }
-
-    private String replaceVariables(String template, OrderEmailDto dto) {
-        String name = StrUtil.nullToEmpty(dto.getFirstName()) + " " +
-                      StrUtil.nullToEmpty(dto.getLastName());
-
-        String region = StrUtil.nullToEmpty(dto.getDistrict()) + " " +
-                        StrUtil.nullToEmpty(dto.getCity()) + " " +
-                        StrUtil.nullToEmpty(dto.getProvince());
-
-        BigDecimal totalAmount = dto.getTotalAmount();
-        String currencyCode = dto.getCurrencyCode();
-        NumberFormat currencyFormat = NumberFormat.getCurrencyInstance();
-        if (currencyCode != null) {
-            currencyFormat.setCurrency(Currency.getInstance(currencyCode));
-        }
-        String formattedAmount = currencyFormat.format(totalAmount.doubleValue());
-
-        StringBuilder itemInfoBuilder = new StringBuilder();
-        if (dto.getItems() != null) {
-            dto.getItems().forEach(item -> {
-                BigDecimal itemPrice = item.getSellPrice();
-                String formatItemPrice = currencyFormat.format(itemPrice.doubleValue());
-                itemInfoBuilder.append(item.getSpecTitle())
-                        .append("<br/>")
-                        .append(formatItemPrice)
-                        .append(" × ")
-                        .append(item.getQuantity())
-                        .append("<br/>");
-            });
-        }
-
-        return template
-                .replace("{{customer_name}}", name.trim())
-                .replace("{{customer_phone}}", StrUtil.nullToEmpty(dto.getPhone()))
-                .replace("{{customer_email}}", StrUtil.nullToEmpty(dto.getEmail()))
-                .replace("{{customer_address}}", StrUtil.nullToEmpty(dto.getAddress()))
-                .replace("{{customer_region}}", StrUtil.nullToEmpty(region).replaceFirst(" ", ""))
-                .replace("{{customer_postal_code}}", StrUtil.nullToEmpty(dto.getPostalCode()))
-                .replace("{{customer_remark}}", StrUtil.nullToEmpty(dto.getRemark()))
-                .replace("{{order_id}}", StrUtil.nullToEmpty(dto.getOriginOrderId() == null ? dto.getId() == null ? "" : dto.getId().toString() : dto.getOriginOrderId()))
-                .replace("{{order_amount}}", formattedAmount)
-                .replace("{{order_items}}", itemInfoBuilder.toString().trim())
-                ;
-    }
 }
 

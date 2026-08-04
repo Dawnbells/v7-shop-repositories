@@ -1,5 +1,6 @@
 package cn.v7soft.admin.config;
 
+import cn.dev33.satoken.stp.StpUtil;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.utils.SaSessionUtil;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,6 +23,10 @@ public class EmailConfigAccessWebConfig implements WebMvcConfigurer {
 
         @Override
         public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+            // Let CORS preflight and the endpoint's @SaCheckLogin handle unauthenticated requests.
+            if ("OPTIONS".equalsIgnoreCase(request.getMethod()) || !StpUtil.isLogin()) {
+                return true;
+            }
             SystemUserDto user = SaSessionUtil.getLoginUser();
             if (user == null || user.isAdmin()) {
                 return true;

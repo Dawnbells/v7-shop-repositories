@@ -341,10 +341,19 @@ const testSmtp = async () => {
   }
   testing.value = true
   try {
+    const templates = Object.values(form['email-template'] || {}) as any[]
+    const orderTemplate =
+      templates.find(
+        (template) => template?.default && template?.subject?.trim() && template?.content?.trim()
+      ) || templates.find((template) => template?.subject?.trim() && template?.content?.trim())
     const response: any = await request({
       url: '/config-center/email/test',
       method: 'post',
-      data: { recipient: testRecipient.value, emailConfig: clone(form.email) },
+      data: {
+        recipient: testRecipient.value,
+        emailConfig: clone(form.email),
+        orderTemplate: clone(orderTemplate),
+      },
     })
     const data = unwrap(response)
     form.email['smtp-test-signature'] = data.smtpTestSignature

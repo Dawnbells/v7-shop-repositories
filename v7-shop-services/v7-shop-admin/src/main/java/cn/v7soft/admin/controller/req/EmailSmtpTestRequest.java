@@ -17,4 +17,9 @@ public class EmailSmtpTestRequest {
 
     @NotNull(message = "邮件发送配置不能为空")
     private JSONObject emailConfig;
+
+    /**
+     * Current order email template. Falls back to the built-in order confirmation template.
+     */
+    private JSONObject orderTemplate;
 }
