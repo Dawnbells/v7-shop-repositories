@@ -9,7 +9,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import cn.hutool.json.JSONUtil;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Component
 public class HttpNodeHealthProbe implements NodeHealthProbe {
 
@@ -25,6 +27,19 @@ public class HttpNodeHealthProbe implements NodeHealthProbe {
 
     @Override
     public HealthProbeResult probe(String ipv4) {
+        long startedAtNanos = System.nanoTime();
+        HealthProbeResult result = doProbe(ipv4);
+        // 逐次探测流水放 TRACE：本项目默认 cn.v7soft: debug，每 5 秒 N 条会淹没其他日志；
+        // 排障时把 cn.v7soft.admin.task 开到 trace 即可看到每次耗时与原因
+        if (log.isTraceEnabled()) {
+            log.trace("[HealthCheck] 探测 http://{}/health 耗时={}ms 结果={} 详情={}", ipv4,
+                    (System.nanoTime() - startedAtNanos) / 1_000_000,
+                    result.healthy() ? "健康" : "故障", result.detail());
+        }
+        return result;
+    }
+
+    private HealthProbeResult doProbe(String ipv4) {
         HttpURLConnection connection = null;
         try {
             URL url = new URL("http://" + ipv4 + "/health");

@@ -163,11 +163,26 @@ spring:
     time-zone: "Asia/Shanghai"
     date-format: yyyy-MM-dd HH:mm:ss
 
+# 前端服务器三级健康检查（主IP > 备用IP > 兜底IP）
+# 探测目标为 http://<IP>/health，需前端机 nginx 在 80 端口提供该端点并返回 {"status":"ok"}
+front-server:
+  health-check:
+    # 轮次间隔；连续 3 次同结果才确认健康/故障，即最快 3 个间隔完成判定
+    interval-ms: ${FRONT_SERVER_HEALTH_CHECK_INTERVAL_MS:5000}
+    # 单次探测的连接与读取超时，两者相加是最坏耗时（默认合计 6 秒，已超过轮次间隔）
+    connect-timeout-ms: ${FRONT_SERVER_HEALTH_CHECK_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${FRONT_SERVER_HEALTH_CHECK_READ_TIMEOUT_MS:3000}
+    # 心跳摘要周期（轮）：每隔这么多轮打一条各节点状态与 DNS 指向；同时作为失败日志的去重周期。
+    # 0 = 关闭心跳摘要（不推荐，稳态下将没有任何日志可确认任务在运行）
+    heartbeat-rounds: ${FRONT_SERVER_HEALTH_CHECK_HEARTBEAT_ROUNDS:60}
+
 # 日志配置
 logging:
   level:
     root: info
     cn.v7soft: debug
+    # 健康检查排障：临时加一行 cn.v7soft.admin.task: trace，
+    # 可看到每轮摘要、每次探测耗时与 DNS 回查流水（稳态下量大，勿常开）
     org.hibernate: info
     org.hibernate.SQL: info
     org.hibernate.type.descriptor.sql.BasicBinder: info
