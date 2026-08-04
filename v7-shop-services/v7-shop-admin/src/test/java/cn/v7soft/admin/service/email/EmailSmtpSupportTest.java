@@ -61,6 +61,49 @@ class EmailSmtpSupportTest {
     }
 
     @Test
+    void fromAddressFallsBackToPlainAddressWithoutName() {
+        assertThat(support.fromAddress(smtp()).toString()).isEqualTo("sender@example.com");
+    }
+
+    @Test
+    void fromAddressRendersDisplayName() {
+        JSONObject config = smtp().set("from-name", "Aoeermrs");
+
+        assertThat(support.fromAddress(config).toString())
+                .isEqualTo("Aoeermrs <sender@example.com>");
+    }
+
+    @Test
+    void fromAddressEncodesNonAsciiDisplayName() {
+        JSONObject config = smtp().set("from-name", "阿奥商城");
+
+        String from = support.fromAddress(config).toString();
+
+        assertThat(from).startsWith("=?UTF-8?").endsWith("<sender@example.com>");
+    }
+
+    @Test
+    void fromAddressStripsLineBreaksFromDisplayName() {
+        JSONObject config = smtp().set("from-name", "Aoeermrs\r\nBcc: attacker@example.com");
+
+        String from = support.fromAddress(config).toString();
+
+        assertThat(from).doesNotContain("\r").doesNotContain("\n");
+    }
+
+    @Test
+    void signatureIgnoresBlankFromName() {
+        assertThat(support.signature(smtp().set("from-name", "")))
+                .isEqualTo(support.signature(smtp()));
+    }
+
+    @Test
+    void signatureChangesWhenFromNameChanges() {
+        assertThat(support.signature(smtp().set("from-name", "Aoeermrs")))
+                .isNotEqualTo(support.signature(smtp()));
+    }
+
+    @Test
     void rejectsUnknownProvider() {
         assertThatThrownBy(() -> support.validate(smtp().set("provider", "UNKNOWN")))
                 .isInstanceOf(IllegalArgumentException.class)

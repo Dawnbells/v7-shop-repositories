@@ -83,6 +83,9 @@
                 <el-form-item label="已验证发件人地址">
                   <el-input v-model="form.email.from" placeholder="sender@example.com" />
                 </el-form-item>
+                <el-form-item label="发件人名称">
+                  <el-input v-model="form.email['from-name']" placeholder="留空则只显示发件人地址" />
+                </el-form-item>
                 <el-form-item label="Configuration Set">
                   <el-input v-model="form.email['configuration-set']" placeholder="可选" />
                 </el-form-item>
@@ -102,6 +105,9 @@
                 </el-form-item>
                 <el-form-item label="发件人地址">
                   <el-input v-model="form.email.from" />
+                </el-form-item>
+                <el-form-item label="发件人名称">
+                  <el-input v-model="form.email['from-name']" placeholder="留空则只显示发件人地址" />
                 </el-form-item>
                 <el-form-item label="使用 SSL/TLS">
                   <el-switch v-model="form.email.secure" />
@@ -235,6 +241,7 @@ const form = reactive<any>({
     username: '',
     password: '',
     from: '',
+    'from-name': '',
     secure: false,
     region: 'eu-central-1',
     'access-key-id': '',
@@ -315,6 +322,7 @@ const smtpSnapshot = computed(() =>
     form.email.username,
     form.email.password,
     form.email.from,
+    form.email['from-name'],
     form.email.secure,
     form.email.region,
     form.email['access-key-id'],

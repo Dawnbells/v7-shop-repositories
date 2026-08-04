@@ -3,9 +3,7 @@ package cn.v7soft.admin.service.impl;
 import java.util.Optional;
 import java.util.Properties;
 
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -14,9 +12,8 @@ import cn.hutool.json.JSONObject;
 import cn.v7soft.admin.service.IDynamicConfigService;
 import cn.v7soft.admin.service.IEmailService;
 import cn.v7soft.admin.service.dto.OrderEmailDto;
+import cn.v7soft.admin.service.email.EmailSmtpSupport;
 import cn.v7soft.admin.service.email.OrderEmailRenderer;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -29,6 +26,7 @@ public class EmailService implements IEmailService {
 
     private final IDynamicConfigService dynamicConfigService;
     private final OrderEmailRenderer orderEmailRenderer;
+    private final EmailSmtpSupport smtpSupport;
 
     @Async
     @Override
@@ -80,7 +78,7 @@ public class EmailService implements IEmailService {
 
             OrderEmailRenderer.RenderedOrderEmail rendered = orderEmailRenderer.render(template, dto);
 
-            sendHtmlEmail(mailSender, emailConfig.getStr("from"), customerEmail,
+            smtpSupport.sendHtml(mailSender, smtpSupport.fromAddress(emailConfig), customerEmail,
                     rendered.subject(), rendered.content());
             log.info("订单 {} 确认邮件发送成功，收件人: {}, 语言: {}", dto.getId(), customerEmail, languageCode);
 
@@ -95,17 +93,6 @@ public class EmailService implements IEmailService {
                 .map(emailTemplate::getJSONObject)
                 .filter(languageTemplate -> languageTemplate.getBool("default", false))
                 .findFirst().orElse(null);
-    }
-
-    private void sendHtmlEmail(JavaMailSender mailSender, String from, String to,
-                               String subject, String content) throws MessagingException {
-        MimeMessage mimeMessage = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-        helper.setFrom(from);
-        helper.setTo(to);
-        helper.setSubject(subject);
-        helper.setText(content, true); // true 表示 HTML 内容
-        mailSender.send(mimeMessage);
     }
 
     private JavaMailSenderImpl createMailSender(JSONObject emailConfig) {

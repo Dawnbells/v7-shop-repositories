@@ -3,6 +3,8 @@ package cn.v7soft.admin.service.email;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import jakarta.mail.MessagingException;
+import jakarta.mail.internet.AddressException;
+import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -19,6 +21,7 @@ import software.amazon.awssdk.services.sesv2.model.EmailContent;
 import software.amazon.awssdk.services.sesv2.model.Message;
 import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 
+import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -111,6 +114,33 @@ public class EmailSmtpSupport {
         }
     }
 
+    /**
+     * 构造带展示名的发件人，例如 Aoeermrs &lt;order@aoeermrs.shop&gt;。
+     * 未配置发件人名称时退化为纯地址，保持与旧配置一致。
+     */
+    public InternetAddress fromAddress(JSONObject emailConfig) {
+        String from = StrUtil.trim(emailConfig.getStr("from"));
+        String fromName = fromName(emailConfig);
+        try {
+            if (StrUtil.isBlank(fromName)) {
+                return new InternetAddress(from);
+            }
+            // 非 ASCII 名称由 InternetAddress 按 RFC 2047 编码，收件端才能正确显示
+            return new InternetAddress(from, fromName, StandardCharsets.UTF_8.name());
+        } catch (AddressException | UnsupportedEncodingException exception) {
+            throw new IllegalArgumentException("发件人地址不正确: " + from, exception);
+        }
+    }
+
+    private String fromName(JSONObject emailConfig) {
+        String fromName = emailConfig.getStr("from-name");
+        if (StrUtil.isBlank(fromName)) {
+            return "";
+        }
+        // 去掉换行，避免展示名被用来注入邮件头
+        return StrUtil.trim(fromName.replaceAll("[\\r\\n]", " "));
+    }
+
     public String signature(JSONObject emailConfig) {
         validate(emailConfig);
         String provider = provider(emailConfig);
@@ -133,6 +163,11 @@ public class EmailSmtpSupport {
                     StrUtil.nullToEmpty(emailConfig.getStr("from")),
                     String.valueOf(emailConfig.getBool("secure", false)));
         }
+        String fromName = fromName(emailConfig);
+        if (StrUtil.isNotBlank(fromName)) {
+            // 仅在配置了发件人名称时参与签名，避免旧配置的既有测试结果失效
+            canonical = canonical + "\n" + fromName;
+        }
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(canonical.getBytes(StandardCharsets.UTF_8));
@@ -149,10 +184,10 @@ public class EmailSmtpSupport {
             sendAmazonSes(emailConfig, to, subject, content);
             return;
         }
-        sendHtml(createMailSender(emailConfig), emailConfig.getStr("from"), to, subject, content);
+        sendHtml(createMailSender(emailConfig), fromAddress(emailConfig), to, subject, content);
     }
 
-    public void sendHtml(JavaMailSenderImpl sender, String from, String to,
+    public void sendHtml(JavaMailSenderImpl sender, InternetAddress from, String to,
                          String subject, String content) throws MessagingException {
         MimeMessage mimeMessage = sender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
@@ -179,7 +214,7 @@ public class EmailSmtpSupport {
                     .body(Body.builder().html(htmlContent).build())
                     .build();
             SendEmailRequest.Builder request = SendEmailRequest.builder()
-                    .fromEmailAddress(emailConfig.getStr("from"))
+                    .fromEmailAddress(fromAddress(emailConfig).toString())
                     .destination(Destination.builder().toAddresses(to).build())
                     .content(EmailContent.builder().simple(message).build());
             String configurationSet = emailConfig.getStr("configuration-set");
