@@ -692,6 +692,9 @@ const navigateTo = (path: string) => {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      // 框架主题有 `html body .el-card__header{display:flex}`，本元素因此是 flex item，
+      // 不加宽度就 shrink-to-fit，space-between 没有剩余空间可分，右侧内容贴不到右边
+      width: 100%;
 
       .header-title {
         display: flex;
