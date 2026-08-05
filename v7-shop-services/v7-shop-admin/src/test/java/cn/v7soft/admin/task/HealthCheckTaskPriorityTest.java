@@ -88,7 +88,8 @@ class HealthCheckTaskPriorityTest {
         when(frontServerService.listFrontServers()).thenReturn(List.of(server));
 
         task = new HealthCheckTask(environment, frontServerService, subDomainService,
-                dnsServiceFactory, logRepository, eventPublisher, probe, directExecutor);
+                dnsServiceFactory, logRepository, eventPublisher, probe, directExecutor,
+                new FrontServerHealthSnapshotHolder());
     }
 
     @Test

@@ -58,6 +58,7 @@ public class HealthCheckTask {
     private final ApplicationEventPublisher eventPublisher;
     private final NodeHealthProbe nodeHealthProbe;
     private final Executor healthCheckExecutor;
+    private final FrontServerHealthSnapshotHolder snapshotHolder;
 
     private final Map<Long, ServerRuntimeState> runtimeStates = new ConcurrentHashMap<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -75,7 +76,8 @@ public class HealthCheckTask {
             DnsSwitchLogRepository dnsSwitchLogRepository,
             ApplicationEventPublisher eventPublisher,
             NodeHealthProbe nodeHealthProbe,
-            @Qualifier("healthCheckExecutor") Executor healthCheckExecutor) {
+            @Qualifier("healthCheckExecutor") Executor healthCheckExecutor,
+            FrontServerHealthSnapshotHolder snapshotHolder) {
         this.environment = environment;
         this.frontServerService = frontServerService;
         this.subDomainService = subDomainService;
@@ -84,6 +86,7 @@ public class HealthCheckTask {
         this.eventPublisher = eventPublisher;
         this.nodeHealthProbe = nodeHealthProbe;
         this.healthCheckExecutor = healthCheckExecutor;
+        this.snapshotHolder = snapshotHolder;
         this.heartbeatRounds = intProperty("front-server.health-check.heartbeat-rounds", DEFAULT_HEARTBEAT_ROUNDS);
     }
 
@@ -95,8 +98,11 @@ public class HealthCheckTask {
     void logStartupBanner() {
         if (isDevProfile()) {
             log.info("[HealthCheck] 当前激活 dev profile，健康检查任务已禁用（不探测、不改 DNS）");
+            snapshotHolder.publish(FrontServerHealthSnapshot.disabled());
             return;
         }
+        // 首轮完成前先占一个「已启用、暂无数据」的位，否则前端会把启动瞬间误读成 dev 未启用
+        snapshotHolder.publish(FrontServerHealthSnapshot.awaitingFirstRound());
         log.info("[HealthCheck] 健康检查任务已启用: 轮次间隔={}ms, 连接超时={}ms, 读取超时={}ms, "
                         + "确认阈值={}次, 心跳摘要每{}轮, 探测地址=http://<IP>/health",
                 intProperty("front-server.health-check.interval-ms", 5000),
@@ -135,6 +141,8 @@ public class HealthCheckTask {
                 log.warn("[HealthCheck] 没有可检查的前端服务器：需状态为 VALID 且至少配置一个 IP");
             }
             runtimeStates.clear();
+            // 这条提前返回的路径也要覆盖快照，否则服务器被删掉后接口会一直吐出过期的健康状态
+            snapshotHolder.publish(FrontServerHealthSnapshot.of(LocalDateTime.now(), List.of()));
             return;
         }
 
@@ -168,10 +176,26 @@ public class HealthCheckTask {
             }
         }
 
+        publishSnapshot(serversById);
         logRoundSummary(startedAtNanos, probes.size());
         if (isHeartbeatRound()) {
             logHeartbeat(serversById);
         }
+    }
+
+    /**
+     * 每轮末尾投递一份只读快照，供接口层展示。必须在 reconcileDns 之后调用——
+     * {@code lastObservedDnsIp}（判断哪个节点当前生效的依据）是在那里才更新的。
+     */
+    private void publishSnapshot(Map<Long, FrontServer> serversById) {
+        List<FrontServerHealthSnapshot.ServerHealth> servers = new ArrayList<>(serversById.size());
+        for (Map.Entry<Long, FrontServer> entry : serversById.entrySet()) {
+            ServerRuntimeState state = runtimeStates.get(entry.getKey());
+            if (state != null) {
+                servers.add(state.toSnapshot(entry.getValue().getName()));
+            }
+        }
+        snapshotHolder.publish(FrontServerHealthSnapshot.of(LocalDateTime.now(), servers));
     }
 
     /**
@@ -590,6 +614,19 @@ public class HealthCheckTask {
         private boolean allConfiguredNodesUnhealthy() {
             return !nodeStates.isEmpty() && nodeStates.values().stream()
                     .allMatch(node -> node.status == FrontServerHealthStatus.UNHEALTHY);
+        }
+
+        private FrontServerHealthSnapshot.ServerHealth toSnapshot(String serverName) {
+            return FrontServerHealthSnapshot.ServerHealth.build(serverName, lastObservedDnsIp, role -> {
+                NodeRuntimeState node = nodeStates.get(role);
+                if (node == null) {
+                    return null;
+                }
+                // lastObservedDnsIp 为 null（回查失败或还没回查过）时 equals 恒为 false，
+                // 于是没有任何节点被标成「当前生效」——这正是我们要的，好过错标到一个上
+                return new FrontServerHealthSnapshot.NodeHealth(
+                        role, node.ip(), node.status(), true, node.ip().equals(lastObservedDnsIp));
+            });
         }
     }
 

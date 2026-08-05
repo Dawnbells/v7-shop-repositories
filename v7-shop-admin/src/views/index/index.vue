@@ -133,6 +133,27 @@
                 <el-icon><InfoFilled /></el-icon>
                 系统信息
               </span>
+              <el-tooltip
+                v-if="healthNodes.length"
+                effect="dark"
+                placement="bottom-end"
+                popper-class="node-health-popper"
+              >
+                <template #content>
+                  <div class="tip-title">{{ healthTipTitle }}</div>
+                  <div v-for="node in healthNodes" :key="node.role" class="tip-row">
+                    <span class="tip-dot" :class="node.tone" />
+                    <span class="tip-role">{{ node.roleLabel }}</span>
+                    <span class="tip-ip">{{ node.ip || '—' }}</span>
+                    <span class="tip-status" :class="node.tone">{{ node.statusText }}</span>
+                    <span v-if="node.active" class="tip-active">当前生效</span>
+                  </div>
+                </template>
+                <div class="node-health">
+                  <span class="node-health-label">节点</span>
+                  <span v-for="node in healthNodes" :key="node.role" class="node-dot" :class="node.tone" />
+                </div>
+              </el-tooltip>
             </div>
           </template>
           <div class="system-info-list">
@@ -240,6 +261,7 @@ import {
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
 import { getDashboardStats } from '/@/api/dashboard'
+import { getFrontServerHealthStatus } from '/@/api/frontServer'
 
 dayjs.locale('zh-cn')
 
@@ -305,12 +327,86 @@ const fetchStats = async () => {
   }
 }
 
+// 前端服务器主备兜底 IP 健康状态
+type HealthTone = 'success' | 'danger' | 'info'
+type HealthStatusCode = 'HEALTHY' | 'UNHEALTHY' | 'UNKNOWN'
+
+interface HealthNode {
+  role: string
+  roleLabel: string
+  ip: string | null
+  status: HealthStatusCode
+  configured: boolean
+  active: boolean
+}
+
+interface HealthStatus {
+  enabled: boolean
+  updatedAt: string | null
+  servers: { serverName: string; dnsIp: string | null; nodes: HealthNode[] }[]
+}
+
+// 后端没数据时（dev 未启用 / 一台服务器都没配）也要占满三个位，
+// 否则「从左到右是主/备/兜底」的位置约定就不成立了
+const PLACEHOLDER_NODES: HealthNode[] = [
+  { role: 'PRIMARY', roleLabel: '主IP', ip: null, status: 'UNKNOWN', configured: false, active: false },
+  { role: 'FAILOVER', roleLabel: '备用IP', ip: null, status: 'UNKNOWN', configured: false, active: false },
+  { role: 'FALLBACK', roleLabel: '兜底IP', ip: null, status: 'UNKNOWN', configured: false, active: false },
+]
+
+const healthStatus = ref<HealthStatus | null>(null)
+
+const healthServer = computed(() => healthStatus.value?.servers?.[0] ?? null)
+
+const healthTipTitle = computed(() => {
+  const status = healthStatus.value
+  if (!status) return ''
+  if (!status.enabled) return '健康检查未启用（dev 环境）'
+  if (!status.updatedAt) return '等待首次探测…'
+  if (!healthServer.value) return '未配置前端服务器'
+  return healthServer.value.serverName
+})
+
+const resolveStatusText = (node: HealthNode, enabled: boolean) => {
+  if (node.status === 'HEALTHY') return '健康'
+  if (node.status === 'UNHEALTHY') return '故障'
+  if (!enabled) return '未启用'
+  // 同为灰点，但「没配这个 IP」和「刚启动还没探够 3 次」是两回事
+  return node.configured ? '探测中' : '未配置'
+}
+
+// 无权限（接口返回 null）或请求失败时返回空数组，整块不渲染
+const healthNodes = computed(() => {
+  const status = healthStatus.value
+  if (!status) return []
+  const nodes = healthServer.value?.nodes ?? PLACEHOLDER_NODES
+  return nodes.map((node) => ({
+    ...node,
+    tone: (node.status === 'HEALTHY' ? 'success' : node.status === 'UNHEALTHY' ? 'danger' : 'info') as HealthTone,
+    statusText: resolveStatusText(node, status.enabled),
+  }))
+})
+
+const fetchHealthStatus = async () => {
+  try {
+    const { data } = await getFrontServerHealthStatus()
+    healthStatus.value = data ?? null
+  } catch (e) {
+    healthStatus.value = null
+  }
+}
+
+const refreshAll = () => {
+  fetchStats()
+  fetchHealthStatus()
+}
+
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let timeTimer: ReturnType<typeof setInterval> | null = null
 
 const startPolling = () => {
   if (pollTimer) return
-  pollTimer = setInterval(fetchStats, 10000)
+  pollTimer = setInterval(refreshAll, 10000)
 }
 
 const stopPolling = () => {
@@ -331,7 +427,7 @@ const handleVisibilityChange = () => {
   if (document.hidden) {
     stopPolling()
   } else {
-    fetchStats()
+    refreshAll()
     startPolling()
   }
 }
@@ -339,7 +435,7 @@ const handleVisibilityChange = () => {
 const startAll = () => {
   updateTime()
   timeTimer = setInterval(updateTime, 1000)
-  fetchStats()
+  refreshAll()
   startPolling()
   document.addEventListener('visibilitychange', handleVisibilityChange)
 }
@@ -404,55 +500,55 @@ const navigateTo = (path: string) => {
 .index-container {
   // 欢迎横幅
   .welcome-banner {
-    background: linear-gradient(135deg, #5b73b5 0%, #8b7db5 100%);
-    border-radius: 16px;
+    position: relative;
     padding: 32px;
     margin-bottom: 20px;
-    color: #fff;
-    position: relative;
     overflow: hidden;
+    color: #fff;
+    background: linear-gradient(135deg, #5b73b5 0%, #8b7db5 100%);
+    border-radius: 16px;
 
     &::before {
-      content: '';
       position: absolute;
       top: -50%;
       right: -20%;
       width: 400px;
       height: 400px;
+      content: '';
       background: rgba(255, 255, 255, 0.1);
       border-radius: 50%;
     }
 
     &::after {
-      content: '';
       position: absolute;
       bottom: -30%;
       left: 10%;
       width: 200px;
       height: 200px;
+      content: '';
       background: rgba(255, 255, 255, 0.05);
       border-radius: 50%;
     }
 
     .welcome-content {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
       position: relative;
       z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
 
     .welcome-left {
       .welcome-title {
+        margin: 0 0 8px;
         font-size: 28px;
         font-weight: 600;
-        margin: 0 0 8px;
       }
 
       .welcome-subtitle {
+        margin: 0 0 24px;
         font-size: 14px;
         opacity: 0.85;
-        margin: 0 0 24px;
       }
 
       .welcome-stats {
@@ -506,35 +602,35 @@ const navigateTo = (path: string) => {
 
   // 统计卡片
   .stat-card {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    padding: 20px;
+    margin-bottom: 20px;
+    cursor: pointer;
     background: #fafafa;
     border-radius: 12px;
-    padding: 20px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 20px;
-    transition: all 0.3s ease;
-    cursor: pointer;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    transition: all 0.3s ease;
 
     &:hover {
-      transform: translateY(-4px);
       box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+      transform: translateY(-4px);
     }
 
     .stat-icon {
-      width: 56px;
-      height: 56px;
-      border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
+      width: 56px;
+      height: 56px;
       color: #fff;
+      border-radius: 12px;
     }
 
     .stat-info {
-      flex: 1;
       display: flex;
+      flex: 1;
       flex-direction: column;
       gap: 4px;
 
@@ -550,10 +646,10 @@ const navigateTo = (path: string) => {
       }
 
       .stat-change {
-        font-size: 12px;
         display: flex;
-        align-items: center;
         gap: 2px;
+        align-items: center;
+        font-size: 12px;
 
         &.positive {
           color: #67c23a;
@@ -599,8 +695,8 @@ const navigateTo = (path: string) => {
 
       .header-title {
         display: flex;
-        align-items: center;
         gap: 8px;
+        align-items: center;
         font-size: 16px;
         font-weight: 500;
         color: #4a4a4a;
@@ -624,17 +720,17 @@ const navigateTo = (path: string) => {
 
     .quick-link-item {
       display: flex;
-      align-items: center;
       gap: 12px;
+      align-items: center;
       padding: 16px;
-      border-radius: 10px;
-      background: var(--link-bg);
       cursor: pointer;
+      background: var(--link-bg);
+      border-radius: 10px;
       transition: all 0.3s ease;
 
       &:hover {
-        transform: translateX(4px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        transform: translateX(4px);
 
         .link-arrow {
           opacity: 1;
@@ -643,20 +739,20 @@ const navigateTo = (path: string) => {
       }
 
       .link-icon {
-        width: 44px;
-        height: 44px;
-        border-radius: 10px;
-        background: #fafafa;
         display: flex;
         align-items: center;
         justify-content: center;
+        width: 44px;
+        height: 44px;
         color: var(--link-color);
+        background: #fafafa;
+        border-radius: 10px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
       }
 
       .link-info {
-        flex: 1;
         display: flex;
+        flex: 1;
         flex-direction: column;
         gap: 2px;
 
@@ -683,6 +779,36 @@ const navigateTo = (path: string) => {
 
   // 系统信息
   .system-info-card {
+    // 主备兜底 IP 健康指示灯
+    .node-health {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      cursor: default;
+
+      .node-health-label {
+        font-size: 12px;
+        color: #909399;
+      }
+
+      .node-dot {
+        flex-shrink: 0;
+        width: 9px;
+        height: 9px;
+        background: #c0c4cc;
+        border-radius: 50%;
+
+        &.success {
+          background: #67c23a;
+        }
+
+        &.danger {
+          background: #f56c6c;
+          animation: node-dot-alarm 1.6s ease-out infinite;
+        }
+      }
+    }
+
     .system-info-list {
       .info-item {
         display: flex;
@@ -702,8 +828,8 @@ const navigateTo = (path: string) => {
 
         .info-value {
           font-size: 14px;
-          color: #4a4a4a;
           font-weight: 500;
+          color: #4a4a4a;
         }
       }
     }
@@ -734,15 +860,15 @@ const navigateTo = (path: string) => {
 
         .order-product {
           font-size: 14px;
-          color: #4a4a4a;
           font-weight: 500;
+          color: #4a4a4a;
         }
       }
 
       .order-meta {
         display: flex;
-        align-items: center;
         gap: 12px;
+        align-items: center;
 
         .order-amount {
           font-size: 15px;
@@ -757,8 +883,8 @@ const navigateTo = (path: string) => {
   .todo-list {
     .todo-item {
       display: flex;
-      align-items: center;
       gap: 12px;
+      align-items: center;
       padding: 12px 0;
       border-bottom: 1px solid #e8e8e8;
 
@@ -768,8 +894,8 @@ const navigateTo = (path: string) => {
 
       &.done {
         .todo-content {
-          text-decoration: line-through;
           color: #c0c4cc;
+          text-decoration: line-through;
         }
       }
 
@@ -779,6 +905,82 @@ const navigateTo = (path: string) => {
         color: #4a4a4a;
       }
     }
+  }
+}
+
+@keyframes node-dot-alarm {
+  0% {
+    box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.55);
+  }
+
+  70% {
+    box-shadow: 0 0 0 6px rgba(245, 108, 108, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 108, 108, 0);
+  }
+}
+</style>
+
+<style lang="scss">
+// tooltip 内容被 teleport 到 body 上，scoped 样式选不到，只能走全局类名
+.node-health-popper {
+  .tip-title {
+    margin-bottom: 6px;
+    font-size: 12px;
+    opacity: 0.7;
+  }
+
+  .tip-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 12px;
+    line-height: 20px;
+  }
+
+  .tip-dot {
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    background: #c0c4cc;
+    border-radius: 50%;
+
+    &.success {
+      background: #67c23a;
+    }
+
+    &.danger {
+      background: #f56c6c;
+    }
+  }
+
+  .tip-role {
+    width: 42px;
+  }
+
+  .tip-ip {
+    min-width: 100px;
+    font-family: Consolas, Monaco, monospace;
+    opacity: 0.85;
+  }
+
+  .tip-status {
+    &.success {
+      color: #95d475;
+    }
+
+    &.danger {
+      color: #f89898;
+    }
+  }
+
+  .tip-active {
+    padding: 0 5px;
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.16);
+    border-radius: 3px;
   }
 }
 </style>

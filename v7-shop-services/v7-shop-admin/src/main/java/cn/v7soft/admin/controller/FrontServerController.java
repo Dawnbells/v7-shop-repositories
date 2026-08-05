@@ -15,7 +15,9 @@ import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.controller.req.EditFrontServerRequest;
 import cn.v7soft.admin.controller.req.QueryFrontServerRequest;
 import cn.v7soft.admin.controller.req.QueryLanguageRequest;
+import cn.v7soft.admin.controller.resp.FrontServerHealthStatusResponse;
 import cn.v7soft.admin.service.IFrontServerService;
+import cn.v7soft.admin.task.FrontServerHealthSnapshotHolder;
 import cn.v7soft.common.controller.resp.FrontServerResponse;
 import cn.v7soft.core.controller.BaseController;
 import cn.v7soft.core.controller.request.QueryPageRequest;
@@ -39,10 +41,15 @@ public class FrontServerController extends BaseController<FrontServer, IFrontSer
     private static final String LEGACY_HEALTH_CHECK_VALUE = "/health";
 
     private final DnsSwitchLogRepository dnsSwitchLogRepository;
+    private final FrontServerHealthSnapshotHolder healthSnapshotHolder;
 
-    protected FrontServerController(IFrontServerService service, DnsSwitchLogRepository dnsSwitchLogRepository) {
+    protected FrontServerController(
+            IFrontServerService service,
+            DnsSwitchLogRepository dnsSwitchLogRepository,
+            FrontServerHealthSnapshotHolder healthSnapshotHolder) {
         super(service);
         this.dnsSwitchLogRepository = dnsSwitchLogRepository;
+        this.healthSnapshotHolder = healthSnapshotHolder;
     }
 
     @Override
@@ -110,6 +117,21 @@ public class FrontServerController extends BaseController<FrontServer, IFrontSer
             return Collections.emptyList();
         }
         return dnsSwitchLogRepository.findByAcknowledgedFalseOrderBySwitchedAtDesc();
+    }
+
+    /**
+     * 首页展示主备兜底 IP 的实时健康状态。返回的是健康检查任务的内存快照，不查库。
+     * 非 ADMIN 返回 null——IP 属于基础设施信息，且首页对无关人员显示一排看不懂的点没有意义。
+     */
+    @SaCheckLogin
+    @Operation(summary = "查询前端服务器主备兜底IP健康状态")
+    @GetMapping("/health-status")
+    public FrontServerHealthStatusResponse getHealthStatus() {
+        SystemUserDto currentUser = SaSessionUtil.getLoginUser();
+        if (currentUser.getUserType() != SystemUserType.ADMIN) {
+            return null;
+        }
+        return FrontServerHealthStatusResponse.from(healthSnapshotHolder.get());
     }
 
     @SaCheckLogin
