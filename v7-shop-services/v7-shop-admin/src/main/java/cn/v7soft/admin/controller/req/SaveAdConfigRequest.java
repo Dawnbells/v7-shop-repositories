@@ -29,7 +29,7 @@ public class SaveAdConfigRequest {
     @Schema(title = "流量媒介: cpc / ppc / organic / email / social / paid_social / affiliate / referral / display / video")
     private String medium;
 
-    @Schema(title = "斗篷策略: NONE / DEFAULT / GOOGLE_NORMAL / GOOGLE_LENIENT / GOOGLE_STRICT / PHANTOM_ISOLATION")
+    @Schema(title = "斗篷策略: NONE / DEFAULT / GOOGLE_NORMAL / GOOGLE_ENHANCED / GOOGLE_LENIENT / GOOGLE_STRICT / PHANTOM_ISOLATION")
     private String cloakStrategy;
 
     @Pattern(regexp = "^[a-zA-Z0-9_]*$", message = "Campaign仅允许英文字母、数字和下划线")

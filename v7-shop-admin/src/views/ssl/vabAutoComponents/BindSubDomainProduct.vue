@@ -233,6 +233,7 @@
                               <el-option label="无策略" value="NONE" />
                               <el-option label="默认策略" value="DEFAULT" />
                               <el-option label="谷歌(常规)" value="GOOGLE_NORMAL" />
+                              <el-option label="谷歌(增强)" value="GOOGLE_ENHANCED" />
                               <el-option label="谷歌(宽松)" value="GOOGLE_LENIENT" />
                               <el-option label="谷歌(严格)" value="GOOGLE_STRICT" />
                               <el-option label="安全隔离" value="PHANTOM_ISOLATION" />

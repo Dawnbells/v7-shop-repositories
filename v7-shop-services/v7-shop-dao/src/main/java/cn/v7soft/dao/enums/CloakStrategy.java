@@ -25,6 +25,10 @@ public enum CloakStrategy {
      */
     GOOGLE_NORMAL,
     /**
+     * 谷歌(增强)
+     */
+    GOOGLE_ENHANCED,
+    /**
      * 谷歌(宽松)
      */
     GOOGLE_LENIENT,
