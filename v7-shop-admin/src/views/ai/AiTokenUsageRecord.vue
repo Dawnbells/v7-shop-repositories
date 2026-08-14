@@ -133,6 +133,22 @@
                           style="width: 80px; height: 80px"
                         />
                         <span v-else-if="r.skipped" class="placeholder-box skipped">动图跳过</span>
+                        <el-tooltip
+                          v-else-if="r.policyFallbackReason"
+                          :content="`内容政策限制，保留原图（${r.policyFallbackReason}）`"
+                          placement="top"
+                          :show-after="300"
+                        >
+                          <span class="placeholder-box policy">政策保留原图</span>
+                        </el-tooltip>
+                        <el-tooltip
+                          v-else-if="r.failReason"
+                          :content="r.failReason"
+                          placement="top"
+                          :show-after="300"
+                        >
+                          <span class="placeholder-box failed">{{ failLabel(r.failReason) }}</span>
+                        </el-tooltip>
                         <span v-else class="placeholder-box translating">翻译中...</span>
                       </div>
                     </div>
@@ -155,6 +171,22 @@
                             <span class="text-ellipsis">{{ r.translatedText }}</span>
                           </el-tooltip>
                         </template>
+                        <el-tooltip
+                          v-else-if="r.policyFallbackReason"
+                          :content="`内容政策限制，保留原文（${r.policyFallbackReason}）`"
+                          placement="top"
+                          :show-after="300"
+                        >
+                          <span class="text-placeholder policy">政策保留原文</span>
+                        </el-tooltip>
+                        <el-tooltip
+                          v-else-if="r.failReason"
+                          :content="r.failReason"
+                          placement="top"
+                          :show-after="300"
+                        >
+                          <span class="text-placeholder failed">{{ failLabel(r.failReason) }}</span>
+                        </el-tooltip>
                         <span v-else-if="!r.skipped" class="text-placeholder translating">翻译中...</span>
                         <span v-else class="text-placeholder">-</span>
                       </div>
@@ -284,6 +316,19 @@ const contentTypeTagType = (
 const formatNumber = (value: number | undefined | null): string => {
   if (value == null) return '-'
   return value.toLocaleString()
+}
+
+/** failReason 形如 "SOURCE_MEDIA_NOT_FOUND: ..."，格子里只放短标签，完整原因走 tooltip */
+const FAIL_LABELS: Record<string, string> = {
+  SOURCE_MEDIA_NOT_FOUND: '源图不存在',
+  TURBOFLOW_TEXT_PERMANENT_FAILED: 'AI 拒绝处理',
+  TURBOFLOW_QUEUE_INVARIANT: '任务类型异常',
+}
+
+const failLabel = (failReason: string | undefined | null): string => {
+  if (!failReason) return '已失败'
+  const code = failReason.split(':')[0]?.trim() ?? ''
+  return FAIL_LABELS[code] ?? '已失败'
 }
 
 /**
@@ -447,6 +492,16 @@ onBeforeMount(() => {
       color: var(--el-color-primary);
       font-style: italic;
     }
+
+    &.policy {
+      color: var(--el-color-warning);
+      cursor: help;
+    }
+
+    &.failed {
+      color: var(--el-color-danger);
+      cursor: help;
+    }
   }
 
   .placeholder-box {
@@ -469,6 +524,20 @@ onBeforeMount(() => {
     &.skipped {
       color: var(--el-color-warning);
       border-color: var(--el-color-warning-light-5);
+    }
+
+    // 政策回退：任务算成功完成，但保留了原件，用警示色和"翻译中"区分开
+    &.policy {
+      color: var(--el-color-warning);
+      border-color: var(--el-color-warning-light-5);
+      cursor: help;
+    }
+
+    // 永久失败：已终态，不该再显示"翻译中..."
+    &.failed {
+      color: var(--el-color-danger);
+      border-color: var(--el-color-danger-light-5);
+      cursor: help;
     }
   }
 

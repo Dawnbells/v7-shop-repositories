@@ -26,9 +26,17 @@
   const statTotalEl = document.getElementById('stat-total');
   const statSuccessEl = document.getElementById('stat-success');
   const statFailedEl = document.getElementById('stat-failed');
+  const statPolicyEl = document.getElementById('stat-policy');
+  const statTotalAllEl = document.getElementById('stat-total-all');
+  const statSuccessAllEl = document.getElementById('stat-success-all');
+  const statFailedAllEl = document.getElementById('stat-failed-all');
+  const statPolicyAllEl = document.getElementById('stat-policy-all');
+  const reuseHintEl = document.getElementById('reuse-hint');
+  const btnResetStats = document.getElementById('btn-reset-stats');
 
   /* ── State ── */
-  const PAGE_SIZE = 20;
+  // 历史上限已降到 10 条（background.js MAX_TASK_HISTORY），一页装得下
+  const PAGE_SIZE = 10;
   let currentPage = 0;
   let totalTasks = 0;
   let connected = false;
@@ -100,8 +108,13 @@
       renderCurrentTasks(tasks);
       if (completedOrFailed || tasks.length === 0) {
         loadTaskHistory();
-        loadTodayStats();
       }
+    }
+    if (msg.type === 'STATS_UPDATED') {
+      renderStats(msg.stats);
+    }
+    if (msg.type === 'REUSE_SUMMARY_UPDATED') {
+      renderReuseSummary(msg.reuseSummary);
     }
     if (msg.type === 'COUNTDOWN_UPDATE') {
       nextPollAt = msg.nextPollAt || 0;
@@ -158,11 +171,12 @@
         setConnection(status.lastStatus.connected, status.lastStatus.message, status.lastStatus.projectId);
       }
       setPaused(!!status.paused);
+      renderReuseSummary(status.reuseSummary);
     }
 
     await doCheck();
     loadTaskHistory();
-    loadTodayStats();
+    loadStats();
     startCountdownTicker();
   }
 
@@ -283,7 +297,10 @@
       const tr = document.createElement('tr');
       const timeStr = new Date(t.time).toLocaleTimeString();
       const elapsedStr = t.elapsedMs != null ? `${(t.elapsedMs / 1000).toFixed(1)}s` : '-';
-      const statusCls = t.status === 'completed' ? 'completed' : 'failed';
+      // 政策回退和译图复用都是 completed，但要能一眼区分出来
+      const isPolicy = !!t.policyFallbackReason;
+      const statusCls = t.status !== 'completed' ? 'failed' : (isPolicy ? 'policy' : 'completed');
+      const statusLabel = t.status === 'completed' && t.reused ? 'completed · reused' : t.status;
       const srcThumb = t.sourceThumb || t.sourceImage;
       const srcPreview = t.sourceImage || t.sourceThumb;
       const resThumb = t.resultThumb || t.resultImage;
@@ -295,12 +312,16 @@
         ? `<div class="hist-thumb-wrap"><img class="hist-thumb" src="${resThumb}" alt="res"><div class="thumb-preview"><img src="${resPreview}" alt="preview"></div></div>`
         : '<span class="no-img">-</span>';
       // 失败任务追加自定义 tooltip 显示 error.message；td-status 配合 overflow:visible 让 tooltip 不被裁剪
-      const errorTooltip = t.status === 'failed' && t.error
-        ? `<span class="status-tooltip">${esc(t.error)}</span>`
+      let tooltipText = '';
+      if (t.status !== 'completed' && t.error) tooltipText = t.error;
+      else if (isPolicy) tooltipText = `内容政策限制，保留原图（${t.policyFallbackReason}）`;
+      else if (t.reused) tooltipText = '复用了上一轮已翻译好的图，未再调用 Google';
+      const errorTooltip = tooltipText
+        ? `<span class="status-tooltip">${esc(tooltipText)}</span>`
         : '';
       tr.innerHTML = `
         <td><div class="td-imgs">${sourceThumbHtml}${resultThumbHtml}</div></td>
-        <td class="td-status"><span class="status-tag ${statusCls}">${esc(t.status)}${errorTooltip}</span></td>
+        <td class="td-status"><span class="status-tag ${statusCls}">${esc(statusLabel)}${errorTooltip}</span></td>
         <td>${elapsedStr}</td>
         <td>${timeStr}</td>
         <td class="td-prompt">${t.targetLang ? esc(t.targetLang) : '-'}</td>
@@ -445,13 +466,44 @@
     chrome.runtime.sendMessage({ type: 'LOG', level, message }).catch(() => {});
   }
 
-  /* ── Today Stats ── */
-  async function loadTodayStats() {
-    const result = await chrome.runtime.sendMessage({ type: 'GET_TODAY_STATS' });
-    statTotalEl.textContent = result.total || 0;
-    statSuccessEl.textContent = result.success || 0;
-    statFailedEl.textContent = result.failed || 0;
+  /* ── Stats（今日大号 / 累计小号） ── */
+  async function loadStats() {
+    const result = await chrome.runtime.sendMessage({ type: 'GET_STATS' });
+    renderStats(result?.stats);
   }
+
+  function renderStats(stats) {
+    if (!stats) return;
+    const today = stats.today || {};
+    const allTime = stats.allTime || {};
+    statTotalEl.textContent = today.total || 0;
+    statSuccessEl.textContent = today.success || 0;
+    statFailedEl.textContent = today.failed || 0;
+    statPolicyEl.textContent = today.policy || 0;
+    statTotalAllEl.textContent = allTime.total || 0;
+    statSuccessAllEl.textContent = allTime.success || 0;
+    statFailedAllEl.textContent = allTime.failed || 0;
+    statPolicyAllEl.textContent = allTime.policy || 0;
+  }
+
+  /** 待重投译图提示：没有记录就完全不显示，不占常驻空间 */
+  function renderReuseSummary(summary) {
+    const count = summary?.count || 0;
+    if (count <= 0) {
+      reuseHintEl.classList.add('hidden');
+      reuseHintEl.textContent = '';
+      return;
+    }
+    const remaining = summary.minRemaining || 0;
+    reuseHintEl.textContent = `♻️ ${count} 张译图待重投（最紧的还剩 ${remaining} 次匹配机会）`;
+    reuseHintEl.classList.remove('hidden');
+  }
+
+  btnResetStats?.addEventListener('click', async () => {
+    const result = await chrome.runtime.sendMessage({ type: 'RESET_STATS' });
+    renderStats(result?.stats);
+    showToast('Stats reset');
+  });
 
   /* ── Utilities ── */
   function shortenUrl(url) {

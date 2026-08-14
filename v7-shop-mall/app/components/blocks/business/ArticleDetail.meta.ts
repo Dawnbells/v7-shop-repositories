@@ -14,9 +14,48 @@ export const meta: ComponentMeta = {
 
   allowedPages: ["article"],
 
-  propsSchema: [],
+  propsSchema: [
+    {
+      key: "showDate",
+      label: "显示更新时间",
+      type: "switch",
+      defaultValue: true,
+      description: "是否在标题下方显示文章更新时间",
+      group: "meta",
+    },
+    {
+      key: "dateFormat",
+      label: "日期格式",
+      type: "select",
+      defaultValue: "auto",
+      options: [
+        { label: "跟随语言 · 长格式（2026年8月12日 / August 12, 2026）", value: "auto" },
+        { label: "跟随语言 · 简写（2026年8月12日 / Aug 12, 2026）", value: "auto-medium" },
+        { label: "跟随语言 · 数字（2026/8/12 / 12.08.2026）", value: "auto-numeric" },
+        { label: "国际标准 ISO（2026-08-12）", value: "iso" },
+        { label: "日/月/年（12/08/2026）", value: "dmy" },
+        { label: "月/日/年（08/12/2026）", value: "mdy" },
+      ],
+      description: "“跟随语言”会按站点当前语言自动本地化，其余为固定的国际通用格式",
+      showIf: "showDate === true",
+      group: "meta",
+    },
+    {
+      key: "showDateLabel",
+      label: "显示“更新时间”文字",
+      type: "switch",
+      defaultValue: false,
+      description: "在日期前显示当前语言的“更新时间”标签",
+      showIf: "showDate === true",
+      group: "meta",
+    },
+  ],
 
-  defaultProps: {},
+  defaultProps: {
+    showDate: true,
+    dateFormat: "auto",
+    showDateLabel: false,
+  },
 
   styleSchema: [
     // 布局样式

@@ -17,13 +17,16 @@ public interface TranslateProviderCallback {
 
     /**
      * Provider 子任务失败后调用。
-     * retryable=true 且未超过最大重试次数(3)时，adapter 会将子任务放入失败队列重试；
-     * 否则标记为永久失败。partialResult 可为 null（表示失败时无 token 消耗）。
+     * retryable=true 时，adapter 会将子任务放入失败队列重试；否则标记为永久失败。
+     * partialResult 可为 null（表示失败时无 token 消耗）。
      * <p>
-     * errorCode（可为 null）用于标识失败类型：
-     * - 环境型错误（如 RECAPTCHA_BLOCKED / FLOW_DISCONNECTED / GOOGLE_BLOCKED）：
-     *   AI 端未真正报错，仅是连接/风控问题，adapter 不计入 attempt count → 永久重试。
-     * - 其它（AI 真实拒绝、生成失败、超时等）：沿用 attempt &lt; 3 限制。
+     * errorCode（可为 null）决定重试次数：
+     * - 带错误码的 retryable 失败：adapter 不计入 attempt count → 永久重试。
+     * - 未编码错误：沿用 attempt &lt; 3 限制。
+     * - TranslateTaskCallbackAdapter.LIMITED_RETRY_ERROR_CODES 中的例外：带码也只给 3 次。
+     * <p>
+     * 内容政策阻断不走失败回调，而是以 policy-fallback completion 保留原文/原图
+     * （SubTaskResult.policyFallbackReason 非空）。
      */
     void onSubTaskFailed(AiAccountTranslateSubTask subTask, String message, boolean retryable,
                          SubTaskResult partialResult, String errorCode);

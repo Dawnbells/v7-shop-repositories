@@ -22,6 +22,12 @@ public interface TranslateTaskContext {
     /** 子任务失败/重试时，累加实际 token 用量到 AiTokenUsageRecord */
     void accumulateUsageRecord(AiAccountTranslateSubTask subTask, SubTaskResult partialResult);
 
+    /**
+     * 子任务永久失败时，把原因写进 AiTokenUsageRecord.failReason。
+     * 否则用量列表里这一行会永远停在"翻译中..."，看不出它其实已经终态了。
+     */
+    void markUsageRecordFailed(AiAccountTranslateSubTask subTask, String errorCode, String message);
+
     /** 子任务完成后，将翻译结果保存到翻译缓存（TEXT/HTML → TextTranslationCache，IMAGE → ImageTranslationCache） */
     void saveTranslationCache(AiAccountTranslateSubTask subTask, SubTaskResult result);
 }

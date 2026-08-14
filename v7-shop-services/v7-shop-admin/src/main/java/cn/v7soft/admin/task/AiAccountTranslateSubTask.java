@@ -45,6 +45,12 @@ public class AiAccountTranslateSubTask {
     private volatile String assignmentId;
     private volatile String assignedBridgeId;
     private volatile LocalDateTime leaseUntil;
+    /**
+     * 分发退避截止时间。分发失败（读图/建 assignment 异常）后设置，到点前不再从待分发队列取出，
+     * 否则子任务立刻回到队首、插件 500ms 后又取到同一张坏图，形成热循环。
+     */
+    private volatile LocalDateTime dispatchNotBefore;
+    private final AtomicInteger dispatchFailureCount = new AtomicInteger(0);
     private final AtomicInteger attemptCount = new AtomicInteger(0);
     private final AtomicBoolean priorityRetry = new AtomicBoolean(false);
     private volatile AiAccountTranslateSubTaskState state = AiAccountTranslateSubTaskState.PENDING;
@@ -91,7 +97,27 @@ public class AiAccountTranslateSubTask {
         this.state = AiAccountTranslateSubTaskState.PROCESSING;
         this.message = null;
         this.priorityRetry.set(false);
+        // 分发成功 —— 清掉之前的退避，下次失败重新从最短间隔起算
+        this.dispatchNotBefore = null;
+        this.dispatchFailureCount.set(0);
         this.attemptCount.incrementAndGet();
+    }
+
+    /**
+     * 记一次分发失败并设置退避窗口，返回本次退避秒数。
+     * 按失败次数指数增长（2s / 4s / 8s …），上限 maxSeconds。
+     */
+    public int delayNextDispatch(int maxSeconds) {
+        int failures = dispatchFailureCount.incrementAndGet();
+        int seconds = (int) Math.min(maxSeconds, 1L << Math.min(failures, 20));
+        this.dispatchNotBefore = LocalDateTime.now().plusSeconds(seconds);
+        return seconds;
+    }
+
+    /** 是否已过分发退避窗口，可以再次尝试分发。 */
+    public boolean isDispatchReady(LocalDateTime now) {
+        LocalDateTime notBefore = this.dispatchNotBefore;
+        return notBefore == null || !now.isBefore(notBefore);
     }
 
     public boolean isAssignedTo(String bridgeId, String assignmentId) {

@@ -19,6 +19,33 @@ import {
   rememberPendingPolicyCompletion,
   reportPolicyFallback,
 } from './policy-fallback-state.js';
+import { imageDigest } from './image-digest.js';
+import {
+  emptyStats,
+  normalizeStats,
+  recordOutcome,
+  STAT_FAILED,
+  STAT_POLICY,
+  STAT_SUCCESS,
+} from './bridge-stats.js';
+import {
+  consumeReuseWindow,
+  findTranslatedImage,
+  forgetTranslatedImage,
+  rememberTranslatedImage,
+  summarizeTranslatedImages,
+  REUSE_MATCH_WINDOW,
+} from './translated-image-cache.js';
+import {
+  classifyErrorCode,
+  nextConsecutiveFailureCount,
+  nextFlowDisconnectedCount,
+  shouldPauseForRunNow,
+  CONSECUTIVE_FAILURE_PAUSE_THRESHOLD,
+  FLOW_DISCONNECTED_PAUSE_THRESHOLD,
+  FAILURE_STREAK_INCREMENT,
+  FAILURE_STREAK_RESET,
+} from './task-error-policy.js';
 
 const VERSION = '1.1.0';
 const FLOW_URL = 'https://labs.google/fx/zh/tools/flow/';
@@ -34,8 +61,13 @@ const RECOVERY_STATE_STORAGE_KEY = 'bridgeRecoveryState';
 const RECOVERY_SUCCESS_THRESHOLD = 20;
 const RECOVERY_DOWNLOAD_FAIL_THRESHOLD = 3;
 const LEGACY_PAUSE_STATE_STORAGE_KEY = 'bridgePauseState';
-const MAX_TASK_HISTORY = 50;
+const STATS_STORAGE_KEY = 'bridgeStats';
+// 历史每条都存了完整的 sourceImage + resultImage base64，10 条足够回看最近一轮，
+// 也给译图复用缓存腾出存储空间。当日/累计统计已改由 bridgeStats 独立维护，不再依赖这个数组。
+const MAX_TASK_HISTORY = 10;
 const MAX_LOG_HISTORY = 500;
+/** 服务端 TurboFlowReprocessRequiredException.REASON：译图收到了但后处理失败，assignment 已失效。 */
+const REPROCESS_REQUIRED_REASON = 'REPROCESS_REQUIRED';
 // 单次翻译总超时（含上传/生成/下载）。Flow 正常约 30~60 秒；网速慢时下载重试可达 120 秒；
 // 4 并发场景下任务内 sleep(250*i) 错峰最多 0.75 秒；总预算放宽到 300 秒。
 const TRANSLATE_TIMEOUT_MS = 300 * 1000;
@@ -46,34 +78,12 @@ const PENDING_POLICY_REPORT_ALARM = 'retry-pending-policy-fallbacks';
 let pendingPolicyFlushRunning = false;
 
 /**
- * 根据 translateImage 抛出的错误信息映射到上报用的 errorCode。
- * 与 flow-api.js 中 callFlowApi / fetchImageAsBase64 抛出的特定文案保持同步。
- */
-function classifyErrorCode(message) {
-  const text = (message || '').toLowerCase();
-  // 每日额度耗尽是账号级硬性限制 — 走 stopAndDelete 终态，删 project 等账号自然恢复
-  if (text.includes('daily_quota_reached') || text.includes('resource_exhausted')) return 'DAILY_QUOTA_REACHED';
-  // 下载结果图失败（fetchImageAsBase64 全部重试都失败）— 连续 3 张触发 L1 恢复
-  if (text.includes('[download_failed]')) return 'DOWNLOAD_FAILED';
-  // reCAPTCHA 风控：包含 callFlowApi 抛出的 'reCAPTCHA blocked' 和 'No reCAPTCHA token' 两种
-  if (text.includes('recaptcha blocked') || text.includes('no recaptcha token')) return 'RECAPTCHA_BLOCKED';
-  if (text.includes('blocked by google (403)') || text.includes('access denied (403)')) return 'GOOGLE_BLOCKED';
-  if (text.includes('timeout') || text.includes('timed out')) return 'TIMEOUT';
-  // Flow tab 被关闭/导航走时，in-flight 的 fetch/executeScript 会抛 'Failed to fetch'、'Script execution failed' 等
-  if (text.includes('failed to fetch')
-    || text.includes('flow is not connected')
-    || text.includes('no flow tab')
-    || text.includes('flow tab')
-    || text.includes('script execution failed')) return 'FLOW_DISCONNECTED';
-  return 'FLOW_EXECUTION_FAILED';
-}
-
-/**
  * 把错误码翻译成更友好的描述（写日志用），原始 message 仍随 reportFail 上报给服务端。
  */
 function friendlyErrorMessage(errorCode, rawMessage) {
   if (errorCode === 'FLOW_DISCONNECTED') return 'Flow tab unavailable (closed / navigated away)';
   if (errorCode === 'DAILY_QUOTA_REACHED') return '⚠️ Google 账号每日额度已用尽，需等几小时自然恢复';
+  if (errorCode === 'FLOW_AUTHENTICATION_FAILED') return '⚠️ Google Flow 认证已失效，请重新登录后点击 Run Now';
   return rawMessage;
 }
 
@@ -89,6 +99,10 @@ let nextPollAt = 0;
 let nextTranslateAllowedAt = 0;
 let taskHistory = [];
 let logHistory = [];
+// 当日 + 累计统计。独立于 taskHistory 持久化，所以历史裁剪到 10 条也不影响计数。
+let bridgeStats = emptyStats();
+// 待重投译图的概要，供 GET_STATUS 同步返回（避免每次状态轮询都读一遍 storage）
+let reuseSummary = { count: 0, minRemaining: 0 };
 
 // "已停止"终态：触发条件是 L2 后仍 reCAPTCHA / 日限额 / 其它终态错误。
 // 不进 1 小时冷静期、不自动重开 Flow tab，必须用户在 sidepanel 点 Run Now 显式恢复。
@@ -101,10 +115,14 @@ let pauseReasonCode = null;
 // reCAPTCHA 双档恢复状态机（持久化到 chrome.storage.local，service worker 重启后保留）：
 //   successSinceLastRecovery   自上次 L1/L2 触发以来 translateImage 全流程成功的图片数
 //   consecutiveDownloadFails   连续 [DOWNLOAD_FAILED] 计数；达 RECOVERY_DOWNLOAD_FAIL_THRESHOLD 触发 L1
+//   consecutiveFlowDisconnects 「tab 在却断连失败」的连续数；达 FLOW_DISCONNECTED_PAUSE_THRESHOLD(3) 暂停
+//   consecutiveFailures        任意错误的连续失败数；达 CONSECUTIVE_FAILURE_PAUSE_THRESHOLD(5) 暂停
 //   lastRecoveryLevel          'NONE' | 'L1' | 'L2'；决定下次 reCAPTCHA 是 L1 还是升 L2
 let recoveryState = {
   successSinceLastRecovery: 0,
   consecutiveDownloadFails: 0,
+  consecutiveFlowDisconnects: 0,
+  consecutiveFailures: 0,
   lastRecoveryLevel: 'NONE',
 };
 // 恢复链运行中的 Promise 门闩：scheduleLoop 在 pending 时不发起新 poll，
@@ -194,6 +212,8 @@ async function loadRecoveryState() {
     recoveryState = {
       successSinceLastRecovery: Number(s.successSinceLastRecovery) || 0,
       consecutiveDownloadFails: Number(s.consecutiveDownloadFails) || 0,
+      consecutiveFlowDisconnects: Number(s.consecutiveFlowDisconnects) || 0,
+      consecutiveFailures: Number(s.consecutiveFailures) || 0,
       lastRecoveryLevel: ['NONE', 'L1', 'L2'].includes(s.lastRecoveryLevel) ? s.lastRecoveryLevel : 'NONE',
     };
   }
@@ -203,9 +223,51 @@ function resetRecoveryStateAll() {
   recoveryState = {
     successSinceLastRecovery: 0,
     consecutiveDownloadFails: 0,
+    consecutiveFlowDisconnects: 0,
+    consecutiveFailures: 0,
     lastRecoveryLevel: 'NONE',
   };
   persistRecoveryState();
+}
+
+/**
+ * 记一次任务结局对「连续失败」计数的影响，并在越过阈值时进入停止态。
+ * 返回是否已经（或本来就）处于停止态。
+ */
+function applyFailureStreak(outcome, { errorCode = null } = {}) {
+  recoveryState.consecutiveFailures = nextConsecutiveFailureCount(
+    recoveryState.consecutiveFailures,
+    outcome,
+  );
+  persistRecoveryState();
+  const pause = shouldPauseForRunNow(errorCode, {
+    consecutiveFlowDisconnects: recoveryState.consecutiveFlowDisconnects,
+    consecutiveFailures: recoveryState.consecutiveFailures,
+  });
+  if (pause) {
+    pausePoll(buildPauseReason(errorCode), { code: pauseCodeFor(errorCode) });
+  }
+  return pause;
+}
+
+function buildPauseReason(errorCode) {
+  if (errorCode === 'FLOW_AUTHENTICATION_FAILED') {
+    return 'Google Flow authentication failed — sign in again, then click Run Now';
+  }
+  if (errorCode === 'FLOW_DISCONNECTED'
+    && recoveryState.consecutiveFlowDisconnects >= FLOW_DISCONNECTED_PAUSE_THRESHOLD) {
+    return `Flow disconnected ${recoveryState.consecutiveFlowDisconnects} consecutive times while the tab was open — click Run Now to resume`;
+  }
+  return `${recoveryState.consecutiveFailures} consecutive task failures (limit ${CONSECUTIVE_FAILURE_PAUSE_THRESHOLD}) — click Run Now to resume`;
+}
+
+function pauseCodeFor(errorCode) {
+  if (errorCode === 'FLOW_AUTHENTICATION_FAILED') return errorCode;
+  if (errorCode === 'FLOW_DISCONNECTED'
+    && recoveryState.consecutiveFlowDisconnects >= FLOW_DISCONNECTED_PAUSE_THRESHOLD) {
+    return errorCode;
+  }
+  return 'CONSECUTIVE_FAILURES';
 }
 
 // ── 已停止终态 + 用户显式恢复 ─────────────────────────────────────
@@ -272,6 +334,19 @@ function resumePoll(_force = false) {
 // ── reCAPTCHA 恢复 + 终态停止 + 删除所有 project ───────────────────
 
 /**
+ * 恢复链跑通后清账：换来的是全新环境（新 project、storage 已清、grecaptcha token 验过），
+ * 旧环境攒下的失败连续性不该算到新环境头上。
+ */
+function markRecoverySucceeded(level) {
+  recoveryState.lastRecoveryLevel = level;
+  recoveryState.successSinceLastRecovery = 0;
+  recoveryState.consecutiveDownloadFails = 0;
+  recoveryState.consecutiveFailures = 0;
+  recoveryState.consecutiveFlowDisconnects = 0;
+  persistRecoveryState();
+}
+
+/**
  * 决定下次 reCAPTCHA 应走 L1 还是 L2：
  *   首次（lastRecoveryLevel='NONE'）→ L1
  *   上次 L1 后连续生成 >= 20 张才再次踩到 → 仍按"L1 见效"评估，重新做 L1
@@ -292,9 +367,11 @@ function decideRecoveryLevel() {
  * 失败 → 调 stopAndDelete 进入终态。
  * 并发安全：多个 in-flight task 同时抛 reCAPTCHA 时，第二个之后的调用 await 同一个 Promise，不会重复触发恢复链。
  */
-async function triggerRecovery(level) {
+async function triggerRecovery(level, options = {}) {
   if (recoveryPromise) return recoveryPromise;
-  if (pollPaused) return false;
+  // 本次失败刚把 bridge 推进停止态时仍要跑恢复链（风控该清还是要清，否则用户点 Run Now
+  // 立刻又撞墙）；但跑完不自动恢复轮询。已停止态是历史遗留时照旧短路。
+  if (pollPaused && options.allowWhilePaused !== true) return false;
   recoveryPromise = (async () => {
     const conn = await checkConnection().catch(() => null);
     const tabId = conn?.tabId;
@@ -307,10 +384,7 @@ async function triggerRecovery(level) {
     broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: `Recovery ${level} in progress…`, projectId: null });
     try {
       const newProjectId = await runRecoveryChain(tabId, level);
-      recoveryState.lastRecoveryLevel = level;
-      recoveryState.successSinceLastRecovery = 0;
-      recoveryState.consecutiveDownloadFails = 0;
-      persistRecoveryState();
+      markRecoverySucceeded(level);
       addLog('info', `✅ Recovery ${level} succeeded — new project ${newProjectId}`);
       return true;
     } catch (e) {
@@ -327,8 +401,8 @@ async function triggerRecovery(level) {
   })();
   try {
     const ok = await recoveryPromise;
-    if (ok) {
-      // 恢复成功 — 立即排一次 poll 拉新 task
+    if (ok && !pollPaused) {
+      // 恢复成功 — 立即排一次 poll 拉新 task。停止态下不自动恢复，等用户点 Run Now。
       scheduleLoop(100);
     }
     return ok;
@@ -350,10 +424,7 @@ async function triggerRecoveryInner(level) {
   addLog('warn', `🔄 Recovery ${level} starting (escalated)`);
   try {
     const newProjectId = await runRecoveryChain(tabId, level);
-    recoveryState.lastRecoveryLevel = level;
-    recoveryState.successSinceLastRecovery = 0;
-    recoveryState.consecutiveDownloadFails = 0;
-    persistRecoveryState();
+    markRecoverySucceeded(level);
     addLog('info', `✅ Recovery ${level} succeeded — new project ${newProjectId}`);
     return true;
   } catch (e) {
@@ -484,6 +555,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       pauseUntilAt: 0,
       cooldownRemainingMs: 0,
       recoveryState,
+      reuseSummary,
     });
     return false;
   }
@@ -505,17 +577,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
-  if (msg.type === 'GET_TODAY_STATS') {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const ts = todayStart.getTime();
-    let success = 0, failed = 0;
-    for (const t of taskHistory) {
-      if (t.time < ts) break;
-      if (t.status === 'completed') success++;
-      else failed++;
-    }
-    sendResponse({ total: success + failed, success, failed });
+  if (msg.type === 'GET_STATS') {
+    // 跨天时读的这一刻就滚动，不用等下一次任务结束
+    bridgeStats = normalizeStats(bridgeStats, Date.now());
+    sendResponse({ stats: bridgeStats });
+    return false;
+  }
+
+  if (msg.type === 'RESET_STATS') {
+    bridgeStats = emptyStats(Date.now());
+    persistBridgeStats();
+    addLog('info', 'Stats reset by user');
+    broadcast({ type: 'STATS_UPDATED', stats: bridgeStats });
+    sendResponse({ ok: true, stats: bridgeStats });
     return false;
   }
 
@@ -667,11 +741,18 @@ async function loadPersistedState() {
   const stored = await chrome.storage.local.get([
     'taskHistory',
     'logHistory',
+    STATS_STORAGE_KEY,
     STOP_STATE_STORAGE_KEY,
     LEGACY_PAUSE_STATE_STORAGE_KEY,
   ]);
   taskHistory = Array.isArray(stored.taskHistory) ? stored.taskHistory : [];
+  if (taskHistory.length > MAX_TASK_HISTORY) {
+    // 上限从 50 降到 10 —— 启动时就把旧记录裁掉，顺带回收它们占的 base64 图空间
+    taskHistory.length = MAX_TASK_HISTORY;
+    chrome.storage.local.set({ taskHistory }).catch(() => {});
+  }
   logHistory = Array.isArray(stored.logHistory) ? stored.logHistory : [];
+  bridgeStats = normalizeStats(stored[STATS_STORAGE_KEY], Date.now());
   // 旧版冷静期遗留 state：直接清掉，新方案不再使用
   if (stored[LEGACY_PAUSE_STATE_STORAGE_KEY]) {
     chrome.storage.local.remove([LEGACY_PAUSE_STATE_STORAGE_KEY]).catch(() => {});
@@ -687,6 +768,7 @@ async function loadPersistedState() {
     safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
   }
   await loadRecoveryState();
+  await refreshReuseSummary();
 }
 
 async function loadConfig() {
@@ -763,6 +845,35 @@ function addLog(level, message) {
 
 function persistLogs() {
   chrome.storage.local.set({ logHistory }).catch(() => {});
+}
+
+// ── 统计 + 译图复用概要 ──────────────────────────────────────────
+
+function persistBridgeStats() {
+  chrome.storage.local.set({ [STATS_STORAGE_KEY]: bridgeStats }).catch(() => {});
+}
+
+/** 记一次任务结局到当日/累计统计。跨天滚动由 recordOutcome 内部处理。 */
+function recordStat(outcome) {
+  bridgeStats = recordOutcome(bridgeStats, outcome, Date.now());
+  persistBridgeStats();
+  broadcast({ type: 'STATS_UPDATED', stats: bridgeStats });
+}
+
+function setReuseSummary(summary) {
+  reuseSummary = summary || { count: 0, minRemaining: 0 };
+  broadcast({ type: 'REUSE_SUMMARY_UPDATED', reuseSummary });
+}
+
+/** 全量重算待重投概要。只在启动和缓存增删时调 —— 它要读全量 storage。 */
+async function refreshReuseSummary() {
+  setReuseSummary(await summarizeTranslatedImages(chrome.storage.local, Date.now()));
+}
+
+function logDroppedTranslations(dropped) {
+  for (const record of dropped) {
+    addLog('warn', `⚠️ 译图未被复用即丢弃 (${record.reason}): imageHash=${String(record.imageHash).slice(0, 12)}…`);
+  }
 }
 
 function scheduleLoop(delayMs) {
@@ -893,31 +1004,65 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
   }
 
   const startedAt = Date.now();
+  const targetLanguageKey = task.targetLanguageCode || task.targetLanguage || targetLang;
+  const context = { sourceThumb, sourceImage, targetLang, targetLanguageKey, startedAt };
   try {
+    const imageHash = await imageDigest(task.imageBase64);
+
+    // 1. 译图复用：上一轮已经翻译成功、只是没送到服务端的图，直接重投，不再调 Google。
+    // 缓存为空时整段跳过 —— 那是绝大多数情况，而 consumeReuseWindow 要 storage.get(null)
+    // 读全量（含 taskHistory 里的 base64 图），绝不能进每个任务的热路径。
+    if (reuseSummary.count > 0) {
+      const cachedTranslation = await findTranslatedImage(chrome.storage.local, {
+        serviceBaseUrl: service.baseUrl,
+        targetLanguage: targetLanguageKey,
+        imageHash,
+        now: Date.now(),
+      });
+      if (cachedTranslation) {
+        await completeWithCachedTranslation(service, task, context, cachedTranslation);
+        return;
+      }
+      // 没命中就消耗一次匹配窗口；被窗口/TTL 淘汰的记录打 warn，不静默丢
+      const { dropped, summary } = await consumeReuseWindow(chrome.storage.local, Date.now());
+      logDroppedTranslations(dropped);
+      setReuseSummary(summary);
+    }
+
+    // 2. 政策缓存：这张图上传必被拒，跳过上传直接保留原图
     const cachedPolicy = await findImagePolicyFallback(chrome.storage.local, task.imageBase64);
     if (cachedPolicy) {
       addLog('warn', `Local policy cache hit [${cachedPolicy.reason}]: skipping upload for ${task.subTaskId}`);
-      await completePolicyFallbackTask(service, task, {
-        sourceThumb,
-        sourceImage,
-        targetLang,
-        startedAt,
-      }, cachedPolicy);
+      await completePolicyFallbackTask(service, task, context, cachedPolicy);
       return;
     }
-    const result = await runWithTimeout(translateImage(task, conn), TRANSLATE_TIMEOUT_MS, 'translate timeout (180s)');
-    await postJson(service, '/turboflow-bridge/tasks/complete', {
-      bridgeId,
-      assignmentId: task.assignmentId,
-      resultImageBase64: result.resultDataUrl,
-      resultMimeType: 'image/png',
-      resultUrl: result.resultUrl || null,
-      elapsedMs: Date.now() - startedAt,
-    });
+
+    // 3. 真正翻译
+    const result = await runWithTimeout(
+      translateImage(task, conn),
+      TRANSLATE_TIMEOUT_MS,
+      `translate timeout (${Math.round(TRANSLATE_TIMEOUT_MS / 1000)}s)`,
+    );
+    try {
+      await postCompletionWithRetry(service, {
+        bridgeId,
+        assignmentId: task.assignmentId,
+        imageHash,
+        resultImageBase64: result.resultDataUrl,
+        resultMimeType: 'image/png',
+        resultUrl: result.resultUrl || null,
+        elapsedMs: Date.now() - startedAt,
+      });
+    } catch (reportError) {
+      // 图已经翻译好了 —— 落盘留着，等服务端重派时按 sha256 复用，绝不让这次 Google 额度白烧
+      await retainTranslationForReuse(service, task, context, result, imageHash, reportError);
+      return;
+    }
     const elapsed = Date.now() - startedAt;
     const resultImage = ensureDataUrl(result.resultDataUrl);
     const resultThumb = await createThumbnail(result.resultDataUrl, 64);
     addLog('info', `Task completed: ${task.subTaskId}`);
+    recordStat(STAT_SUCCESS);
     addTaskHistory({
       taskId: task.taskId,
       subTaskId: task.subTaskId,
@@ -932,9 +1077,14 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       targetLang,
     });
     removeCurrentTask(task.assignmentId);
-    // 成功 → successSinceLastRecovery++ + consecutiveDownloadFails 清零，状态持久化
+    // 成功会打断所有连续失败计数。
     recoveryState.successSinceLastRecovery++;
     recoveryState.consecutiveDownloadFails = 0;
+    recoveryState.consecutiveFlowDisconnects = 0;
+    recoveryState.consecutiveFailures = nextConsecutiveFailureCount(
+      recoveryState.consecutiveFailures,
+      FAILURE_STREAK_RESET,
+    );
     persistRecoveryState();
     scheduleLoop(POLL_INTERVAL_MS);
   } catch (e) {
@@ -952,7 +1102,21 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       }, policy);
       return;
     }
-    const errorCode = classifyErrorCode(e.message);
+    const errorCode = classifyErrorCode(e);
+    // 断连失败要区分「tab 真的没了」和「tab 在却僵死」：前者 watchdog 会在 tab 重开后自动恢复，
+    // 不该消耗人工介入配额；后者才是这个阈值要抓的对象。所以当场主动探一次，而不是读缓存的
+    // flowTabAvailable —— watchdog 最多有 1 秒延迟，in-flight 任务往往比它先抛错。
+    const flowTabPresent = errorCode === 'FLOW_DISCONNECTED'
+      ? await probeFlowTabAvailable()
+      : true;
+    recoveryState.consecutiveFlowDisconnects = nextFlowDisconnectedCount(
+      recoveryState.consecutiveFlowDisconnects,
+      errorCode,
+      { flowTabPresent },
+    );
+    // 先停 poll，再上报失败；即使 fail 上报需要退避重试，也不能继续领取新的翻译任务。
+    // 全局连续失败计数在这里推进（tab 缺失的断连也算 —— 反复关 tab 本身就该停下来）。
+    const pauseForRunNow = applyFailureStreak(FAILURE_STREAK_INCREMENT, { errorCode });
     await reportFailWithRetry(service, {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -963,6 +1127,7 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       elapsedMs: elapsed,
     });
     addLog('error', `Task failed [${errorCode}]: ${friendlyErrorMessage(errorCode, e.message)}`);
+    recordStat(STAT_FAILED);
     addTaskHistory({
       taskId: task.taskId,
       subTaskId: task.subTaskId,
@@ -977,11 +1142,16 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
     });
     removeCurrentTask(task.assignmentId);
 
-    // 错误处理状态机：
+    // 错误处理状态机。注意各错误码的专属处理**照旧执行**，即便本次失败已经把 bridge 推进
+    // 停止态 —— 风控该清还是要清，否则用户点 Run Now 会立刻又撞墙。停止态只保证「不领新任务」，
+    // 所以下面所有 scheduleLoop 在停止态下都会被 scheduleLoop 自身短路。
+    // - FLOW_AUTHENTICATION_FAILED → 立即停止 poll，等用户重新登录后点 Run Now（不删 project）
     // - DAILY_QUOTA_REACHED → 终态停止 + 删 project（账号级硬限制，重试无意义）
     // - RECAPTCHA_BLOCKED   → 决策 L1/L2 触发恢复链；recovery 失败由 triggerRecovery 内部走 stopAndDelete
     // - DOWNLOAD_FAILED     → 连续计数；达 3 张触发 L1 恢复
-    // - FLOW_DISCONNECTED / GOOGLE_BLOCKED / TIMEOUT / 其它 → 不动 recoveryState，500ms 后正常重试
+    // - FLOW_DISCONNECTED   → tab 在却连续 3 次失败则暂停；tab 真没了交给 watchdog 自动恢复
+    // - 任意错误连续 5 次   → 兜底暂停（applyFailureStreak 已处理）
+    // - GOOGLE_BLOCKED / TIMEOUT / 其它 → 500ms 后正常重试
     if (errorCode === 'DAILY_QUOTA_REACHED') {
       stopAndDelete('Google daily quota reached — stopped and deleting all projects', { code: 'DAILY_QUOTA_REACHED' });
     } else if (errorCode === 'RECAPTCHA_BLOCKED') {
@@ -990,7 +1160,7 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
         stopAndDelete('reCAPTCHA blocked after L2 recovery — stopped and deleting all projects', { code: 'RECAPTCHA_BLOCKED_AFTER_L2' });
       } else {
         const level = decideRecoveryLevel();
-        triggerRecovery(level);
+        triggerRecovery(level, { allowWhilePaused: pauseForRunNow });
       }
     } else if (errorCode === 'DOWNLOAD_FAILED') {
       recoveryState.consecutiveDownloadFails++;
@@ -998,12 +1168,13 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       if (recoveryState.consecutiveDownloadFails >= RECOVERY_DOWNLOAD_FAIL_THRESHOLD) {
         addLog('warn', `🔄 连续 ${recoveryState.consecutiveDownloadFails} 张下载失败 — 触发 L1 恢复`);
         const level = decideRecoveryLevel();
-        triggerRecovery(level);
+        triggerRecovery(level, { allowWhilePaused: pauseForRunNow });
       } else {
         scheduleLoop(POLL_INTERVAL_MS);
       }
     } else {
-      // FLOW_DISCONNECTED / GOOGLE_BLOCKED / TIMEOUT / 其它：reload 副伤等被动失败 — 不动 counter
+      // FLOW_DISCONNECTED / GOOGLE_BLOCKED / TIMEOUT / 其它：普通可重试失败。
+      // 停止态下 scheduleLoop 自身会短路，不会领到新任务。
       scheduleLoop(POLL_INTERVAL_MS);
     }
   }
@@ -1030,6 +1201,11 @@ function runWithTimeout(promise, timeoutMs, timeoutMessage) {
 async function completePolicyFallbackTask(service, task, context, policy) {
   const elapsed = Date.now() - context.startedAt;
   const reason = policy.reason || policy.apiStatus || 'INVALID_ARGUMENT';
+  // 内容政策拒绝能跑通恰恰证明 Flow tab 是活的，断连连续性确实被打断了 → 清零。
+  // 但它对「连续失败」计数是中立的（既不算失败，也不打断之前的失败连续性），所以不碰
+  // consecutiveFailures —— 见 FAILURE_STREAK_NEUTRAL 的约定。
+  recoveryState.consecutiveFlowDisconnects = 0;
+  persistRecoveryState();
   const payload = buildPolicyFallbackCompletion({
     bridgeId,
     assignmentId: task.assignmentId,
@@ -1051,6 +1227,9 @@ async function completePolicyFallbackTask(service, task, context, policy) {
     await clearPendingPolicyCompletion(chrome.storage.local, pendingRecord);
   } catch (error) {
     addLog('warn', `Policy fallback completion report pending for ${task.subTaskId}: ${error.message}; upload remains blocked by local image digest`);
+    // 服务端收不到结果就是一次失败：连续 5 次后停下，别在「算得出来但送不出去」上空转。
+    applyFailureStreak(FAILURE_STREAK_INCREMENT);
+    recordStat(STAT_FAILED);
     addTaskHistory({
       taskId: task.taskId,
       subTaskId: task.subTaskId,
@@ -1073,6 +1252,7 @@ async function completePolicyFallbackTask(service, task, context, policy) {
   }
 
   addLog('warn', `Task policy fallback [${reason}]: kept original image for ${task.subTaskId}`);
+  recordStat(STAT_POLICY);
   addTaskHistory({
     taskId: task.taskId,
     subTaskId: task.subTaskId,
@@ -1090,6 +1270,163 @@ async function completePolicyFallbackTask(service, task, context, policy) {
   removeCurrentTask(task.assignmentId);
   recoveryState.successSinceLastRecovery++;
   recoveryState.consecutiveDownloadFails = 0;
+  recoveryState.consecutiveFlowDisconnects = 0;
+  persistRecoveryState();
+  scheduleLoop(POLL_INTERVAL_MS);
+  return true;
+}
+
+/**
+ * 服务端明确说「这次要重来」——译图收到了但后处理失败，assignment 已失效。
+ * 再退避重投同一个 assignmentId 必然还是 404，白等 7 秒，所以要立即放弃重试转落盘。
+ */
+function isReprocessRequired(error) {
+  return typeof error?.message === 'string' && error.message.includes(REPROCESS_REQUIRED_REASON);
+}
+
+/**
+ * 译图完成上报带指数退避（此前完全没有重试，一次网络抖动就当翻译失败、整张图重译）。
+ */
+async function postCompletionWithRetry(service, payload) {
+  for (let attempt = 0; attempt <= FAIL_REPORT_MAX_RETRIES; attempt++) {
+    try {
+      await postJson(service, '/turboflow-bridge/tasks/complete', payload);
+      if (attempt > 0) {
+        addLog('info', `Completion reported on retry ${attempt}: ${payload.assignmentId}`);
+      }
+      return;
+    } catch (err) {
+      if (isReprocessRequired(err)) {
+        addLog('warn', `Server asked to reprocess ${payload.assignmentId} — caching the translated image instead of retrying`);
+        throw err;
+      }
+      if (attempt === FAIL_REPORT_MAX_RETRIES) {
+        throw err;
+      }
+      const backoff = FAIL_REPORT_RETRY_BASE_MS * Math.pow(2, attempt);
+      addLog('warn', `Completion report attempt ${attempt + 1} failed (${err.message}), retrying in ${backoff}ms`);
+      await sleep(backoff);
+    }
+  }
+}
+
+/**
+ * 翻译成功但上报失败：把译图按源图 sha256 落盘，等服务端重派同一张图时复用。
+ * 同时照常 reportFail，让服务端立刻重排而不用等 lease 过期（6 分钟）。
+ */
+async function retainTranslationForReuse(service, task, context, result, imageHash, reportError) {
+  const elapsed = Date.now() - context.startedAt;
+  const { record, dropped } = await rememberTranslatedImage(chrome.storage.local, {
+    serviceBaseUrl: service.baseUrl,
+    targetLanguage: context.targetLanguageKey,
+    imageHash,
+    resultDataUrl: result.resultDataUrl,
+    resultUrl: result.resultUrl || null,
+    resultMimeType: 'image/png',
+    elapsedMs: elapsed,
+    now: Date.now(),
+  });
+  logDroppedTranslations(dropped);
+  if (record.storageError) {
+    addLog('warn', 'Translated image is retained in memory only because extension storage is unavailable');
+  }
+  await refreshReuseSummary();
+  addLog('warn', `Completion报送失败，已保留译图待复用（${REUSE_MATCH_WINDOW} 次任务内匹配同源图即直接重投）: ${task.subTaskId} (${reportError.message})`);
+
+  // 服务端收不到结果就是一次失败，同样受连续 5 次闸门约束
+  applyFailureStreak(FAILURE_STREAK_INCREMENT);
+  recordStat(STAT_FAILED);
+  await reportFailWithRetry(service, {
+    bridgeId,
+    assignmentId: task.assignmentId,
+    errorCode: 'COMPLETION_REPORT_FAILED',
+    message: reportError.message,
+    stack: reportError.stack || null,
+    retryable: true,
+    elapsedMs: elapsed,
+  });
+  const resultThumb = await createThumbnail(result.resultDataUrl, 64);
+  addTaskHistory({
+    taskId: task.taskId,
+    subTaskId: task.subTaskId,
+    service: service.baseUrl,
+    status: 'pending-report',
+    error: reportError.message,
+    elapsedMs: elapsed,
+    time: Date.now(),
+    sourceThumb: context.sourceThumb,
+    sourceImage: context.sourceImage,
+    resultThumb,
+    resultImage: ensureDataUrl(result.resultDataUrl),
+    targetLang: context.targetLang,
+  });
+  removeCurrentTask(task.assignmentId);
+  scheduleLoop(POLL_INTERVAL_MS);
+}
+
+/**
+ * 命中译图复用缓存：直接把上次翻译好的图上送，一次 Google 调用都不花。
+ * 带上 imageHash 让服务端校验源图一致（防止哈希算错把 A 图的译图配给 B 图）。
+ * elapsedMs 沿用原始耗时，而不是复用这一刻的接近 0 的值。
+ */
+async function completeWithCachedTranslation(service, task, context, cached) {
+  addLog('info', `♻️ 命中译图复用缓存，跳过翻译直接重投: ${task.subTaskId}`);
+  try {
+    await postCompletionWithRetry(service, {
+      bridgeId,
+      assignmentId: task.assignmentId,
+      imageHash: cached.imageHash,
+      resultImageBase64: cached.resultDataUrl,
+      resultMimeType: cached.resultMimeType || 'image/png',
+      resultUrl: cached.resultUrl || null,
+      elapsedMs: cached.elapsedMs ?? (Date.now() - context.startedAt),
+    });
+  } catch (reportError) {
+    // 还是送不出去：记录留着，匹配窗口继续倒数
+    addLog('warn', `译图重投仍失败，记录保留: ${task.subTaskId} (${reportError.message})`);
+    applyFailureStreak(FAILURE_STREAK_INCREMENT);
+    recordStat(STAT_FAILED);
+    await reportFailWithRetry(service, {
+      bridgeId,
+      assignmentId: task.assignmentId,
+      errorCode: 'COMPLETION_REPORT_FAILED',
+      message: reportError.message,
+      stack: reportError.stack || null,
+      retryable: true,
+      elapsedMs: Date.now() - context.startedAt,
+    });
+    removeCurrentTask(task.assignmentId);
+    scheduleLoop(POLL_INTERVAL_MS);
+    return false;
+  }
+
+  await forgetTranslatedImage(chrome.storage.local, cached);
+  await refreshReuseSummary();
+  const elapsed = Date.now() - context.startedAt;
+  recordStat(STAT_SUCCESS);
+  addTaskHistory({
+    taskId: task.taskId,
+    subTaskId: task.subTaskId,
+    service: service.baseUrl,
+    status: 'completed',
+    reused: true,
+    elapsedMs: cached.elapsedMs ?? elapsed,
+    time: Date.now(),
+    sourceThumb: context.sourceThumb,
+    sourceImage: context.sourceImage,
+    resultThumb: await createThumbnail(cached.resultDataUrl, 64),
+    resultImage: ensureDataUrl(cached.resultDataUrl),
+    targetLang: context.targetLang,
+  });
+  removeCurrentTask(task.assignmentId);
+  // 成功打断连续失败计数
+  recoveryState.successSinceLastRecovery++;
+  recoveryState.consecutiveDownloadFails = 0;
+  recoveryState.consecutiveFlowDisconnects = 0;
+  recoveryState.consecutiveFailures = nextConsecutiveFailureCount(
+    recoveryState.consecutiveFailures,
+    FAILURE_STREAK_RESET,
+  );
   persistRecoveryState();
   scheduleLoop(POLL_INTERVAL_MS);
   return true;

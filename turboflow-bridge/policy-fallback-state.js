@@ -1,23 +1,11 @@
+import { imageDigest } from './image-digest.js';
+
 const IMAGE_POLICY_CACHE_PREFIX = 'imagePolicyFallback:';
 const PENDING_POLICY_REPORT_PREFIX = 'pendingPolicyFallbackReport:';
 
 const memoryPolicyCache = new Map();
 const memoryPendingReports = new Map();
 const pendingPolicyWrites = new Map();
-
-function stripDataUrl(value) {
-  if (!value) return '';
-  const comma = value.indexOf(',');
-  return comma >= 0 ? value.substring(comma + 1) : value;
-}
-
-async function imageDigest(imageBase64) {
-  const binary = atob(stripDataUrl(imageBase64));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
 
 function policyStorageKey(digest) {
   return IMAGE_POLICY_CACHE_PREFIX + digest;

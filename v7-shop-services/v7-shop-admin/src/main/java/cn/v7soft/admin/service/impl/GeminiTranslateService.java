@@ -9,6 +9,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -25,6 +27,7 @@ import com.google.genai.types.Content;
 import com.google.genai.types.CreateBatchJobConfig;
 import com.google.genai.types.GenerateContentConfig;
 import com.google.genai.types.GenerateContentResponse;
+import com.google.genai.types.GenerateContentResponsePromptFeedback;
 import com.google.genai.types.GenerateContentResponseUsageMetadata;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
@@ -32,6 +35,7 @@ import com.google.genai.types.Part;
 import com.google.genai.types.UploadFileConfig;
 
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
+import cn.v7soft.admin.exception.GeminiContentBlockedException;
 import cn.v7soft.dao.entities.primary.AiAccount;
 import io.github.resilience4j.retry.Retry;
 import lombok.extern.slf4j.Slf4j;
@@ -147,6 +151,88 @@ public class GeminiTranslateService {
         return code == 400 || code == 401 || code == 403 || code == 429;
     }
 
+    // ======================== 结果可用性校验 + 错误分档 ========================
+
+    /**
+     * 视为"正常收尾"的终止原因，其余一律按不可用结果处理。
+     * <p>
+     * NO_IMAGE 必须留在白名单里：translateImageRaw 的 prompt 明确要求"图中无可译文案时不要生成图片"，
+     * 模型据此只回文本是**正常业务结果**（调用方拿到 null 后保留原图），不是政策阻断。
+     */
+    private static final Set<String> ACCEPTABLE_FINISH_REASONS =
+            Set.of("STOP", "FINISH_REASON_UNSPECIFIED", "NO_IMAGE");
+
+    /**
+     * 官方文档标记 Retryable=Yes 的 HTTP 状态。
+     * 文档明确 Retryable=No 的（400 / 401 / 403 / 404 / 416 / 499 / 501）重试没有意义，直接判永久失败。
+     * 409 在文档里既有 aborted(Yes) 又有 already_exists(No)，翻译调用不会产生 already_exists，按可重试处理。
+     * 参见 https://ai.google.dev/gemini-api/docs/api-errors 与 troubleshooting 的"do retry 429/408/5xx"。
+     */
+    private static final Set<Integer> RETRYABLE_API_STATUS = Set.of(408, 409, 429, 500, 502, 503, 504);
+
+    /**
+     * 判断 Gemini 调用异常是否值得重试。
+     * 只有 Gemini 明确标记可重试的 HTTP 状态，以及 IO / timeout 这类瞬时网络异常才重试。
+     * 未知的本地运行时异常默认不可重试，避免配置或代码错误被上层变成无限重试。
+     */
+    public static boolean isRetryableApiError(Throwable e) {
+        for (Throwable current = e; current != null; current = current.getCause()) {
+            // 所有 key 当日配额耗尽 —— 429 语义，等配额自然恢复
+            if (current instanceof DailyQuotaExhaustedException) {
+                return true;
+            }
+            if (current instanceof ApiException ae) {
+                return RETRYABLE_API_STATUS.contains(ae.code());
+            }
+            if (current instanceof IOException || current instanceof TimeoutException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 校验生成结果可用：prompt 未被内容策略拦截，且候选以 STOP 正常收尾（文本场景还要求真的带回内容）。
+     * <p>
+     * 不可用时抛 {@link GeminiContentBlockedException}，reason 带上 Gemini 的原始枚举名。
+     * 这样政策阻断（SAFETY / PROHIBITED_CONTENT / …）和输出截断（MAX_TOKENS）都不会再被
+     * {@code response.text()} 返回 null 悄悄吞掉 —— 那会让半截译文或空译文直接写进产品。
+     *
+     * @param expectText 文本/HTML 场景传 true；图片场景传 false（图片正常可以只回文本）
+     */
+    private static void ensureUsableResponse(GenerateContentResponse response, String label, boolean expectText) {
+        if (response == null) {
+            throw new GeminiContentBlockedException("EMPTY_RESPONSE", label + ": Gemini 未返回响应");
+        }
+        String blockReason = response.promptFeedback()
+                .flatMap(GenerateContentResponsePromptFeedback::blockReason)
+                .map(Object::toString)
+                .filter(reason -> !reason.isBlank() && !"BLOCKED_REASON_UNSPECIFIED".equals(reason))
+                .orElse(null);
+        if (blockReason != null) {
+            throw new GeminiContentBlockedException(blockReason,
+                    label + ": prompt 被 Gemini 内容策略拦截 (" + blockReason + ")");
+        }
+        // 用 candidates() 而不是 response.finishReason()，后者在无候选时的行为没有保证
+        String finishReason = response.candidates()
+                .filter(candidates -> !candidates.isEmpty())
+                .flatMap(candidates -> candidates.get(0).finishReason())
+                .map(Object::toString)
+                .filter(reason -> !reason.isBlank())
+                .orElse(null);
+        if (finishReason != null && !ACCEPTABLE_FINISH_REASONS.contains(finishReason)) {
+            throw new GeminiContentBlockedException(finishReason,
+                    label + ": Gemini 生成未正常收尾 (" + finishReason + ")");
+        }
+        if (expectText) {
+            String text = response.text();
+            if (text == null || text.isBlank()) {
+                throw new GeminiContentBlockedException("EMPTY_RESPONSE",
+                        label + ": Gemini 返回空内容 (finishReason=" + finishReason + ")");
+            }
+        }
+    }
+
     // ======================== 带 Resilience4j 重试的翻译方法 ========================
 
     public String translateText(String text, String targetLanguageName) {
@@ -199,11 +285,12 @@ public class GeminiTranslateService {
             return client.models.generateContent(MODEL, prompt, config);
         });
         long elapsed = System.currentTimeMillis() - start;
-        String result = response.text();
 
+        // 先记账再校验：prompt token 已经消耗，即便结果被阻断也要回传用量
         logTokenUsage("translateText", elapsed, response);
         emitTokenUsage(response, elapsed, usageCallback);
-        return result;
+        ensureUsableResponse(response, "translateText", true);
+        return response.text();
     }
 
     public String translateHtmlRaw(String html, String targetLanguageName) {
@@ -243,11 +330,11 @@ public class GeminiTranslateService {
             return c.models.generateContent(MODEL, prompt, config);
         });
         long elapsed = System.currentTimeMillis() - start;
-        String result = response.text();
 
         logTokenUsage("translateHtml", elapsed, response);
         emitTokenUsage(response, elapsed, usageCallback);
-        return result;
+        ensureUsableResponse(response, "translateHtml", true);
+        return response.text();
     }
 
     public byte[] translateImageRaw(byte[] imageBytes, String mimeType, String targetLanguageName) {
@@ -333,11 +420,18 @@ public class GeminiTranslateService {
 
         logTokenUsage("translateImage", elapsed, response);
         emitTokenUsage(response, elapsed, usageCallback);
+        // 图片场景允许只回文本（"无需翻译"），所以 expectText=false；
+        // 但 IMAGE_SAFETY / PROHIBITED_CONTENT 这类阻断以前和"无需翻译"长得一模一样，现在会被区分出来
+        return extractUsableImageResult(response, "translateImage");
+    }
 
+    /** 所有同步图片生成入口统一走同一套政策/终止原因校验。包可见以便做纯响应回归测试。 */
+    static byte[] extractUsableImageResult(GenerateContentResponse response, String label) {
+        ensureUsableResponse(response, label, false);
         return extractImageResult(response);
     }
 
-    private byte[] extractImageResult(GenerateContentResponse response) {
+    private static byte[] extractImageResult(GenerateContentResponse response) {
         List<Part> parts = response.parts();
         if (parts == null || parts.isEmpty()) {
             log.warn("[translateImage] Gemini 响应中没有 parts");
@@ -633,7 +727,7 @@ public class GeminiTranslateService {
 
         logTokenUsage("translateImageWithAccount", elapsed, response);
         emitTokenUsage(response, elapsed, usageCallback);
-        return extractImageResult(response);
+        return extractUsableImageResult(response, "translateImageWithAccount");
     }
 
     // ======================== Batch API 方法（固定用主 Key） ========================

@@ -6,9 +6,24 @@
  * 支持 {{key}} 格式的占位符替换
  */
 
+import type { DateFormatPreset } from "~/composables/useDateFormat";
+
+interface Props {
+  showDate?: boolean;
+  dateFormat?: DateFormatPreset;
+  showDateLabel?: boolean;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  showDate: true,
+  dateFormat: "auto",
+  showDateLabel: false,
+});
+
 const { articleInfo } = useArticlePage();
 const { replacePlaceholders } = useProtocol();
 const { t } = useI18n();
+const { formatDate } = useDateFormat();
 
 const hasContent = computed(() => !!articleInfo.value);
 
@@ -24,19 +39,20 @@ const content = computed(() =>
   replacePlaceholders(articleInfo.value?.content || "")
 );
 
+// 更新时间：默认跟随站点语言本地化，也可在编辑器中切换为国际通用格式
 const formattedDate = computed(() => {
-  if (!articleInfo.value?.updateTime) return null;
-  try {
-    const date = new Date(articleInfo.value.updateTime);
-    return date.toLocaleDateString("zh-CN", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  } catch {
-    return articleInfo.value.updateTime;
-  }
+  if (!props.showDate || !articleInfo.value?.updateTime) return null;
+  return formatDate(articleInfo.value.updateTime, props.dateFormat) || null;
 });
+
+const dateLabel = computed(() =>
+  props.showDateLabel ? t("article.updateTime") : ""
+);
+
+// <time> 的机器可读值，便于 SEO 抓取
+const dateTimeAttr = computed(() =>
+  formatDate(articleInfo.value?.updateTime, "iso")
+);
 </script>
 
 <template>
@@ -46,7 +62,8 @@ const formattedDate = computed(() => {
 
     <!-- 更新时间 -->
     <div v-if="formattedDate" class="article-meta">
-      <time class="article-date">{{ formattedDate }}</time>
+      <span v-if="dateLabel" class="article-date-label">{{ dateLabel }}</span>
+      <time class="article-date" :datetime="dateTimeAttr">{{ formattedDate }}</time>
     </div>
 
     <!-- 描述 -->
@@ -84,6 +101,11 @@ const formattedDate = computed(() => {
   font-size: var(--article-meta-size, 14px);
   color: var(--article-meta-color, #6b7280);
   margin-bottom: var(--article-meta-margin, 20px);
+}
+
+.article-date-label {
+  color: var(--article-meta-color, #6b7280);
+  margin-inline-end: 6px;
 }
 
 .article-date {

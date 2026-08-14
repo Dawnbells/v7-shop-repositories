@@ -90,7 +90,7 @@ import org.springframework.dao.DataIntegrityViolationException;
  * [Provider 回调] onSubTaskCompleted / onSubTaskFailed
  *   ← TranslateTaskCallbackAdapter 中间类 →
  *   完成: updateUsageRecord（写入实际 token）→ 更新 TaskStatus
- *   失败: accumulateUsageRecord（累加 token）→ retryable 且 attemptCount < 3 入失败队列 / 否则标记 FAILED
+ *   失败: accumulateUsageRecord（累加 token）→ TurboFlow 编码错误无限重试；其它 retryable 最多 3 次
  *   ↓
  * [定时器三] syncTaskStatus (5s)
  *   触发 Provider 回收过期 assignment
@@ -239,6 +239,27 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] updateUsageRecord failed: subTaskId={}", subTask.getSubTaskId(), e);
         }
+    }
+
+    @Override
+    public void markUsageRecordFailed(AiAccountTranslateSubTask subTask, String errorCode, String message) {
+        try {
+            usageRecordRepository.findByTaskIdAndSubTaskId(subTask.getTaskId(), subTask.getSubTaskId())
+                    .ifPresent(record -> {
+                        record.setFailReason(buildFailReason(errorCode, message));
+                        record.setAttemptCount(subTask.getAttemptCount().get());
+                        usageRecordRepository.save(record);
+                    });
+        } catch (Exception e) {
+            log.warn("[AiAccountTranslateTask] markUsageRecordFailed failed: subTaskId={}", subTask.getSubTaskId(), e);
+        }
+    }
+
+    private String buildFailReason(String errorCode, String message) {
+        String text = StrUtil.isBlank(errorCode)
+                ? StrUtil.blankToDefault(message, "unknown failure")
+                : errorCode + ": " + StrUtil.blankToDefault(message, "");
+        return text.length() > 500 ? text.substring(0, 500) : text;
     }
 
     /** 把 SubTaskResult 应用到 record 并保存：写入 token 用量、actualCost、翻译产物、cache 标记。 */
@@ -1100,7 +1121,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
                         String reason = policyCache.get().getReason();
                         updatePolicyCacheHitUsageRecord(
                                 subTask, language.getName(), account, sourceFile, imageHash, reason);
-                        status.completePolicyFallbackImageSubTask(subTask);
+                        status.completePolicyFallbackSubTask(subTask);
                         log.warn("[AiAccountTranslateTask] policy cache hit before provider dispatch: taskId={}, subTaskId={}, imageHash={}, reason={}",
                                 subTask.getTaskId(), subTask.getSubTaskId(), imageHash, reason);
                         return true;

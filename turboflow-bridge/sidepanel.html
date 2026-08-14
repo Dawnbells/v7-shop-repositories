@@ -43,17 +43,25 @@
 
     <section class="panel stats-panel">
       <div class="stats-row">
-        <div class="stat-item">
+        <div class="stat-item" title="今日 / 累计">
           <span class="stat-value" id="stat-total">0</span>
+          <span class="stat-all-time" id="stat-total-all">0</span>
           <span class="stat-label">Total</span>
         </div>
-        <div class="stat-item stat-success">
+        <div class="stat-item stat-success" title="今日 / 累计">
           <span class="stat-value" id="stat-success">0</span>
+          <span class="stat-all-time" id="stat-success-all">0</span>
           <span class="stat-label">Success</span>
         </div>
-        <div class="stat-item stat-failed">
+        <div class="stat-item stat-failed" title="今日 / 累计">
           <span class="stat-value" id="stat-failed">0</span>
+          <span class="stat-all-time" id="stat-failed-all">0</span>
           <span class="stat-label">Failed</span>
+        </div>
+        <div class="stat-item stat-policy" title="因内容政策限制保留原图（今日 / 累计）">
+          <span class="stat-value" id="stat-policy">0</span>
+          <span class="stat-all-time" id="stat-policy-all">0</span>
+          <span class="stat-label">Policy</span>
         </div>
       </div>
     </section>
@@ -70,6 +78,7 @@
       <div id="current-task" class="task-card idle">
         <span class="task-status-badge idle">Idle</span>
       </div>
+      <div id="reuse-hint" class="reuse-hint hidden"></div>
     </section>
 
     <section class="panel">
@@ -108,6 +117,9 @@
       <div class="btn-group">
         <button id="btn-add-service" class="secondary">+ Add Service</button>
         <button id="btn-save" class="primary">Save</button>
+      </div>
+      <div class="btn-group">
+        <button id="btn-reset-stats" class="secondary" title="清零今日与累计统计">Reset stats</button>
       </div>
       <div id="toast" class="toast hidden"></div>
     </div>

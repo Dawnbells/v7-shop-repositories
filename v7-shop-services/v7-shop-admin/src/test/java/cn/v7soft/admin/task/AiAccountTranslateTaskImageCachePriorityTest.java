@@ -92,7 +92,7 @@ class AiAccountTranslateTaskImageCachePriorityTest {
                 1L, 1, 10L, language, 20L, null, 30L);
 
         assertTrue(task.tryCompleteFromCache(status, subTask, account));
-        assertEquals(1, status.getPolicyFallbackImageCount().get());
+        assertEquals(1, status.getPolicyFallbackCount().get());
         assertEquals(1, status.getCompletedSubTaskCount().get());
         verify(imagePolicyCacheRepository).findByImageHash(anyString());
     }

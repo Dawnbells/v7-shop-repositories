@@ -422,6 +422,16 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
         return callFlowApi(tabId, url, payload, freshToken, action, 1);
       }
     }
+    // 刷过 token 仍 401（或压根拿不到新 token）：Flow 凭据确实失效了，必须等用户重新登录。
+    // 抛结构化 code，而不是让 background 去匹配文案 —— Google 的 401 响应体措辞不稳定，
+    // 而且这里的 errText 会被截断到 500 字，status 字段可能压根不在截断范围内。
+    if (result.status === 401) {
+      const error = new Error('Flow API unauthorized: ' + result.error);
+      error.name = 'FlowAuthenticationError';
+      error.code = 'FLOW_AUTHENTICATION_FAILED';
+      error.httpStatus = 401;
+      throw error;
+    }
     // On 429: 先判 daily quota（账号级硬性限制，重试只会加重风控），其余走限速重试。
     // 对齐 nano-b je 的 429 + DAILY_QUOTA_REACHED/RESOURCE_EXHAUSTED 早停语义。
     if (result.status === 429) {
@@ -554,6 +564,14 @@ export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid
       if (freshToken) {
         return uploadImageToFlow(tabId, { base64, fileName, mimeType, pid, token: freshToken }, 1);
       }
+    }
+    if (result.status === 401 || result.apiStatus === 'UNAUTHENTICATED') {
+      const error = new Error('Upload failed: ' + result.error);
+      error.name = 'FlowAuthenticationError';
+      error.code = 'FLOW_AUTHENTICATION_FAILED';
+      error.apiStatus = result.apiStatus || null;
+      error.httpStatus = result.status || null;
+      throw error;
     }
     throw new Error('Upload failed: ' + result.error);
   }

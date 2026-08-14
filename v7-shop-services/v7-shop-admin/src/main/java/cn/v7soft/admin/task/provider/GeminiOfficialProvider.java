@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
+import cn.v7soft.admin.exception.GeminiContentBlockedException;
 import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
@@ -146,7 +147,13 @@ public class GeminiOfficialProvider implements TranslateProvider {
         log.debug("[GeminiOfficialProvider] translate text request started: taskId={}, subTaskId={}, targetLanguage={}, textLength={}",
                 subTask.getTaskId(), subTask.getSubTaskId(), langName,
                 subTask.getContent() == null ? 0 : subTask.getContent().length());
-        String translated = geminiTranslateService.translateTextRaw(subTask.getContent(), langName, usageRef::set);
+        String translated;
+        try {
+            translated = geminiTranslateService.translateTextRaw(
+                    subTask.getContent(), langName, usageRef::set);
+        } catch (GeminiContentBlockedException e) {
+            return buildPolicyFallbackResult(subTask, account, usageRef.get(), null, e.getReason());
+        }
 
         GeminiTranslateService.TokenUsage usage = usageRef.get();
         int prompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
@@ -174,7 +181,13 @@ public class GeminiOfficialProvider implements TranslateProvider {
         log.debug("[GeminiOfficialProvider] translate html request started: taskId={}, subTaskId={}, targetLanguage={}, htmlLength={}",
                 subTask.getTaskId(), subTask.getSubTaskId(), langName,
                 subTask.getContent() == null ? 0 : subTask.getContent().length());
-        String translated = geminiTranslateService.translateHtmlRaw(subTask.getContent(), langName, usageRef::set);
+        String translated;
+        try {
+            translated = geminiTranslateService.translateHtmlRaw(
+                    subTask.getContent(), langName, usageRef::set);
+        } catch (GeminiContentBlockedException e) {
+            return buildPolicyFallbackResult(subTask, account, usageRef.get(), null, e.getReason());
+        }
 
         GeminiTranslateService.TokenUsage usage = usageRef.get();
         int prompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
@@ -205,7 +218,14 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 subTask.getTaskId(), subTask.getSubTaskId(), langName, sourceFile.getId(), mimeType, imageBytes.length);
 
         AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
-        byte[] resultBytes = geminiTranslateService.translateImageRaw(imageBytes, mimeType, langName, usageRef::set);
+        byte[] resultBytes;
+        try {
+            resultBytes = geminiTranslateService.translateImageRaw(
+                    imageBytes, mimeType, langName, usageRef::set);
+        } catch (GeminiContentBlockedException e) {
+            return buildPolicyFallbackResult(
+                    subTask, account, usageRef.get(), sourceFile, e.getReason());
+        }
 
         GeminiTranslateService.TokenUsage usage = usageRef.get();
         int actualPrompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
@@ -273,6 +293,65 @@ public class GeminiOfficialProvider implements TranslateProvider {
     }
 
     private SubTaskResult buildEstimatedResult(AiAccountTranslateSubTask subTask, AiAccount account) {
+        return buildEstimatedResult(subTask, account, null);
+    }
+
+    /**
+     * Gemini 已返回用量后才判定政策阻断：保留原文/原图，同时把实际 token 完整带给记账层。
+     * usage 不可用时才回退到原来的业务估算口径。
+     */
+    private SubTaskResult buildPolicyFallbackResult(AiAccountTranslateSubTask subTask,
+                                                    AiAccount account,
+                                                    GeminiTranslateService.TokenUsage usage,
+                                                    MultimediaFile sourceFile,
+                                                    String reason) {
+        TranslationContentType contentType = TranslateProviderSupport.mapContentType(subTask.getType());
+        int actualPrompt = usage != null ? TranslateProviderSupport.safeInt(usage.getPromptTokens()) : 0;
+        int actualCompletion = usage != null ? TranslateProviderSupport.safeInt(usage.getCompletionTokens()) : 0;
+        int actualThinking = usage != null ? TranslateProviderSupport.safeInt(usage.getThinkingTokens()) : 0;
+
+        int businessPrompt;
+        int businessCompletion;
+        int businessThinking;
+        if (contentType == TranslationContentType.IMAGE) {
+            int maxDimension = sourceFile == null
+                    ? 512
+                    : Math.max(sourceFile.getWidth(), sourceFile.getHeight());
+            if (maxDimension <= 0) maxDimension = 512;
+            businessPrompt = TokenCostCalculator.imageBusinessPromptTokens(maxDimension);
+            businessCompletion = TokenCostCalculator.imageBusinessCompletionTokens(maxDimension);
+            businessThinking = 0;
+        } else if (usage != null) {
+            businessPrompt = actualPrompt;
+            businessCompletion = actualCompletion;
+            businessThinking = actualThinking;
+        } else {
+            int estimated = TokenCostCalculator.estimateTextTokens(subTask.getContent());
+            businessPrompt = estimated;
+            businessCompletion = estimated;
+            businessThinking = 0;
+        }
+
+        BigDecimal cost = TokenCostCalculator.calculateCost(
+                contentType, account, businessPrompt, businessCompletion, businessThinking);
+        log.warn("[GeminiOfficialProvider] content kept unchanged after Gemini blocked the result: taskId={}, subTaskId={}, type={}, reason={}, actualTokens={}",
+                subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), reason,
+                actualPrompt + actualCompletion + actualThinking);
+        return SubTaskResult.builder()
+                .policyFallbackReason(reason)
+                .elapsedMs(usage != null ? usage.getElapsedMs() : null)
+                .actualPromptTokens(actualPrompt)
+                .actualCompletionTokens(actualCompletion)
+                .actualThinkingTokens(actualThinking)
+                .businessPromptTokens(businessPrompt)
+                .businessCompletionTokens(businessCompletion)
+                .businessThinkingTokens(businessThinking)
+                .businessCredits(TokenCostCalculator.usdToCredits(cost))
+                .build();
+    }
+
+    private SubTaskResult buildEstimatedResult(AiAccountTranslateSubTask subTask, AiAccount account,
+                                               String policyFallbackReason) {
         TranslationContentType ct = TranslateProviderSupport.mapContentType(subTask.getType());
         int bizPrompt, bizCompletion;
         if (ct == TranslationContentType.IMAGE) {
@@ -285,6 +364,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
         }
         BigDecimal cost = TokenCostCalculator.calculateCost(ct, account, bizPrompt, bizCompletion, 0);
         return SubTaskResult.builder()
+                .policyFallbackReason(policyFallbackReason)
                 .businessPromptTokens(bizPrompt)
                 .businessCompletionTokens(bizCompletion)
                 .businessThinkingTokens(0)

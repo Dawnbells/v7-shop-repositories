@@ -32,6 +32,8 @@ import cn.v7soft.dao.entities.primary.MultimediaFile;
 import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
+import cn.v7soft.admin.exception.GeminiContentBlockedException;
+import cn.v7soft.admin.exception.TurboFlowReprocessRequiredException;
 import cn.v7soft.core.exception.ClientException;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
@@ -43,6 +45,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.math.BigDecimal;
 import java.util.concurrent.atomic.AtomicReference;
@@ -62,9 +66,16 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
 
     /**
      * 任务分配后允许的执行时间。
-     * 已配合 plugin 端 90 秒超时；3 分钟覆盖 plugin 超时 + 网络重试 + sync 周期，保证及时回收。
+     * <p>
+     * 必须大于插件端总超时（TRANSLATE_TIMEOUT_MS = 300 秒，其中下载重试独占 60+120 秒），
+     * 再加上失败上报的 3 次指数退避（约 7 秒）和 syncTaskStatus 的 5 秒周期。
+     * 之前是 3 分钟（180 秒），慢图必然在插件还在跑时就被回收，插件带着译好的图来 complete
+     * 只能撞上 "assignment not found or expired"，白烧一次 Google 额度。
      */
-    private static final int TURBOFLOW_LEASE_MINUTES = 3;
+    private static final int TURBOFLOW_LEASE_MINUTES = 6;
+
+    /** 分发失败（读图 / 建 assignment 异常）后的退避上限，避免 500ms 一轮的热循环。 */
+    private static final int DISPATCH_BACKOFF_MAX_SECONDS = 60;
 
     private final IAiAccountService aiAccountService;
     private final IMultimediaFileService multimediaFileService;
@@ -153,6 +164,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     }
 
     private void executeTextViaGemini(AiAccountTranslateSubTask subTask) {
+        // usageRef 提到 try 外：政策阻断时 prompt token 已消耗，catch 分支要用真实用量记账
+        AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
         try {
             log.debug("[TurboFlowBridge] waiting for rate limiter: taskId={}, subTaskId={}, type={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType());
@@ -163,7 +176,6 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             log.debug("[TurboFlowBridge] executing text/html via Gemini: taskId={}, subTaskId={}, type={}, aiAccountId={}, language={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), account.getId(), langName);
 
-            AtomicReference<GeminiTranslateService.TokenUsage> usageRef = new AtomicReference<>();
             String translated;
             TranslationContentType contentType;
             if (subTask.getType() == AiAccountTranslateSubTaskType.HTML) {
@@ -198,6 +210,13 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(),
                     prompt + completion + thinking, TokenCostCalculator.usdToCredits(cost));
             callback.onSubTaskCompleted(subTask, resultBuilder.build());
+        } catch (GeminiContentBlockedException e) {
+            // 内容政策阻断 / 输出被截断 —— 重试同样输入必然同样结果，按"保留原文"完成。
+            // 不写 translatedText，ProductService.lookupTranslation 找不到译文时自动回落原文。
+            log.warn("[TurboFlowBridge] text kept unchanged after Gemini blocked the result: taskId={}, subTaskId={}, type={}, reason={}",
+                    subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), e.getReason());
+            callback.onSubTaskCompleted(subTask,
+                    buildTextPolicyFallbackResult(subTask, usageRef.get(), e.getReason()));
         } catch (Exception e) {
             log.error("[TurboFlowBridge] text translation failed: subTaskId={}", subTask.getSubTaskId(), e);
             boolean billable = GeminiOfficialProvider.isBillableError(e);
@@ -214,8 +233,42 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                         .businessCredits(TokenCostCalculator.usdToCredits(cost))
                         .build();
             }
-            callback.onSubTaskFailed(subTask, e.getMessage(), !billable, partialResult, null);
+            // 按 Gemini 官方文档的 Retryable 列分档：可重试的走无限重试，
+            // 文档明确不可重试的（400/401/403/404/416/499/501）直接标永久失败，
+            // 否则 key 失效之类的配置错误会让子任务永远刷日志、任务永不结束。
+            boolean retryable = GeminiTranslateService.isRetryableApiError(e);
+            callback.onSubTaskFailed(subTask, e.getMessage(), retryable, partialResult,
+                    retryable ? "TURBOFLOW_TEXT_EXECUTION_FAILED" : "TURBOFLOW_TEXT_PERMANENT_FAILED");
         }
+    }
+
+    /**
+     * 文本/HTML 政策回退的用量结果。已消耗的 prompt token 照实记账（拿不到就按内容长度估算），
+     * 不写译文产物，由 policyFallbackReason 驱动 adapter 走"保留原文并计入 Policy"分支。
+     */
+    private SubTaskResult buildTextPolicyFallbackResult(AiAccountTranslateSubTask subTask,
+                                                        GeminiTranslateService.TokenUsage usage,
+                                                        String reason) {
+        AiAccount account = aiAccountService.getById(subTask.getAiAccountId());
+        TranslationContentType contentType = subTask.getType() == AiAccountTranslateSubTaskType.HTML
+                ? TranslationContentType.HTML : TranslationContentType.TEXT;
+        int prompt = usage != null
+                ? TranslateProviderSupport.safeInt(usage.getPromptTokens())
+                : TokenCostCalculator.estimateTextTokens(subTask.getContent());
+        int completion = usage != null ? TranslateProviderSupport.safeInt(usage.getCompletionTokens()) : 0;
+        int thinking = usage != null ? TranslateProviderSupport.safeInt(usage.getThinkingTokens()) : 0;
+        BigDecimal cost = TokenCostCalculator.calculateCost(contentType, account, prompt, completion, thinking);
+        return SubTaskResult.builder()
+                .policyFallbackReason(reason)
+                .elapsedMs(usage != null ? usage.getElapsedMs() : null)
+                .actualPromptTokens(prompt)
+                .actualCompletionTokens(completion)
+                .actualThinkingTokens(thinking)
+                .businessPromptTokens(prompt)
+                .businessCompletionTokens(completion)
+                .businessThinkingTokens(thinking)
+                .businessCredits(TokenCostCalculator.usdToCredits(cost))
+                .build();
     }
 
     /**
@@ -263,7 +316,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         // 防御：TEXT/HTML 已在 executeSubTask 阶段由 Gemini 处理，理论上不会出现在队列中
         if (subTask.getType() != AiAccountTranslateSubTaskType.IMAGE) {
             log.warn("[TurboFlowBridge] unexpected non-image task in queue: {}", subTask.getSubTaskId());
-            callback.onSubTaskFailed(subTask, "non-image task in TurboFlow queue", true, null, null);
+            callback.onSubTaskFailed(subTask, "non-image task in TurboFlow queue", true, null,
+                    "TURBOFLOW_QUEUE_INVARIANT");
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("non-image task skipped").build();
         }
 
@@ -357,12 +411,38 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     .leaseUntil(leaseUntil)
                     .build();
         } catch (Exception e) {
-            // 分发失败，通知 adapter 进入重试流程
+            if (isMissingStorageObject(e)) {
+                // S3 里确实没有这个对象（NoSuchKey / 404）——重试再多次也拿不回来，属于永久性数据错误
+                String message = "source media object missing in storage: " + subTask.getContent();
+                callback.onSubTaskFailed(subTask, message, false, null, "SOURCE_MEDIA_NOT_FOUND");
+                log.warn("[TurboFlowBridge] source image object missing in storage; subtask marked non-retryable: taskId={}, subTaskId={}, imageId={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), subTask.getContent(), e);
+                return TurboFlowBridgeTaskResponse.builder().hasTask(false).message(message).build();
+            }
+            // 其余（S3 网络故障 / 5xx / 建 assignment 异常）可重试。先设退避窗口再回调，
+            // 否则子任务立刻回到队首，插件 500ms 后又取到同一张坏图，形成热循环。
+            int delaySeconds = subTask.delayNextDispatch(DISPATCH_BACKOFF_MAX_SECONDS);
             callback.onSubTaskFailed(subTask, "dispatch failed: " + e.getMessage(), true, null, "DISPATCH_FAILED");
-            log.error("[TurboFlowBridge] 分发任务失败: taskId={}, subTaskId={}",
-                    subTask.getTaskId(), subTask.getSubTaskId(), e);
+            log.error("[TurboFlowBridge] 分发任务失败，{}s 后重试: taskId={}, subTaskId={}",
+                    delaySeconds, subTask.getTaskId(), subTask.getSubTaskId(), e);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("dispatch failed: " + e.getMessage()).build();
         }
+    }
+
+    /**
+     * 判断异常是否代表"存储里确实没有这个对象"（NoSuchKey / HTTP 404），
+     * 用于把永久性数据错误和 S3 网络故障、5xx 区分开。
+     */
+    private static boolean isMissingStorageObject(Throwable e) {
+        for (Throwable current = e; current != null; current = current.getCause()) {
+            if (current instanceof NoSuchKeyException) {
+                return true;
+            }
+            if (current instanceof S3Exception s3Exception && s3Exception.statusCode() == 404) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -489,7 +569,16 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             callback.onSubTaskFailed(subTask, "complete processing failed: " + e.getMessage(), true, null, "COMPLETE_PROCESSING_FAILED");
             log.error("[TurboFlowBridge] completeTask 处理失败, 已推入重试队列: assignmentId={}",
                     request.getAssignmentId(), e);
-            throw new IllegalStateException("complete turboflow task failed: " + e.getMessage(), e);
+            if (Boolean.TRUE.equals(request.getPolicyFallback())) {
+                // 政策回退没有译图可留给插件复用，插件侧本来就有 pending policy report 重试机制，
+                // 保持原有异常语义即可。
+                throw new IllegalStateException("complete turboflow task failed: " + e.getMessage(), e);
+            }
+            // assignment 已在上面被移除、子任务已重排，插件用同一个 assignmentId 重投必然收到
+            // "assignment not found or expired"。抛这个专用异常让 controller 回 REPROCESS_REQUIRED，
+            // 插件据此直接把译图落盘、等新 assignmentId 重派时按 sha256 复用，不必白跑三次退避。
+            throw new TurboFlowReprocessRequiredException(
+                    "complete turboflow task failed: " + e.getMessage(), e);
         }
     }
 
@@ -526,8 +615,11 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             return;
         }
         String message = StrUtil.blankToDefault(request.getMessage(), "TurboFlow task failed");
+        // 图片是否可重试完全由插件决定：插件只在明确的终态（目前仅内容政策拒绝，且那条走
+        // policy-fallback completion）才会给 false。这里尊重字段，不再强制覆盖。
+        // errorCode 缺失时补默认值，保证插件上报的失败都能走 adapter 的无限重试分支。
         boolean retryable = request.getRetryable() == null || Boolean.TRUE.equals(request.getRetryable());
-        String errorCode = request.getErrorCode();
+        String errorCode = StrUtil.blankToDefault(request.getErrorCode(), "TURBOFLOW_EXECUTION_FAILED");
         log.debug("[TurboFlowBridge] fail received: taskId={}, subTaskId={}, assignmentId={}, retryable={}, errorCode={}, message={}",
                 subTask.getTaskId(), subTask.getSubTaskId(), request.getAssignmentId(), retryable, errorCode, message);
         callback.onSubTaskFailed(subTask, message, retryable, null, errorCode);
@@ -573,14 +665,35 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     // --- private helpers ---
 
     private AiAccountTranslateSubTask pollQueuedSubTask(Long aiAccountId) {
-        ConcurrentLinkedQueue<AiAccountTranslateSubTask> priorityQueue = priorityInternalQueues.get(aiAccountId);
-        AiAccountTranslateSubTask subTask = priorityQueue == null ? null : priorityQueue.poll();
+        LocalDateTime now = LocalDateTime.now();
+        AiAccountTranslateSubTask subTask = pollReadySubTask(priorityInternalQueues.get(aiAccountId), now);
         if (subTask != null) {
             return subTask;
         }
 
-        ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue = internalQueues.get(aiAccountId);
-        return queue == null ? null : queue.poll();
+        return pollReadySubTask(internalQueues.get(aiAccountId), now);
+    }
+
+    /**
+     * 取出第一个已过分发退避窗口的子任务；仍在退避中的挪到队尾，避免一张坏图堵住后面能正常分发的图。
+     * 循环上界取进入时的队列长度，保证并发 offer 不会让这里一直转不出来。
+     */
+    private AiAccountTranslateSubTask pollReadySubTask(ConcurrentLinkedQueue<AiAccountTranslateSubTask> queue,
+                                                       LocalDateTime now) {
+        if (queue == null) {
+            return null;
+        }
+        for (int remaining = queue.size(); remaining > 0; remaining--) {
+            AiAccountTranslateSubTask candidate = queue.poll();
+            if (candidate == null) {
+                return null;
+            }
+            if (candidate.isDispatchReady(now)) {
+                return candidate;
+            }
+            queue.offer(candidate);
+        }
+        return null;
     }
 
     private void removeQueuedSubTasks(Long taskId,

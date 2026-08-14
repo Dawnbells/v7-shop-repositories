@@ -28,7 +28,8 @@ public class AiAccountTranslateTaskStatus {
     private final AtomicInteger processingSubTaskCount = new AtomicInteger(0);
     private final AtomicInteger completedSubTaskCount = new AtomicInteger(0);
     private final AtomicInteger failedSubTaskCount = new AtomicInteger(0);
-    private final AtomicInteger policyFallbackImageCount = new AtomicInteger(0);
+    /** 因内容政策限制保留原文/原图的子任务数（图片和文本共用），按完成计数、不计入失败。 */
+    private final AtomicInteger policyFallbackCount = new AtomicInteger(0);
     private final ConcurrentMap<String, AiAccountTranslateSubTask> subTasks = new ConcurrentHashMap<>();
     private final Long productId;
     private final Language language;
@@ -109,9 +110,13 @@ public class AiAccountTranslateTaskStatus {
         translatedImageMap.put(subTask.getContent(), translatedFile);
         completeSubTask(subTask);
     }
-    /** 图片因内容政策限制保留原图，但仍按成功完成计数。 */
-    public void completePolicyFallbackImageSubTask(AiAccountTranslateSubTask subTask) {
-        policyFallbackImageCount.incrementAndGet();
+    /**
+     * 内容因政策限制保留原文/原图，但仍按成功完成计数。
+     * 不往 translatedTextMap / translatedImageMap 写产物，
+     * ProductService 组装时找不到译文/译图就自动回落到原件。
+     */
+    public void completePolicyFallbackSubTask(AiAccountTranslateSubTask subTask) {
+        policyFallbackCount.incrementAndGet();
         completeSubTask(subTask);
     }
 
@@ -143,16 +148,16 @@ public class AiAccountTranslateTaskStatus {
 
     public String buildCompletionMessage() {
         int failed = failedSubTaskCount.get();
-        int policyFallbacks = policyFallbackImageCount.get();
+        int policyFallbacks = policyFallbackCount.get();
         if (failed > 0 && policyFallbacks > 0) {
             return "翻译完成，" + failed + " 个子任务失败；"
-                    + policyFallbacks + " 张图片因内容政策限制保留原图";
+                    + policyFallbacks + " 项内容因政策限制保留原文/原图";
         }
         if (failed > 0) {
             return "翻译完成，" + failed + " 个子任务失败";
         }
         if (policyFallbacks > 0) {
-            return "翻译完成，" + policyFallbacks + " 张图片因内容政策限制保留原图";
+            return "翻译完成，" + policyFallbacks + " 项内容因政策限制保留原文/原图";
         }
         return "AI账号翻译任务完成";
     }

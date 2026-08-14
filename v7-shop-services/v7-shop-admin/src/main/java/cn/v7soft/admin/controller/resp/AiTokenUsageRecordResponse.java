@@ -87,6 +87,9 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
     @Schema(title = "政策回退原始原因（仅ADMIN）")
     private String policyFallbackReason;
 
+    /** 永久失败原因（errorCode: message）。有值即代表这一行已终态，前端不该再显示"翻译中..."。 */
+    private String failReason;
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @Schema(title = "实际 Prompt Tokens（仅ADMIN）")
     private Integer actualPromptTokens;
@@ -138,6 +141,7 @@ public class AiTokenUsageRecordResponse extends DataRangeResponse {
                 .policyFallback(record.getPolicyFallbackReason() != null)
                 .policyFallbackMessage(policyFallbackMessage(record))
                 .policyFallbackReason(record.getPolicyFallbackReason())
+                .failReason(record.getFailReason())
                 .actualCost(record.getActualCost())
                 .build());
     }

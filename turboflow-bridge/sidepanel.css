@@ -228,8 +228,25 @@ button {
   color: var(--text-muted);
   margin-top: 2px;
 }
+/* 累计值：小一号灰字，压在今日值下面，四格也塞得下 */
+.stat-all-time {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+}
 .stat-success .stat-value { color: var(--green); }
 .stat-failed .stat-value { color: var(--red); }
+.stat-policy .stat-value { color: var(--amber, #d19a3d); }
+
+/* 待重投译图提示：只在真有待重投记录时显示 */
+.reuse-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
 
 /* ── Current Task Card ── */
 .current-task-panel { border-color: var(--border); }
@@ -348,8 +365,10 @@ button {
   text-transform: uppercase;
   letter-spacing: .03em;
 }
-.status-tag.completed { color: var(--green); background: rgba(61, 214, 140, .1); }
+.status-tag.completed { color: var(--green); background: rgba(61, 214, 140, .1); cursor: help; }
 .status-tag.failed { color: var(--red); background: rgba(239, 100, 97, .1); cursor: help; }
+/* 政策回退：算成功完成，但要和真正翻译过的图区分开 */
+.status-tag.policy { color: var(--amber, #d19a3d); background: rgba(209, 154, 61, .12); cursor: help; }
 
 /* status 列让 tooltip 不被 td 的 overflow:hidden 裁剪 */
 .task-table tbody td.td-status {
@@ -381,9 +400,12 @@ button {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.status-tag.failed:hover .status-tooltip {
+.status-tag:hover .status-tooltip {
   display: block;
 }
+/* 非失败态的 tooltip 用中性描边，别都顶着红框 */
+.status-tag.completed .status-tooltip { border-color: var(--green); }
+.status-tag.policy .status-tooltip { border-color: var(--amber, #d19a3d); }
 
 .empty-state {
   padding: 24px;

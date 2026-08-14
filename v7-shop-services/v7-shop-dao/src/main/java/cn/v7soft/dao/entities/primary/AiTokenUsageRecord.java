@@ -119,6 +119,13 @@ public class AiTokenUsageRecord extends BaseDataRangeEntity {
     @Column(name = "policy_fallback_reason", length = 160)
     private String policyFallbackReason;
 
+    /**
+     * 永久失败原因（errorCode: message，截断到 500 字）。
+     * 有值代表这一行已经终态，用量列表不该再显示"翻译中..."。
+     */
+    @Column(name = "fail_reason", length = 500)
+    private String failReason;
+
 
     @Builder.Default
     @Column(name = "attempt_count")
