@@ -74,6 +74,24 @@ class OrderDownloadDtoTest {
     }
 
     @Test
+    void usesOrderQuantityForDownloadedQuantity() {
+        Order order = order();
+        order.setQuantity(7L);
+        order.setItemInfos(List.of(
+                OrderItemInfo.builder()
+                        .skuCode("SKU-A")
+                        .quantity(2L)
+                        .sellPrice(BigDecimal.ONE)
+                        .build()
+        ));
+
+        OrderDownloadDto dto = OrderDownloadDto.convert(order, AddressOrder.FORWARD);
+
+        assertThat(dto.getQuantity()).isEqualTo("7");
+        assertThat(dto.getItemQuantity()).isEqualTo("2");
+    }
+
+    @Test
     void includesWarehouseAndChannelInManagerDownloadHeaders() {
         assertThat(OrderDownloadDto.headerAlias())
                 .containsEntry("deliveryChannel", "渠道")

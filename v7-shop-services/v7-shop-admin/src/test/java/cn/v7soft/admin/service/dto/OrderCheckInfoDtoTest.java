@@ -1,10 +1,14 @@
 package cn.v7soft.admin.service.dto;
 
 import cn.v7soft.dao.entities.primary.Order;
+import cn.v7soft.dao.entities.primary.OrderItemInfo;
 import cn.v7soft.dao.entities.primary.OrderLogisticsInfo;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 渠道/仓库三态语义：null=列不存在不动；空白=清除（置 null）；非空=trim 后覆盖。
@@ -70,6 +74,52 @@ class OrderCheckInfoDtoTest {
         assertThat(order.getLogisticsInfo()).isNotNull();
         assertThat(order.getLogisticsInfo().getDeliveryChannel()).isEqualTo("云途");
         assertThat(order.getLogisticsInfo().getStorehouse()).isNull();
+    }
+
+    @Test
+    void updatesOrderQuantityWithoutChangingItemQuantity() {
+        OrderItemInfo item = OrderItemInfo.builder().quantity(1L).build();
+        Order order = new Order();
+        order.setQuantity(1L);
+        order.setItemInfos(List.of(item));
+        OrderCheckInfoDto dto = new OrderCheckInfoDto();
+        dto.setQuantity(" 3 ");
+
+        dto.fillChangeOrder(order);
+
+        assertThat(order.getQuantity()).isEqualTo(3L);
+        assertThat(item.getQuantity()).isEqualTo(1L);
+    }
+
+    @Test
+    void keepsOrderQuantityWhenUploadValueIsMissingOrBlank() {
+        Order order = new Order();
+        order.setQuantity(4L);
+
+        new OrderCheckInfoDto().fillChangeOrder(order);
+        assertThat(order.getQuantity()).isEqualTo(4L);
+
+        OrderCheckInfoDto blankQuantity = new OrderCheckInfoDto();
+        blankQuantity.setQuantity(" 	 ");
+        blankQuantity.fillChangeOrder(order);
+        assertThat(order.getQuantity()).isEqualTo(4L);
+    }
+
+    @Test
+    void rejectsInvalidQuantityBeforeChangingOrder() {
+        for (String invalidQuantity : List.of("0", "-1", "1.5", "abc")) {
+            Order order = new Order();
+            order.setQuantity(4L);
+            order.setSkuCodes("OLD-SKU");
+            OrderCheckInfoDto dto = new OrderCheckInfoDto();
+            dto.setQuantity(invalidQuantity);
+            dto.setSkuCodes("NEW-SKU");
+
+            assertThatThrownBy(() -> dto.fillChangeOrder(order))
+                    .hasMessageContaining("数量必须为正整数");
+            assertThat(order.getQuantity()).isEqualTo(4L);
+            assertThat(order.getSkuCodes()).isEqualTo("OLD-SKU");
+        }
     }
 
     private Order orderWithLogistics(String channel, String storehouse) {

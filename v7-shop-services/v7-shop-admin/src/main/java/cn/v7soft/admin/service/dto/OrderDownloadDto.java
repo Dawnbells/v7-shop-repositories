@@ -321,7 +321,6 @@ public class OrderDownloadDto {
         OrderItemInfo orderItemInfo = orderItemInfos.isEmpty() ? null : orderItemInfos.get(0);
         String orderNoAlias = order.getOrderNoAlias();
         String orderNo = StrUtil.isBlank(orderNoAlias) ? String.valueOf(order.getId()) : orderNoAlias;
-        Long quantity = orderItemInfos.stream().map(OrderItemInfo::getQuantity).reduce(0L, Long::sum);
 
         String province = normalizeRegion(deliveryInfo.getProvince());
         String city = normalizeRegion(deliveryInfo.getCity());
@@ -365,7 +364,7 @@ public class OrderDownloadDto {
                 .productId(orderItemInfo == null ? "" : String.valueOf(orderItemInfo.getId()))
                 .skuName((merchandiseLeft == null ? "" : merchandiseLeft) + (orderItemInfo == null ? "" : orderItemInfo.getSkuName()))
                 .skuCode(StrUtil.blankToDefault(order.getSkuCodes(), ""))
-                .quantity(String.valueOf(quantity))
+                .quantity(String.valueOf(order.getQuantity()))
                 .freebiesName("")
                 .freebiesSkuCode("")
                 .trackingNumber(logisticsInfo.getTrackingNumber())

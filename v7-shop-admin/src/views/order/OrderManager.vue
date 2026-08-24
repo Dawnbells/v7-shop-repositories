@@ -187,10 +187,10 @@
               斗篷单
             </p>
             <p
-              v-if="row.botOrderCheckInfo.moreThanTwoProducts"
+              v-if="Number(row.quantity) >= 2"
               class="text-left text-danger compact"
             >
-              产品数量＞2
+              产品数量≥2
             </p>
             <p
               v-if="row.botOrderCheckInfo.hasRemarkRisk"

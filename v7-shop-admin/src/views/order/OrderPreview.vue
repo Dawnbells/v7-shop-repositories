@@ -39,7 +39,7 @@
           </div>
           <div class="text-left">
             产品价格:
-            <span>{{ row.items.length }}</span>
+            <span>{{ row.quantity }}</span>
             /
             <span class="text-danger">
               {{ row.contextInfo.currencySymbol }} {{ row.financialInfo.totalAmount }}
@@ -220,8 +220,8 @@
             <p v-if="row.botOrderCheckInfo.remoteArea" class="text-left text-danger">偏远地区</p>
             <p v-if="row.botOrderCheckInfo.ipConflict" class="text-left text-danger">IP不一致</p>
             <p v-if="row.botOrderCheckInfo.testOrder" class="text-left text-warning">测试单</p>
-            <p v-if="row.botOrderCheckInfo.moreThanTwoProducts" class="text-left text-danger">
-              产品数量＞2
+            <p v-if="Number(row.quantity) >= 2" class="text-left text-danger">
+              产品数量≥2
             </p>
             <p
               v-if="row.botOrderCheckInfo.hasRemarkRisk"

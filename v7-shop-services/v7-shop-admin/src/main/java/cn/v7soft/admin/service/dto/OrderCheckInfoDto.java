@@ -9,7 +9,7 @@ import java.util.Objects;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.utils.DateTimeHelper;
-import cn.v7soft.common.utils.ConvertUtils;
+import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.meta.OrderDeliveryInfo;
 import cn.v7soft.dao.entities.meta.OrderFinancialInfo;
 import cn.v7soft.dao.entities.primary.Order;
@@ -165,7 +165,23 @@ public class OrderCheckInfoDto {
         }
     };
 
+    private Long parseUploadedQuantity() {
+        if (StrUtil.isBlank(quantity)) {
+            return null;
+        }
+        try {
+            long parsedQuantity = Long.parseLong(quantity.trim());
+            if (parsedQuantity > 0) {
+                return parsedQuantity;
+            }
+        } catch (NumberFormatException ignored) {
+            // 统一在下方返回面向上传用户的错误信息
+        }
+        throw ClientResponseEnum.PARAMETER_ILLEGAL.newException("数量必须为正整数");
+    }
+
     public void fillChangeOrder(Order order) {
+        Long uploadedQuantity = parseUploadedQuantity();
         if (order.getItemInfos() != null && !order.getItemInfos().isEmpty()) {
             OrderItemInfo orderItemInfo = order.getItemInfos().get(0);
             if (chineseName != null) {
@@ -261,8 +277,8 @@ public class OrderCheckInfoDto {
         if (skuNames != null) {
             order.setSkuNames(skuNames);
         }
-        if (quantity != null && ConvertUtils.isLong(quantity)) {
-            order.setQuantity(ConvertUtils.parseLong(quantity));
+        if (uploadedQuantity != null) {
+            order.setQuantity(uploadedQuantity);
         }
         if (order.getImportTime() == null || LocalDateTimeUtil.of(0).equals(order.getImportTime())) {
             order.setImportTime(LocalDateTime.now());
