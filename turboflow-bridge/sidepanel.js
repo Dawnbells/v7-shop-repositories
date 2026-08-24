@@ -108,6 +108,9 @@
       renderCurrentTasks(tasks);
       if (completedOrFailed || tasks.length === 0) {
         loadTaskHistory();
+        // STATS_UPDATED 负责实时推送；任务结束时再主动读取一次作为最终一致性兜底，
+        // 避免侧边栏刚打开或 Chrome 恢复页面时漏掉广播后一直显示旧值。
+        loadStats();
       }
     }
     if (msg.type === 'STATS_UPDATED') {
