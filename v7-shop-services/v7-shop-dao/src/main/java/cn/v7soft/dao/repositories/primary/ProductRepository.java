@@ -1,5 +1,6 @@
 package cn.v7soft.dao.repositories.primary;
 
+import java.util.Collection;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.Query;
@@ -9,6 +10,9 @@ import cn.v7soft.core.repository.BaseRepository;
 import cn.v7soft.dao.entities.primary.Product;
 
 public interface ProductRepository extends BaseRepository<Product> {
+
+    @Query("from Product where spu.id in :spuIds")
+    List<Product> findAllBySpuIdIn(@Param("spuIds") Collection<Long> spuIds);
 
     /**
      * 同一SPU下不允许存在相同国家和语言的商品

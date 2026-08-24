@@ -3,8 +3,10 @@ package cn.v7soft.admin.service.impl;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -22,9 +24,11 @@ import cn.hutool.crypto.digest.DigestUtil;
 import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.EditProductSpecification;
 import cn.v7soft.admin.controller.req.EditProductSpecificationAttribute;
+import cn.v7soft.admin.controller.req.BatchEditMerchandiseRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
+import cn.v7soft.admin.controller.resp.BatchEditMerchandiseResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.admin.event.AiTranslateTaskNotificationEvent;
 import cn.v7soft.admin.service.ICountryService;
@@ -62,6 +66,9 @@ import lombok.extern.slf4j.Slf4j;
 public class ProductService extends BaseDataRangeService<Product, ProductRepository> implements IProductService {
 
     private static final Pattern IMG_ID_PATTERN = Pattern.compile("/multimedia/([0-9]+)");
+
+    private record PendingMerchandiseChange(Product product, String merchandise, boolean emptied) {
+    }
 
     private final IProductSKUService productSKUService;
     private final ILanguageService languageService;
@@ -237,6 +244,97 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         }
         spuRepository.refreshUpdateTime(product.getSpu().getId());
         return super.save(product);
+    }
+
+    @Override
+    @Transactional
+    public BatchEditMerchandiseResponse batchEditMerchandise(BatchEditMerchandiseRequest request) {
+        SystemUserDto loginUser = SaSessionUtil.getLoginUser();
+        Set<Long> targetSpuIds = resolveBatchTargetSpuIds(request, loginUser);
+        if (targetSpuIds.isEmpty()) {
+            return BatchEditMerchandiseResponse.builder().build();
+        }
+
+        List<Product> products = repository.findAllBySpuIdIn(targetSpuIds);
+        List<PendingMerchandiseChange> pendingChanges = new ArrayList<>();
+        String field = request.getField().trim();
+        String delimiter = request.getDelimiter();
+        long alreadyExistsCount = 0;
+        long notFoundCount = 0;
+        long emptySkippedCount = 0;
+
+        for (Product product : products) {
+            MerchandiseFieldEditor.Result editResult = request.getOperation() == BatchEditMerchandiseRequest.Operation.ADD
+                    ? MerchandiseFieldEditor.add(product.getMerchandise(), field, delimiter)
+                    : MerchandiseFieldEditor.remove(
+                            product.getMerchandise(), field, delimiter, request.getEmptyResultPolicy());
+            switch (editResult.outcome()) {
+                case ALREADY_EXISTS -> alreadyExistsCount++;
+                case NOT_FOUND -> notFoundCount++;
+                case EMPTY_SKIPPED -> emptySkippedCount++;
+                case UPDATED -> {
+                    int resultLength = editResult.value().codePointCount(0, editResult.value().length());
+                    ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(
+                            resultLength <= 512,
+                            "商品[" + product.getId() + "]处理后的中文品名超过512个字符，已取消整批操作");
+                    pendingChanges.add(new PendingMerchandiseChange(
+                            product, editResult.value(), editResult.emptied()));
+                }
+            }
+        }
+
+        Set<Long> updatedSpuIds = new LinkedHashSet<>();
+        long emptiedProductCount = 0;
+        for (PendingMerchandiseChange pendingChange : pendingChanges) {
+            pendingChange.product().setMerchandise(pendingChange.merchandise());
+            if (pendingChange.emptied()) {
+                emptiedProductCount++;
+            }
+            if (pendingChange.product().getSpu() != null) {
+                updatedSpuIds.add(pendingChange.product().getSpu().getId());
+            }
+        }
+        updatedSpuIds.forEach(spuRepository::refreshUpdateTime);
+
+        log.info(
+                "[中文品名批量编辑] operator={} scope={} operation={} targetSpus={} targetProducts={} updatedProducts={} emptiedProducts={}",
+                loginUser.getId(), request.getScope(), request.getOperation(), targetSpuIds.size(), products.size(),
+                pendingChanges.size(), emptiedProductCount);
+        return BatchEditMerchandiseResponse.builder()
+                .targetSpuCount(targetSpuIds.size())
+                .targetProductCount(products.size())
+                .updatedProductCount(pendingChanges.size())
+                .alreadyExistsCount(alreadyExistsCount)
+                .notFoundCount(notFoundCount)
+                .emptySkippedCount(emptySkippedCount)
+                .emptiedProductCount(emptiedProductCount)
+                .build();
+    }
+
+    private Set<Long> resolveBatchTargetSpuIds(BatchEditMerchandiseRequest request, SystemUserDto loginUser) {
+        if (request.getScope() == BatchEditMerchandiseRequest.Scope.OWNED_ALL) {
+            return new LinkedHashSet<>(spuRepository.findIdsByOwnerId(loginUser.getLongId()));
+        }
+
+        List<Long> requestedIds = request.getSpuIds().stream().distinct().toList();
+        Map<Long, Spu> resolvedSpus = spuRepository.findAllById(requestedIds).stream()
+                .collect(Collectors.toMap(Spu::getId, Function.identity()));
+        List<Long> missingIds = requestedIds.stream().filter(id -> !resolvedSpus.containsKey(id)).toList();
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(
+                missingIds.isEmpty(), "以下SPU不存在或已删除：" + missingIds);
+
+        for (Long spuId : requestedIds) {
+            Spu spu = resolvedSpus.get(spuId);
+            SystemUser owner = spu.getOwner();
+            Long ownerId = owner == null ? null : owner.getId();
+            Long ownerDepartmentId = owner == null || owner.getDepartment() == null
+                    ? null
+                    : owner.getDepartment().getId();
+            ClientResponseEnum.NO_PERMISSION.assertTrue(
+                    loginUser.hasManagerPermission(ownerId, ownerDepartmentId),
+                    "您无权限操作SPU[" + spuId + "]");
+        }
+        return new LinkedHashSet<>(requestedIds);
     }
 
     private void assertCanAccessSpu(String spuId) {

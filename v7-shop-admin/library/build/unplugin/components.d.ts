@@ -12,6 +12,7 @@ declare module 'vue' {
     AiTranslatePromptDialog: typeof import('./../../../src/views/product/vabAutoComponents/AiTranslatePromptDialog.vue')['default']
     AiTranslateWrapper: typeof import('./../../../src/views/product/vabAutoComponents/AiTranslateWrapper.vue')['default']
     ArticleEdit: typeof import('./../../../src/views/article/vabAutoComponents/ArticleEdit.vue')['default']
+    BatchEditMerchandise: typeof import('./../../../src/views/product/vabAutoComponents/BatchEditMerchandise.vue')['default']
     BatchEditSpec: typeof import('./../../../src/views/product/vabAutoComponents/BatchEditSpec.vue')['default']
     BindDomainPixelEdit: typeof import('./../../../src/views/ssl/vabAutoComponents/BindDomainPixelEdit.vue')['default']
     BindDomainProtocolEdit: typeof import('./../../../src/views/ssl/vabAutoComponents/BindDomainProtocolEdit.vue')['default']

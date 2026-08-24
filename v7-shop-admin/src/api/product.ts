@@ -42,6 +42,37 @@ export function getRemoteQueryMerchandise(query: string) {
   })
 }
 
+export type BatchEditMerchandiseScope = 'SELECTED' | 'OWNED_ALL'
+export type BatchEditMerchandiseOperation = 'ADD' | 'REMOVE'
+export type BatchEditMerchandiseEmptyResultPolicy = 'SKIP' | 'KEEP_EMPTY'
+
+export interface BatchEditMerchandiseRequest {
+  scope: BatchEditMerchandiseScope
+  spuIds?: Array<string | number>
+  operation: BatchEditMerchandiseOperation
+  field: string
+  delimiter: string
+  emptyResultPolicy: BatchEditMerchandiseEmptyResultPolicy
+}
+
+export interface BatchEditMerchandiseResult {
+  targetSpuCount: number
+  targetProductCount: number
+  updatedProductCount: number
+  alreadyExistsCount: number
+  notFoundCount: number
+  emptySkippedCount: number
+  emptiedProductCount: number
+}
+
+export function batchEditMerchandise(data: BatchEditMerchandiseRequest) {
+  return request({
+    url: '/product/batch-edit-merchandise',
+    method: 'post',
+    data,
+  })
+}
+
 export function translateByAI(data: { productId: string; countryId: string; languageId: string; aiAccountId?: string }) {
   return request({
     url: '/product/translateByAI',

@@ -3,6 +3,7 @@ package cn.v7soft.admin.controller;
 import java.util.List;
 import java.util.Objects;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import org.jetbrains.annotations.Nullable;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
@@ -18,12 +19,14 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import cn.v7soft.admin.controller.req.AiTranslateHtmlRequest;
 import cn.v7soft.admin.controller.req.AiTranslateImageRequest;
 import cn.v7soft.admin.controller.req.AiTranslateTextRequest;
+import cn.v7soft.admin.controller.req.BatchEditMerchandiseRequest;
 import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.QueryProductRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.AiTranslateImageResponse;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
+import cn.v7soft.admin.controller.resp.BatchEditMerchandiseResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.admin.exception.InsufficientCreditsException;
 import cn.v7soft.admin.service.IAiTranslateService;
@@ -100,6 +103,14 @@ public class ProductController extends BaseDataRangeController<Product, IProduct
     @GetMapping("/remoteQueryMerchandise")
     public List<String> remoteQueryMerchandise(@RequestParam("query") String query) {
         return service.remoteQueryMerchandise(query);
+    }
+
+    @Operation(summary = "批量增删中文品名字段")
+    @PostMapping("/batch-edit-merchandise")
+    @SaCheckPermission("product.update")
+    public BatchEditMerchandiseResponse batchEditMerchandise(
+            @Valid @RequestBody BatchEditMerchandiseRequest request) {
+        return service.batchEditMerchandise(request);
     }
 
     @Operation(summary = "复制")

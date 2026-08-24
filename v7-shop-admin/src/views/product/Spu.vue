@@ -37,6 +37,14 @@
         <el-button v-if="canReplace" :icon="Switch" type="warning" @click="handleReplaceSku">
           替换SKU
         </el-button>
+        <el-button
+          v-if="canBatchEditMerchandise"
+          :icon="EditPen"
+          type="primary"
+          @click="handleBatchEditMerchandise"
+        >
+          批量编辑中文品名
+        </el-button>
       </vab-query-form-left-panel>
     </vab-query-form>
 
@@ -123,11 +131,12 @@
     <spu-share-edit ref="spuShareEditRef" @fetch-data="fetchData" />
     <product-translate-dialog ref="productTranslateRef" @fetch-data="fetchData" />
     <replace-sku ref="replaceRef" @fetch-data="fetchData" />
+    <batch-edit-merchandise ref="batchMerchandiseRef" @fetch-data="fetchData" />
   </div>
 </template>
 
 <script lang="ts" setup>
-import { Delete, Plus, Search, Switch } from '@element-plus/icons-vue'
+import { Delete, EditPen, Plus, Search, Switch } from '@element-plus/icons-vue'
 import { doDelete as doDeleteProduct } from '/@/api/product'
 import { doDelete, page, switchOpen } from '/@/api/spu'
 import { useAclStore } from '/@/store/modules/acl'
@@ -145,8 +154,12 @@ const aclStore = useAclStore()
 const canReplace = computed(
   () => aclStore.getPermission.length === 0 || hasPermission(['product-sku.replace'])
 )
+const canBatchEditMerchandise = computed(
+  () => aclStore.getPermission.length === 0 || hasPermission(['product.update'])
+)
 const editRef = ref<any>(null)
 const replaceRef = ref<any>(null)
+const batchMerchandiseRef = ref<any>(null)
 const currencyExchangeRateEditRef = ref<any>(null)
 const productEditRef = ref<any>(null)
 const tableRef = ref<any>(null)
@@ -227,6 +240,10 @@ const handleReplaceSku = () => {
     return
   }
   replaceRef.value.showSpuEdit(selectRows.value.map((item: any) => item.id))
+}
+
+const handleBatchEditMerchandise = () => {
+  batchMerchandiseRef.value.showEdit(selectRows.value)
 }
 
 const handleProductAITranslate = (spuRow: any, productRow: any) => {

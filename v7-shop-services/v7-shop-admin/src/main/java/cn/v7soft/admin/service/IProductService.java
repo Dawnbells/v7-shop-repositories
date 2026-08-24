@@ -1,9 +1,11 @@
 package cn.v7soft.admin.service;
 
+import cn.v7soft.admin.controller.req.BatchEditMerchandiseRequest;
 import cn.v7soft.admin.controller.req.EditProductRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TranslateProductRequest;
 import cn.v7soft.admin.controller.resp.AsyncTaskResponse;
+import cn.v7soft.admin.controller.resp.BatchEditMerchandiseResponse;
 import cn.v7soft.admin.controller.resp.ProductResponse;
 import cn.v7soft.common.service.IBaseDataRangeService;
 import cn.v7soft.dao.entities.primary.Country;
@@ -17,6 +19,8 @@ import java.util.Map;
 
 public interface IProductService extends IBaseDataRangeService<Product> {
     Product createOrUpdateProduct(EditProductRequest request);
+
+    BatchEditMerchandiseResponse batchEditMerchandise(BatchEditMerchandiseRequest request);
 
     List<String> remoteQueryMerchandise(String query);
 
