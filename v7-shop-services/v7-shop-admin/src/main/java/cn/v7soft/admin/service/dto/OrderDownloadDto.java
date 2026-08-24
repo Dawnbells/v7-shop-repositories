@@ -364,7 +364,7 @@ public class OrderDownloadDto {
                 .originOrderId(originOrderId)
                 .productId(orderItemInfo == null ? "" : String.valueOf(orderItemInfo.getId()))
                 .skuName((merchandiseLeft == null ? "" : merchandiseLeft) + (orderItemInfo == null ? "" : orderItemInfo.getSkuName()))
-                .skuCode(orderItemInfo == null ? "" : orderItemInfo.getSkuCode())
+                .skuCode(StrUtil.blankToDefault(order.getSkuCodes(), ""))
                 .quantity(String.valueOf(quantity))
                 .freebiesName("")
                 .freebiesSkuCode("")

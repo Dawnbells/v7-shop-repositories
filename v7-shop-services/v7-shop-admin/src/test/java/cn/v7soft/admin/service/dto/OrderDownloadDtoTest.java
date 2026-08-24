@@ -5,6 +5,7 @@ import cn.v7soft.dao.entities.meta.OrderFinancialInfo;
 import cn.v7soft.dao.entities.meta.OrderPaymentInfo;
 import cn.v7soft.dao.entities.primary.Order;
 import cn.v7soft.dao.entities.primary.OrderContextInfo;
+import cn.v7soft.dao.entities.primary.OrderItemInfo;
 import cn.v7soft.dao.enums.CheckStatus;
 import cn.v7soft.dao.enums.OrderStatus;
 import cn.v7soft.dao.enums.PaymentMethod;
@@ -47,6 +48,29 @@ class OrderDownloadDtoTest {
 
         assertThat(dto.getFullAddress())
                 .isEqualTo("台湾省 台北市 中正區 忠孝西路100号");
+    }
+
+    @Test
+    void usesOrderSkuSummaryForDownloadedSkuCode() {
+        Order order = order();
+        order.setSkuCodes("SKU-Ax2+SKU-B");
+        order.setItemInfos(List.of(
+                OrderItemInfo.builder()
+                        .skuCode("SKU-A")
+                        .quantity(2L)
+                        .sellPrice(BigDecimal.ONE)
+                        .build(),
+                OrderItemInfo.builder()
+                        .skuCode("SKU-B")
+                        .quantity(1L)
+                        .sellPrice(BigDecimal.ONE)
+                        .build()
+        ));
+
+        OrderDownloadDto dto = OrderDownloadDto.convert(order, AddressOrder.FORWARD);
+
+        assertThat(dto.getSkuCode()).isEqualTo("SKU-Ax2+SKU-B");
+        assertThat(dto.getSku()).isEqualTo("SKU-A,SKU-B");
     }
 
     @Test
