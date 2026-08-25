@@ -67,6 +67,23 @@ final class MerchandiseFieldEditor {
         return new Result(parts.prefix() + String.join(delimiter, remaining), Outcome.UPDATED, false);
     }
 
+    static Result overwrite(String merchandise, String field) {
+        NameParts parts = splitName(merchandise);
+        String value = parts.prefix() + field;
+        if (value.equals(parts.original())) {
+            return new Result(parts.original(), Outcome.ALREADY_EXISTS, false);
+        }
+        return new Result(value, Outcome.UPDATED, false);
+    }
+
+    static boolean matchesOriginal(String merchandise, String originalMerchandise, String delimiter) {
+        NameParts parts = splitName(merchandise);
+        if (parts.prefix().isEmpty()) {
+            return originalMerchandise.equals(parts.original());
+        }
+        return splitFields(parts.payload(), delimiter).stream().anyMatch(originalMerchandise::equals);
+    }
+
     private static NameParts splitName(String merchandise) {
         String original = merchandise == null ? "" : merchandise;
         int prefixEnd = original.indexOf('=');

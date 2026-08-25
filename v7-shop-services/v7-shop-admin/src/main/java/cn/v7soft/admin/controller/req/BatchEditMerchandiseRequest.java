@@ -12,7 +12,7 @@ import lombok.Setter;
 
 @Getter
 @Setter
-@Schema(description = "批量增删商品中文品名字段请求")
+@Schema(description = "批量增加、删减或覆盖商品中文品名字段请求")
 public class BatchEditMerchandiseRequest {
 
     public enum Scope {
@@ -22,7 +22,8 @@ public class BatchEditMerchandiseRequest {
 
     public enum Operation {
         ADD,
-        REMOVE
+        REMOVE,
+        OVERWRITE
     }
 
     public enum EmptyResultPolicy {
@@ -38,17 +39,17 @@ public class BatchEditMerchandiseRequest {
     private List<@NotNull(message = "SPU ID不能为空") Long> spuIds;
 
     @NotNull(message = "操作类型不能为空")
-    @Schema(title = "操作类型：ADD-增加，REMOVE-删减")
+    @Schema(title = "操作类型：ADD-增加，REMOVE-删减，OVERWRITE-覆盖")
     private Operation operation;
 
     @NotBlank(message = "原始中文名称不能为空")
     @Size(max = 512, message = "原始中文名称不能超过512个字符")
-    @Schema(title = "用于精确匹配商品的原始中文名称", example = "PT面具=锅具套装/喷水机")
+    @Schema(title = "用于匹配等号右侧字段的原始中文名称；无等号时匹配完整中文品名", example = "锅具套装")
     private String originalMerchandise;
 
     @NotBlank(message = "字段不能为空")
     @Size(max = 512, message = "字段不能超过512个字符")
-    @Schema(title = "待增加或删减的单个字段", example = "万能工具套装")
+    @Schema(title = "待增加、删减或覆盖的单个字段", example = "万能工具套装")
     private String field;
 
     @NotBlank(message = "分隔符不能为空")

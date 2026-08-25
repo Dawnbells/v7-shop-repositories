@@ -43,7 +43,7 @@ export function getRemoteQueryMerchandise(query: string) {
 }
 
 export type BatchEditMerchandiseScope = 'SELECTED' | 'OWNED_ALL'
-export type BatchEditMerchandiseOperation = 'ADD' | 'REMOVE'
+export type BatchEditMerchandiseOperation = 'ADD' | 'REMOVE' | 'OVERWRITE'
 export type BatchEditMerchandiseEmptyResultPolicy = 'SKIP' | 'KEEP_EMPTY'
 
 export interface BatchEditMerchandiseRequest {

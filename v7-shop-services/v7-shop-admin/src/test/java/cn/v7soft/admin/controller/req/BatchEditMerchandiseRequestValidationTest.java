@@ -36,6 +36,7 @@ class BatchEditMerchandiseRequestValidationTest {
         ownedAll.setScope(BatchEditMerchandiseRequest.Scope.OWNED_ALL);
         ownedAll.setSpuIds(null);
         ownedAll.setDelimiter("、");
+        ownedAll.setOperation(BatchEditMerchandiseRequest.Operation.OVERWRITE);
 
         assertTrue(validator.validate(selected).isEmpty());
         assertTrue(validator.validate(ownedAll).isEmpty());
@@ -86,7 +87,7 @@ class BatchEditMerchandiseRequestValidationTest {
         request.setScope(BatchEditMerchandiseRequest.Scope.SELECTED);
         request.setSpuIds(List.of(10L));
         request.setOperation(BatchEditMerchandiseRequest.Operation.ADD);
-        request.setOriginalMerchandise("PT面具=锅具套装/喷水机");
+        request.setOriginalMerchandise("锅具套装");
         request.setField("XXXX");
         request.setDelimiter("/");
         request.setEmptyResultPolicy(BatchEditMerchandiseRequest.EmptyResultPolicy.SKIP);

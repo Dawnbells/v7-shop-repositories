@@ -266,14 +266,17 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         long emptySkippedCount = 0;
 
         for (Product product : products) {
-            if (!originalMerchandise.equals(product.getMerchandise())) {
+            if (!MerchandiseFieldEditor.matchesOriginal(
+                    product.getMerchandise(), originalMerchandise, delimiter)) {
                 continue;
             }
             matchedProductCount++;
-            MerchandiseFieldEditor.Result editResult = request.getOperation() == BatchEditMerchandiseRequest.Operation.ADD
-                    ? MerchandiseFieldEditor.add(product.getMerchandise(), field, delimiter)
-                    : MerchandiseFieldEditor.remove(
-                            product.getMerchandise(), field, delimiter, request.getEmptyResultPolicy());
+            MerchandiseFieldEditor.Result editResult = switch (request.getOperation()) {
+                case ADD -> MerchandiseFieldEditor.add(product.getMerchandise(), field, delimiter);
+                case REMOVE -> MerchandiseFieldEditor.remove(
+                        product.getMerchandise(), field, delimiter, request.getEmptyResultPolicy());
+                case OVERWRITE -> MerchandiseFieldEditor.overwrite(product.getMerchandise(), field);
+            };
             switch (editResult.outcome()) {
                 case ALREADY_EXISTS -> alreadyExistsCount++;
                 case NOT_FOUND -> notFoundCount++;

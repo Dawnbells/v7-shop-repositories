@@ -8,7 +8,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @Builder
-@Schema(description = "批量增删商品中文品名字段结果")
+@Schema(description = "批量增加、删减或覆盖商品中文品名字段结果")
 public class BatchEditMerchandiseResponse {
 
     @Schema(title = "目标SPU数")
@@ -17,7 +17,7 @@ public class BatchEditMerchandiseResponse {
     @Schema(title = "目标商品数")
     private long targetProductCount;
 
-    @Schema(title = "原始中文名称精确匹配的商品数")
+    @Schema(title = "原始中文名称匹配的商品数")
     private long matchedProductCount;
 
     @Schema(title = "原始中文名称不匹配而跳过的商品数")
@@ -26,7 +26,7 @@ public class BatchEditMerchandiseResponse {
     @Schema(title = "实际更新商品数")
     private long updatedProductCount;
 
-    @Schema(title = "增加时因字段已存在而跳过的商品数")
+    @Schema(title = "增加时因字段已存在，或覆盖时已是目标值而跳过的商品数")
     private long alreadyExistsCount;
 
     @Schema(title = "删减时因未找到字段而跳过的商品数")

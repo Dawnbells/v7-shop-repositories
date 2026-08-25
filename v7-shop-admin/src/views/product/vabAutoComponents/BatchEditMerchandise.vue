@@ -20,6 +20,13 @@
       title="删减后没有剩余字段时将保留空值：有前缀会得到“前缀=”，无前缀会得到空字符串。"
       type="error"
     />
+    <el-alert
+      v-if="form.operation === 'OVERWRITE'"
+      class="form-alert"
+      :closable="false"
+      title="覆盖操作会在匹配后替换“=”右侧全部内容；无“=”时替换完整中文品名。"
+      type="error"
+    />
 
     <el-form ref="formRef" label-width="100px" :model="form" :rules="rules">
       <el-form-item label="作用范围" prop="scope">
@@ -38,6 +45,7 @@
         <el-radio-group v-model="form.operation">
           <el-radio value="ADD">增加字段</el-radio>
           <el-radio value="REMOVE">删减字段</el-radio>
+          <el-radio value="OVERWRITE">覆盖字段</el-radio>
         </el-radio-group>
       </el-form-item>
 
@@ -46,17 +54,17 @@
           v-model="form.originalMerchandise"
           clearable
           maxlength="512"
-          placeholder="只处理与此名称完全一致的商品"
+          placeholder="有等号时匹配右侧字段，无等号时匹配完整名称"
           show-word-limit
         />
       </el-form-item>
 
-      <el-form-item :label="form.operation === 'ADD' ? '增加字段' : '删除字段'" prop="field">
+      <el-form-item :label="fieldLabel" prop="field">
         <el-input
           v-model="form.field"
           clearable
           maxlength="512"
-          :placeholder="form.operation === 'ADD' ? '请输入要增加的字段' : '请输入要删减的字段'"
+          :placeholder="`请输入要${operationText}的字段`"
           show-word-limit
         />
       </el-form-item>
@@ -115,6 +123,13 @@ const defaultForm = (): BatchEditMerchandiseRequest => ({
   emptyResultPolicy: 'SKIP',
 })
 const form = reactive<BatchEditMerchandiseRequest>(defaultForm())
+
+const operationText = computed(() => {
+  if (form.operation === 'ADD') return '增加'
+  if (form.operation === 'REMOVE') return '删减'
+  return '覆盖'
+})
+const fieldLabel = computed(() => `${operationText.value}字段`)
 
 const validateScope = (_rule: any, value: string, callback: (error?: Error) => void) => {
   if (value === 'SELECTED' && selectedSpuIds.value.length === 0) {
@@ -190,7 +205,10 @@ const buildResultMessage = (result: BatchEditMerchandiseResult) => {
   ]
   if (result.originalMismatchCount > 0)
     details.push(`原始名称不匹配跳过 ${result.originalMismatchCount} 个`)
-  if (result.alreadyExistsCount > 0) details.push(`已存在跳过 ${result.alreadyExistsCount} 个`)
+  if (result.alreadyExistsCount > 0)
+    details.push(
+      `${form.operation === 'OVERWRITE' ? '已是目标值' : '字段已存在'}跳过 ${result.alreadyExistsCount} 个`
+    )
   if (result.notFoundCount > 0) details.push(`未找到跳过 ${result.notFoundCount} 个`)
   if (result.emptySkippedCount > 0) details.push(`删空跳过 ${result.emptySkippedCount} 个`)
   if (result.emptiedProductCount > 0) details.push(`保留空结果 ${result.emptiedProductCount} 个`)
@@ -203,12 +221,16 @@ const save = () => {
     if (!valid) return
     const scopeText =
       form.scope === 'SELECTED' ? `${selectedSpuIds.value.length} 个已勾选 SPU` : '本人名下全部 SPU'
-    const operationText = form.operation === 'ADD' ? '增加' : '删减'
     const emptyWarning =
       form.operation === 'REMOVE' && form.emptyResultPolicy === 'KEEP_EMPTY'
         ? ' 删空后的中文品名将按配置保留为空。'
         : ''
-    const confirmText = `确认对${scopeText}中，中文品名完全等于“${form.originalMerchandise.trim()}”的商品${operationText}字段“${form.field.trim()}”吗？分隔符为“${form.delimiter}”。${emptyWarning}`
+    const matchText = `有“=”时匹配右侧任一字段，无“=”时匹配完整中文品名`
+    const overwriteWarning =
+      form.operation === 'OVERWRITE'
+        ? ' 匹配后将覆盖“=”右侧全部内容；无“=”时覆盖完整中文品名。'
+        : ''
+    const confirmText = `确认对${scopeText}中，原始中文名称匹配“${form.originalMerchandise.trim()}”的商品${operationText.value}字段“${form.field.trim()}”吗？${matchText}，分隔符为“${form.delimiter}”。${emptyWarning}${overwriteWarning}`
 
     $baseConfirm(confirmText, null, async () => {
       try {

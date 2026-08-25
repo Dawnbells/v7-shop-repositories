@@ -84,4 +84,29 @@ class MerchandiseFieldEditorTest {
         assertEquals("PT=A/B", result.value());
         assertFalse(result.emptied());
     }
+
+    @Test
+    void matchesAnyExactFieldAfterEqualsButRequiresFullMatchWithoutEquals() {
+        assertTrue(MerchandiseFieldEditor.matchesOriginal("A=B/C/D/E", "C", "/"));
+        assertFalse(MerchandiseFieldEditor.matchesOriginal("A=B/C/D/E", "C/D", "/"));
+        assertFalse(MerchandiseFieldEditor.matchesOriginal("A=B/C/D/E", "CD", "/"));
+        assertFalse(MerchandiseFieldEditor.matchesOriginal("B/C/D/E", "C", "/"));
+        assertTrue(MerchandiseFieldEditor.matchesOriginal("B/C/D/E", "B/C/D/E", "/"));
+        assertTrue(MerchandiseFieldEditor.matchesOriginal("A=B|C|D", "C", "|"));
+    }
+
+    @Test
+    void overwritesEntirePayloadOrEntireNameWithoutEquals() {
+        MerchandiseFieldEditor.Result prefixed =
+                MerchandiseFieldEditor.overwrite("A=B/C/D/E", "X");
+        MerchandiseFieldEditor.Result plain =
+                MerchandiseFieldEditor.overwrite("B/C/D/E", "X");
+        MerchandiseFieldEditor.Result unchanged =
+                MerchandiseFieldEditor.overwrite("A=X", "X");
+
+        assertEquals("A=X", prefixed.value());
+        assertEquals(MerchandiseFieldEditor.Outcome.UPDATED, prefixed.outcome());
+        assertEquals("X", plain.value());
+        assertEquals(MerchandiseFieldEditor.Outcome.ALREADY_EXISTS, unchanged.outcome());
+    }
 }
