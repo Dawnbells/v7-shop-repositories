@@ -50,6 +50,7 @@ export interface BatchEditMerchandiseRequest {
   scope: BatchEditMerchandiseScope
   spuIds?: Array<string | number>
   operation: BatchEditMerchandiseOperation
+  originalMerchandise: string
   field: string
   delimiter: string
   emptyResultPolicy: BatchEditMerchandiseEmptyResultPolicy
@@ -58,6 +59,8 @@ export interface BatchEditMerchandiseRequest {
 export interface BatchEditMerchandiseResult {
   targetSpuCount: number
   targetProductCount: number
+  matchedProductCount: number
+  originalMismatchCount: number
   updatedProductCount: number
   alreadyExistsCount: number
   notFoundCount: number

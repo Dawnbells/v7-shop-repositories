@@ -83,18 +83,20 @@ class ProductServiceBatchEditMerchandiseTest {
         Spu firstSpu = spu(10L, 100L, 10L);
         Spu secondSpu = spu(11L, 100L, 10L);
         Product first = product(1L, "PT=A/B", firstSpu, StatusEnum.VALID);
-        Product invalid = product(2L, "C", secondSpu, StatusEnum.INVALID);
+        Product invalid = product(2L, "PT=A/B", secondSpu, StatusEnum.INVALID);
         when(spuRepository.findIdsByOwnerId(100L)).thenReturn(List.of(10L, 11L));
         when(repository.findAllBySpuIdIn(anyCollection())).thenReturn(List.of(first, invalid));
 
         BatchEditMerchandiseResponse response = service.batchEditMerchandise(
                 request(BatchEditMerchandiseRequest.Scope.OWNED_ALL,
-                        BatchEditMerchandiseRequest.Operation.ADD, "X"));
+                        BatchEditMerchandiseRequest.Operation.ADD, "PT=A/B", "X"));
 
         assertEquals("PT=A/B/X", first.getMerchandise());
-        assertEquals("C/X", invalid.getMerchandise());
+        assertEquals("PT=A/B/X", invalid.getMerchandise());
         assertEquals(2, response.getTargetSpuCount());
         assertEquals(2, response.getTargetProductCount());
+        assertEquals(2, response.getMatchedProductCount());
+        assertEquals(0, response.getOriginalMismatchCount());
         assertEquals(2, response.getUpdatedProductCount());
         verify(spuRepository).refreshUpdateTime(10L);
         verify(spuRepository).refreshUpdateTime(11L);
@@ -110,7 +112,7 @@ class ProductServiceBatchEditMerchandiseTest {
 
         BatchEditMerchandiseResponse response = service.batchEditMerchandise(
                 request(BatchEditMerchandiseRequest.Scope.SELECTED,
-                        BatchEditMerchandiseRequest.Operation.REMOVE, "A"));
+                        BatchEditMerchandiseRequest.Operation.REMOVE, "PT=A/B/A", "A"));
 
         assertEquals("PT=B", product.getMerchandise());
         assertEquals(1, response.getUpdatedProductCount());
@@ -125,7 +127,7 @@ class ProductServiceBatchEditMerchandiseTest {
 
         assertThrows(RuntimeException.class, () -> service.batchEditMerchandise(
                 request(BatchEditMerchandiseRequest.Scope.SELECTED,
-                        BatchEditMerchandiseRequest.Operation.ADD, "X")));
+                        BatchEditMerchandiseRequest.Operation.ADD, "PT=A", "X")));
 
         verify(repository, never()).findAllBySpuIdIn(anyCollection());
     }
@@ -137,7 +139,7 @@ class ProductServiceBatchEditMerchandiseTest {
 
         assertThrows(RuntimeException.class, () -> service.batchEditMerchandise(
                 request(BatchEditMerchandiseRequest.Scope.SELECTED,
-                        BatchEditMerchandiseRequest.Operation.ADD, "X")));
+                        BatchEditMerchandiseRequest.Operation.ADD, "PT=A", "X")));
 
         verify(repository, never()).findAllBySpuIdIn(anyCollection());
     }
@@ -146,36 +148,60 @@ class ProductServiceBatchEditMerchandiseTest {
     void overLengthResultLeavesEveryProductUnchanged() {
         mockLoginUser(100L, 10L, SystemUserType.EMPLOYEE);
         Spu targetSpu = spu(10L, 100L, 10L);
-        Product first = product(1L, "A", targetSpu, StatusEnum.VALID);
+        Product first = product(1L, "X".repeat(512), targetSpu, StatusEnum.VALID);
         Product overLength = product(2L, "X".repeat(512), targetSpu, StatusEnum.VALID);
         when(spuRepository.findIdsByOwnerId(100L)).thenReturn(List.of(10L));
         when(repository.findAllBySpuIdIn(anyCollection())).thenReturn(List.of(first, overLength));
 
         assertThrows(RuntimeException.class, () -> service.batchEditMerchandise(
                 request(BatchEditMerchandiseRequest.Scope.OWNED_ALL,
-                        BatchEditMerchandiseRequest.Operation.ADD, "B")));
+                        BatchEditMerchandiseRequest.Operation.ADD, "X".repeat(512), "B")));
 
-        assertEquals("A", first.getMerchandise());
+        assertEquals("X".repeat(512), first.getMerchandise());
         assertEquals("X".repeat(512), overLength.getMerchandise());
         verify(spuRepository, never()).refreshUpdateTime(10L);
     }
 
     @Test
-    void reportsNotFoundAndEmptySkippedWithoutUpdating() {
+    void onlyEditsProductsWhoseOriginalNameMatchesExactly() {
         mockLoginUser(100L, 10L, SystemUserType.EMPLOYEE);
         Spu targetSpu = spu(10L, 100L, 10L);
-        Product notFound = product(1L, "PT=A", targetSpu, StatusEnum.VALID);
-        Product wouldBecomeEmpty = product(2L, "B", targetSpu, StatusEnum.VALID);
+        Product matched = product(1L, "PT=A", targetSpu, StatusEnum.VALID);
+        Product differentCase = product(2L, "PT=a", targetSpu, StatusEnum.VALID);
+        Product substringOnly = product(3L, "前缀PT=A后缀", targetSpu, StatusEnum.VALID);
         when(spuRepository.findIdsByOwnerId(100L)).thenReturn(List.of(10L));
-        when(repository.findAllBySpuIdIn(anyCollection())).thenReturn(List.of(notFound, wouldBecomeEmpty));
+        when(repository.findAllBySpuIdIn(anyCollection())).thenReturn(
+                List.of(matched, differentCase, substringOnly));
 
         BatchEditMerchandiseResponse response = service.batchEditMerchandise(
                 request(BatchEditMerchandiseRequest.Scope.OWNED_ALL,
-                        BatchEditMerchandiseRequest.Operation.REMOVE, "B"));
+                        BatchEditMerchandiseRequest.Operation.ADD, "PT=A", "B"));
+
+        assertEquals("PT=A/B", matched.getMerchandise());
+        assertEquals("PT=a", differentCase.getMerchandise());
+        assertEquals("前缀PT=A后缀", substringOnly.getMerchandise());
+        assertEquals(1, response.getMatchedProductCount());
+        assertEquals(2, response.getOriginalMismatchCount());
+        assertEquals(1, response.getUpdatedProductCount());
+        verify(spuRepository).refreshUpdateTime(10L);
+    }
+
+    @Test
+    void reportsFieldNotFoundOnlyAmongOriginalNameMatches() {
+        mockLoginUser(100L, 10L, SystemUserType.EMPLOYEE);
+        Spu targetSpu = spu(10L, 100L, 10L);
+        Product matched = product(1L, "PT=A", targetSpu, StatusEnum.VALID);
+        Product mismatch = product(2L, "PT=B", targetSpu, StatusEnum.VALID);
+        when(spuRepository.findIdsByOwnerId(100L)).thenReturn(List.of(10L));
+        when(repository.findAllBySpuIdIn(anyCollection())).thenReturn(List.of(matched, mismatch));
+
+        BatchEditMerchandiseResponse response = service.batchEditMerchandise(
+                request(BatchEditMerchandiseRequest.Scope.OWNED_ALL,
+                        BatchEditMerchandiseRequest.Operation.REMOVE, "PT=A", "B"));
 
         assertEquals(0, response.getUpdatedProductCount());
         assertEquals(1, response.getNotFoundCount());
-        assertEquals(1, response.getEmptySkippedCount());
+        assertEquals(1, response.getOriginalMismatchCount());
         verify(spuRepository, never()).refreshUpdateTime(10L);
     }
 
@@ -189,6 +215,7 @@ class ProductServiceBatchEditMerchandiseTest {
         BatchEditMerchandiseRequest request = request(
                 BatchEditMerchandiseRequest.Scope.OWNED_ALL,
                 BatchEditMerchandiseRequest.Operation.REMOVE,
+                "PT=A",
                 "A");
         request.setEmptyResultPolicy(BatchEditMerchandiseRequest.EmptyResultPolicy.KEEP_EMPTY);
 
@@ -202,11 +229,13 @@ class ProductServiceBatchEditMerchandiseTest {
     private BatchEditMerchandiseRequest request(
             BatchEditMerchandiseRequest.Scope scope,
             BatchEditMerchandiseRequest.Operation operation,
+            String originalMerchandise,
             String field) {
         BatchEditMerchandiseRequest request = new BatchEditMerchandiseRequest();
         request.setScope(scope);
         request.setSpuIds(scope == BatchEditMerchandiseRequest.Scope.SELECTED ? List.of(10L) : null);
         request.setOperation(operation);
+        request.setOriginalMerchandise(originalMerchandise);
         request.setField(field);
         request.setDelimiter("/");
         request.setEmptyResultPolicy(BatchEditMerchandiseRequest.EmptyResultPolicy.SKIP);

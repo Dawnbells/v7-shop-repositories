@@ -17,6 +17,12 @@ public class BatchEditMerchandiseResponse {
     @Schema(title = "目标商品数")
     private long targetProductCount;
 
+    @Schema(title = "原始中文名称精确匹配的商品数")
+    private long matchedProductCount;
+
+    @Schema(title = "原始中文名称不匹配而跳过的商品数")
+    private long originalMismatchCount;
+
     @Schema(title = "实际更新商品数")
     private long updatedProductCount;
 

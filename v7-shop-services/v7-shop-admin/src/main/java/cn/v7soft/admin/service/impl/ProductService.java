@@ -257,13 +257,19 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
 
         List<Product> products = repository.findAllBySpuIdIn(targetSpuIds);
         List<PendingMerchandiseChange> pendingChanges = new ArrayList<>();
+        String originalMerchandise = request.getOriginalMerchandise().trim();
         String field = request.getField().trim();
         String delimiter = request.getDelimiter();
+        long matchedProductCount = 0;
         long alreadyExistsCount = 0;
         long notFoundCount = 0;
         long emptySkippedCount = 0;
 
         for (Product product : products) {
+            if (!originalMerchandise.equals(product.getMerchandise())) {
+                continue;
+            }
+            matchedProductCount++;
             MerchandiseFieldEditor.Result editResult = request.getOperation() == BatchEditMerchandiseRequest.Operation.ADD
                     ? MerchandiseFieldEditor.add(product.getMerchandise(), field, delimiter)
                     : MerchandiseFieldEditor.remove(
@@ -297,12 +303,14 @@ public class ProductService extends BaseDataRangeService<Product, ProductReposit
         updatedSpuIds.forEach(spuRepository::refreshUpdateTime);
 
         log.info(
-                "[中文品名批量编辑] operator={} scope={} operation={} targetSpus={} targetProducts={} updatedProducts={} emptiedProducts={}",
+                "[中文品名批量编辑] operator={} scope={} operation={} targetSpus={} targetProducts={} matchedProducts={} updatedProducts={} emptiedProducts={}",
                 loginUser.getId(), request.getScope(), request.getOperation(), targetSpuIds.size(), products.size(),
-                pendingChanges.size(), emptiedProductCount);
+                matchedProductCount, pendingChanges.size(), emptiedProductCount);
         return BatchEditMerchandiseResponse.builder()
                 .targetSpuCount(targetSpuIds.size())
                 .targetProductCount(products.size())
+                .matchedProductCount(matchedProductCount)
+                .originalMismatchCount(products.size() - matchedProductCount)
                 .updatedProductCount(pendingChanges.size())
                 .alreadyExistsCount(alreadyExistsCount)
                 .notFoundCount(notFoundCount)

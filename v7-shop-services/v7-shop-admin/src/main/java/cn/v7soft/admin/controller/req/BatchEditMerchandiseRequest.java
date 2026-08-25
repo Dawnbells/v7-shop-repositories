@@ -41,6 +41,11 @@ public class BatchEditMerchandiseRequest {
     @Schema(title = "操作类型：ADD-增加，REMOVE-删减")
     private Operation operation;
 
+    @NotBlank(message = "原始中文名称不能为空")
+    @Size(max = 512, message = "原始中文名称不能超过512个字符")
+    @Schema(title = "用于精确匹配商品的原始中文名称", example = "PT面具=锅具套装/喷水机")
+    private String originalMerchandise;
+
     @NotBlank(message = "字段不能为空")
     @Size(max = 512, message = "字段不能超过512个字符")
     @Schema(title = "待增加或删减的单个字段", example = "万能工具套装")

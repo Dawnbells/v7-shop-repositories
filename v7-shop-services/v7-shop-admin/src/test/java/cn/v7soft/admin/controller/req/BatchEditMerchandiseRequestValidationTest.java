@@ -73,11 +73,20 @@ class BatchEditMerchandiseRequestValidationTest {
         assertFalse(validator.validate(request).isEmpty());
     }
 
+    @Test
+    void rejectsBlankOriginalMerchandise() {
+        BatchEditMerchandiseRequest request = validRequest();
+        request.setOriginalMerchandise("   ");
+
+        assertFalse(validator.validate(request).isEmpty());
+    }
+
     private BatchEditMerchandiseRequest validRequest() {
         BatchEditMerchandiseRequest request = new BatchEditMerchandiseRequest();
         request.setScope(BatchEditMerchandiseRequest.Scope.SELECTED);
         request.setSpuIds(List.of(10L));
         request.setOperation(BatchEditMerchandiseRequest.Operation.ADD);
+        request.setOriginalMerchandise("PT面具=锅具套装/喷水机");
         request.setField("XXXX");
         request.setDelimiter("/");
         request.setEmptyResultPolicy(BatchEditMerchandiseRequest.EmptyResultPolicy.SKIP);

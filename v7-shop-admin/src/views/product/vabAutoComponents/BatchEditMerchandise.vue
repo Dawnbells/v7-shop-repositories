@@ -41,7 +41,17 @@
         </el-radio-group>
       </el-form-item>
 
-      <el-form-item label="字段" prop="field">
+      <el-form-item label="原始中文名称" prop="originalMerchandise">
+        <el-input
+          v-model="form.originalMerchandise"
+          clearable
+          maxlength="512"
+          placeholder="只处理与此名称完全一致的商品"
+          show-word-limit
+        />
+      </el-form-item>
+
+      <el-form-item :label="form.operation === 'ADD' ? '增加字段' : '删除字段'" prop="field">
         <el-input
           v-model="form.field"
           clearable
@@ -99,6 +109,7 @@ const selectedSpuIds = ref<Array<string | number>>([])
 const defaultForm = (): BatchEditMerchandiseRequest => ({
   scope: 'SELECTED',
   operation: 'ADD',
+  originalMerchandise: '',
   field: '',
   delimiter: '/',
   emptyResultPolicy: 'SKIP',
@@ -139,9 +150,22 @@ const validateField = (_rule: any, value: string, callback: (error?: Error) => v
   callback()
 }
 
+const validateOriginalMerchandise = (
+  _rule: any,
+  value: string,
+  callback: (error?: Error) => void
+) => {
+  if (!value?.trim()) {
+    callback(new Error('请输入原始中文名称'))
+    return
+  }
+  callback()
+}
+
 const rules = reactive<any>({
   scope: [{ validator: validateScope, trigger: 'change' }],
   operation: [{ required: true, trigger: 'change', message: '请选择操作类型' }],
+  originalMerchandise: [{ validator: validateOriginalMerchandise, trigger: ['blur', 'change'] }],
   field: [{ validator: validateField, trigger: ['blur', 'change'] }],
   delimiter: [{ validator: validateDelimiter, trigger: ['blur', 'change'] }],
   emptyResultPolicy: [{ required: true, trigger: 'change', message: '请选择删空处理方式' }],
@@ -161,8 +185,11 @@ const onDelimiterChange = () => {
 const buildResultMessage = (result: BatchEditMerchandiseResult) => {
   const details = [
     `目标 ${result.targetSpuCount} 个 SPU / ${result.targetProductCount} 个商品`,
+    `原始名称匹配 ${result.matchedProductCount} 个`,
     `实际更新 ${result.updatedProductCount} 个`,
   ]
+  if (result.originalMismatchCount > 0)
+    details.push(`原始名称不匹配跳过 ${result.originalMismatchCount} 个`)
   if (result.alreadyExistsCount > 0) details.push(`已存在跳过 ${result.alreadyExistsCount} 个`)
   if (result.notFoundCount > 0) details.push(`未找到跳过 ${result.notFoundCount} 个`)
   if (result.emptySkippedCount > 0) details.push(`删空跳过 ${result.emptySkippedCount} 个`)
@@ -181,13 +208,14 @@ const save = () => {
       form.operation === 'REMOVE' && form.emptyResultPolicy === 'KEEP_EMPTY'
         ? ' 删空后的中文品名将按配置保留为空。'
         : ''
-    const confirmText = `确认对${scopeText}的中文品名${operationText}字段“${form.field.trim()}”吗？分隔符为“${form.delimiter}”。${emptyWarning}`
+    const confirmText = `确认对${scopeText}中，中文品名完全等于“${form.originalMerchandise.trim()}”的商品${operationText}字段“${form.field.trim()}”吗？分隔符为“${form.delimiter}”。${emptyWarning}`
 
     $baseConfirm(confirmText, null, async () => {
       try {
         saveLoading.value = true
         const payload: BatchEditMerchandiseRequest = {
           ...form,
+          originalMerchandise: form.originalMerchandise.trim(),
           field: form.field.trim(),
           spuIds: form.scope === 'SELECTED' ? selectedSpuIds.value : undefined,
         }
