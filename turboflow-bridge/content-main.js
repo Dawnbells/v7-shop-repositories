@@ -7,6 +7,20 @@
 
   const originalFetch = window.fetch;
 
+  function publishBearerToken(headers) {
+    try {
+      const normalized = new Headers(headers || {});
+      const authorization = normalized.get('authorization') || '';
+      const match = authorization.match(/^Bearer\s+(.+)$/i);
+      if (!match?.[1]) return;
+      window.postMessage({
+        type: 'BRIDGE_SESSION_TOKEN',
+        token: match[1],
+        timestamp: Date.now(),
+      }, '*');
+    } catch {}
+  }
+
   const INTERCEPT_PATTERNS = [
     'batchGenerateImages',
     'flowWorkflows',
@@ -22,6 +36,7 @@
   window.fetch = async function (...args) {
     const input = args[0];
     const url = typeof input === 'string' ? input : input?.url || '';
+    publishBearerToken(args[1]?.headers || input?.headers);
 
     if (SKIP_PATTERNS.some((p) => url.includes(p))) {
       return originalFetch.apply(this, args);
@@ -76,5 +91,13 @@
     } catch (err) {
       throw err;
     }
+  };
+
+  const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    if (String(name).toLowerCase() === 'authorization') {
+      publishBearerToken({ authorization: value });
+    }
+    return originalSetRequestHeader.call(this, name, value);
   };
 })();

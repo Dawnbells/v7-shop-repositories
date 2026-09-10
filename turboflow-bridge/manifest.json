@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TurboFlow Bridge",
-  "version": "1.1.0",
+  "version": "1.1.5",
   "description": "Image translation via Google Flow - upload an image, auto-translate overlay text using Nano Banana 2",
   "permissions": [
     "sidePanel",
@@ -15,8 +15,29 @@
   ],
   "host_permissions": [
     "https://labs.google/*",
+    "https://flow.google.com/*",
     "http://*/*",
     "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://labs.google/fx/*",
+        "https://flow.google.com/*"
+      ],
+      "js": ["content-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://labs.google/fx/*",
+        "https://flow.google.com/*"
+      ],
+      "js": ["content-isolated.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
   ],
   "icons": {
     "16": "icons/icon16.png",

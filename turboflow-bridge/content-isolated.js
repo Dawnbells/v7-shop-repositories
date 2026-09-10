@@ -7,8 +7,18 @@
 
   window.addEventListener('message', function (event) {
     if (event.source !== window) return;
-    if (event.data?.type !== 'BRIDGE_INTERCEPT') return;
     if (!chrome.runtime?.id) return;
+
+    if (event.data?.type === 'BRIDGE_SESSION_TOKEN') {
+      chrome.runtime.sendMessage({
+        type: 'SESSION_TOKEN_CAPTURED',
+        token: event.data.token,
+        capturedAt: event.data.timestamp,
+      }).catch(() => {});
+      return;
+    }
+
+    if (event.data?.type !== 'BRIDGE_INTERCEPT') return;
 
     chrome.runtime
       .sendMessage({

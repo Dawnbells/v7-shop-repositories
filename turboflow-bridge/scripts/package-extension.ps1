@@ -12,6 +12,8 @@ $packageEntries = @(
   'content-main.js'
   'flow-api.js'
   'flow-dom-method.js'
+  'flow-modern-api.js'
+  'flow-sites.js'
   'icons'
   'image-digest.js'
   'manifest.json'
@@ -26,6 +28,8 @@ $packageEntries = @(
 $requiredArchiveEntries = @(
   'background.js'
   'bridge-stats.js'
+  'flow-modern-api.js'
+  'flow-sites.js'
   'image-digest.js'
   'manifest.json'
   'sidepanel.html'

@@ -3,14 +3,20 @@ import {
   uploadImageToFlow,
   buildPolicyFallbackCompletion,
   generateWithReference,
-  getMediaRedirectUrl,
+  resolveFlowImageUrl,
   fetchImageAsBase64,
   clearTokenCache,
   clearProjectIdCache,
   getSessionToken,
+  setSessionToken,
   runRecoveryChain,
   deleteAllUserProjects,
 } from './flow-api.js';
+import {
+  FLOW_HOME_URL,
+  FLOW_TAB_URL_PATTERNS,
+  isFlowUrl,
+} from './flow-sites.js';
 import {
   findImagePolicyFallback,
   rememberImagePolicyFallback,
@@ -47,8 +53,7 @@ import {
   FAILURE_STREAK_RESET,
 } from './task-error-policy.js';
 
-const VERSION = '1.1.0';
-const FLOW_URL = 'https://labs.google/fx/zh/tools/flow/';
+const VERSION = '1.1.5';
 const POLL_INTERVAL_MS = 500;
 const STAGGER_STEP_MS = 250;
 const CONCURRENCY = 4;
@@ -130,7 +135,6 @@ let recoveryState = {
 let recoveryPromise = null;
 
 // Flow 标签页可用性看门狗：每秒探测，标签关闭 → 立即阻断 poll；重新打开 → 自动恢复
-const FLOW_URL_RE = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
 const WATCHDOG_INTERVAL_MS = 1000;
 let flowTabAvailable = false;
 let watchdogTimer = null;
@@ -142,8 +146,8 @@ let watchdogTimer = null;
  */
 async function probeFlowTabAvailable() {
   try {
-    const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
-    return tabs.some((t) => t.url && FLOW_URL_RE.test(t.url) && t.status === 'complete');
+    const tabs = await chrome.tabs.query({ url: FLOW_TAB_URL_PATTERNS });
+    return tabs.some((t) => t.url && isFlowUrl(t.url) && t.status === 'complete');
   } catch {
     return false;
   }
@@ -477,7 +481,7 @@ async function stopAndDelete(reason, options = {}) {
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
 chrome.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
-  if (tab.url && /labs\.google\/fx/.test(tab.url)) {
+  if (tab.url && isFlowUrl(tab.url)) {
     chrome.sidePanel.setOptions({ tabId, path: 'sidepanel.html', enabled: true }).catch(() => {});
   }
 });
@@ -519,8 +523,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'OPEN_FLOW') {
-    chrome.tabs.create({ url: FLOW_URL }).then(() => sendResponse({ ok: true }));
+    chrome.tabs.create({ url: FLOW_HOME_URL }).then(() => sendResponse({ ok: true }));
     return true;
+  }
+
+  if (msg.type === 'SESSION_TOKEN_CAPTURED') {
+    if (_sender.tab?.url && isFlowUrl(_sender.tab.url) && msg.token) {
+      setSessionToken(msg.token, msg.capturedAt || Date.now(), _sender.tab.id, _sender.tab.url);
+    }
+    sendResponse({ ok: true });
+    return false;
   }
 
   if (msg.type === 'GET_CONFIG') {
@@ -635,8 +647,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       try {
         const conn = await checkConnection();
         if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
-        const token = await getSessionToken(conn.tabId);
-        if (!token) throw new Error('Failed to get Flow session token');
+        const token = conn.transport === 'boq' ? null : await getSessionToken(conn.tabId);
+        if (conn.transport !== 'boq' && !token) {
+          throw new Error('Failed to get Flow session token');
+        }
         const base64 = msg.imageBase64.startsWith('data:')
           ? msg.imageBase64.substring(msg.imageBase64.indexOf(',') + 1)
           : msg.imageBase64;
@@ -661,7 +675,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           token,
           model: msg.model || undefined,
         });
-        const resultUrl = gen.fifeUrl || (gen.mediaId ? getMediaRedirectUrl(gen.mediaId) : null);
+        const resultUrl = await resolveFlowImageUrl(conn.tabId, gen, conn.flowUrl);
         if (!resultUrl) throw new Error('Flow returned no image url');
         const image = await fetchImageAsBase64(conn.tabId, resultUrl);
         sendResponse({ ok: true, resultDataUrl: image.dataUrl });
@@ -1526,8 +1540,10 @@ async function translateImage(task, conn) {
   // 由调用方（executeTask）传入已 check 过的 conn，避免重复触发 grecaptcha/getSessionToken。
   if (!conn || !conn.tabId || !conn.projectId) throw new Error('Flow is not connected');
 
-  const token = await getSessionToken(conn.tabId);
-  if (!token) throw new Error('Failed to get Flow session token');
+  const token = conn.transport === 'boq' ? null : await getSessionToken(conn.tabId);
+  if (conn.transport !== 'boq' && !token) {
+    throw new Error('Failed to get Flow session token');
+  }
   const mediaId = await uploadImageToFlow(conn.tabId, {
     base64: stripDataUrl(task.imageBase64),
     fileName: task.fileName || 'source.png',
@@ -1545,7 +1561,7 @@ async function translateImage(task, conn) {
     model: sanitizeModel(task.model),
   });
 
-  const resultUrl = gen.fifeUrl || (gen.mediaId ? getMediaRedirectUrl(gen.mediaId) : null);
+  const resultUrl = await resolveFlowImageUrl(conn.tabId, gen, conn.flowUrl);
   if (!resultUrl) throw new Error('Flow returned no image url');
 
   let image;

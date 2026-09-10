@@ -2,11 +2,35 @@
 // Reverse-engineered from TurboFlow (mx-a3f8b2c1.js)
 // All API calls execute inside the Flow tab via chrome.scripting.executeScript
 
+import {
+  FLOW_TAB_URL_PATTERNS,
+  buildFlowMediaRedirectUrl,
+  buildFlowProjectUrl,
+  getFlowOrigin,
+  getProjectIdFromFlowUrl,
+  isModernFlowUrl,
+  isFlowUrl,
+} from './flow-sites.js';
+import {
+  RPC_BATCH_GENERATE_IMAGES,
+  RPC_GET_PROJECT_CONTENTS,
+  RPC_GET_MEDIA_URL,
+  RPC_UPLOAD_IMAGE,
+  buildBatchexecuteRequest,
+  buildModernGenerateRequest,
+  buildModernGetProjectContentsRequest,
+  buildModernGetMediaUrlRequest,
+  buildModernUploadRequest,
+  extractModernGenerationResult,
+  extractModernMediaUrl,
+  extractProjectGenerationResult,
+  extractUploadedMediaName,
+  parseBatchexecuteResponse,
+} from './flow-modern-api.js';
+
 const RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 const API_BASE = 'https://aisandbox-pa.googleapis.com';
 const MODEL_NARWHAL = 'NARWHAL';
-const FLOW_PROJECT_URL_BASE = 'https://labs.google/fx/tools/flow/project/';
-const FLOW_URL_PATTERN = /labs\.google\/fx(\/[a-z]{2}(-[a-z]{2})?)?\/tools\/flow/;
 
 // reCAPTCHA 恢复参数：reload/导航后等页面 complete 的超时，以及 grecaptcha 重新就绪的两段冷却。
 // 双档恢复策略由 background.js 决策（L1=仅清 labs.google storage；L2=L1 + 清 google.com _GRECAPTCHA cookie），
@@ -19,6 +43,7 @@ const RECAPTCHA_POST_CREATE_SETTLE_MS = 5 * 1000;
 let cachedToken = null;
 let tokenTimestamp = 0;
 let flowTabId = null;
+let flowTabUrl = null;
 let projectId = null;
 
 function uuid() {
@@ -39,10 +64,11 @@ function sleep(ms) {
 // ── Tab discovery ──────────────────────────────────────────────────
 
 export async function findFlowTab() {
-  const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
-  const matching = tabs.filter((t) => t.url && FLOW_URL_PATTERN.test(t.url));
+  const tabs = await chrome.tabs.query({ url: FLOW_TAB_URL_PATTERNS });
+  const matching = tabs.filter((t) => t.url && isFlowUrl(t.url));
   if (matching.length === 0) {
     flowTabId = null;
+    flowTabUrl = null;
     return null;
   }
   const best = matching.sort((a, b) => {
@@ -50,7 +76,15 @@ export async function findFlowTab() {
     if (b.status === 'complete' && a.status !== 'complete') return 1;
     return (b.lastAccessed || 0) - (a.lastAccessed || 0);
   })[0];
+  const currentOrigin = getFlowOrigin(flowTabUrl);
+  const nextOrigin = getFlowOrigin(best.url);
+  if ((flowTabId !== null && flowTabId !== best.id)
+      || (currentOrigin !== null && currentOrigin !== nextOrigin)) {
+    clearTokenCache();
+    projectId = null;
+  }
   flowTabId = best.id;
+  flowTabUrl = best.url;
   return flowTabId;
 }
 
@@ -82,13 +116,17 @@ export async function getSessionToken(tabId) {
     cachedToken = token;
     tokenTimestamp = Date.now();
   }
-  return token;
+  // The interceptor is a legacy fallback for deployments where the session
+  // endpoint is temporarily unavailable. flow.google.com uses BOQ instead.
+  return token || cachedToken || null;
 }
 
-export function setSessionToken(token, capturedAt = Date.now()) {
+export function setSessionToken(token, capturedAt = Date.now(), sourceTabId = null, sourceUrl = null) {
   if (!token) return;
   cachedToken = token;
   tokenTimestamp = capturedAt;
+  if (sourceTabId !== null) flowTabId = sourceTabId;
+  if (sourceUrl && isFlowUrl(sourceUrl)) flowTabUrl = sourceUrl;
 }
 
 export async function refreshSessionToken(tabId) {
@@ -116,12 +154,9 @@ async function readProjectIdFromTab(tabId) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
-    func: () => {
-      const m = window.location.href.match(/project\/([a-f0-9-]+)/);
-      return m ? m[1] : null;
-    },
+    func: () => window.location.href,
   });
-  return results?.[0]?.result || null;
+  return getProjectIdFromFlowUrl(results?.[0]?.result || '');
 }
 
 export async function getProjectId(tabId) {
@@ -273,7 +308,9 @@ async function createFlowProjectAndNavigate(tabId) {
   if (!result?.success) {
     throw new Error(result?.error || 'Failed to create Flow project');
   }
-  const targetUrl = FLOW_PROJECT_URL_BASE + result.projectId;
+  const tab = await chrome.tabs.get(tabId);
+  const targetUrl = buildFlowProjectUrl(tab.url, result.projectId);
+  if (!targetUrl) throw new Error('Could not resolve the current Google Flow origin');
   await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -452,6 +489,174 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
   return result.data;
 }
 
+async function usesModernFlow(tabId) {
+  if (isModernFlowUrl(flowTabUrl)) return true;
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.url && isModernFlowUrl(tab.url)) {
+      flowTabUrl = tab.url;
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+async function getModernFlowPageState(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      const wiz = window.WIZ_global_data || {};
+      return {
+        hasXsrfToken: typeof wiz.SNlM0e === 'string' && wiz.SNlM0e.length > 0,
+        hasTransportConfig: !!wiz.eptZe,
+        path: window.location.pathname,
+      };
+    },
+  });
+  return results?.[0]?.result || null;
+}
+
+async function callModernFlowRpc(tabId, rpcId, payload) {
+  const fReq = buildBatchexecuteRequest(rpcId, payload);
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async (rpc, requestEnvelope) => {
+      try {
+        const wiz = window.WIZ_global_data || {};
+        const xsrfToken = wiz.SNlM0e;
+        if (typeof xsrfToken !== 'string' || !xsrfToken) {
+          return {
+            error: 'Flow page did not expose the BOQ anti-CSRF token',
+            status: 401,
+          };
+        }
+
+        const basePath = String(wiz.eptZe || '/_/AiSandboxAngularFrontend/').replace(/\/?$/, '/');
+        const endpoint = new URL(basePath + 'data/batchexecute', window.location.origin);
+        endpoint.searchParams.set('rpcids', rpc);
+        endpoint.searchParams.set('source-path', window.location.pathname);
+        if (wiz.FdrFJe) endpoint.searchParams.set('f.sid', String(wiz.FdrFJe));
+        if (wiz.cfb2h) endpoint.searchParams.set('bl', String(wiz.cfb2h));
+        endpoint.searchParams.set('hl', document.documentElement.lang || 'en');
+        endpoint.searchParams.set('_reqid', String(100000 + Math.floor(Math.random() * 800000)));
+        endpoint.searchParams.set('rt', 'c');
+
+        const form = new URLSearchParams();
+        form.set('f.req', requestEnvelope);
+        form.set('at', xsrfToken);
+        const response = await fetch(endpoint.href, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            'X-Same-Domain': '1',
+          },
+          body: form.toString(),
+        });
+        const text = await response.text();
+        if (!response.ok) {
+          return {
+            error: 'HTTP ' + response.status + ': ' + text.slice(0, 500),
+            status: response.status,
+            text,
+          };
+        }
+        return { success: true, text };
+      } catch (error) {
+        return { error: error.message, isNetworkError: true };
+      }
+    },
+    args: [rpcId, fReq],
+  });
+
+  const result = results?.[0]?.result;
+  if (!result) throw new Error('Flow BOQ script execution failed');
+  if (result.error) {
+    if (result.status === 401 || result.status === 403) {
+      const error = new Error('Flow BOQ authentication failed: ' + result.error);
+      error.name = 'FlowAuthenticationError';
+      error.code = 'FLOW_AUTHENTICATION_FAILED';
+      error.httpStatus = result.status;
+      throw error;
+    }
+    throw new Error(result.error);
+  }
+  return parseBatchexecuteResponse(result.text, rpcId);
+}
+
+async function uploadImageToModernFlow(tabId, options, retryCount) {
+  const recaptchaToken = await getRecaptchaToken(tabId, 'UPLOAD_IMAGE');
+  if (!recaptchaToken) throw new Error('No reCAPTCHA token — try refreshing the Flow page');
+  const payload = buildModernUploadRequest({
+    base64: options.base64,
+    fileName: options.fileName,
+    mimeType: options.mimeType,
+    projectId: options.pid,
+    recaptchaToken,
+  });
+  try {
+    const data = await callModernFlowRpc(tabId, RPC_UPLOAD_IMAGE, payload);
+    const mediaName = extractUploadedMediaName(data);
+    if (!mediaName) throw new Error('No mediaId in Flow BOQ upload response');
+    return mediaName;
+  } catch (error) {
+    if (error.code !== 'FLOW_AUTHENTICATION_FAILED' && retryCount < 2) {
+      await sleep(1000 * Math.pow(2, retryCount));
+      return uploadImageToModernFlow(tabId, options, retryCount + 1);
+    }
+    throw error;
+  }
+}
+
+async function generateWithModernFlow(tabId, options) {
+  const batchId = uuid();
+  const seed = randomSeed();
+  const recaptchaToken = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
+  if (!recaptchaToken) throw new Error('No reCAPTCHA token — try refreshing the Flow page');
+  const payload = buildModernGenerateRequest({
+    prompt: options.prompt,
+    referenceMediaId: options.referenceMediaId,
+    aspectRatio: options.aspectRatio,
+    projectId: options.pid,
+    recaptchaToken,
+    model: options.model || MODEL_NARWHAL,
+    batchId,
+    seed,
+  });
+  const data = await callModernFlowRpc(tabId, RPC_BATCH_GENERATE_IMAGES, payload);
+  let generated = extractModernGenerationResult(data);
+  if (!generated.mediaId && generated.workflowId) {
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline && !generated.mediaId) {
+      await sleep(2000);
+      const contents = await callModernFlowRpc(
+        tabId,
+        RPC_GET_PROJECT_CONTENTS,
+        buildModernGetProjectContentsRequest(options.pid),
+      );
+      const polled = extractProjectGenerationResult(contents, generated.workflowId);
+      generated = { ...generated, ...polled };
+    }
+  }
+  if (!generated.fifeUrl && !generated.mediaId) {
+    throw new Error(
+      generated.workflowId
+        ? 'Flow workflow did not publish primaryMediaId within 120 seconds'
+        : 'Flow BatchGenerateImages returned neither media nor workflow',
+    );
+  }
+  return {
+    fifeUrl: generated.fifeUrl,
+    mediaId: generated.mediaId,
+    workflowId: generated.workflowId,
+    batchId,
+    seed,
+    raw: data,
+  };
+}
+
 export function buildPolicyFallbackCompletion({
   bridgeId,
   assignmentId,
@@ -475,6 +680,9 @@ export function buildPolicyFallbackCompletion({
 // ── Upload image to Flow ───────────────────────────────────────────
 
 export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid, token }, retryCount = 0) {
+  if (await usesModernFlow(tabId)) {
+    return uploadImageToModernFlow(tabId, { base64, fileName, mimeType, pid }, retryCount);
+  }
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -584,6 +792,15 @@ export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid
 // ── Generate image with reference (Nano Banana 2) ──────────────────
 
 export async function generateWithReference(tabId, { prompt, referenceMediaId, aspectRatio, pid, token, model }) {
+  if (await usesModernFlow(tabId)) {
+    return generateWithModernFlow(tabId, {
+      prompt,
+      referenceMediaId,
+      aspectRatio,
+      pid,
+      model,
+    });
+  }
   const batchId = uuid();
   // 对齐 nano-b mt 中的 sessionId 生成方式 `";"+Date.now()+r`（r 是任务索引），单任务流场景下 r=0 即可
   const sessionId = ';' + Date.now() + '0';
@@ -672,8 +889,35 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
 
 // ── Get downloadable URL for a mediaId ─────────────────────────────
 
-export function getMediaRedirectUrl(mediaId) {
-  return `https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=${mediaId}`;
+export function getMediaRedirectUrl(mediaId, sourceUrl = flowTabUrl) {
+  return buildFlowMediaRedirectUrl(sourceUrl, mediaId);
+}
+
+export async function resolveFlowImageUrl(tabId, generation, sourceUrl = flowTabUrl) {
+  if (generation?.fifeUrl) return generation.fifeUrl;
+  if (!generation?.mediaId) return null;
+  if (!isModernFlowUrl(sourceUrl)) {
+    return getMediaRedirectUrl(generation.mediaId, sourceUrl);
+  }
+  const deadline = Date.now() + 30000;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const data = await callModernFlowRpc(
+        tabId,
+        RPC_GET_MEDIA_URL,
+        buildModernGetMediaUrlRequest(generation.mediaId),
+      );
+      const imageUrl = extractModernMediaUrl(data);
+      if (imageUrl) return imageUrl;
+    } catch (error) {
+      if (error.code === 'FLOW_AUTHENTICATION_FAILED') throw error;
+      lastError = error;
+    }
+    await sleep(2000);
+  }
+  if (lastError) throw lastError;
+  throw new Error('Flow media did not become downloadable within 30 seconds');
 }
 
 // ── Fetch image as base64 from the Flow tab context ────────────────
@@ -743,19 +987,32 @@ export async function checkConnection() {
     return { connected: false, reason: 'No Google Flow tab found. Open Google Flow first.' };
   }
 
+  let tab;
   try {
-    const tab = await chrome.tabs.get(tabId);
+    tab = await chrome.tabs.get(tabId);
     if (tab.status !== 'complete') {
       return { connected: false, reason: 'Flow page is still loading...' };
     }
   } catch {
     flowTabId = null;
+    flowTabUrl = null;
     return { connected: false, reason: 'Flow tab was closed.' };
   }
 
-  const token = await getSessionToken(tabId);
-  if (!token) {
-    return { connected: false, reason: 'Could not get session token. Make sure you are logged into Google Flow.' };
+  const modern = isModernFlowUrl(tab.url);
+  if (modern) {
+    const pageState = await getModernFlowPageState(tabId);
+    if (!pageState?.hasTransportConfig || !pageState?.hasXsrfToken) {
+      return {
+        connected: false,
+        reason: 'Could not initialize the Flow BOQ session. Make sure you are logged in, then refresh Flow.',
+      };
+    }
+  } else {
+    const token = await getSessionToken(tabId);
+    if (!token) {
+      return { connected: false, reason: 'Could not get session token. Make sure you are logged into Google Flow.' };
+    }
   }
 
   const pid = await getProjectId(tabId);
@@ -766,7 +1023,14 @@ export async function checkConnection() {
   // 不再在此处主动调 grecaptcha.enterprise.execute 做预检——4 并发场景下短时累计调用过多会触发风控。
   // 对齐 nano-b：每个任务只在 callFlowApi 内消耗 1 次 reCAPTCHA token。
   // 风控真正触发时由 callFlowApi 抛 'reCAPTCHA blocked'，background 决策 L1/L2 走 runRecoveryChain 兜底。
-  return { connected: true, tabId, projectId: pid };
+  return {
+    connected: true,
+    tabId,
+    projectId: pid,
+    flowUrl: tab.url,
+    flowOrigin: getFlowOrigin(tab.url),
+    transport: modern ? 'boq' : 'legacy-rest',
+  };
 }
 
 // ── Project list / delete (trpc) ───────────────────────────────────
