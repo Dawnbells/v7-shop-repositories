@@ -986,6 +986,14 @@
                     <el-button
                       v-if="hasCurrentDraft"
                       class="draft-action-button"
+                      type="primary"
+                      @click="restoreCurrentDraft"
+                    >
+                      恢复本地草稿
+                    </el-button>
+                    <el-button
+                      v-if="hasCurrentDraft"
+                      class="draft-action-button"
                       type="warning"
                       @click="clearCurrentDraft"
                     >
@@ -1055,7 +1063,7 @@
         </el-table-column>
         <el-table-column align="right" label="操作" width="150">
           <template #default="{ row }">
-            <el-button text type="primary" @click="openDraft(row)">打开</el-button>
+            <el-button text type="primary" @click="openDraft(row)">恢复</el-button>
             <el-button text type="danger" @click="deleteDraft(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -1505,16 +1513,48 @@ const scheduleDraftSave = () => {
   }, DRAFT_SAVE_DELAY)
 }
 
-const loadCurrentDraft = async () => {
+const checkCurrentDraft = async () => {
   if (!currentDraftKey.value) return
   try {
     const draft = await getProductEditDraft(currentDraftKey.value)
     hasCurrentDraft.value = !!draft
-    if (draft) {
-      applyDraftPayload(draft.payload)
-    }
   } catch (error) {
-    console.error('load product draft failed', error)
+    console.error('check product draft failed', error)
+  }
+}
+
+const confirmRestoreDraft = () =>
+  ElMessageBox.confirm('恢复本地草稿将覆盖当前编辑内容，是否继续？', '恢复本地草稿', {
+    type: 'warning',
+    confirmButtonText: '确认恢复',
+    cancelButtonText: '取消',
+  })
+
+const restoreCurrentDraft = async () => {
+  if (!currentDraftKey.value) return
+  await confirmRestoreDraft()
+  draftSavePaused.value = true
+  if (draftSaveTimer) {
+    clearTimeout(draftSaveTimer)
+    draftSaveTimer = undefined
+  }
+  try {
+    const draft = await getProductEditDraft(currentDraftKey.value)
+    if (!draft) {
+      hasCurrentDraft.value = false
+      await $baseMessage('本地草稿不存在或已清除', 'warning', 'hey')
+      return
+    }
+    applyDraftPayload(draft.payload)
+    hasCurrentDraft.value = true
+    await $baseMessage('本地草稿已恢复', 'success', 'hey')
+  } catch (error) {
+    console.error('restore product draft failed', error)
+    await $baseMessage('本地草稿恢复失败', 'error', 'hey')
+  } finally {
+    nextTick(() => {
+      draftSavePaused.value = false
+    })
   }
 }
 
@@ -1552,11 +1592,7 @@ const openDraftManager = async () => {
 }
 
 const openDraft = async (draft: ProductEditDraftRecord) => {
-  if (dialogFormVisible.value && currentDraftKey.value && currentDraftKey.value !== draft.draftKey) {
-    await ElMessageBox.confirm('当前编辑内容将切换为所选草稿，是否继续？', '提示', {
-      type: 'warning',
-    })
-  }
+  await confirmRestoreDraft()
   draftSavePaused.value = true
   currentDraftKey.value = draft.draftKey
   currentDraftMode.value = draft.mode
@@ -1578,6 +1614,9 @@ const deleteDraft = async (draft: ProductEditDraftRecord) => {
   await deleteProductEditDraft(draft.draftKey)
   if (currentDraftKey.value === draft.draftKey) {
     hasCurrentDraft.value = false
+    nextTick(() => {
+      draftSavePaused.value = false
+    })
   }
   await refreshDraftList()
 }
@@ -1655,9 +1694,9 @@ const showEdit = (product: any, spuItem: any = null, options: { sourceProductId?
       }
     }
     currentOriginalState.value = createDraftPayload()
-    await loadCurrentDraft()
+    await checkCurrentDraft()
     draftSaveReady.value = true
-    draftSavePaused.value = false
+    draftSavePaused.value = hasCurrentDraft.value
   })
 }
 
