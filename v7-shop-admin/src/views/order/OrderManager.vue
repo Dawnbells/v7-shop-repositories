@@ -391,17 +391,11 @@
       </el-table-column>
       <el-table-column align="center" label="国家地区">
         <template #default="{ row }">
-          <el-space
-            v-if="sensitiveVisible"
-            alignment="center"
-            direction="vertical"
-            size="small"
-            style="width: 100%"
-          >
+          <el-space alignment="center" direction="vertical" size="small" style="width: 100%">
             <div>
               <span>{{ row.contextInfo?.country }}</span>
             </div>
-            <div>
+            <div v-if="sensitiveVisible">
               <span>
                 <el-button
                   target="_blank"
@@ -633,7 +627,7 @@ const taskDownloading = ref<boolean>(false)
 const ignoreRowSelect = ref<boolean>(false)
 const updatingOrderStatus = ref<boolean>(false)
 const updatingOrderDepartment = ref(false)
-// 审单页眼睛按钮：控制产品名称、面单品名、部门/归属、渠道/仓库、国家/域名是否显示，默认显示
+// 审单页眼睛按钮：控制产品名称、面单品名、部门/归属、渠道/仓库、域名是否显示，默认显示
 const sensitiveVisible = ref(true)
 
 // Set default date range from yesterday 9:00 to today 9:00

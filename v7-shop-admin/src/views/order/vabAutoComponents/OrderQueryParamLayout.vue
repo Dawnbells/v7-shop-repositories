@@ -246,8 +246,8 @@
           v-if="isAudit"
           :content="
             sensitiveVisible
-              ? '隐藏产品名称、部门归属、渠道仓库、国家域名'
-              : '显示产品名称、部门归属、渠道仓库、国家域名'
+              ? '隐藏产品名称、部门归属、渠道仓库、域名'
+              : '显示产品名称、部门归属、渠道仓库、域名'
           "
           placement="top"
         >
@@ -616,7 +616,7 @@ const props = defineProps<{
   taskDownloading: boolean
   updatingOrderStatus: boolean
   updatingOrderDepartment?: boolean
-  // 审单页：是否显示产品名称、面单品名、部门/归属、渠道/仓库、国家/域名等字段（眼睛按钮控制）
+  // 审单页：是否显示产品名称、面单品名、部门/归属、渠道/仓库、域名等字段（眼睛按钮控制）
   sensitiveVisible?: boolean
   // 下单时间筛选所用时区（取自个人统计配置），所选时间按此时区解释，与统计分析口径一致
   reportTimeZone?: string
