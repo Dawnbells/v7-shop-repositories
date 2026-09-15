@@ -53,7 +53,7 @@ import {
   FAILURE_STREAK_RESET,
 } from './task-error-policy.js';
 
-const VERSION = '1.1.5';
+const VERSION = '1.1.7';
 const POLL_INTERVAL_MS = 500;
 const STAGGER_STEP_MS = 250;
 const CONCURRENCY = 4;

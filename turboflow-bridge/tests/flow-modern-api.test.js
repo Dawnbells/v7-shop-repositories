@@ -13,6 +13,7 @@ import {
   extractProjectGenerationResult,
   extractUploadedMediaName,
   modernAspectRatioEnum,
+  modernImageModelEnum,
   normalizeModernMediaName,
   parseBatchexecuteResponse,
 } from '../flow-modern-api.js';
@@ -46,8 +47,11 @@ test('builds the protobuf JSON batch generation request used by flow.google.com'
 
   assert.equal(
     JSON.stringify(request),
-    '[null,[[null,null,[["media/abc",null,null,null,1]],12345,3,"NARWHAL",null,[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],[[["translate this"]]]]],1,[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],["batch-123"]]',
+    '[null,[[null,null,[["media/abc",null,null,null,1]],12345,3,29,null,[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],[[["translate this"]]]]],1,[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],["batch-123"]]',
   );
+  assert.equal(modernImageModelEnum('GEM_PIX_2'), 25);
+  assert.equal(modernImageModelEnum('NARWHAL'), 29);
+  assert.equal(modernImageModelEnum('IMAGEN_3_5'), 21);
 });
 
 test('maps every supported image aspect ratio to the Flow enum', () => {
@@ -73,6 +77,13 @@ test('builds and parses a BOQ batchexecute envelope', () => {
 
 test('extracts upload and generated media fields from protobuf arrays', () => {
   assert.equal(extractUploadedMediaName([['media/uploaded']]), 'media/uploaded');
+  assert.equal(
+    extractUploadedMediaName([
+      ['d0a9bd9e-034f-49e8-b54d-6326adfa945a', 'project-id', 'workflow-id'],
+      ['workflow-id', null, null, ['source.png', null, null, null, 'd0a9bd9e-034f-49e8-b54d-6326adfa945a']],
+    ]),
+    'd0a9bd9e-034f-49e8-b54d-6326adfa945a',
+  );
 
   const generated = extractModernGenerationResult([
     [['media/generated', null, ['https://lh3.googleusercontent.com/result.png']]],

@@ -17,12 +17,22 @@ const ASPECT_RATIO_ENUM = Object.freeze({
   IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE: 5,
 });
 
+const IMAGE_MODEL_ENUM = Object.freeze({
+  GEM_PIX_2: 25,
+  NARWHAL: 29,
+  IMAGEN_3_5: 21,
+});
+
 function sparseMessage(lastField) {
   return new Array(lastField).fill(null);
 }
 
 export function modernAspectRatioEnum(value) {
   return ASPECT_RATIO_ENUM[value] || ASPECT_RATIO_ENUM.IMAGE_ASPECT_RATIO_LANDSCAPE;
+}
+
+export function modernImageModelEnum(value) {
+  return IMAGE_MODEL_ENUM[value] || IMAGE_MODEL_ENUM.NARWHAL;
 }
 
 export function buildModernClientContext(projectId, recaptchaToken) {
@@ -69,7 +79,7 @@ export function buildModernGenerateRequest({
   request[2] = [imageInput];
   request[3] = seed;
   request[4] = modernAspectRatioEnum(aspectRatio);
-  request[5] = model;
+  request[5] = modernImageModelEnum(model);
   request[7] = context;
   request[8] = [[[prompt]]]; // StructuredPrompt.parts[].text
 
