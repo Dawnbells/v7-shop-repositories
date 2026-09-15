@@ -3,6 +3,7 @@ package cn.v7soft.admin.service;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
+import cn.v7soft.admin.controller.req.UpdateOrderDepartmentRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
 import cn.v7soft.admin.service.dto.OrderDownloadDto;
@@ -49,6 +50,9 @@ public interface IOrderService extends IBaseDataRangeService<Order> {
      * @param request 审单备注请求
      */
     void updateOrderCheckRemark(UpdateRemarkRequest request);
+
+    /** 仅修改部门显示名称，保留订单归属。 */
+    void updateOrderDepartment(UpdateOrderDepartmentRequest request);
 
     /**
      * 下载订单任务，返回任务ID

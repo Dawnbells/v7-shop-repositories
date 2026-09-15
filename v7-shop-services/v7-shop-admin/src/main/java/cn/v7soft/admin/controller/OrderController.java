@@ -26,6 +26,7 @@ import cn.v7soft.admin.controller.req.EditOrderRequest;
 import cn.v7soft.admin.controller.req.QueryOrderRequest;
 import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
+import cn.v7soft.admin.controller.req.UpdateOrderDepartmentRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.controller.resp.OrderResponse;
 import cn.v7soft.admin.service.IOrderService;
@@ -153,6 +154,14 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
     @Operation(summary = "下载订单")
     public Long download(@RequestBody @Valid DownloadOrderRequest request) {
         return service.download(request);
+    }
+
+    @SaCheckLogin
+    @PostMapping("/updateOrderDepartment")
+    @Operation(summary = "批量修改订单部门显示名称")
+    public void updateOrderDepartment(@Valid @RequestBody UpdateOrderDepartmentRequest request) {
+        StpUtil.checkPermission("order.audit");
+        service.updateOrderDepartment(request);
     }
 
     @SaCheckLogin

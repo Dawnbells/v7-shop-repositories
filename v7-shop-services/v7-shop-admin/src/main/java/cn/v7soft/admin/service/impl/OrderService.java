@@ -26,6 +26,9 @@ import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.attributes.OrderAccessDataRangeAttribute;
 import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
+import cn.v7soft.admin.controller.req.UpdateOrderDepartmentRequest;
+import cn.v7soft.admin.controller.req.QueryOrderRequest;
+import cn.v7soft.admin.utils.OrderQueryHelper;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.service.ICountryService;
 import cn.v7soft.admin.service.IOrderService;
@@ -37,6 +40,7 @@ import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.ConvertUtils;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.controller.request.attributes.OrQueryAttribute;
+import cn.v7soft.core.controller.request.attributes.InAttribute;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
@@ -116,6 +120,26 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     @Override
     protected void checkKeyConstraint(Order data) {
         // 验证订单的关键字段，比如唯一性检查
+    }
+
+    @Override
+    @Transactional
+    public void updateOrderDepartment(UpdateOrderDepartmentRequest request) {
+        List<Long> ids = request.getIds().stream().distinct().toList();
+        QueryOrderRequest query = new QueryOrderRequest();
+        query.setPageSize(ids.size());
+        QueryPageRequest<Order> orderQuery = OrderQueryHelper.convertOrderQueryPageRequest(query, this)
+                .add(InAttribute.<Long>builder().name("id").value(ids).build());
+        List<Order> orders = findPaginated(orderQuery).getContent();
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(orders.size() == ids.size(), "部分订单不存在或无权操作");
+        for (Order order : orders) {
+            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(order.getContextInfo(), "订单缺少部门信息：" + order.getId());
+        }
+        for (Order order : orders) {
+            // 部门名称是订单快照字段；部门 ID、销售人员和数据归属均保持不变。
+            order.getContextInfo().setDepartment(request.getDepartment().trim());
+        }
+        repository.saveAll(orders);
     }
 
     @Override

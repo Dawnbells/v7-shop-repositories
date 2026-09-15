@@ -10,6 +10,10 @@
       :list-loading="listLoading"
       :task-downloading="taskDownloading"
       :updating-order-status="updatingOrderStatus"
+      :updating-order-department="updatingOrderDepartment"
+      :sensitive-visible="sensitiveVisible"
+      @on-toggle-sensitive-visible="sensitiveVisible = !sensitiveVisible"
+      @on-batch-change-order-department="handleBatchChangeOrderDepartment"
       @on-batch-change-order-remark="handleBatchChangeOrderRemark"
       @on-batch-change-order-status="handleBatchChangeOrderStatus"
       @on-batch-contact-remark="handleBatchContactRemark"
@@ -47,7 +51,7 @@
       </el-table-column>
       <el-table-column align="center" label="产品信息" min-width="150">
         <template #default="{ row }">
-          <div class="text-left">
+          <div v-if="sensitiveVisible" class="text-left">
             <el-tooltip :content="row.items[0].title" placement="top">
               <el-button
                 style="
@@ -83,7 +87,7 @@
           <div class="text-left">
             <span>SKU代码: {{ row.skuCodes }}</span>
           </div>
-          <div class="text-left">
+          <div v-if="sensitiveVisible" class="text-left">
             <span>面单品名: {{ row.items[0].waybillProductName }}</span>
           </div>
         </template>
@@ -307,16 +311,16 @@
             <div v-if="row.deliveryInfo.phone" class="text-left compact">
               <span>电话: {{ row.deliveryInfo.phone }}</span>
             </div>
-            <div v-if="row.contextInfo.department" class="text-left compact">
+            <div v-if="sensitiveVisible && row.contextInfo.department" class="text-left compact">
               <span>部门: {{ row.contextInfo.department }}</span>
             </div>
-            <div v-if="row.contextInfo.salesPerson" class="text-left compact">
+            <div v-if="sensitiveVisible && row.contextInfo.salesPerson" class="text-left compact">
               <span>归属: {{ row.contextInfo.salesPerson }}</span>
             </div>
-            <div v-if="row.deliveryChannel" class="text-left compact">
+            <div v-if="sensitiveVisible && row.deliveryChannel" class="text-left compact">
               <span>渠道: {{ row.deliveryChannel }}</span>
             </div>
-            <div v-if="row.storehouse" class="text-left compact">
+            <div v-if="sensitiveVisible && row.storehouse" class="text-left compact">
               <span>仓库: {{ row.storehouse }}</span>
             </div>
           </el-space>
@@ -387,7 +391,13 @@
       </el-table-column>
       <el-table-column align="center" label="国家地区">
         <template #default="{ row }">
-          <el-space alignment="center" direction="vertical" size="small" style="width: 100%">
+          <el-space
+            v-if="sensitiveVisible"
+            alignment="center"
+            direction="vertical"
+            size="small"
+            style="width: 100%"
+          >
             <div>
               <span>{{ row.contextInfo?.country }}</span>
             </div>
@@ -578,6 +588,7 @@ import {
   updateContactRemark,
   updateContactStatus,
   updateOrderCheckRemark,
+  updateOrderDepartment,
   updateOrderStatus,
 } from '/@/api/orderManager'
 import { useReportTimeZone } from '/@/composables/useReportTimeZone'
@@ -621,6 +632,9 @@ const downloadPercentage = ref<any>(null)
 const taskDownloading = ref<boolean>(false)
 const ignoreRowSelect = ref<boolean>(false)
 const updatingOrderStatus = ref<boolean>(false)
+const updatingOrderDepartment = ref(false)
+// 审单页眼睛按钮：控制产品名称、面单品名、部门/归属、渠道/仓库、国家/域名是否显示，默认显示
+const sensitiveVisible = ref(true)
 
 // Set default date range from yesterday 9:00 to today 9:00
 const today = new Date()
@@ -821,6 +835,39 @@ const handleBatchChangeOrderRemark = () => {
     return
   }
 }
+const handleBatchChangeOrderDepartment = async () => {
+  if (updatingOrderDepartment.value) return
+  if (selectRows.value.length === 0) {
+    $baseMessage('您未选中任何行', 'warning', 'hey')
+    return
+  }
+  const ids = selectRows.value.map((item: { id: string }) => item.id)
+  updatingOrderDepartment.value = true
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `将修改选中的 ${ids.length} 个订单的部门显示名称`,
+      '批量修改部门',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        inputPlaceholder: '请输入部门名称',
+        inputValidator: (value: string) => {
+          if (!value?.trim()) return '请输入部门名称'
+          if (value.trim().length > 100) return '部门名称不能超过100个字符'
+          return true
+        },
+      }
+    )
+    await updateOrderDepartment(ids, value.trim())
+    $baseMessage('部门修改成功', 'success', 'hey')
+    await fetchData()
+  } catch {
+    // 取消无需提示，接口错误由统一请求拦截器提示。
+  } finally {
+    updatingOrderDepartment.value = false
+  }
+}
+
 const handleBatchChangeOrderStatus = (status: string) => {
   if (selectRows.value.length > 0) {
     const ids = selectRows.value.map((item: { id: any }) => item.id)

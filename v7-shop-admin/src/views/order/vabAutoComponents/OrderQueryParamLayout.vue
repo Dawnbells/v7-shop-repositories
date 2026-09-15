@@ -242,6 +242,21 @@
         :span="24"
         style="display: flex; gap: 12px; align-items: center; margin-left: 35px"
       >
+        <el-tooltip
+          v-if="isAudit"
+          :content="
+            sensitiveVisible
+              ? '隐藏产品名称、部门归属、渠道仓库、国家域名'
+              : '显示产品名称、部门归属、渠道仓库、国家域名'
+          "
+          placement="top"
+        >
+          <el-button
+            :icon="sensitiveVisible ? View : Hide"
+            circle
+            @click="emit('onToggleSensitiveVisible')"
+          />
+        </el-tooltip>
         <el-button
           v-if="isAudit"
           :icon="CircleCheck"
@@ -268,6 +283,15 @@
           @click="handleBatchChangeOrderStatus('INVALID')"
         >
           批量无效单
+        </el-button>
+        <el-button
+          v-if="isAudit"
+          :icon="EditPen"
+          :loading="updatingOrderDepartment"
+          type="primary"
+          @click="emit('onBatchChangeOrderDepartment')"
+        >
+          批量修改部门
         </el-button>
         <el-button
           v-if="isContact"
@@ -410,8 +434,10 @@ import {
   Delete,
   Download,
   EditPen,
+  Hide,
   MagicStick,
   Upload,
+  View,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { type Department, getTree as getAllDepartmentTree } from '~/src/api/department'
@@ -589,6 +615,9 @@ const props = defineProps<{
   isContact: boolean
   taskDownloading: boolean
   updatingOrderStatus: boolean
+  updatingOrderDepartment?: boolean
+  // 审单页：是否显示产品名称、面单品名、部门/归属、渠道/仓库、国家/域名等字段（眼睛按钮控制）
+  sensitiveVisible?: boolean
   // 下单时间筛选所用时区（取自个人统计配置），所选时间按此时区解释，与统计分析口径一致
   reportTimeZone?: string
 }>()
@@ -600,6 +629,8 @@ const emit = defineEmits<{
   (event: 'onTemplateUpload'): void
   (event: 'onBatchChangeOrderStatus', status: string): void
   (event: 'onBatchChangeOrderRemark'): void
+  (event: 'onBatchChangeOrderDepartment'): void
+  (event: 'onToggleSensitiveVisible'): void
   (event: 'onBatchContactStatus', contacted: boolean): void
   (event: 'onBatchContactRemark'): void
 }>()
