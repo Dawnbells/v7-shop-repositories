@@ -160,8 +160,17 @@ async function readProjectIdFromTab(tabId) {
 }
 
 export async function getProjectId(tabId) {
-  if (projectId) return projectId;
-  projectId = await readProjectIdFromTab(tabId);
+  // Prefer the live tab URL so navigating between projects cannot leave a stale
+  // cached project id behind.
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const liveProjectId = getProjectIdFromFlowUrl(tab?.url || '');
+    if (liveProjectId) {
+      projectId = liveProjectId;
+      return projectId;
+    }
+  } catch {}
+  if (!projectId) projectId = await readProjectIdFromTab(tabId);
   return projectId;
 }
 
@@ -981,7 +990,7 @@ export async function fetchImageAsBase64(tabId, imageUrl, timeoutMs = 60000) {
 
 // ── Full connection check ──────────────────────────────────────────
 
-export async function checkConnection() {
+export async function checkConnection({ requireApiSession = false } = {}) {
   const tabId = await findFlowTab();
   if (!tabId) {
     return { connected: false, reason: 'No Google Flow tab found. Open Google Flow first.' };
@@ -1000,18 +1009,20 @@ export async function checkConnection() {
   }
 
   const modern = isModernFlowUrl(tab.url);
-  if (modern) {
-    const pageState = await getModernFlowPageState(tabId);
-    if (!pageState?.hasTransportConfig || !pageState?.hasXsrfToken) {
-      return {
-        connected: false,
-        reason: 'Could not initialize the Flow BOQ session. Make sure you are logged in, then refresh Flow.',
-      };
-    }
-  } else {
-    const token = await getSessionToken(tabId);
-    if (!token) {
-      return { connected: false, reason: 'Could not get session token. Make sure you are logged into Google Flow.' };
+  if (requireApiSession) {
+    if (modern) {
+      const pageState = await getModernFlowPageState(tabId);
+      if (!pageState?.hasTransportConfig || !pageState?.hasXsrfToken) {
+        return {
+          connected: false,
+          reason: 'Could not initialize the Flow BOQ session. Make sure you are logged in, then refresh Flow.',
+        };
+      }
+    } else {
+      const token = await getSessionToken(tabId);
+      if (!token) {
+        return { connected: false, reason: 'Could not get session token. Make sure you are logged into Google Flow.' };
+      }
     }
   }
 
@@ -1020,9 +1031,8 @@ export async function checkConnection() {
     return { connected: false, reason: 'No project open. Create or open a project in Flow.' };
   }
 
-  // 不再在此处主动调 grecaptcha.enterprise.execute 做预检——4 并发场景下短时累计调用过多会触发风控。
-  // 对齐 nano-b：每个任务只在 callFlowApi 内消耗 1 次 reCAPTCHA token。
-  // 风控真正触发时由 callFlowApi 抛 'reCAPTCHA blocked'，background 决策 L1/L2 走 runRecoveryChain 兜底。
+  // Page automation only needs a loaded project. API callers may opt into the
+  // legacy token / BOQ bootstrap checks with requireApiSession.
   return {
     connected: true,
     tabId,

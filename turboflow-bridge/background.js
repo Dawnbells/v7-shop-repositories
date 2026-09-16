@@ -1,13 +1,9 @@
 import {
   checkConnection,
-  uploadImageToFlow,
   buildPolicyFallbackCompletion,
-  generateWithReference,
-  resolveFlowImageUrl,
   fetchImageAsBase64,
   clearTokenCache,
   clearProjectIdCache,
-  getSessionToken,
   setSessionToken,
   runRecoveryChain,
   deleteAllUserProjects,
@@ -53,10 +49,13 @@ import {
   FAILURE_STREAK_RESET,
 } from './task-error-policy.js';
 
-const VERSION = '1.1.7';
+const VERSION = '1.3.2';
 const POLL_INTERVAL_MS = 500;
 const STAGGER_STEP_MS = 250;
-const CONCURRENCY = 4;
+// Run one translation end-to-end at a time so a completed Flow tile can never
+// be claimed by a different in-flight task.
+const CONCURRENCY = 1;
+const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V7';
 // 两次「启动翻译任务」之间的最小间隔，每次启动时在 [MIN, MAX] 内随机摇定一个下次允许时间戳
 // （见 nextTranslateAllowedAt）。随机化对齐本扩展整体的反风控风格，避免固定节拍被识别。
 const TRANSLATE_START_INTERVAL_MIN_MS = 2 * 1000;
@@ -623,7 +622,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
-  if (msg.action === 'executeInMainWorld') {
+  if (msg.action === 'injectFlowUpload') {
     const tabId = _sender.tab?.id || msg.tabId;
     if (!tabId) {
       sendResponse({ success: false, error: 'No tab ID' });
@@ -632,8 +631,67 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.scripting.executeScript({
       target: { tabId },
       world: 'MAIN',
-      func: (funcBody, args) => (0, eval)(`(function(...args) { ${funcBody} })`)(...(args || [])),
-      args: [msg.funcBody, msg.args || []],
+      func: async (dataUrl, fileName, requestedMime) => {
+        const findUploadButton = () => Array.from(document.querySelectorAll('.cdk-overlay-pane button, [role="dialog"] button'))
+          .find((button) => {
+            if (button.offsetParent === null) return false;
+            const text = (button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+            const aria = (button.getAttribute('aria-label') || '').trim().toLowerCase();
+            const icon = (button.querySelector('mat-icon, i')?.textContent || '').trim().toLowerCase();
+            return text === 'upload media'
+              || aria === 'upload media'
+              || icon === 'upload'
+              || icon === 'upload_file'
+              || icon === 'drive_folder_upload';
+          });
+        let uploadButton = null;
+        const buttonDeadline = Date.now() + 10000;
+        while (!uploadButton && Date.now() < buttonDeadline) {
+          uploadButton = findUploadButton();
+          if (!uploadButton) await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        if (!uploadButton) return 'error:Upload media button not found';
+
+        let fileInput = Array.from(document.querySelectorAll('input[type="file"]'))
+          .find((input) => !input.accept || input.accept.includes('image')) || null;
+        const originalClick = HTMLInputElement.prototype.click;
+        HTMLInputElement.prototype.click = function (...clickArgs) {
+          if (String(this.type).toLowerCase() === 'file') {
+            fileInput = this;
+            return;
+          }
+          return originalClick.apply(this, clickArgs);
+        };
+        try {
+          uploadButton.click();
+          const inputDeadline = Date.now() + 3000;
+          while (!fileInput && Date.now() < inputDeadline) {
+            fileInput = Array.from(document.querySelectorAll('input[type="file"]'))
+              .find((input) => !input.accept || input.accept.includes('image')) || null;
+            if (!fileInput) await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+        } finally {
+          HTMLInputElement.prototype.click = originalClick;
+        }
+        fileInput = fileInput || Array.from(document.querySelectorAll('input[type="file"]'))
+          .find((input) => !input.accept || input.accept.includes('image'));
+        if (!fileInput) return 'error:Flow did not create an upload input';
+
+        const comma = dataUrl.indexOf(',');
+        if (comma < 0) return 'error:Invalid image data';
+        const meta = dataUrl.slice(0, comma);
+        const binary = atob(dataUrl.slice(comma + 1));
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const mime = requestedMime || meta.match(/data:([^;]+)/)?.[1] || 'image/png';
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([bytes], fileName, { type: mime }));
+        fileInput.files = transfer.files;
+        fileInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        fileInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        return 'ok';
+      },
+      args: [msg.dataUrl, msg.fileName, msg.mimeType],
     }).then((results) => {
       sendResponse({ success: true, result: results?.[0]?.result });
     }).catch((error) => {
@@ -647,38 +705,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       try {
         const conn = await checkConnection();
         if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
-        const token = conn.transport === 'boq' ? null : await getSessionToken(conn.tabId);
-        if (conn.transport !== 'boq' && !token) {
-          throw new Error('Failed to get Flow session token');
-        }
-        const base64 = msg.imageBase64.startsWith('data:')
-          ? msg.imageBase64.substring(msg.imageBase64.indexOf(',') + 1)
-          : msg.imageBase64;
-        const mediaId = await uploadImageToFlow(conn.tabId, {
-          base64,
-          fileName: msg.fileName || 'test.png',
-          mimeType: msg.mimeType || 'image/png',
-          pid: conn.projectId,
-          token,
-        });
         const prompt = msg.prompt || buildPrompt({
           targetLanguage: msg.targetLanguage || 'Simplified Chinese',
         });
         const aspectRatio = msg.aspectRatio === 'auto'
           ? aspectRatioFor(msg.width, msg.height)
           : msg.aspectRatio;
-        const gen = await generateWithReference(conn.tabId, {
+        const result = await runFlowDomTranslation(conn, {
+          ...msg,
+          fileName: buildDomUploadFileName(msg, 'test.png'),
           prompt,
-          referenceMediaId: mediaId,
           aspectRatio,
-          pid: conn.projectId,
-          token,
-          model: msg.model || undefined,
         });
-        const resultUrl = await resolveFlowImageUrl(conn.tabId, gen, conn.flowUrl);
-        if (!resultUrl) throw new Error('Flow returned no image url');
-        const image = await fetchImageAsBase64(conn.tabId, resultUrl);
-        sendResponse({ ok: true, resultDataUrl: image.dataUrl });
+        sendResponse({ ok: true, ...result });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
       }
@@ -698,38 +737,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           ? aspectRatioFor(msg.width, msg.height)
           : msg.aspectRatio;
 
-        await chrome.scripting.executeScript({
-          target: { tabId: conn.tabId },
-          files: ['flow-dom-method.js'],
-          world: 'ISOLATED',
+        const result = await runFlowDomTranslation(conn, {
+          ...msg,
+          fileName: buildDomUploadFileName(msg, 'test.png'),
+          prompt,
+          aspectRatio,
         });
-
-        const result = await chrome.tabs.sendMessage(conn.tabId, {
-          type: 'RUN_DOM_TRANSLATE_V3',
-          task: {
-            imageBase64: ensureDataUrl(msg.imageBase64),
-            fileName: msg.fileName || 'test.png',
-            mimeType: msg.mimeType || 'image/png',
-            aspectRatio,
-            model: sanitizeModel(msg.model),
-            stealthMode: msg.stealthMode !== false,
-            delayMin: Number(msg.delayMin || 0),
-            delayMax: Number(msg.delayMax || 0),
-            prompt,
-          },
-        });
-
-        if (!result?.ok) throw new Error(result?.error || 'DOM translate failed');
-        let resultDataUrl = result.resultDataUrl || null;
-        if (!resultDataUrl && result.resultUrl) {
-          const image = await fetchImageAsBase64(conn.tabId, result.resultUrl);
-          resultDataUrl = image.dataUrl;
-        }
-        if (!resultDataUrl) throw new Error('DOM translate completed but no readable result image was returned');
         if (msg.autoClearCache) {
           await clearFlowPageCache(conn.tabId);
         }
-        sendResponse({ ok: true, resultDataUrl, resultUrl: result.resultUrl || null });
+        sendResponse({ ok: true, ...result });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
       }
@@ -1537,45 +1554,58 @@ async function createThumbnail(base64OrDataUrl, maxSize) {
 }
 
 async function translateImage(task, conn) {
-  // 由调用方（executeTask）传入已 check 过的 conn，避免重复触发 grecaptcha/getSessionToken。
   if (!conn || !conn.tabId || !conn.projectId) throw new Error('Flow is not connected');
-
-  const token = conn.transport === 'boq' ? null : await getSessionToken(conn.tabId);
-  if (conn.transport !== 'boq' && !token) {
-    throw new Error('Failed to get Flow session token');
-  }
-  const mediaId = await uploadImageToFlow(conn.tabId, {
-    base64: stripDataUrl(task.imageBase64),
-    fileName: task.fileName || 'source.png',
-    mimeType: task.mimeType || 'image/png',
-    pid: conn.projectId,
-    token,
-  });
-
-  const gen = await generateWithReference(conn.tabId, {
+  return await runFlowDomTranslation(conn, {
+    ...task,
+    imageBase64: ensureDataUrl(task.imageBase64),
+    fileName: buildDomUploadFileName(task, task.fileName || 'source.png'),
     prompt: buildPrompt(task),
-    referenceMediaId: mediaId,
     aspectRatio: aspectRatioFor(task.sourceWidth, task.sourceHeight),
-    pid: conn.projectId,
-    token,
     model: sanitizeModel(task.model),
   });
+}
 
-  const resultUrl = await resolveFlowImageUrl(conn.tabId, gen, conn.flowUrl);
-  if (!resultUrl) throw new Error('Flow returned no image url');
+async function runFlowDomTranslation(conn, task) {
+  await chrome.scripting.executeScript({
+    target: { tabId: conn.tabId },
+    files: ['flow-dom-method.js'],
+    world: 'ISOLATED',
+  });
 
-  let image;
-  let lastErr;
-  for (const timeout of [60000, 120000]) {
-    try {
-      image = await fetchImageAsBase64(conn.tabId, resultUrl, timeout);
-      break;
-    } catch (e) {
-      lastErr = e;
-    }
+  const result = await chrome.tabs.sendMessage(conn.tabId, {
+    type: DOM_TRANSLATE_MESSAGE,
+    task: {
+      imageBase64: ensureDataUrl(task.imageBase64),
+      fileName: task.fileName || 'turboflow-source.png',
+      mimeType: task.mimeType || 'image/png',
+      aspectRatio: task.aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE',
+      model: sanitizeModel(task.model),
+      stealthMode: task.stealthMode !== false,
+      delayMin: Number(task.delayMin || 0),
+      delayMax: Number(task.delayMax || 0),
+      prompt: task.prompt || '',
+    },
+  });
+
+  if (!result?.ok) throw new Error(result?.error || 'Flow page automation failed');
+  let resultDataUrl = result.resultDataUrl || null;
+  if (!resultDataUrl && result.resultUrl) {
+    const image = await fetchImageAsBase64(conn.tabId, result.resultUrl);
+    resultDataUrl = image.dataUrl;
   }
-  if (!image) throw lastErr;
-  return { resultUrl, resultDataUrl: image.dataUrl };
+  if (!resultDataUrl) throw new Error('Flow page automation completed but no readable result image was returned');
+  return { resultDataUrl, resultUrl: result.resultUrl || null };
+}
+
+function buildDomUploadFileName(task, fallbackName) {
+  const mimeType = String(task?.mimeType || '').toLowerCase();
+  const fallback = String(fallbackName || 'source.png');
+  const extensionMatch = fallback.match(/(\.[a-z0-9]{2,5})$/i);
+  const extension = extensionMatch?.[1]
+    || (mimeType.includes('jpeg') ? '.jpg' : mimeType.includes('webp') ? '.webp' : '.png');
+  const identity = task?.assignmentId || task?.subTaskId || task?.taskId || crypto.randomUUID();
+  const safeIdentity = String(identity).replace(/[^a-z0-9_-]+/gi, '-').slice(0, 80) || 'image';
+  return `turboflow-${safeIdentity}${extension.toLowerCase()}`;
 }
 
 function buildPrompt(task) {
@@ -1636,12 +1666,6 @@ function aspectRatioFor(width, height) {
 function ensureDataUrl(value) {
   if (!value) return null;
   return value.startsWith('data:') ? value : 'data:image/png;base64,' + value;
-}
-
-function stripDataUrl(value) {
-  if (!value) return '';
-  const comma = value.indexOf(',');
-  return comma >= 0 ? value.substring(comma + 1) : value;
 }
 
 async function clearFlowPageCache(tabId) {

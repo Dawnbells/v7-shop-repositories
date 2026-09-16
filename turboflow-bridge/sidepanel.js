@@ -536,7 +536,6 @@
   const testDelayMax = document.getElementById('test-delay-max');
   const testPrompt = document.getElementById('test-prompt');
   const btnTestRun = document.getElementById('btn-test-run');
-  const btnTestDomRun = document.getElementById('btn-test-dom-run');
   const testStatusEl = document.getElementById('test-status');
   const testResultEl = document.getElementById('test-result');
   const testResultSrc = document.getElementById('test-result-src');
@@ -567,7 +566,6 @@
         testPreview.classList.remove('hidden');
         testDropPlaceholder.classList.add('hidden');
         btnTestRun.disabled = false;
-        btnTestDomRun.disabled = false;
       };
       img.src = reader.result;
     };
@@ -577,7 +575,6 @@
   async function runTestTranslate(type, label) {
     if (!testImageData) return;
     btnTestRun.disabled = true;
-    btnTestDomRun.disabled = true;
     testStatusEl.classList.remove('hidden');
     testStatusEl.className = 'test-status running';
     testStatusEl.textContent = `${label}...`;
@@ -623,11 +620,9 @@
       testStatusEl.textContent = 'Error: ' + e.message;
     }
     btnTestRun.disabled = false;
-    btnTestDomRun.disabled = false;
   }
 
-  btnTestRun.addEventListener('click', () => runTestTranslate('TEST_TRANSLATE', 'Translating'));
-  btnTestDomRun.addEventListener('click', () => runTestTranslate('TEST_TRANSLATE_DOM', 'Translating by DOM'));
+  btnTestRun.addEventListener('click', () => runTestTranslate('TEST_TRANSLATE', 'Translating through Flow UI'));
 
   init();
 })();
