@@ -49,13 +49,15 @@ import {
   FAILURE_STREAK_RESET,
 } from './task-error-policy.js';
 
-const VERSION = '1.3.2';
+const VERSION = '1.4.3';
 const POLL_INTERVAL_MS = 500;
-const STAGGER_STEP_MS = 250;
-// Run one translation end-to-end at a time so a completed Flow tile can never
-// be claimed by a different in-flight task.
-const CONCURRENCY = 1;
-const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V7';
+// Flow itself stays strictly serial. Network work is pipelined around it:
+// while one image is generating we may hold exactly one prefetched source,
+// and after the result is downloaded its server report may overlap the next
+// Flow submission.
+const FLOW_CONCURRENCY = 1;
+const PREFETCH_LIMIT = 1;
+const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V11';
 // 两次「启动翻译任务」之间的最小间隔，每次启动时在 [MIN, MAX] 内随机摇定一个下次允许时间戳
 // （见 nextTranslateAllowedAt）。随机化对齐本扩展整体的反风控风格，避免固定节拍被识别。
 const TRANSLATE_START_INTERVAL_MIN_MS = 2 * 1000;
@@ -94,6 +96,9 @@ function friendlyErrorMessage(errorCode, rawMessage) {
 let bridgeId = null;
 let running = false;
 let currentTasks = [];
+let flowSlotOwner = null;
+let flowSubmissionAccepted = false;
+let prefetchedTask = null;
 let timerId = null;
 let serviceCursor = 0;
 let lastStatus = { connected: false, message: 'Not checked' };
@@ -534,6 +539,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  if (msg.type === 'FLOW_DOM_TRANSLATION_SUBMITTED') {
+    const assignmentId = msg.assignmentId || null;
+    const fromFlowTab = !!_sender.tab?.url && isFlowUrl(_sender.tab.url);
+    if (fromFlowTab && assignmentId && assignmentId === flowSlotOwner) {
+      flowSubmissionAccepted = true;
+      const taskState = currentTasks.find((task) => task.assignmentId === assignmentId);
+      if (taskState) taskState.phase = 'generating';
+      broadcastTasksChanged();
+      addLog('info', `Flow accepted task: ${taskState?.subTaskId || assignmentId}; prefetching next image`);
+      scheduleLoop(0);
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg.type === 'GET_CONFIG') {
     loadConfig().then(sendResponse);
     return true;
@@ -567,6 +587,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       cooldownRemainingMs: 0,
       recoveryState,
       reuseSummary,
+      flowSlotOwner,
+      prefetchedTask: getPrefetchedTaskSummary(),
     });
     return false;
   }
@@ -937,12 +959,70 @@ function scheduleLoop(delayMs) {
   }, delayMs);
 }
 
+function getPrefetchedTaskSummary() {
+  if (!prefetchedTask) return null;
+  const { service, task, preparedAt } = prefetchedTask;
+  return {
+    service: service.baseUrl,
+    taskId: task.taskId,
+    subTaskId: task.subTaskId,
+    assignmentId: task.assignmentId,
+    targetLang: task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese',
+    preparedAt,
+  };
+}
+
+function reserveFlowSlotAndExecute(service, task, conn, { prefetched = false } = {}) {
+  const flowSlotsInUse = flowSlotOwner ? 1 : 0;
+  if (flowSlotsInUse >= FLOW_CONCURRENCY) return false;
+  flowSlotOwner = task.assignmentId;
+  flowSubmissionAccepted = false;
+  const interval = TRANSLATE_START_INTERVAL_MIN_MS
+    + Math.random() * (TRANSLATE_START_INTERVAL_MAX_MS - TRANSLATE_START_INTERVAL_MIN_MS);
+  nextTranslateAllowedAt = Date.now() + interval;
+  addLog('info', `${prefetched ? 'Starting prefetched task' : 'Task received'}: ${task.subTaskId} from ${service.baseUrl}`);
+  executeTask(service, task, conn)
+    .catch((e) => addLog('error', `Task runner error: ${e.message}`));
+  return true;
+}
+
+function startPrefetchedTask() {
+  if (!prefetchedTask || flowSlotOwner || pollPaused || recoveryPromise || !flowTabAvailable) {
+    return false;
+  }
+  const next = prefetchedTask;
+  prefetchedTask = null;
+  return reserveFlowSlotAndExecute(next.service, next.task, next.conn, { prefetched: true });
+}
+
+function releaseFlowSlot(assignmentId) {
+  if (!assignmentId || flowSlotOwner !== assignmentId) return false;
+  flowSlotOwner = null;
+  flowSubmissionAccepted = false;
+  if (!startPrefetchedTask()) scheduleLoop(0);
+  return true;
+}
+
 async function runLoop() {
   if (running) return;
   running = true;
   let scheduleNext = true;
   try {
-    if (currentTasks.length >= CONCURRENCY) {
+    // A prefetched task owns the only look-ahead slot. As soon as Flow becomes
+    // free it starts before any further poll can claim another assignment.
+    if (!flowSlotOwner && prefetchedTask) {
+      startPrefetchedTask();
+      nextPollAt = 0;
+      broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
+      scheduleNext = false;
+      return;
+    }
+
+    // Do not fetch the next source until the current request has actually been
+    // accepted by Flow. Once accepted, exactly one prefetch is allowed.
+    const prefetchedCount = prefetchedTask ? 1 : 0;
+    if ((flowSlotOwner && !flowSubmissionAccepted)
+        || prefetchedCount >= PREFETCH_LIMIT) {
       nextPollAt = 0;
       broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
       scheduleNext = false;
@@ -973,16 +1053,18 @@ async function runLoop() {
     const orderedServices = rotateServices(services);
     for (let i = 0; i < orderedServices.length; i++) {
       const service = orderedServices[i];
-      const task = await pollTask(service, conn, CONCURRENCY);
+      const task = await pollTask(service, conn, !!flowSlotOwner || !!prefetchedTask);
       if (task?.hasTask) {
-        const staggerIndex = currentTasks.length; // 当前已占槽位 0..3，对齐 nano-b 的 250*i 错峰
-        addLog('info', `Task received: ${task.subTaskId} from ${service.baseUrl}`);
         serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
-        // 启动这一刻摇定下次允许时间：2~5s 均匀随机
-        const interval = TRANSLATE_START_INTERVAL_MIN_MS
-          + Math.random() * (TRANSLATE_START_INTERVAL_MAX_MS - TRANSLATE_START_INTERVAL_MIN_MS);
-        nextTranslateAllowedAt = Date.now() + interval;
-        executeTask(service, task, staggerIndex, conn).catch((e) => addLog('error', `Task runner error: ${e.message}`));
+        if (flowSlotOwner) {
+          prefetchedTask = { service, task, conn, preparedAt: Date.now() };
+          addLog('info', `Next image prepared locally: ${task.subTaskId}`);
+          nextPollAt = 0;
+          broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
+          scheduleNext = false;
+        } else {
+          reserveFlowSlotAndExecute(service, task, conn);
+        }
         break;
       }
     }
@@ -994,21 +1076,21 @@ async function runLoop() {
   }
 }
 
-async function pollTask(service, conn, concurrency) {
+async function pollTask(service, conn, busy) {
   return postJson(service, '/turboflow-bridge/tasks/poll', {
     bridgeId,
     version: VERSION,
     flowConnected: !!conn.connected,
     projectId: conn.projectId || null,
     currentUrl: null,
-    busy: currentTasks.length >= concurrency,
+    busy: !!busy,
   }).catch((e) => {
     addLog('warn', `Poll failed: ${service.baseUrl} ${e.message}`);
     return null;
   });
 }
 
-async function executeTask(service, task, staggerIndex = 0, conn = null) {
+async function executeTask(service, task, conn = null) {
   const prompt = buildPrompt(task);
   const targetLang = task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese';
   const sourceImage = ensureDataUrl(task.imageBase64);
@@ -1022,17 +1104,13 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
     sourceImage,
     targetLang,
     prompt,
+    phase: 'preparing',
   };
   currentTasks.push(taskState);
   broadcastTasksChanged();
   const sourceThumb = await createThumbnail(task.imageBase64, 64);
   taskState.sourceThumb = sourceThumb;
   broadcastTasksChanged();
-
-  // 对齐 nano-b 任务内 await ae(250 * i) 错峰
-  if (staggerIndex > 0) {
-    await sleep(STAGGER_STEP_MS * staggerIndex);
-  }
 
   const startedAt = Date.now();
   const targetLanguageKey = task.targetLanguageCode || task.targetLanguage || targetLang;
@@ -1069,11 +1147,19 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
     }
 
     // 3. 真正翻译
+    taskState.phase = 'submitting';
+    broadcastTasksChanged();
     const result = await runWithTimeout(
       translateImage(task, conn),
       TRANSLATE_TIMEOUT_MS,
       `translate timeout (${Math.round(TRANSLATE_TIMEOUT_MS / 1000)}s)`,
     );
+    // The generated image is now fully downloaded into extension memory. Free
+    // the single Flow slot before reporting so the next prefetched image can be
+    // submitted in parallel with this task's server upload.
+    taskState.phase = 'reporting';
+    broadcastTasksChanged();
+    releaseFlowSlot(task.assignmentId);
     try {
       await postCompletionWithRetry(service, {
         bridgeId,
@@ -1208,6 +1294,11 @@ async function executeTask(service, task, staggerIndex = 0, conn = null) {
       // 停止态下 scheduleLoop 自身会短路，不会领到新任务。
       scheduleLoop(POLL_INTERVAL_MS);
     }
+  } finally {
+    // Cache hits, policy fallbacks and failures do not pass through the normal
+    // translated-result handoff above. Always release a slot still owned by
+    // this assignment so the one-item pipeline cannot deadlock.
+    releaseFlowSlot(task.assignmentId);
   }
 }
 
@@ -1575,6 +1666,7 @@ async function runFlowDomTranslation(conn, task) {
   const result = await chrome.tabs.sendMessage(conn.tabId, {
     type: DOM_TRANSLATE_MESSAGE,
     task: {
+      assignmentId: task.assignmentId || null,
       imageBase64: ensureDataUrl(task.imageBase64),
       fileName: task.fileName || 'turboflow-source.png',
       mimeType: task.mimeType || 'image/png',

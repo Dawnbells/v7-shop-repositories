@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const VERSION = 7;
+  const VERSION = 11;
   const previous = window.__turboFlowDomMethod;
   if (previous?.version === VERSION) return;
   if (previous?.listener) {
@@ -10,7 +10,8 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const FILE_INJECT_GAP_MS = 500;
-  const UPLOAD_SETTLE_MS = 3000;
+  const UPLOAD_READY_TIMEOUT_MS = 90000;
+  const UPLOAD_READY_STABLE_MS = 1200;
   const PICKER_TIMEOUT_MS = 8000;
   const SEARCH_TIMEOUT_MS = 15000;
   const PICKER_CLOSE_TIMEOUT_MS = 8000;
@@ -194,6 +195,78 @@
     return await waitFor(() => findPickerImage(fileName), SEARCH_TIMEOUT_MS, 300);
   }
 
+  function pickerAssetRoot(result) {
+    if (!result) return null;
+    return result.matches?.('[role="option"]')
+      ? result
+      : result.closest?.('[role="option"], button') || result.parentElement || result;
+  }
+
+  function pickerAssetIsReady(result) {
+    const root = pickerAssetRoot(result);
+    if (!root || root.getAttribute?.('aria-disabled') === 'true') return false;
+    if (root.matches?.('[aria-busy="true"], [data-state="loading"], [data-state="uploading"]')) return false;
+    if (root.querySelector?.([
+      '[aria-busy="true"]',
+      '[role="progressbar"]',
+      'progress',
+      'mat-progress-spinner',
+      'mat-spinner',
+      'mat-progress-bar',
+      '.mat-mdc-progress-spinner',
+      '.mat-mdc-progress-bar',
+      '[data-state="loading"]',
+      '[data-state="uploading"]',
+      '[class*="upload-progress"]',
+      '[class~="uploading"]',
+    ].join(','))) return false;
+
+    const statusText = (root.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (/\b(uploading|processing|preparing)\b|正在上传|上传中|处理中|准备中/.test(statusText)) return false;
+
+    const images = root.matches?.('img') ? [root] : Array.from(root.querySelectorAll?.('img') || []);
+    if (!images.length) return false;
+    return images.some((image) => image.complete && image.naturalWidth > 0 && !!(image.currentSrc || image.src));
+  }
+
+  async function waitForUploadedAssetReady(fileName, task) {
+    let dialog = findPickerDialog() || await openPicker(task);
+    const input = dialog?.querySelector('input[aria-label="Search assets"], input[placeholder="Search assets"], input[type="text"]');
+    if (input) {
+      input.focus();
+      setNativeInputValue(input, fileName || '');
+    }
+
+    let stableSince = 0;
+    let stableSignature = '';
+    const ready = await waitFor(() => {
+      dialog = findPickerDialog();
+      if (!dialog) {
+        stableSince = 0;
+        stableSignature = '';
+        return null;
+      }
+      const result = findPickerImage(fileName);
+      if (!pickerAssetIsReady(result)) {
+        stableSince = 0;
+        stableSignature = '';
+        return null;
+      }
+      const root = pickerAssetRoot(result);
+      const image = root.matches?.('img') ? root : root.querySelector?.('img');
+      const signature = `${fileName}|${image?.currentSrc || image?.src || ''}`;
+      if (signature !== stableSignature) {
+        stableSignature = signature;
+        stableSince = Date.now();
+        return null;
+      }
+      return Date.now() - stableSince >= UPLOAD_READY_STABLE_MS ? result : null;
+    }, UPLOAD_READY_TIMEOUT_MS, 250);
+    if (!ready) throw new Error(`Timed out waiting for ${fileName} upload to complete`);
+    console.log(`[TurboFlow DOM] Upload completed and asset is ready: ${fileName}`);
+    return ready;
+  }
+
   function closestClickable(el) {
     return el?.closest('button, [role="button"]') || el?.parentElement || el;
   }
@@ -233,12 +306,7 @@
 
   async function clearAttachedReferences(task) {
     const promptBox = document.querySelector('.base-prompt-box, flow-base-prompt-box');
-    const buttons = Array.from(promptBox?.querySelectorAll('button') || []);
-    const clearButtons = buttons.filter((button) => {
-      if (button.matches('[aria-label="Add ingredients to the prompt box"], [aria-label="Settings trigger"], [aria-label="Start generation"]')) return false;
-      const icon = button.querySelector('i.google-symbols, i, mat-icon');
-      return icon?.textContent?.trim() === 'close';
-    });
+    const clearButtons = findAttachedReferenceClearButtons(promptBox);
     if (!clearButtons.length) {
       console.log('[TurboFlow DOM] Reference area already clean');
       return false;
@@ -246,6 +314,29 @@
     for (const button of clearButtons) {
       click(button, task);
       await sleep(200);
+    }
+    const cleared = await waitFor(() => attachedReferenceCount() === 0, 5000, 150);
+    if (!cleared) throw new Error('Existing prompt image references could not be cleared');
+    return true;
+  }
+
+  function findAttachedReferenceClearButtons(promptBox = document.querySelector('.base-prompt-box, flow-base-prompt-box')) {
+    const buttons = Array.from(promptBox?.querySelectorAll('button') || []);
+    return buttons.filter((button) => {
+      if (button.matches('[aria-label="Add ingredients to the prompt box"], [aria-label="Settings trigger"], [aria-label="Start generation"]')) return false;
+      const icon = button.querySelector('i.google-symbols, i, mat-icon');
+      return icon?.textContent?.trim() === 'close';
+    });
+  }
+
+  function attachedReferenceCount() {
+    return findAttachedReferenceClearButtons().length;
+  }
+
+  async function requireAttachedReferences(expectedCount) {
+    const attached = await waitFor(() => attachedReferenceCount() >= expectedCount, 5000, 150);
+    if (!attached) {
+      throw new Error(`Source image was not added to prompt (expected ${expectedCount}, found ${attachedReferenceCount()})`);
     }
     return true;
   }
@@ -284,16 +375,16 @@
       await openPicker(task);
       await injectUploadThroughPicker(image, name);
       injected++;
-      await sleep(500);
+      await waitForUploadedAssetReady(name, task);
       await closePicker(task);
       if (injected < missingCount) await sleep(FILE_INJECT_GAP_MS);
     }
 
-    if (injected > 0) await sleep(UPLOAD_SETTLE_MS);
     return true;
   }
 
   async function attachOneImage(fileName, task) {
+    const referencesBefore = attachedReferenceCount();
     const dialog = await openPicker(task);
     await sleep(task.stealthMode ? 400 * (0.7 + Math.random() * 0.6) : 400);
 
@@ -303,7 +394,12 @@
       throw new Error(`Search result for ${fileName} not found`);
     }
 
-    const row = result.matches?.('[role="option"]') ? result : closestClickable(result);
+    // A newly uploaded asset can appear in search before its upload finishes.
+    // Do not select it or expose Add to prompt until the thumbnail is fully
+    // loaded and all upload/progress states have disappeared and stayed gone.
+    const readyResult = await waitForUploadedAssetReady(fileName, task);
+
+    const row = readyResult.matches?.('[role="option"]') ? readyResult : closestClickable(readyResult);
     if (!row) {
       pressEscape();
       throw new Error(`Search result row for ${fileName} not found`);
@@ -311,18 +407,29 @@
 
     if (task.stealthMode) await sleep(150 + Math.random() * 200);
     click(row, task);
-    await sleep(250);
-    const addButton = Array.from(dialog.querySelectorAll('button')).find((button) =>
-      (button.textContent || '').trim() === 'Add to prompt' && !button.disabled
-    );
-    if (addButton) {
-      click(addButton, task);
+    const addButton = await waitFor(() => {
+      const activeDialog = findPickerDialog();
+      return Array.from(activeDialog?.querySelectorAll('button') || []).find((button) =>
+        (button.textContent || '').replace(/\s+/g, ' ').trim() === 'Add to prompt'
+        && !button.disabled
+        && button.getAttribute('aria-disabled') !== 'true'
+      ) || null;
+    }, UPLOAD_READY_TIMEOUT_MS, 150);
+    if (!addButton) {
+      throw new Error(`Add to prompt button did not become available for ${fileName}`);
+    }
+    click(addButton, task);
+    const attached = await waitFor(() => attachedReferenceCount() > referencesBefore, 5000, 150);
+    if (!attached) {
+      throw new Error(`Flow did not attach ${fileName} to the prompt`);
     }
     if (!await waitForPickerClosed()) {
       pressEscape();
-      await sleep(300);
+      if (!await waitForPickerClosed()) {
+        throw new Error(`Image picker stayed open after Add to prompt for ${fileName}`);
+      }
     }
-    await sleep(500);
+    await sleep(300);
   }
 
   async function attachAllImages(images, task) {
@@ -355,8 +462,7 @@
     const trigger = document.querySelector('button[aria-label="Settings trigger"]')
       || xPath("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
     if (!trigger) {
-      console.warn('[TurboFlow DOM] Main settings trigger not found; continuing with current Flow settings');
-      return false;
+      throw new Error('Flow settings trigger not found');
     }
     clickDom(trigger);
     await sleep(600);
@@ -370,15 +476,35 @@
     }
 
     const aspect = ASPECT_CONFIG[settings.aspectRatio] || ASPECT_CONFIG.IMAGE_ASPECT_RATIO_LANDSCAPE;
-    const aspectTab = Array.from(settingsPanel.querySelectorAll('button[role="radio"], button[role="tab"]'))
+    const findAspectTab = () => Array.from(settingsPanel.querySelectorAll('button[role="radio"], button[role="tab"]'))
       .find((button) => {
         const text = (button.textContent || '').replace(/\s+/g, '');
         return text.includes(aspect.icon) || text.endsWith(aspect.label);
       });
-    if (aspectTab && aspectTab.getAttribute('aria-checked') !== 'true' && aspectTab.getAttribute('data-state') !== 'active') {
-      clickDom(aspectTab);
-      await sleep(300);
+    const aspectTab = findAspectTab();
+    if (!aspectTab) {
+      throw new Error(`Flow aspect ratio option not found: ${aspect.label}`);
     }
+
+    // Flow remembers the previous task's setting. Re-click the best matching
+    // aspect ratio for every source image so a stale selection cannot leak
+    // into the next translation.
+    clickDom(aspectTab);
+    const aspectSelected = await waitFor(() => {
+      const current = findAspectTab();
+      if (!current) return false;
+      const exposesSelectionState = current.hasAttribute('aria-checked')
+        || current.hasAttribute('aria-selected')
+        || current.hasAttribute('data-state');
+      if (!exposesSelectionState) return true;
+      return current.getAttribute('aria-checked') === 'true'
+        || current.getAttribute('aria-selected') === 'true'
+        || current.getAttribute('data-state') === 'active';
+    }, 3000, 100);
+    if (!aspectSelected) {
+      throw new Error(`Flow aspect ratio was not selected: ${aspect.label}`);
+    }
+    console.log(`[TurboFlow DOM] Aspect ratio reselected for this task: ${aspect.label}`);
 
     const countTab = Array.from(settingsPanel.querySelectorAll('button[role="radio"], button[role="tab"]'))
       .find((button) => (button.textContent || '').trim() === 'x1');
@@ -664,9 +790,11 @@
       await randomDelay(task, 'reference upload');
       await uploadAllImages(images, task);
       await attachAllImages(images, task);
+      await requireAttachedReferences(images.length);
       await sleep(500);
       await randomDelay(task, 'prompt input');
       await injectPrompt(task.prompt || '', task);
+      await requireAttachedReferences(images.length);
       await sleep(1000);
       const preSubmitTiles = snapshotGenerationTiles();
       const preSubmitImageIds = snapshotImageIds();
@@ -675,13 +803,21 @@
       return await claimGenerationTile(preSubmitTiles, preSubmitImageIds);
     });
 
-    // The shared prompt box is free once this task owns its generation tile.
-    // Result waiting can overlap with up to three other Flow generations.
+    // Tell the background worker that this request is now owned by a Flow tile.
+    // It may prefetch one source image, but it must not submit another request
+    // until this result has been downloaded.
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'FLOW_DOM_TRANSLATION_SUBMITTED',
+        assignmentId: task.assignmentId || null,
+      });
+    } catch {}
+
     return await waitForGeneratedImage(claim);
   }
 
   const listener = (msg, _sender, sendResponse) => {
-    if (msg.type !== 'RUN_DOM_TRANSLATE_V7') return false;
+    if (msg.type !== 'RUN_DOM_TRANSLATE_V11') return false;
     runDomTranslate(msg.task || {})
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));

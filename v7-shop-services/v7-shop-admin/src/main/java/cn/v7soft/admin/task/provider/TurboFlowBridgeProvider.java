@@ -67,12 +67,11 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     /**
      * 任务分配后允许的执行时间。
      * <p>
-     * 必须大于插件端总超时（TRANSLATE_TIMEOUT_MS = 300 秒，其中下载重试独占 60+120 秒），
-     * 再加上失败上报的 3 次指数退避（约 7 秒）和 syncTaskStatus 的 5 秒周期。
-     * 之前是 3 分钟（180 秒），慢图必然在插件还在跑时就被回收，插件带着译好的图来 complete
-     * 只能撞上 "assignment not found or expired"，白烧一次 Google 额度。
+     * 插件会预取下一张图片：预取任务可能先等待当前 Flow 生成（最长 300 秒），再执行
+     * 自己的生成（最长 300 秒），最后还要留出失败上报退避和状态同步时间。因此租约必须
+     * 覆盖两段完整生成窗口，避免预取任务还没来得及上报就被回收。
      */
-    private static final int TURBOFLOW_LEASE_MINUTES = 6;
+    private static final int TURBOFLOW_LEASE_MINUTES = 12;
 
     /** 分发失败（读图 / 建 assignment 异常）后的退避上限，避免 500ms 一轮的热循环。 */
     private static final int DISPATCH_BACKOFF_MAX_SECONDS = 60;
