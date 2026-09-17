@@ -49,7 +49,7 @@ import {
   FAILURE_STREAK_RESET,
 } from './task-error-policy.js';
 
-const VERSION = '1.4.3';
+const VERSION = '1.4.11';
 const POLL_INTERVAL_MS = 500;
 // Flow itself stays strictly serial. Network work is pipelined around it:
 // while one image is generating we may hold exactly one prefetched source,
@@ -57,7 +57,8 @@ const POLL_INTERVAL_MS = 500;
 // Flow submission.
 const FLOW_CONCURRENCY = 1;
 const PREFETCH_LIMIT = 1;
-const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V11';
+const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V19';
+const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V19';
 // 两次「启动翻译任务」之间的最小间隔，每次启动时在 [MIN, MAX] 内随机摇定一个下次允许时间戳
 // （见 nextTranslateAllowedAt）。随机化对齐本扩展整体的反风控风格，避免固定节拍被识别。
 const TRANSLATE_START_INTERVAL_MIN_MS = 2 * 1000;
@@ -654,6 +655,89 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       target: { tabId },
       world: 'MAIN',
       func: async (dataUrl, fileName, requestedMime) => {
+        const uploadRpcId = 'maseQ';
+        const isUploadRequest = (rawUrl) => {
+          try {
+            const url = new URL(String(rawUrl || ''), location.href);
+            return (url.searchParams.get('rpcids') || '').split(',').includes(uploadRpcId);
+          } catch {
+            return String(rawUrl || '').includes(`rpcids=${uploadRpcId}`);
+          }
+        };
+        const validateUploadResponse = (status, responseText) => {
+          if (status < 200 || status >= 300) {
+            return { status: 'error', error: `Flow upload HTTP ${status || 0}` };
+          }
+          const text = String(responseText || '');
+          if (!text.includes(`"wrb.fr","${uploadRpcId}"`)) {
+            return { status: 'error', error: `Flow upload response did not contain ${uploadRpcId}` };
+          }
+          if (text.includes(`"wrb.fr","${uploadRpcId}","[]"`)) {
+            return { status: 'error', error: 'Flow upload returned no media record' };
+          }
+          return { status: 'ok', rpcId: uploadRpcId, httpStatus: status };
+        };
+
+        let captureUpload = false;
+        let observedUpload = false;
+        let uploadSettled = false;
+        let settleUpload;
+        const uploadCompletion = new Promise((resolve) => { settleUpload = resolve; });
+        const settleOnce = (value) => {
+          if (uploadSettled) return;
+          uploadSettled = true;
+          settleUpload(value);
+        };
+
+        const originalFetch = window.fetch;
+        const wrappedFetch = function (...args) {
+          const rawUrl = typeof args[0] === 'string' || args[0] instanceof URL
+            ? args[0]
+            : args[0]?.url;
+          const isTarget = captureUpload && isUploadRequest(rawUrl);
+          if (isTarget) observedUpload = true;
+          const request = originalFetch.apply(this, args);
+          if (isTarget) {
+            Promise.resolve(request).then(async (response) => {
+              let responseText = '';
+              try { responseText = await response.clone().text(); } catch {}
+              settleOnce(validateUploadResponse(response.status, responseText));
+            }).catch((error) => settleOnce({ status: 'error', error: `Flow upload fetch failed: ${error.message}` }));
+          }
+          return request;
+        };
+
+        const originalOpen = XMLHttpRequest.prototype.open;
+        const originalSend = XMLHttpRequest.prototype.send;
+        const wrappedOpen = function (method, url, ...rest) {
+          this.__turboFlowUploadUrl = String(url || '');
+          return originalOpen.call(this, method, url, ...rest);
+        };
+        const wrappedSend = function (...args) {
+          const isTarget = captureUpload && isUploadRequest(this.__turboFlowUploadUrl);
+          if (isTarget) {
+            observedUpload = true;
+            this.addEventListener('loadend', () => {
+              let responseText = '';
+              try { responseText = this.responseText || ''; } catch {}
+              settleOnce(validateUploadResponse(this.status, responseText));
+            }, { once: true });
+            this.addEventListener('error', () => {
+              settleOnce({ status: 'error', error: 'Flow upload XHR failed' });
+            }, { once: true });
+          }
+          return originalSend.apply(this, args);
+        };
+        window.fetch = wrappedFetch;
+        XMLHttpRequest.prototype.open = wrappedOpen;
+        XMLHttpRequest.prototype.send = wrappedSend;
+        const restoreUploadMonitor = () => {
+          captureUpload = false;
+          if (window.fetch === wrappedFetch) window.fetch = originalFetch;
+          if (XMLHttpRequest.prototype.open === wrappedOpen) XMLHttpRequest.prototype.open = originalOpen;
+          if (XMLHttpRequest.prototype.send === wrappedSend) XMLHttpRequest.prototype.send = originalSend;
+        };
+
         const findUploadButton = () => Array.from(document.querySelectorAll('.cdk-overlay-pane button, [role="dialog"] button'))
           .find((button) => {
             if (button.offsetParent === null) return false;
@@ -672,7 +756,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           uploadButton = findUploadButton();
           if (!uploadButton) await new Promise((resolve) => setTimeout(resolve, 200));
         }
-        if (!uploadButton) return 'error:Upload media button not found';
+        if (!uploadButton) {
+          restoreUploadMonitor();
+          return { status: 'error', error: 'Upload media button not found' };
+        }
 
         let fileInput = Array.from(document.querySelectorAll('input[type="file"]'))
           .find((input) => !input.accept || input.accept.includes('image')) || null;
@@ -697,10 +784,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         }
         fileInput = fileInput || Array.from(document.querySelectorAll('input[type="file"]'))
           .find((input) => !input.accept || input.accept.includes('image'));
-        if (!fileInput) return 'error:Flow did not create an upload input';
+        if (!fileInput) {
+          restoreUploadMonitor();
+          return { status: 'error', error: 'Flow did not create an upload input' };
+        }
 
         const comma = dataUrl.indexOf(',');
-        if (comma < 0) return 'error:Invalid image data';
+        if (comma < 0) {
+          restoreUploadMonitor();
+          return { status: 'error', error: 'Invalid image data' };
+        }
         const meta = dataUrl.slice(0, comma);
         const binary = atob(dataUrl.slice(comma + 1));
         const bytes = new Uint8Array(binary.length);
@@ -709,9 +802,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const transfer = new DataTransfer();
         transfer.items.add(new File([bytes], fileName, { type: mime }));
         fileInput.files = transfer.files;
-        fileInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-        fileInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-        return 'ok';
+        captureUpload = true;
+        try {
+          fileInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+          fileInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          const timeoutResult = new Promise((resolve) => setTimeout(() => resolve({
+            status: 'error',
+            error: observedUpload
+              ? `Timed out waiting for Flow upload RPC ${uploadRpcId}`
+              : `Flow upload RPC ${uploadRpcId} was not observed`,
+          }), 45000));
+          return await Promise.race([uploadCompletion, timeoutResult]);
+        } finally {
+          restoreUploadMonitor();
+        }
       },
       args: [msg.dataUrl, msg.fileName, msg.mimeType],
     }).then((results) => {
@@ -1663,23 +1767,65 @@ async function runFlowDomTranslation(conn, task) {
     world: 'ISOLATED',
   });
 
-  const result = await chrome.tabs.sendMessage(conn.tabId, {
-    type: DOM_TRANSLATE_MESSAGE,
-    task: {
-      assignmentId: task.assignmentId || null,
-      imageBase64: ensureDataUrl(task.imageBase64),
-      fileName: task.fileName || 'turboflow-source.png',
-      mimeType: task.mimeType || 'image/png',
-      aspectRatio: task.aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE',
-      model: sanitizeModel(task.model),
-      stealthMode: task.stealthMode !== false,
-      delayMin: Number(task.delayMin || 0),
-      delayMax: Number(task.delayMax || 0),
-      prompt: task.prompt || '',
-    },
+  const requestId = `${task.assignmentId || 'flow'}:${crypto.randomUUID()}`;
+  const port = chrome.tabs.connect(conn.tabId, { name: DOM_TRANSLATE_PORT });
+  const result = await new Promise((resolve, reject) => {
+    let settled = false;
+    let accepted = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(ackTimer);
+      callback(value);
+      try { port.disconnect(); } catch {}
+    };
+    const fail = (message) => finish(reject, new Error(message));
+    const ackTimer = setTimeout(() => {
+      fail(`Flow page automation did not acknowledge request ${requestId} within 15s`);
+    }, 15000);
+
+    port.onMessage.addListener((message) => {
+      if (message?.requestId !== requestId) return;
+      if (message.type === 'FLOW_DOM_TRANSLATION_ACCEPTED') {
+        accepted = true;
+        clearTimeout(ackTimer);
+        return;
+      }
+      if (message.type !== 'FLOW_DOM_TRANSLATION_RESULT') return;
+      if (!message.ok) {
+        fail(message.error || `Flow page automation failed after acceptance (${requestId})`);
+        return;
+      }
+      finish(resolve, message);
+    });
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      const detail = chrome.runtime.lastError?.message || 'message port disconnected';
+      fail(`Flow page automation channel closed before result (accepted=${accepted}): ${detail}`);
+    });
+
+    try {
+      port.postMessage({
+        type: DOM_TRANSLATE_MESSAGE,
+        requestId,
+        task: {
+          assignmentId: task.assignmentId || null,
+          imageBase64: ensureDataUrl(task.imageBase64),
+          fileName: task.fileName || 'turboflow-source.png',
+          mimeType: task.mimeType || 'image/png',
+          aspectRatio: task.aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE',
+          model: sanitizeModel(task.model),
+          stealthMode: task.stealthMode !== false,
+          delayMin: Number(task.delayMin || 0),
+          delayMax: Number(task.delayMax || 0),
+          prompt: task.prompt || '',
+        },
+      });
+    } catch (error) {
+      fail(`Flow page automation request could not be sent: ${error?.message || String(error)}`);
+    }
   });
 
-  if (!result?.ok) throw new Error(result?.error || 'Flow page automation failed');
   let resultDataUrl = result.resultDataUrl || null;
   if (!resultDataUrl && result.resultUrl) {
     const image = await fetchImageAsBase64(conn.tabId, result.resultUrl);

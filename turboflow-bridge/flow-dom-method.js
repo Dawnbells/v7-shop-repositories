@@ -1,24 +1,30 @@
 (function () {
   'use strict';
 
-  const VERSION = 11;
+  const VERSION = 19;
+  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V19';
   const previous = window.__turboFlowDomMethod;
   if (previous?.version === VERSION) return;
   if (previous?.listener) {
     try { chrome.runtime.onMessage.removeListener(previous.listener); } catch {}
   }
+  if (previous?.portListener) {
+    try { chrome.runtime.onConnect.removeListener(previous.portListener); } catch {}
+  }
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const FILE_INJECT_GAP_MS = 500;
-  const UPLOAD_READY_TIMEOUT_MS = 90000;
+  const UPLOAD_READY_TIMEOUT_MS = 45000;
+  const ATTACH_READY_TIMEOUT_MS = 20000;
   const UPLOAD_READY_STABLE_MS = 1200;
+  const SEARCH_RETRY_MIN_MS = 1000;
+  const SEARCH_RETRY_MAX_MS = 2000;
   const PICKER_TIMEOUT_MS = 8000;
   const SEARCH_TIMEOUT_MS = 15000;
   const PICKER_CLOSE_TIMEOUT_MS = 8000;
   const RESULT_TIMEOUT_MS = 180000;
   const RESULT_SCAN_MS = 1000;
   const GENERATION_TILE_TIMEOUT_MS = 30000;
-  const STEALTH_SHORT_PROMPT_LIMIT = 120;
   let uiQueueTail = Promise.resolve();
 
   async function withUiLock(work) {
@@ -225,32 +231,70 @@
     if (/\b(uploading|processing|preparing)\b|正在上传|上传中|处理中|准备中/.test(statusText)) return false;
 
     const images = root.matches?.('img') ? [root] : Array.from(root.querySelectorAll?.('img') || []);
-    if (!images.length) return false;
+    // Some Flow builds render the asset preview as a CSS background instead
+    // of an <img>. In that case the stable, non-busy asset row itself is the
+    // completion signal.
+    if (!images.length) return true;
     return images.some((image) => image.complete && image.naturalWidth > 0 && !!(image.currentSrc || image.src));
   }
 
-  async function waitForUploadedAssetReady(fileName, task) {
-    let dialog = findPickerDialog() || await openPicker(task);
-    const input = dialog?.querySelector('input[aria-label="Search assets"], input[placeholder="Search assets"], input[type="text"]');
-    if (input) {
-      input.focus();
-      setNativeInputValue(input, fileName || '');
-    }
-
+  async function waitForUploadedAssetReady(fileName, task, timeoutMs = UPLOAD_READY_TIMEOUT_MS) {
+    let dialog = findPickerDialog();
+    let configuredDialog = null;
     let stableSince = 0;
     let stableSignature = '';
-    const ready = await waitFor(() => {
+    let nextSearchRetryAt = 0;
+    const scheduleSearchRetry = () => {
+      nextSearchRetryAt = Date.now() + SEARCH_RETRY_MIN_MS
+        + Math.random() * (SEARCH_RETRY_MAX_MS - SEARCH_RETRY_MIN_MS);
+    };
+    const triggerFreshSearch = async (activeDialog) => {
+      const input = activeDialog?.querySelector('input[aria-label="Search assets"], input[placeholder="Search assets"], input[type="text"]');
+      if (!input) {
+        scheduleSearchRetry();
+        return false;
+      }
+      input.focus();
+      setNativeInputValue(input, '');
+      await sleep(100);
+      setNativeInputValue(input, fileName || '');
+      scheduleSearchRetry();
+      return true;
+    };
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
       dialog = findPickerDialog();
       if (!dialog) {
+        // Flow may close the picker immediately after file selection while the
+        // upload continues. Reopen it and keep searching for the same uniquely
+        // named asset instead of waiting forever on a closed dialog.
+        try {
+          dialog = await openPicker(task);
+        } catch {
+          await sleep(500);
+          continue;
+        }
+      }
+      if (dialog !== configuredDialog) {
+        await triggerFreshSearch(dialog);
+        configuredDialog = dialog;
         stableSince = 0;
         stableSignature = '';
-        return null;
       }
       const result = findPickerImage(fileName);
+      if (!result && Date.now() >= nextSearchRetryAt) {
+        console.log(`[TurboFlow DOM] Asset not indexed yet; retrying search: ${fileName}`);
+        await triggerFreshSearch(dialog);
+        stableSince = 0;
+        stableSignature = '';
+        await sleep(150);
+        continue;
+      }
       if (!pickerAssetIsReady(result)) {
         stableSince = 0;
         stableSignature = '';
-        return null;
+        await sleep(250);
+        continue;
       }
       const root = pickerAssetRoot(result);
       const image = root.matches?.('img') ? root : root.querySelector?.('img');
@@ -258,13 +302,16 @@
       if (signature !== stableSignature) {
         stableSignature = signature;
         stableSince = Date.now();
-        return null;
+        await sleep(250);
+        continue;
       }
-      return Date.now() - stableSince >= UPLOAD_READY_STABLE_MS ? result : null;
-    }, UPLOAD_READY_TIMEOUT_MS, 250);
-    if (!ready) throw new Error(`Timed out waiting for ${fileName} upload to complete`);
-    console.log(`[TurboFlow DOM] Upload completed and asset is ready: ${fileName}`);
-    return ready;
+      if (Date.now() - stableSince >= UPLOAD_READY_STABLE_MS) {
+        console.log(`[TurboFlow DOM] Upload completed and asset is ready: ${fileName}`);
+        return result;
+      }
+      await sleep(250);
+    }
+    throw new Error(`Timed out waiting for ${fileName} upload to complete`);
   }
 
   function closestClickable(el) {
@@ -356,9 +403,12 @@
         resolve(response || { success: false, error: 'No upload response' });
       });
     });
-    if (!result.success || result.result !== 'ok') {
-      throw new Error(result.error || result.result || 'Flow upload injection failed');
+    const uploadResult = result.result;
+    const uploadConfirmed = uploadResult === 'ok' || uploadResult?.status === 'ok';
+    if (!result.success || !uploadConfirmed) {
+      throw new Error(result.error || uploadResult?.error || uploadResult || 'Flow upload injection failed');
     }
+    console.log(`[TurboFlow DOM] Upload RPC completed: ${uploadResult?.rpcId || 'legacy'} HTTP ${uploadResult?.httpStatus || 200}`);
   }
 
   async function uploadAllImages(images, task) {
@@ -383,21 +433,14 @@
     return true;
   }
 
-  async function attachOneImage(fileName, task) {
-    const referencesBefore = attachedReferenceCount();
-    const dialog = await openPicker(task);
-    await sleep(task.stealthMode ? 400 * (0.7 + Math.random() * 0.6) : 400);
-
-    const result = await searchPicker(dialog, fileName, task);
-    if (!result) {
-      pressEscape();
-      throw new Error(`Search result for ${fileName} not found`);
-    }
+  async function attachOneImage(fileName, task, targetReferenceCount) {
+    if (attachedReferenceCount() >= targetReferenceCount) return true;
+    await openPicker(task);
 
     // A newly uploaded asset can appear in search before its upload finishes.
-    // Do not select it or expose Add to prompt until the thumbnail is fully
-    // loaded and all upload/progress states have disappeared and stayed gone.
-    const readyResult = await waitForUploadedAssetReady(fileName, task);
+    // Keep retrying the filename search until the thumbnail is fully ready;
+    // do not fail early on a temporarily empty search result.
+    const readyResult = await waitForUploadedAssetReady(fileName, task, ATTACH_READY_TIMEOUT_MS);
 
     const row = readyResult.matches?.('[role="option"]') ? readyResult : closestClickable(readyResult);
     if (!row) {
@@ -414,12 +457,12 @@
         && !button.disabled
         && button.getAttribute('aria-disabled') !== 'true'
       ) || null;
-    }, UPLOAD_READY_TIMEOUT_MS, 150);
+    }, ATTACH_READY_TIMEOUT_MS, 150);
     if (!addButton) {
       throw new Error(`Add to prompt button did not become available for ${fileName}`);
     }
     click(addButton, task);
-    const attached = await waitFor(() => attachedReferenceCount() > referencesBefore, 5000, 150);
+    const attached = await waitFor(() => attachedReferenceCount() >= targetReferenceCount, 5000, 150);
     if (!attached) {
       throw new Error(`Flow did not attach ${fileName} to the prompt`);
     }
@@ -429,21 +472,33 @@
         throw new Error(`Image picker stayed open after Add to prompt for ${fileName}`);
       }
     }
-    await sleep(300);
   }
 
   async function attachAllImages(images, task) {
+    const initialReferenceCount = attachedReferenceCount();
     for (let i = 0; i < images.length; i++) {
       const name = images[i].name || `reference_${i + 1}.png`;
+      const targetReferenceCount = initialReferenceCount + i + 1;
       let lastError = null;
-      for (let attempt = 1; attempt <= 4; attempt++) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          await attachOneImage(name, task);
+          await attachOneImage(name, task, targetReferenceCount);
           lastError = null;
           break;
         } catch (error) {
+          // Add to prompt may already have committed even if picker cleanup or
+          // its final UI event failed. Treat the increased reference count as
+          // success so a retry cannot search for and attach the same image again.
+          if (attachedReferenceCount() >= targetReferenceCount) {
+            if (!await closePicker(task)) {
+              throw new Error(`Flow attached ${name}, but the image picker could not be closed`);
+            }
+            console.log(`[TurboFlow DOM] Attachment already committed; continuing without retry: ${name}`);
+            lastError = null;
+            break;
+          }
           lastError = error;
-          console.warn(`[TurboFlow DOM] Attach retry ${attempt}/4 for ${name}: ${error.message}`);
+          console.warn(`[TurboFlow DOM] Attach retry ${attempt}/2 for ${name}: ${error.message}`);
           pressEscape();
           await sleep(2500);
         }
@@ -459,28 +514,83 @@
       aspectRatio: task.aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE',
     };
 
-    const trigger = document.querySelector('button[aria-label="Settings trigger"]')
+    const aspect = ASPECT_CONFIG[settings.aspectRatio] || ASPECT_CONFIG.IMAGE_ASPECT_RATIO_LANDSCAPE;
+    const settingControls = (root) => Array.from(root?.querySelectorAll([
+      'button',
+      '[role="radio"]',
+      '[role="tab"]',
+      '[role="menuitem"]',
+      '[data-value]',
+      '[aria-label]',
+      '[title]',
+    ].join(',')) || []);
+    const settingControlText = (control) => [
+      control?.textContent,
+      control?.getAttribute?.('aria-label'),
+      control?.getAttribute?.('title'),
+      control?.getAttribute?.('data-value'),
+      control?.getAttribute?.('value'),
+    ].filter(Boolean).join(' ').replace(/\s+/g, '').toLowerCase();
+    const clickableSettingControl = (control) => control?.matches?.('button, [role="radio"], [role="tab"], [role="menuitem"]')
+      ? control
+      : control?.closest?.('button, [role="radio"], [role="tab"], [role="menuitem"]') || control;
+    const findAspectControl = (root) => {
+      const icon = aspect.icon.toLowerCase();
+      const label = aspect.label.replace(/\s+/g, '').toLowerCase();
+      const match = settingControls(root).find((control) => {
+        const text = settingControlText(control);
+        return text.includes(icon) || text.includes(label);
+      });
+      return clickableSettingControl(match);
+    };
+    const visibleOverlayPanes = () => Array.from(new Set(document.querySelectorAll([
+      '.cdk-overlay-pane',
+      '[role="menu"][data-state="open"]',
+    ].join(','))))
+      .filter((panel) => panel.isConnected && panel.getClientRects().length > 0);
+    const findSettingsPanel = () => visibleOverlayPanes().reverse().find((panel) =>
+      panel.querySelector('button[aria-label="Select model family"]')
+      || findAspectControl(panel)
+    ) || null;
+    const findSettingsTrigger = () => Array.from(document.querySelectorAll('button[aria-label="Settings trigger"]'))
+      .find((button) => button.isConnected
+        && button.getClientRects().length > 0
+        && !button.disabled
+        && button.getAttribute('aria-disabled') !== 'true')
       || xPath("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
-    if (!trigger) {
-      throw new Error('Flow settings trigger not found');
-    }
-    clickDom(trigger);
-    await sleep(600);
 
-    const settingsPanel = document.querySelector('.cdk-overlay-pane') || document;
-    const imageTab = Array.from(settingsPanel.querySelectorAll('button[role="radio"], button[role="tab"]'))
-      .find((button) => /(^|\s)Image(\s|$)/i.test((button.textContent || '').trim()));
-    if (imageTab && imageTab.getAttribute('aria-checked') !== 'true' && imageTab.getAttribute('data-state') !== 'active') {
+    // A previous task can leave this panel open or halfway through its close
+    // animation. Reuse an already-open panel; otherwise reacquire and retry the
+    // trigger so a stale toggle cannot turn the panel off and cause a timeout.
+    let settingsPanel = findSettingsPanel();
+    let lastTriggerState = 'missing';
+    for (let attempt = 1; !settingsPanel && attempt <= 3; attempt++) {
+      const trigger = await waitFor(findSettingsTrigger, 4000, 100);
+      if (!trigger) break;
+      lastTriggerState = trigger.getAttribute('aria-expanded') || 'unknown';
+      clickDom(trigger);
+      settingsPanel = await waitFor(findSettingsPanel, 4000, 100);
+      if (settingsPanel) break;
+
+      console.warn(`[TurboFlow DOM] Settings panel open retry ${attempt}/3 (aria-expanded=${lastTriggerState})`);
+      pressEscape();
+      await sleep(300);
+    }
+    if (!settingsPanel) {
+      throw new Error(`Flow settings panel did not open after 3 attempts (aria-expanded=${lastTriggerState})`);
+    }
+
+    const imageTab = settingControls(settingsPanel)
+      .map(clickableSettingControl)
+      .find((button) => /(^|\s)Image(\s|$)/i.test((button?.textContent || '').trim()));
+    if (imageTab && imageTab.getAttribute('aria-checked') !== 'true'
+        && imageTab.getAttribute('aria-selected') !== 'true'
+        && imageTab.getAttribute('data-state') !== 'active') {
       clickDom(imageTab);
       await sleep(400);
     }
 
-    const aspect = ASPECT_CONFIG[settings.aspectRatio] || ASPECT_CONFIG.IMAGE_ASPECT_RATIO_LANDSCAPE;
-    const findAspectTab = () => Array.from(settingsPanel.querySelectorAll('button[role="radio"], button[role="tab"]'))
-      .find((button) => {
-        const text = (button.textContent || '').replace(/\s+/g, '');
-        return text.includes(aspect.icon) || text.endsWith(aspect.label);
-      });
+    const findAspectTab = () => findAspectControl(findSettingsPanel() || settingsPanel);
     const aspectTab = findAspectTab();
     if (!aspectTab) {
       throw new Error(`Flow aspect ratio option not found: ${aspect.label}`);
@@ -506,15 +616,19 @@
     }
     console.log(`[TurboFlow DOM] Aspect ratio reselected for this task: ${aspect.label}`);
 
-    const countTab = Array.from(settingsPanel.querySelectorAll('button[role="radio"], button[role="tab"]'))
-      .find((button) => (button.textContent || '').trim() === 'x1');
-    if (countTab && countTab.getAttribute('aria-checked') !== 'true' && countTab.getAttribute('data-state') !== 'active') {
+    const countTab = settingControls(findSettingsPanel() || settingsPanel)
+      .map(clickableSettingControl)
+      .find((button) => (button?.textContent || '').trim() === 'x1');
+    if (countTab && countTab.getAttribute('aria-checked') !== 'true'
+        && countTab.getAttribute('aria-selected') !== 'true'
+        && countTab.getAttribute('data-state') !== 'active') {
       clickDom(countTab);
       await sleep(300);
     }
 
     const modelLabel = MODEL_LABELS[settings.model] || MODEL_LABELS.NARWHAL;
-    const modelTrigger = settingsPanel.querySelector('button[aria-label="Select model family"]')
+    const activeSettingsPanel = findSettingsPanel() || settingsPanel;
+    const modelTrigger = activeSettingsPanel.querySelector('button[aria-label="Select model family"]')
       || xPath("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
     if (modelTrigger) {
       clickDom(modelTrigger);
@@ -531,11 +645,15 @@
       }
     }
 
-    const openSettingsPanel = Array.from(document.querySelectorAll('.cdk-overlay-pane'))
-      .find((panel) => panel.querySelector('button[aria-label="Select model family"]'));
-    if (openSettingsPanel) clickDom(trigger);
-    else pressEscape();
-    await sleep(600);
+    if (findSettingsPanel()) {
+      const closeTrigger = findSettingsTrigger();
+      if (closeTrigger) clickDom(closeTrigger);
+      else pressEscape();
+      if (!await waitFor(() => !findSettingsPanel(), 3000, 100)) {
+        pressEscape();
+        await waitFor(() => !findSettingsPanel(), 2000, 100);
+      }
+    }
     return true;
   }
 
@@ -548,7 +666,6 @@
     if (!editor) return false;
     clickDom(editor);
     editor.focus();
-    await sleep(150);
     const selection = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(editor);
@@ -567,31 +684,15 @@
         data: prompt,
       }));
     }
-    await sleep(400);
-    const text = editor.textContent.trim();
-    return text === prompt || text.includes(prompt.substring(0, 20));
+    return Boolean(await waitFor(() => {
+      const text = editor.textContent.trim();
+      return text === prompt || text.includes(prompt.substring(0, 20));
+    }, 2000, 50));
   }
 
-  async function stealthPastePrompt(prompt) {
-    await sleep(300 + Math.random() * 600);
-    return await fastInjectPrompt(prompt);
-  }
-
-  async function stealthTypePrompt(prompt) {
-    await sleep(150 + Math.random() * 250);
-    return await fastInjectPrompt(prompt);
-  }
-
-  async function injectPrompt(prompt, task) {
+  async function injectPrompt(prompt) {
     if (!getEditor()) throw new Error('Flow prompt editor not found');
-    if (!task.stealthMode) {
-      if (!await fastInjectPrompt(prompt)) throw new Error('Prompt injection failed');
-      return;
-    }
-    const ok = prompt.length > STEALTH_SHORT_PROMPT_LIMIT
-      ? await stealthPastePrompt(prompt)
-      : await stealthTypePrompt(prompt);
-    if (!ok) throw new Error('Prompt injection failed');
+    if (!await fastInjectPrompt(prompt)) throw new Error('Prompt injection failed');
   }
 
   async function submitPrompt(task) {
@@ -791,14 +892,12 @@
       await uploadAllImages(images, task);
       await attachAllImages(images, task);
       await requireAttachedReferences(images.length);
-      await sleep(500);
-      await randomDelay(task, 'prompt input');
-      await injectPrompt(task.prompt || '', task);
+      // Once Add to prompt has attached the source image, continue directly:
+      // write the translation prompt, verify the reference, and submit.
+      await injectPrompt(task.prompt || '');
       await requireAttachedReferences(images.length);
-      await sleep(1000);
       const preSubmitTiles = snapshotGenerationTiles();
       const preSubmitImageIds = snapshotImageIds();
-      await randomDelay(task, 'submit');
       if (!await submitPrompt(task)) throw new Error('Submit failed');
       return await claimGenerationTile(preSubmitTiles, preSubmitImageIds);
     });
@@ -816,14 +915,48 @@
     return await waitForGeneratedImage(claim);
   }
 
+  const errorMessage = (error) => error?.message || String(error || 'Unknown Flow page automation error');
+
   const listener = (msg, _sender, sendResponse) => {
-    if (msg.type !== 'RUN_DOM_TRANSLATE_V11') return false;
+    if (msg.type !== 'RUN_DOM_TRANSLATE_V19') return false;
     runDomTranslate(msg.task || {})
       .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error) => sendResponse({ ok: false, error: error.message || String(error) }));
+      .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
     return true;
   };
 
+  const portListener = (port) => {
+    if (port.name !== DOM_TRANSLATE_PORT) return;
+    let started = false;
+    port.onMessage.addListener((msg) => {
+      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V19') return;
+      started = true;
+      const requestId = msg.requestId || null;
+      try {
+        port.postMessage({ type: 'FLOW_DOM_TRANSLATION_ACCEPTED', requestId, ok: true });
+      } catch {
+        return;
+      }
+      runDomTranslate(msg.task || {})
+        .then((result) => {
+          try {
+            port.postMessage({ type: 'FLOW_DOM_TRANSLATION_RESULT', requestId, ok: true, ...result });
+          } catch {}
+        })
+        .catch((error) => {
+          try {
+            port.postMessage({
+              type: 'FLOW_DOM_TRANSLATION_RESULT',
+              requestId,
+              ok: false,
+              error: errorMessage(error),
+            });
+          } catch {}
+        });
+    });
+  };
+
   chrome.runtime.onMessage.addListener(listener);
-  window.__turboFlowDomMethod = { version: VERSION, listener };
+  chrome.runtime.onConnect.addListener(portListener);
+  window.__turboFlowDomMethod = { version: VERSION, listener, portListener };
 })();
