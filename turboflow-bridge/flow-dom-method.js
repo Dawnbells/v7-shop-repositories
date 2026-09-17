@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  const VERSION = 19;
-  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V19';
+  const VERSION = 20;
+  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V20';
   const previous = window.__turboFlowDomMethod;
   if (previous?.version === VERSION) return;
   if (previous?.listener) {
@@ -26,6 +26,8 @@
   const RESULT_SCAN_MS = 1000;
   const GENERATION_TILE_TIMEOUT_MS = 30000;
   let uiQueueTail = Promise.resolve();
+  const claimedTiles = new WeakSet();
+  const claimedTileKeys = new Map();
 
   async function withUiLock(work) {
     const previous = uiQueueTail;
@@ -735,7 +737,20 @@
   }
 
   function snapshotGenerationTiles() {
-    return new Set(generationTiles());
+    const tiles = generationTiles();
+    return {
+      elements: new Set(tiles),
+      stableKeys: new Set(tiles.map(tileStableKey).filter(Boolean)),
+    };
+  }
+
+  function tileStableKey(tile) {
+    if (!tile) return '';
+    for (const name of ['data-tile-id', 'data-generation-id', 'data-workflow-id', 'data-id', 'id']) {
+      const value = tile.getAttribute?.(name);
+      if (value) return `${name}:${value}`;
+    }
+    return '';
   }
 
   function tileAnchor(tile) {
@@ -751,6 +766,55 @@
 
   function tileLabel(tile) {
     return tile?.getAttribute('aria-label') || tile?.getAttribute('title') || '';
+  }
+
+  function createTileClaim(tile, preSubmitImageIds, assignmentId) {
+    if (!tile || claimedTiles.has(tile)) return null;
+    const tileKey = tileStableKey(tile);
+    if (tileKey && claimedTileKeys.has(tileKey)) return null;
+    claimedTiles.add(tile);
+    if (assignmentId) tile.setAttribute('data-turboflow-assignment-id', assignmentId);
+    if (tileKey) claimedTileKeys.set(tileKey, assignmentId || tileKey);
+    const anchor = tileAnchor(tile);
+    return {
+      tile,
+      tileKey,
+      anchor,
+      anchorKey: tileStableKey(anchor),
+      position: tilePositionInAnchor(tile, anchor),
+      label: tileLabel(tile),
+      assignmentId: assignmentId || '',
+      preSubmitImageIds,
+    };
+  }
+
+  function findClaimReplacement(claim) {
+    const tiles = generationTiles();
+    const eligible = (tile) => {
+      const owner = tile.getAttribute('data-turboflow-assignment-id');
+      return !owner || !claim.assignmentId || owner === claim.assignmentId;
+    };
+    if (claim.assignmentId) {
+      const marked = tiles.filter((tile) =>
+        tile.getAttribute('data-turboflow-assignment-id') === claim.assignmentId);
+      if (marked.length === 1) return marked[0];
+    }
+    if (claim.tileKey) {
+      const keyed = tiles.filter((tile) => eligible(tile) && tileStableKey(tile) === claim.tileKey);
+      if (keyed.length === 1) return keyed[0];
+    }
+    if (claim.anchorKey && claim.label) {
+      const anchored = tiles.filter((tile) =>
+        eligible(tile)
+        && tileStableKey(tileAnchor(tile)) === claim.anchorKey
+        && tileLabel(tile) === claim.label);
+      if (anchored.length === 1) return anchored[0];
+    }
+    if (claim.label) {
+      const labelled = tiles.filter((tile) => eligible(tile) && tileLabel(tile) === claim.label);
+      if (labelled.length === 1) return labelled[0];
+    }
+    return null;
   }
 
   function findTileError(tile) {
@@ -791,37 +855,23 @@
     });
   }
 
-  async function claimGenerationTile(preSubmitTiles, preSubmitImageIds) {
+  async function claimGenerationTile(preSubmitTiles, preSubmitImageIds, assignmentId) {
     const started = Date.now();
     while (Date.now() - started < GENERATION_TILE_TIMEOUT_MS) {
-      const newTile = generationTiles().find((tile) => !preSubmitTiles.has(tile));
+      const newTiles = generationTiles().filter((tile) => {
+        if (claimedTiles.has(tile) || preSubmitTiles.elements.has(tile)) return false;
+        const key = tileStableKey(tile);
+        return !key || (!preSubmitTiles.stableKeys.has(key) && !claimedTileKeys.has(key));
+      });
+      if (newTiles.length > 1) {
+        throw new Error(`Flow created ${newTiles.length} unclaimed generation tiles; refusing ambiguous result mapping`);
+      }
+      const newTile = newTiles[0];
       if (newTile) {
         const error = findTileError(newTile);
         if (error) throw new Error(error);
-        const anchor = tileAnchor(newTile);
-        return {
-          tile: newTile,
-          anchor,
-          position: tilePositionInAnchor(newTile, anchor),
-          label: tileLabel(newTile),
-          preSubmitImageIds,
-        };
-      }
-
-      const newImage = resultImages().find((img) => {
-        const id = resultImageKey(img);
-        return id && !preSubmitImageIds.has(id);
-      });
-      if (newImage) {
-        const tile = newImage.closest('flow-grid-tile-container, [data-tile-id]') || newImage.parentElement;
-        const anchor = tileAnchor(tile);
-        return {
-          tile,
-          anchor,
-          position: tilePositionInAnchor(tile, anchor),
-          label: tileLabel(tile),
-          preSubmitImageIds,
-        };
+        const claim = createTileClaim(newTile, preSubmitImageIds, assignmentId);
+        if (claim) return claim;
       }
       await sleep(200);
     }
@@ -832,35 +882,26 @@
     const started = Date.now();
     while (Date.now() - started < RESULT_TIMEOUT_MS) {
       if (!claim.tile?.isConnected) {
-        if (claim.anchor?.isConnected) {
-          const replacements = Array.from(claim.anchor.querySelectorAll('flow-grid-tile-container, [data-tile-id]'));
-          claim.tile = replacements[claim.position] || replacements[0] || null;
-        }
-
-        if (!claim.tile?.isConnected && claim.label) {
-          const labelMatches = generationTiles().filter((tile) => tileLabel(tile) === claim.label);
-          const resultMatches = labelMatches.filter((tile) => resultImages(tile).some((img) => {
-            const id = resultImageKey(img);
-            return id && !claim.preSubmitImageIds.has(id);
-          }));
-          if (resultMatches.length === 1) claim.tile = resultMatches[0];
-        }
-
-        if (!claim.tile?.isConnected) {
-          const unclaimedResults = resultImages().filter((img) => {
-            const id = resultImageKey(img);
-            return id && !claim.preSubmitImageIds.has(id);
-          });
-          if (unclaimedResults.length === 1) {
-            claim.tile = unclaimedResults[0].closest('flow-grid-tile-container, [data-tile-id]')
-              || unclaimedResults[0].parentElement;
+        const replacement = findClaimReplacement(claim);
+        if (replacement) {
+          const replacementOwner = replacement.getAttribute?.('data-turboflow-assignment-id');
+          if (replacementOwner && claim.assignmentId && replacementOwner !== claim.assignmentId) {
+            throw new Error(`Replacement Flow tile belongs to ${replacementOwner}, not ${claim.assignmentId}`);
+          }
+          claim.tile = replacement;
+          claimedTiles.add(replacement);
+          if (claim.assignmentId) {
+            replacement.setAttribute('data-turboflow-assignment-id', claim.assignmentId);
           }
         }
-
         if (!claim.tile?.isConnected) {
           await sleep(RESULT_SCAN_MS);
           continue;
         }
+      }
+      const claimedAssignment = claim.tile.getAttribute?.('data-turboflow-assignment-id');
+      if (claimedAssignment && claim.assignmentId && claimedAssignment !== claim.assignmentId) {
+        throw new Error(`Claimed Flow tile changed owner from ${claim.assignmentId} to ${claimedAssignment}`);
       }
       const error = findTileError(claim.tile);
       if (error) throw new Error(error);
@@ -899,12 +940,11 @@
       const preSubmitTiles = snapshotGenerationTiles();
       const preSubmitImageIds = snapshotImageIds();
       if (!await submitPrompt(task)) throw new Error('Submit failed');
-      return await claimGenerationTile(preSubmitTiles, preSubmitImageIds);
+      return await claimGenerationTile(preSubmitTiles, preSubmitImageIds, task.assignmentId || '');
     });
 
-    // Tell the background worker that this request is now owned by a Flow tile.
-    // It may prefetch one source image, but it must not submit another request
-    // until this result has been downloaded.
+    // The serial UI section is complete and this request now owns one exact
+    // Flow tile. Background may submit the next task while this tile generates.
     try {
       await chrome.runtime.sendMessage({
         type: 'FLOW_DOM_TRANSLATION_SUBMITTED',
@@ -918,7 +958,7 @@
   const errorMessage = (error) => error?.message || String(error || 'Unknown Flow page automation error');
 
   const listener = (msg, _sender, sendResponse) => {
-    if (msg.type !== 'RUN_DOM_TRANSLATE_V19') return false;
+    if (msg.type !== 'RUN_DOM_TRANSLATE_V20') return false;
     runDomTranslate(msg.task || {})
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -929,7 +969,7 @@
     if (port.name !== DOM_TRANSLATE_PORT) return;
     let started = false;
     port.onMessage.addListener((msg) => {
-      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V19') return;
+      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V20') return;
       started = true;
       const requestId = msg.requestId || null;
       try {

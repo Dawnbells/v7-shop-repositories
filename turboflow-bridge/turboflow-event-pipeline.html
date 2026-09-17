@@ -5004,7 +5004,7 @@
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
-      <svg viewBox="0 0 1536 676" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
+      <svg viewBox="0 0 1523 676" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase">
         <title id="archify-diagram-title">TurboFlow 图片翻译事件流水线</title>
         <desc id="archify-diagram-description">由 Archify 生成的工作流图。</desc>
         <!-- Definitions -->
@@ -5030,246 +5030,246 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- Swimlanes -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1339" height="114" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="1326" height="114" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="74" class="t-dim" font-size="10" font-weight="600">01 / 扩展后台调度器</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="186" width="1339" height="114" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="186" width="1326" height="114" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="208" class="t-dim" font-size="10" font-weight="600">02 / Flow 页面 UI（严格串行）</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="320" width="1339" height="106" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="320" width="1326" height="106" rx="10" class="c-lane" stroke-width="1"/>
         <text x="54" y="342" class="t-dim" font-size="10" font-weight="600">03 / 任务服务器</text>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-3" x="40" y="446" width="1339" height="106" rx="10" class="c-lane" stroke-width="1"/>
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="exception-lane" data-composition-frame-id="lane-3-exception" x="46" y="452" width="1327" height="94" rx="8" class="c-security-group" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-3" x="40" y="446" width="1326" height="106" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="exception-lane" data-composition-frame-id="lane-3-exception" x="46" y="452" width="1314" height="94" rx="8" class="c-security-group" stroke-width="1"/>
         <text x="54" y="468" class="t-security" font-size="10" font-weight="600">EX / 失败与恢复</text>
 
         <!-- Phase headers -->
-        <line x1="79" y1="35" x2="291" y2="35" class="a-default" stroke-width="1.1"/>
-        <rect x="79" y="27" width="212" height="16" rx="4" class="c-mask"/>
-        <text x="185" y="39" class="t-muted" font-size="8" font-weight="600" text-anchor="middle">领任务与准备</text>
-        <line x1="434" y1="35" x2="785.2" y2="35" class="a-emphasis" stroke-width="1.1"/>
-        <rect x="434" y="27" width="351.20000000000005" height="16" rx="4" class="c-mask"/>
-        <text x="609.6" y="39" class="t-backend" font-size="8" font-weight="600" text-anchor="middle">上传与源图引用</text>
-        <line x1="969.8" y1="35" x2="1324.6" y2="35" class="a-dashed" stroke-width="1.1"/>
-        <rect x="969.8" y="27" width="354.80000000000007" height="16" rx="4" class="c-mask"/>
-        <text x="1147.2" y="39" class="t-messagebus" font-size="8" font-weight="600" text-anchor="middle">提交、生成与交接</text>
+        <line x1="84" y1="35" x2="296" y2="35" class="a-default" stroke-width="1.1"/>
+        <rect x="84" y="27" width="212" height="16" rx="4" class="c-mask"/>
+        <text x="190" y="39" class="t-muted" font-size="8" font-weight="600" text-anchor="middle">领任务与准备</text>
+        <line x1="439" y1="35" x2="790.2" y2="35" class="a-emphasis" stroke-width="1.1"/>
+        <rect x="439" y="27" width="351.20000000000005" height="16" rx="4" class="c-mask"/>
+        <text x="614.6" y="39" class="t-backend" font-size="8" font-weight="600" text-anchor="middle">上传与源图引用</text>
+        <line x1="974.8" y1="35" x2="1311.6" y2="35" class="a-dashed" stroke-width="1.1"/>
+        <rect x="974.8" y="27" width="336.80000000000007" height="16" rx="4" class="c-mask"/>
+        <text x="1143.2" y="39" class="t-messagebus" font-size="8" font-weight="600" text-anchor="middle">提交、生成与交接</text>
 
         <!-- Workflow groups -->
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-0" x="931.8000000000001" y="90" width="438.80000000000007" height="72" rx="9" class="c-lane" stroke-width="1"/>
-        <text x="941.8000000000001" y="88" class="t-messagebus" font-size="7" font-weight="600">单项前瞻流水线</text>
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-1" x="156" y="224" width="950.8000000000002" height="72" rx="9" class="c-lane" stroke-width="1"/>
-        <text x="166" y="222" class="t-backend" font-size="7" font-weight="600">withUiLock：设置、上传、引用、输入、提交不可并行</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-0" x="936.8000000000001" y="90" width="420.80000000000007" height="72" rx="9" class="c-lane" stroke-width="1"/>
+        <text x="946.8000000000001" y="88" class="t-messagebus" font-size="7" font-weight="600">1 个提交槽 + 4 个生成槽</text>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="group" data-composition-frame-id="group-1" x="161" y="224" width="950.8000000000002" height="72" rx="9" class="c-lane" stroke-width="1"/>
+        <text x="171" y="222" class="t-backend" font-size="7" font-weight="600">withUiLock：设置、上传、引用、输入、提交不可并行</text>
 
         <!-- Edge paths -->
-        <path data-edge-from="search_attach" data-edge-to="failure_recovery" data-edge-label="搜索/引用失败" data-edge-key="0" data-edge-id="attach_error" data-composition-points="739.2,295;739.2,507;1190.6000000000001,507" d="M 739.2 295 L 739.2 507 L 1190.6000000000001 507" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="search_attach" data-edge-to="submit_claim" data-edge-label="源图已加入 Prompt" data-edge-key="1" data-edge-id="attach_to_submit" data-composition-points="829.2,261;928.8000000000001,261" d="M 829.2 261 L 928.8000000000001 261" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="generate_download" data-edge-to="start_next" data-edge-label="结果已在内存 → releaseFlowSlot" data-edge-key="2" data-edge-id="download_release" data-composition-points="1278.6000000000001,227;1278.6000000000001,161" d="M 1278.6000000000001 227 L 1278.6000000000001 161" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="generate_download" data-edge-to="report_result" data-edge-label="resultDataUrl" data-edge-key="3" data-edge-id="download_to_report" data-composition-points="1365.6000000000001,261;1426,261;1426,388;1357.6000000000001,388" d="M 1365.6000000000001 261 L 1426 261 L 1426 388 L 1357.6000000000001 388" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="generate_download" data-edge-to="failure_recovery" data-edge-label="生成/下载失败" data-edge-key="4" data-edge-id="generation_error" data-composition-points="1191.6000000000001,261;1175.6000000000001,261;1175.6000000000001,568;1278.6000000000001,568;1278.6000000000001,548" d="M 1191.6000000000001 261 L 1175.6000000000001 261 L 1175.6000000000001 568 L 1278.6000000000001 568 L 1278.6000000000001 548" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="poll_task" data-edge-to="reserve_slot" data-edge-label="hasTask" data-edge-key="5" data-edge-id="poll_to_slot" data-composition-points="125,414;125,442;32,442;32,127;48,127" d="M 125 414 L 125 442 L 32 442 L 32 127 L 48 127" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="prefetch_next" data-edge-to="start_next" data-edge-label="等待 Flow 槽释放" data-edge-key="6" data-edge-id="prefetch_wait" data-composition-points="1095.8000000000002,127;1190.6000000000001,127" d="M 1095.8000000000002 127 L 1190.6000000000001 127" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="report_result" data-edge-to="failure_recovery" data-edge-label="上报失败保留译图" data-edge-key="7" data-edge-id="report_error" data-composition-points="1278.6000000000001,422;1278.6000000000001,438;1519.401,438;1519.401,514;1366.6000000000001,514" d="M 1278.6000000000001 422 L 1278.6000000000001 438 L 1519.401 438 L 1519.401 514 L 1366.6000000000001 514" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="reset_settings" data-edge-to="upload_rpc" data-edge-label="页面已清理" data-edge-key="8" data-edge-id="settings_to_upload" data-composition-points="330,261;396,261" d="M 330 261 L 396 261" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="reserve_slot" data-edge-to="reset_settings" data-edge-label="准备 task + 唯一文件名" data-edge-key="9" data-edge-id="slot_to_settings" data-composition-points="48,127;32,127;32,316;245,316;245,295" d="M 48 127 L 32 127 L 32 316 L 245 316 L 245 295" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="submit_claim" data-edge-to="generate_download" data-edge-label="Tile 已认领" data-edge-key="10" data-edge-id="submit_to_generate" data-composition-points="1015.8000000000001,295;1015.8000000000001,316;1175.6000000000001,316;1175.6000000000001,261;1191.6000000000001,261" d="M 1015.8000000000001 295 L 1015.8000000000001 316 L 1175.6000000000001 316 L 1175.6000000000001 261 L 1191.6000000000001 261" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="submit_claim" data-edge-to="prefetch_next" data-edge-label="FLOW_DOM_TRANSLATION_SUBMITTED" data-edge-key="11" data-edge-id="submitted_prefetch" data-composition-points="1015.8000000000001,227;1015.8000000000001,161" d="M 1015.8000000000001 227 L 1015.8000000000001 161" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="upload_rpc" data-edge-to="failure_recovery" data-edge-label="RPC/超时" data-edge-key="12" data-edge-id="upload_error" data-composition-points="480,295;480,373;1174.6000000000001,373;1174.6000000000001,521;1190.6000000000001,521" d="M 480 295 L 480 373 L 1174.6000000000001 373 L 1174.6000000000001 521 L 1190.6000000000001 521" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
-        <path data-edge-from="upload_rpc" data-edge-to="search_attach" data-edge-label="maseQ 确认成功" data-edge-key="13" data-edge-id="upload_to_search" data-composition-points="564,261;649.2,261" d="M 564 261 L 649.2 261" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="search_attach" data-edge-to="failure_recovery" data-edge-label="搜索/引用失败" data-edge-key="0" data-edge-id="attach_error" data-composition-points="744.2,295;744.2,507;1177.6000000000001,507" d="M 744.2 295 L 744.2 507 L 1177.6000000000001 507" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="search_attach" data-edge-to="submit_claim" data-edge-label="源图已加入 Prompt" data-edge-key="1" data-edge-id="attach_to_submit" data-composition-points="834.2,261;933.8000000000001,261" d="M 834.2 261 L 933.8000000000001 261" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="generate_download" data-edge-to="start_next" data-edge-label="结果入内存 → 释放生成槽" data-edge-key="2" data-edge-id="download_release" data-composition-points="1265.6000000000001,227;1265.6000000000001,161" d="M 1265.6000000000001 227 L 1265.6000000000001 161" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="generate_download" data-edge-to="report_result" data-edge-label="resultDataUrl" data-edge-key="3" data-edge-id="download_to_report" data-composition-points="1352.6000000000001,261;1413,261;1413,388;1344.6000000000001,388" d="M 1352.6000000000001 261 L 1413 261 L 1413 388 L 1344.6000000000001 388" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="generate_download" data-edge-to="failure_recovery" data-edge-label="生成/下载失败" data-edge-key="4" data-edge-id="generation_error" data-composition-points="1178.6000000000001,261;1162.6000000000001,261;1162.6000000000001,568;1265.6000000000001,568;1265.6000000000001,548" d="M 1178.6000000000001 261 L 1162.6000000000001 261 L 1162.6000000000001 568 L 1265.6000000000001 568 L 1265.6000000000001 548" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="poll_task" data-edge-to="reserve_slot" data-edge-label="hasTask" data-edge-key="5" data-edge-id="poll_to_slot" data-composition-points="130,414;130,442;32,442;32,127;48,127" d="M 130 414 L 130 442 L 32 442 L 32 127 L 48 127" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="prefetch_next" data-edge-to="start_next" data-edge-label="生成槽 &lt; 4" data-edge-key="6" data-edge-id="prefetch_wait" data-composition-points="1100.8000000000002,127;1177.6000000000001,127" d="M 1100.8000000000002 127 L 1177.6000000000001 127" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="report_result" data-edge-to="failure_recovery" data-edge-label="上报失败保留译图" data-edge-key="7" data-edge-id="report_error" data-composition-points="1265.6000000000001,422;1265.6000000000001,438;1506.401,438;1506.401,514;1353.6000000000001,514" d="M 1265.6000000000001 422 L 1265.6000000000001 438 L 1506.401 438 L 1506.401 514 L 1353.6000000000001 514" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="reset_settings" data-edge-to="upload_rpc" data-edge-label="页面已清理" data-edge-key="8" data-edge-id="settings_to_upload" data-composition-points="335,261;401,261" d="M 335 261 L 401 261" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="reserve_slot" data-edge-to="reset_settings" data-edge-label="准备 task + 唯一文件名" data-edge-key="9" data-edge-id="slot_to_settings" data-composition-points="48,127;32,127;32,316;250,316;250,295" d="M 48 127 L 32 127 L 32 316 L 250 316 L 250 295" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="submit_claim" data-edge-to="generate_download" data-edge-label="Tile 已认领" data-edge-key="10" data-edge-id="submit_to_generate" data-composition-points="1020.8000000000001,295;1020.8000000000001,316;1162.6000000000001,316;1162.6000000000001,261;1178.6000000000001,261" d="M 1020.8000000000001 295 L 1020.8000000000001 316 L 1162.6000000000001 316 L 1162.6000000000001 261 L 1178.6000000000001 261" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="submit_claim" data-edge-to="prefetch_next" data-edge-label="Tile 已认领 → 释放提交槽" data-edge-key="11" data-edge-id="submitted_prefetch" data-composition-points="1020.8000000000001,227;1020.8000000000001,161" d="M 1020.8000000000001 227 L 1020.8000000000001 161" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="upload_rpc" data-edge-to="failure_recovery" data-edge-label="RPC/超时" data-edge-key="12" data-edge-id="upload_error" data-composition-points="485,295;485,373;1161.6000000000001,373;1161.6000000000001,521;1177.6000000000001,521" d="M 485 295 L 485 373 L 1161.6000000000001 373 L 1161.6000000000001 521 L 1177.6000000000001 521" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="upload_rpc" data-edge-to="search_attach" data-edge-label="maseQ 确认成功" data-edge-key="13" data-edge-id="upload_to_search" data-composition-points="569,261;654.2,261" d="M 569 261 L 654.2 261" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
 
         <!-- Nodes -->
-        <g id="node-reserve_slot" data-node-id="reserve_slot" data-node-label="占用 Flow 槽" tabindex="0" role="button" aria-label="聚焦占用 Flow 槽，扩展后台调度器 › 领任务与准备" aria-pressed="false" data-node-kind="backend" data-node-tag="并发数 1 · assignmentId" data-node-context="扩展后台调度器 › 领任务与准备">
-          <title>占用 Flow 槽 · 扩展后台调度器 › 领任务与准备 · 并发数 1 · assignmentId</title>
-          <rect x="48" y="93" width="154" height="68" rx="6" class="c-mask"/>
-          <rect x="48" y="93" width="154" height="68" rx="6" class="c-backend" stroke-width="1.5"/>
+        <g id="node-reserve_slot" data-node-id="reserve_slot" data-node-label="占用串行提交槽" tabindex="0" role="button" aria-label="聚焦占用串行提交槽，扩展后台调度器 › 领任务与准备" aria-pressed="false" data-node-kind="backend" data-node-tag="提交并发 = 1" data-node-context="扩展后台调度器 › 领任务与准备">
+          <title>占用串行提交槽 · 扩展后台调度器 › 领任务与准备 · 提交并发 = 1</title>
+          <rect x="48" y="93" width="164" height="68" rx="6" class="c-mask"/>
+          <rect x="48" y="93" width="164" height="68" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(54 99) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" x="125" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">占用 Flow 槽</text>
-        <text data-detail="fine" x="125" y="149" class="t-backend" font-size="7" text-anchor="middle">并发数 1 · assignmentId</text>
+          <text data-node-label="" x="130" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">占用串行提交槽</text>
+        <text data-detail="fine" x="130" y="149" class="t-backend" font-size="7" text-anchor="middle">提交并发 = 1</text>
         </g>
 
-        <g id="node-prefetch_next" data-node-id="prefetch_next" data-node-label="预取下一任务" tabindex="0" role="button" aria-label="聚焦预取下一任务，扩展后台调度器 › 单项前瞻流水线 › 提交、生成与交接" aria-pressed="false" data-node-kind="messagebus" data-node-tag="与生成 N 并行" data-node-context="扩展后台调度器 › 单项前瞻流水线 › 提交、生成与交接">
-          <title>预取下一任务 · 扩展后台调度器 › 单项前瞻流水线 › 提交、生成与交接 · 与生成 N 并行</title>
-          <rect x="935.8000000000001" y="93" width="160" height="68" rx="6" class="c-mask"/>
-          <rect x="935.8000000000001" y="93" width="160" height="68" rx="6" class="c-messagebus" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(941.8000000000001 99) scale(0.6875)">
+        <g id="node-prefetch_next" data-node-id="prefetch_next" data-node-label="预取下一任务" tabindex="0" role="button" aria-label="聚焦预取下一任务，扩展后台调度器 › 1 个提交槽 + 4 个生成槽 › 提交、生成与交接" aria-pressed="false" data-node-kind="messagebus" data-node-tag="与生成 N 并行" data-node-context="扩展后台调度器 › 1 个提交槽 + 4 个生成槽 › 提交、生成与交接">
+          <title>预取下一任务 · 扩展后台调度器 › 1 个提交槽 + 4 个生成槽 › 提交、生成与交接 · 与生成 N 并行</title>
+          <rect x="940.8000000000001" y="93" width="160" height="68" rx="6" class="c-mask"/>
+          <rect x="940.8000000000001" y="93" width="160" height="68" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(946.8000000000001 99) scale(0.6875)">
             <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
             <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
             <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
             <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
           </g>
-          <text data-node-label="" x="1015.8000000000001" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">预取下一任务</text>
-        <text data-detail="fine" x="1015.8000000000001" y="149" class="t-messagebus" font-size="7" text-anchor="middle">与生成 N 并行</text>
+          <text data-node-label="" x="1020.8000000000001" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">预取下一任务</text>
+        <text data-detail="fine" x="1020.8000000000001" y="149" class="t-messagebus" font-size="7" text-anchor="middle">与生成 N 并行</text>
         </g>
 
-        <g id="node-start_next" data-node-id="start_next" data-node-label="启动预取任务 N+1" tabindex="0" role="button" aria-label="聚焦启动预取任务 N+1，扩展后台调度器 › 单项前瞻流水线 › 提交、生成与交接" aria-pressed="false" data-node-kind="backend" data-node-tag="与上报 N 并行" data-node-context="扩展后台调度器 › 单项前瞻流水线 › 提交、生成与交接">
-          <title>启动预取任务 N+1 · 扩展后台调度器 › 单项前瞻流水线 › 提交、生成与交接 · 与上报 N 并行</title>
-          <rect x="1190.6000000000001" y="93" width="176" height="68" rx="6" class="c-mask"/>
-          <rect x="1190.6000000000001" y="93" width="176" height="68" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1196.6000000000001 99) scale(0.6875)">
+        <g id="node-start_next" data-node-id="start_next" data-node-label="提交任务 N+1" tabindex="0" role="button" aria-label="聚焦提交任务 N+1，扩展后台调度器 › 1 个提交槽 + 4 个生成槽 › 提交、生成与交接" aria-pressed="false" data-node-kind="backend" data-node-tag="生成容量未满" data-node-context="扩展后台调度器 › 1 个提交槽 + 4 个生成槽 › 提交、生成与交接">
+          <title>提交任务 N+1 · 扩展后台调度器 › 1 个提交槽 + 4 个生成槽 › 提交、生成与交接 · 生成容量未满</title>
+          <rect x="1177.6000000000001" y="93" width="176" height="68" rx="6" class="c-mask"/>
+          <rect x="1177.6000000000001" y="93" width="176" height="68" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1183.6000000000001 99) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" x="1278.6000000000001" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">启动预取任务 N+1</text>
-        <text data-detail="fine" x="1278.6000000000001" y="149" class="t-backend" font-size="7" text-anchor="middle">与上报 N 并行</text>
+          <text data-node-label="" x="1265.6000000000001" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">提交任务 N+1</text>
+        <text data-detail="fine" x="1265.6000000000001" y="149" class="t-backend" font-size="7" text-anchor="middle">生成容量未满</text>
         </g>
 
         <g id="node-reset_settings" data-node-id="reset_settings" data-node-label="重置页面状态" tabindex="0" role="button" aria-label="聚焦重置页面状态，Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 领任务与准备" aria-pressed="false" data-node-kind="frontend" data-node-tag="模型 · x1 · 比例" data-node-context="Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 领任务与准备">
           <title>重置页面状态 · Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 领任务与准备 · 模型 · x1 · 比例</title>
-          <rect x="160" y="227" width="170" height="68" rx="6" class="c-mask"/>
-          <rect x="160" y="227" width="170" height="68" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(166 233) scale(0.6875)">
+          <rect x="165" y="227" width="170" height="68" rx="6" class="c-mask"/>
+          <rect x="165" y="227" width="170" height="68" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(171 233) scale(0.6875)">
             <rect x="2" y="3" width="12" height="10" rx="2"/>
             <path d="M2 6.5h12"/>
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" x="245" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">重置页面状态</text>
-        <text data-detail="fine" x="245" y="283" class="t-frontend" font-size="7" text-anchor="middle">模型 · x1 · 比例</text>
+          <text data-node-label="" x="250" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">重置页面状态</text>
+        <text data-detail="fine" x="250" y="283" class="t-frontend" font-size="7" text-anchor="middle">模型 · x1 · 比例</text>
         </g>
 
         <g id="node-upload_rpc" data-node-id="upload_rpc" data-node-label="上传源图" tabindex="0" role="button" aria-label="聚焦上传源图，Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 上传与源图引用" aria-pressed="false" data-node-kind="messagebus" data-node-tag="maseQ · 45s" data-node-context="Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 上传与源图引用">
           <title>上传源图 · Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 上传与源图引用 · maseQ · 45s</title>
-          <rect x="396" y="227" width="168" height="68" rx="6" class="c-mask"/>
-          <rect x="396" y="227" width="168" height="68" rx="6" class="c-messagebus" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(402 233) scale(0.6875)">
+          <rect x="401" y="227" width="168" height="68" rx="6" class="c-mask"/>
+          <rect x="401" y="227" width="168" height="68" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(407 233) scale(0.6875)">
             <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
             <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
             <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
             <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
           </g>
-          <text data-node-label="" x="480" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">上传源图</text>
-        <text data-detail="fine" x="480" y="283" class="t-messagebus" font-size="7" text-anchor="middle">maseQ · 45s</text>
+          <text data-node-label="" x="485" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">上传源图</text>
+        <text data-detail="fine" x="485" y="283" class="t-messagebus" font-size="7" text-anchor="middle">maseQ · 45s</text>
         </g>
 
         <g id="node-search_attach" data-node-id="search_attach" data-node-label="搜索并引用源图" tabindex="0" role="button" aria-label="聚焦搜索并引用源图，Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 上传与源图引用" aria-pressed="false" data-node-kind="frontend" data-node-tag="每 1–2s 重搜" data-node-context="Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 上传与源图引用">
           <title>搜索并引用源图 · Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 上传与源图引用 · 每 1–2s 重搜</title>
-          <rect x="649.2" y="227" width="180" height="68" rx="6" class="c-mask"/>
-          <rect x="649.2" y="227" width="180" height="68" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(655.2 233) scale(0.6875)">
+          <rect x="654.2" y="227" width="180" height="68" rx="6" class="c-mask"/>
+          <rect x="654.2" y="227" width="180" height="68" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(660.2 233) scale(0.6875)">
             <rect x="2" y="3" width="12" height="10" rx="2"/>
             <path d="M2 6.5h12"/>
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" x="739.2" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">搜索并引用源图</text>
-        <text data-detail="fine" x="739.2" y="283" class="t-frontend" font-size="7" text-anchor="middle">每 1–2s 重搜</text>
+          <text data-node-label="" x="744.2" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">搜索并引用源图</text>
+        <text data-detail="fine" x="744.2" y="283" class="t-frontend" font-size="7" text-anchor="middle">每 1–2s 重搜</text>
         </g>
 
-        <g id="node-submit_claim" data-node-id="submit_claim" data-node-label="输入并提交 Prompt" tabindex="0" role="button" aria-label="聚焦输入并提交 Prompt，Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 提交、生成与交接" aria-pressed="false" data-node-kind="frontend" data-node-tag="认领 Tile" data-node-context="Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 提交、生成与交接">
-          <title>输入并提交 Prompt · Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 提交、生成与交接 · 认领 Tile</title>
-          <rect x="928.8000000000001" y="227" width="174" height="68" rx="6" class="c-mask"/>
-          <rect x="928.8000000000001" y="227" width="174" height="68" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(934.8000000000001 233) scale(0.6875)">
+        <g id="node-submit_claim" data-node-id="submit_claim" data-node-label="输入并提交 Prompt" tabindex="0" role="button" aria-label="聚焦输入并提交 Prompt，Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 提交、生成与交接" aria-pressed="false" data-node-kind="frontend" data-node-tag="唯一认领 Tile" data-node-context="Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 提交、生成与交接">
+          <title>输入并提交 Prompt · Flow 页面 UI（严格串行） › withUiLock：设置、上传、引用、输入、提交不可并行 › 提交、生成与交接 · 唯一认领 Tile</title>
+          <rect x="933.8000000000001" y="227" width="174" height="68" rx="6" class="c-mask"/>
+          <rect x="933.8000000000001" y="227" width="174" height="68" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(939.8000000000001 233) scale(0.6875)">
             <rect x="2" y="3" width="12" height="10" rx="2"/>
             <path d="M2 6.5h12"/>
             <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
-          <text data-node-label="" x="1015.8000000000001" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">输入并提交 Prompt</text>
-        <text data-detail="fine" x="1015.8000000000001" y="283" class="t-frontend" font-size="7" text-anchor="middle">认领 Tile</text>
+          <text data-node-label="" x="1020.8000000000001" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">输入并提交 Prompt</text>
+        <text data-detail="fine" x="1020.8000000000001" y="283" class="t-frontend" font-size="7" text-anchor="middle">唯一认领 Tile</text>
         </g>
 
-        <g id="node-generate_download" data-node-id="generate_download" data-node-label="生成并下载结果" tabindex="0" role="button" aria-label="聚焦生成并下载结果，Flow 页面 UI（严格串行） › 提交、生成与交接" aria-pressed="false" data-node-kind="external" data-node-tag="Data URL · 180s" data-node-context="Flow 页面 UI（严格串行） › 提交、生成与交接">
-          <title>生成并下载结果 · Flow 页面 UI（严格串行） › 提交、生成与交接 · Data URL · 180s</title>
-          <rect x="1191.6000000000001" y="227" width="174" height="68" rx="6" class="c-mask"/>
-          <rect x="1191.6000000000001" y="227" width="174" height="68" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1197.6000000000001 233) scale(0.6875)">
+        <g id="node-generate_download" data-node-id="generate_download" data-node-label="并行生成并下载" tabindex="0" role="button" aria-label="聚焦并行生成并下载，Flow 页面 UI（严格串行） › 提交、生成与交接" aria-pressed="false" data-node-kind="external" data-node-tag="最多 4 个 Tile" data-node-context="Flow 页面 UI（严格串行） › 提交、生成与交接">
+          <title>并行生成并下载 · Flow 页面 UI（严格串行） › 提交、生成与交接 · 最多 4 个 Tile</title>
+          <rect x="1178.6000000000001" y="227" width="174" height="68" rx="6" class="c-mask"/>
+          <rect x="1178.6000000000001" y="227" width="174" height="68" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1184.6000000000001 233) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-node-label="" x="1278.6000000000001" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">生成并下载结果</text>
-        <text data-detail="fine" x="1278.6000000000001" y="283" class="t-external" font-size="7" text-anchor="middle">Data URL · 180s</text>
+          <text data-node-label="" x="1265.6000000000001" y="248" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">并行生成并下载</text>
+        <text data-detail="fine" x="1265.6000000000001" y="283" class="t-external" font-size="7" text-anchor="middle">最多 4 个 Tile</text>
         </g>
 
         <g id="node-poll_task" data-node-id="poll_task" data-node-label="轮询任务" tabindex="0" role="button" aria-label="聚焦轮询任务，任务服务器 › 领任务与准备" aria-pressed="false" data-node-kind="cloud" data-node-context="任务服务器 › 领任务与准备">
           <title>轮询任务 · 任务服务器 › 领任务与准备</title>
-          <rect x="50" y="362" width="150" height="52" rx="6" class="c-mask"/>
-          <rect x="50" y="362" width="150" height="52" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(56 368) scale(0.6875)">
+          <rect x="55" y="362" width="150" height="52" rx="6" class="c-mask"/>
+          <rect x="55" y="362" width="150" height="52" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(61 368) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
-          <text data-node-label="" x="125" y="383" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">轮询任务</text>
+          <text data-node-label="" x="130" y="383" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">轮询任务</text>
         </g>
 
         <g id="node-report_result" data-node-id="report_result" data-node-label="完成上报" tabindex="0" role="button" aria-label="聚焦完成上报，任务服务器 › 提交、生成与交接" aria-pressed="false" data-node-kind="cloud" data-node-tag="退避重试" data-node-context="任务服务器 › 提交、生成与交接">
           <title>完成上报 · 任务服务器 › 提交、生成与交接 · 退避重试</title>
-          <rect x="1199.6000000000001" y="354" width="158" height="68" rx="6" class="c-mask"/>
-          <rect x="1199.6000000000001" y="354" width="158" height="68" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(1205.6000000000001 360) scale(0.6875)">
+          <rect x="1186.6000000000001" y="354" width="158" height="68" rx="6" class="c-mask"/>
+          <rect x="1186.6000000000001" y="354" width="158" height="68" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(1192.6000000000001 360) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
-          <text data-node-label="" x="1278.6000000000001" y="375" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">完成上报</text>
-        <text data-detail="fine" x="1278.6000000000001" y="410" class="t-cloud" font-size="7" text-anchor="middle">退避重试</text>
+          <text data-node-label="" x="1265.6000000000001" y="375" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">完成上报</text>
+        <text data-detail="fine" x="1265.6000000000001" y="410" class="t-cloud" font-size="7" text-anchor="middle">退避重试</text>
         </g>
 
         <g id="node-failure_recovery" data-node-id="failure_recovery" data-node-label="失败上报与恢复" tabindex="0" role="button" aria-label="聚焦失败上报与恢复，失败与恢复 › 提交、生成与交接" aria-pressed="false" data-node-kind="security" data-node-tag="连续 5 次暂停" data-node-context="失败与恢复 › 提交、生成与交接">
           <title>失败上报与恢复 · 失败与恢复 › 提交、生成与交接 · 连续 5 次暂停</title>
-          <rect x="1190.6000000000001" y="480" width="176" height="68" rx="6" class="c-mask"/>
-          <rect x="1190.6000000000001" y="480" width="176" height="68" rx="6" class="c-security" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1196.6000000000001 486) scale(0.6875)">
+          <rect x="1177.6000000000001" y="480" width="176" height="68" rx="6" class="c-mask"/>
+          <rect x="1177.6000000000001" y="480" width="176" height="68" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(1183.6000000000001 486) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" x="1278.6000000000001" y="501" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">失败上报与恢复</text>
-        <text data-detail="fine" x="1278.6000000000001" y="536" class="t-security" font-size="7" text-anchor="middle">连续 5 次暂停</text>
+          <text data-node-label="" x="1265.6000000000001" y="501" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">失败上报与恢复</text>
+        <text data-detail="fine" x="1265.6000000000001" y="536" class="t-security" font-size="7" text-anchor="middle">连续 5 次暂停</text>
         </g>
 
         <!-- Edge labels -->
         <g data-detail="context" data-edge-from="search_attach" data-edge-to="failure_recovery" data-edge-label="搜索/引用失败" data-edge-key="0" data-edge-id="attach_error">
-          <rect x="928.7" y="487" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="964.9000000000001" y="497" class="t-security" font-size="8" text-anchor="middle">搜索/引用失败</text>
+          <rect x="924.7" y="487" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="960.9000000000001" y="497" class="t-security" font-size="8" text-anchor="middle">搜索/引用失败</text>
         </g>
         <g data-detail="context" data-edge-from="search_attach" data-edge-to="submit_claim" data-edge-label="源图已加入 Prompt" data-edge-key="1" data-edge-id="attach_to_submit">
-          <rect x="833.2" y="241" width="91.6" height="14" rx="3" class="c-mask"/>
-          <text x="879" y="251" class="t-backend" font-size="8" text-anchor="middle">源图已加入 Prompt</text>
+          <rect x="838.2" y="241" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="884" y="251" class="t-backend" font-size="8" text-anchor="middle">源图已加入 Prompt</text>
         </g>
-        <g data-detail="context" data-edge-from="generate_download" data-edge-to="start_next" data-edge-label="结果已在内存 → releaseFlowSlot" data-edge-key="2" data-edge-id="download_release">
-          <rect x="1201.6000000000001" y="207" width="154" height="14" rx="3" class="c-mask"/>
-          <text x="1278.6000000000001" y="217" class="t-backend" font-size="8" text-anchor="middle">结果已在内存 → releaseFlowSlot</text>
+        <g data-detail="context" data-edge-from="generate_download" data-edge-to="start_next" data-edge-label="结果入内存 → 释放生成槽" data-edge-key="2" data-edge-id="download_release">
+          <rect x="1205.4" y="207" width="120.39999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="1265.6000000000001" y="217" class="t-backend" font-size="8" text-anchor="middle">结果入内存 → 释放生成槽</text>
         </g>
         <g data-detail="context" data-edge-from="generate_download" data-edge-to="report_result" data-edge-label="resultDataUrl" data-edge-key="3" data-edge-id="download_to_report">
-          <rect x="1355.6000000000001" y="368" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="1391.8000000000002" y="378" class="t-backend" font-size="8" text-anchor="middle">resultDataUrl</text>
+          <rect x="1342.6000000000001" y="368" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="1378.8000000000002" y="378" class="t-backend" font-size="8" text-anchor="middle">resultDataUrl</text>
         </g>
         <g data-detail="context" data-edge-from="generate_download" data-edge-to="failure_recovery" data-edge-label="生成/下载失败" data-edge-key="4" data-edge-id="generation_error">
-          <rect x="1190.9" y="548" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="1227.1000000000001" y="558" class="t-security" font-size="8" text-anchor="middle">生成/下载失败</text>
+          <rect x="1177.9" y="548" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="1214.1000000000001" y="558" class="t-security" font-size="8" text-anchor="middle">生成/下载失败</text>
         </g>
         <g data-detail="context" data-edge-from="poll_task" data-edge-to="reserve_slot" data-edge-label="hasTask" data-edge-key="5" data-edge-id="poll_to_slot">
-          <rect x="56.7" y="422" width="43.6" height="14" rx="3" class="c-mask"/>
-          <text x="78.5" y="432" class="t-muted" font-size="8" text-anchor="middle">hasTask</text>
+          <rect x="59.2" y="422" width="43.6" height="14" rx="3" class="c-mask"/>
+          <text x="81" y="432" class="t-muted" font-size="8" text-anchor="middle">hasTask</text>
         </g>
-        <g data-detail="context" data-edge-from="prefetch_next" data-edge-to="start_next" data-edge-label="等待 Flow 槽释放" data-edge-key="6" data-edge-id="prefetch_wait">
-          <rect x="1099.8000000000002" y="107" width="86.8" height="14" rx="3" class="c-mask"/>
-          <text x="1143.2000000000003" y="117" class="t-database" font-size="8" text-anchor="middle">等待 Flow 槽释放</text>
+        <g data-detail="context" data-edge-from="prefetch_next" data-edge-to="start_next" data-edge-label="生成槽 &lt; 4" data-edge-key="6" data-edge-id="prefetch_wait">
+          <rect x="1110.2000000000003" y="107" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="1139.2000000000003" y="117" class="t-database" font-size="8" text-anchor="middle">生成槽 &lt; 4</text>
         </g>
         <g data-detail="context" data-edge-from="report_result" data-edge-to="failure_recovery" data-edge-label="上报失败保留译图" data-edge-key="7" data-edge-id="report_error">
-          <rect x="1355.6005" y="418" width="86.8" height="14" rx="3" class="c-mask"/>
-          <text x="1399.0005" y="428" class="t-security" font-size="8" text-anchor="middle">上报失败保留译图</text>
+          <rect x="1342.6005" y="418" width="86.8" height="14" rx="3" class="c-mask"/>
+          <text x="1386.0005" y="428" class="t-security" font-size="8" text-anchor="middle">上报失败保留译图</text>
         </g>
         <g data-detail="context" data-edge-from="reset_settings" data-edge-to="upload_rpc" data-edge-label="页面已清理" data-edge-key="8" data-edge-id="settings_to_upload">
-          <rect x="334" y="241" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="363" y="251" class="t-muted" font-size="8" text-anchor="middle">页面已清理</text>
+          <rect x="339" y="241" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="368" y="251" class="t-muted" font-size="8" text-anchor="middle">页面已清理</text>
         </g>
         <g data-detail="context" data-edge-from="reserve_slot" data-edge-to="reset_settings" data-edge-label="准备 task + 唯一文件名" data-edge-key="9" data-edge-id="slot_to_settings">
-          <rect x="80.7" y="296" width="115.6" height="14" rx="3" class="c-mask"/>
-          <text x="138.5" y="306" class="t-muted" font-size="8" text-anchor="middle">准备 task + 唯一文件名</text>
+          <rect x="83.2" y="296" width="115.6" height="14" rx="3" class="c-mask"/>
+          <text x="141" y="306" class="t-muted" font-size="8" text-anchor="middle">准备 task + 唯一文件名</text>
         </g>
         <g data-detail="context" data-edge-from="submit_claim" data-edge-to="generate_download" data-edge-label="Tile 已认领" data-edge-key="10" data-edge-id="submit_to_generate">
-          <rect x="1064.3" y="296" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="1095.7" y="306" class="t-muted" font-size="8" text-anchor="middle">Tile 已认领</text>
+          <rect x="1060.3" y="296" width="62.8" height="14" rx="3" class="c-mask"/>
+          <text x="1091.7" y="306" class="t-muted" font-size="8" text-anchor="middle">Tile 已认领</text>
         </g>
-        <g data-detail="context" data-edge-from="submit_claim" data-edge-to="prefetch_next" data-edge-label="FLOW_DOM_TRANSLATION_SUBMITTED" data-edge-key="11" data-edge-id="submitted_prefetch">
-          <rect x="938.8000000000001" y="207" width="154" height="14" rx="3" class="c-mask"/>
-          <text x="1015.8000000000001" y="217" class="t-database" font-size="8" text-anchor="middle">FLOW_DOM_TRANSLATION_SUBMITTED</text>
+        <g data-detail="context" data-edge-from="submit_claim" data-edge-to="prefetch_next" data-edge-label="Tile 已认领 → 释放提交槽" data-edge-key="11" data-edge-id="submitted_prefetch">
+          <rect x="958.2" y="207" width="125.19999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="1020.8000000000001" y="217" class="t-database" font-size="8" text-anchor="middle">Tile 已认领 → 释放提交槽</text>
         </g>
         <g data-detail="context" data-edge-from="upload_rpc" data-edge-to="failure_recovery" data-edge-label="RPC/超时" data-edge-key="12" data-edge-id="upload_error">
-          <rect x="803.1" y="353" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="827.3000000000001" y="363" class="t-security" font-size="8" text-anchor="middle">RPC/超时</text>
+          <rect x="799.1" y="353" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="823.3000000000001" y="363" class="t-security" font-size="8" text-anchor="middle">RPC/超时</text>
         </g>
         <g data-detail="context" data-edge-from="upload_rpc" data-edge-to="search_attach" data-edge-label="maseQ 确认成功" data-edge-key="13" data-edge-id="upload_to_search">
-          <rect x="568" y="241" width="77.2" height="14" rx="3" class="c-mask"/>
-          <text x="606.6" y="251" class="t-backend" font-size="8" text-anchor="middle">maseQ 确认成功</text>
+          <rect x="573" y="241" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="611.6" y="251" class="t-backend" font-size="8" text-anchor="middle">maseQ 确认成功</text>
         </g>
 
         <!-- Legend -->
@@ -5492,8 +5492,8 @@
           <h3>严格串行边界</h3>
         </div>
         <ul>
-          <li>&bull; 同一时刻只有 1 个 Flow 任务占用页面</li>
-          <li>&bull; 上传、选择、Add to prompt、Prompt、提交均在 withUiLock 内顺序执行</li>
+          <li>&bull; 同一时刻只有 1 个任务操作 Flow 页面</li>
+          <li>&bull; 上传、选择、Add to prompt、Prompt、提交和 Tile 认领均在 withUiLock 内</li>
         </ul>
       </div>
 
@@ -5503,19 +5503,19 @@
           <h3>允许并行的部分</h3>
         </div>
         <ul>
-          <li>&bull; 任务 N 生成时，后台只预取任务 N+1 的源图数据</li>
-          <li>&bull; 结果 N 下载完成后，上报 N 与提交 N+1 可以同时进行</li>
+          <li>&bull; Tile 认领后立即释放提交槽，最多 4 个任务同时生成</li>
+          <li>&bull; 结果 N 下载与上报时，下一任务仍可串行提交</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot amber"></div>
-          <h3>关键门槛</h3>
+          <h3>结果不串图</h3>
         </div>
         <ul>
-          <li>&bull; maseQ 成功后才搜索素材；未索引时每 1–2 秒重新查询</li>
-          <li>&bull; 源图引用计数通过两次校验后才允许 Start generation</li>
+          <li>&bull; 每个 assignmentId 绑定唯一 Tile 与稳定 Tile ID</li>
+          <li>&bull; Tile 身份不明确时直接失败，不使用页面全局新结果兜底</li>
         </ul>
       </div>
 

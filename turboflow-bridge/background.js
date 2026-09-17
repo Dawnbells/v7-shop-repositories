@@ -48,17 +48,16 @@ import {
   FAILURE_STREAK_INCREMENT,
   FAILURE_STREAK_RESET,
 } from './task-error-policy.js';
+import { FlowTaskRegistry } from './flow-task-registry.js';
 
-const VERSION = '1.4.11';
+const VERSION = '1.5.0';
 const POLL_INTERVAL_MS = 500;
-// Flow itself stays strictly serial. Network work is pipelined around it:
-// while one image is generating we may hold exactly one prefetched source,
-// and after the result is downloaded its server report may overlap the next
-// Flow submission.
-const FLOW_CONCURRENCY = 1;
+// Upload / Add to prompt / prompt entry / submit stay strictly serial, while
+// already-claimed Flow tiles may generate concurrently.
+const FLOW_CONCURRENCY = 4;
 const PREFETCH_LIMIT = 1;
-const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V19';
-const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V19';
+const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V20';
+const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V20';
 // 两次「启动翻译任务」之间的最小间隔，每次启动时在 [MIN, MAX] 内随机摇定一个下次允许时间戳
 // （见 nextTranslateAllowedAt）。随机化对齐本扩展整体的反风控风格，避免固定节拍被识别。
 const TRANSLATE_START_INTERVAL_MIN_MS = 2 * 1000;
@@ -97,8 +96,7 @@ function friendlyErrorMessage(errorCode, rawMessage) {
 let bridgeId = null;
 let running = false;
 let currentTasks = [];
-let flowSlotOwner = null;
-let flowSubmissionAccepted = false;
+const flowTasks = new FlowTaskRegistry(FLOW_CONCURRENCY);
 let prefetchedTask = null;
 let timerId = null;
 let serviceCursor = 0;
@@ -543,13 +541,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'FLOW_DOM_TRANSLATION_SUBMITTED') {
     const assignmentId = msg.assignmentId || null;
     const fromFlowTab = !!_sender.tab?.url && isFlowUrl(_sender.tab.url);
-    if (fromFlowTab && assignmentId && assignmentId === flowSlotOwner) {
-      flowSubmissionAccepted = true;
+    if (fromFlowTab && flowTasks.acceptSubmission(assignmentId)) {
       const taskState = currentTasks.find((task) => task.assignmentId === assignmentId);
       if (taskState) taskState.phase = 'generating';
       broadcastTasksChanged();
-      addLog('info', `Flow accepted task: ${taskState?.subTaskId || assignmentId}; prefetching next image`);
-      scheduleLoop(0);
+      addLog('info', `Flow accepted task: ${taskState?.subTaskId || assignmentId}; ${flowTasks.generatingOwners.size}/${FLOW_CONCURRENCY} generating`);
+      if (!startPrefetchedTask()) scheduleLoop(0);
     }
     sendResponse({ ok: true });
     return false;
@@ -588,7 +585,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       cooldownRemainingMs: 0,
       recoveryState,
       reuseSummary,
-      flowSlotOwner,
+      flowSlotOwner: flowTasks.submissionOwner,
+      flowConcurrency: flowTasks.snapshot(),
       prefetchedTask: getPrefetchedTaskSummary(),
     });
     return false;
@@ -1077,10 +1075,7 @@ function getPrefetchedTaskSummary() {
 }
 
 function reserveFlowSlotAndExecute(service, task, conn, { prefetched = false } = {}) {
-  const flowSlotsInUse = flowSlotOwner ? 1 : 0;
-  if (flowSlotsInUse >= FLOW_CONCURRENCY) return false;
-  flowSlotOwner = task.assignmentId;
-  flowSubmissionAccepted = false;
+  if (!flowTasks.reserveSubmission(task.assignmentId)) return false;
   const interval = TRANSLATE_START_INTERVAL_MIN_MS
     + Math.random() * (TRANSLATE_START_INTERVAL_MAX_MS - TRANSLATE_START_INTERVAL_MIN_MS);
   nextTranslateAllowedAt = Date.now() + interval;
@@ -1091,7 +1086,8 @@ function reserveFlowSlotAndExecute(service, task, conn, { prefetched = false } =
 }
 
 function startPrefetchedTask() {
-  if (!prefetchedTask || flowSlotOwner || pollPaused || recoveryPromise || !flowTabAvailable) {
+  if (!prefetchedTask || flowTasks.submissionOwner || !flowTasks.hasCapacity
+      || pollPaused || recoveryPromise || !flowTabAvailable) {
     return false;
   }
   const next = prefetchedTask;
@@ -1100,9 +1096,7 @@ function startPrefetchedTask() {
 }
 
 function releaseFlowSlot(assignmentId) {
-  if (!assignmentId || flowSlotOwner !== assignmentId) return false;
-  flowSlotOwner = null;
-  flowSubmissionAccepted = false;
+  if (!flowTasks.release(assignmentId)) return false;
   if (!startPrefetchedTask()) scheduleLoop(0);
   return true;
 }
@@ -1112,9 +1106,10 @@ async function runLoop() {
   running = true;
   let scheduleNext = true;
   try {
-    // A prefetched task owns the only look-ahead slot. As soon as Flow becomes
-    // free it starts before any further poll can claim another assignment.
-    if (!flowSlotOwner && prefetchedTask) {
+    // A prefetched task owns the only look-ahead slot. As soon as the serial
+    // submit lane is free and one of four generation slots is available, it
+    // starts before any further poll can claim another assignment.
+    if (!flowTasks.submissionOwner && flowTasks.hasCapacity && prefetchedTask) {
       startPrefetchedTask();
       nextPollAt = 0;
       broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
@@ -1122,11 +1117,10 @@ async function runLoop() {
       return;
     }
 
-    // Do not fetch the next source until the current request has actually been
-    // accepted by Flow. Once accepted, exactly one prefetch is allowed.
+    // At most one task is being submitted and one additional source is kept as
+    // look-ahead. Already claimed tiles continue generating independently.
     const prefetchedCount = prefetchedTask ? 1 : 0;
-    if ((flowSlotOwner && !flowSubmissionAccepted)
-        || prefetchedCount >= PREFETCH_LIMIT) {
+    if (!flowTasks.hasCapacity || prefetchedCount >= PREFETCH_LIMIT) {
       nextPollAt = 0;
       broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
       scheduleNext = false;
@@ -1157,10 +1151,10 @@ async function runLoop() {
     const orderedServices = rotateServices(services);
     for (let i = 0; i < orderedServices.length; i++) {
       const service = orderedServices[i];
-      const task = await pollTask(service, conn, !!flowSlotOwner || !!prefetchedTask);
+      const task = await pollTask(service, conn, flowTasks.inUse > 0 || !!prefetchedTask);
       if (task?.hasTask) {
         serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
-        if (flowSlotOwner) {
+        if (flowTasks.submissionOwner || !flowTasks.hasCapacity) {
           prefetchedTask = { service, task, conn, preparedAt: Date.now() };
           addLog('info', `Next image prepared locally: ${task.subTaskId}`);
           nextPollAt = 0;
@@ -1259,8 +1253,8 @@ async function executeTask(service, task, conn = null) {
       `translate timeout (${Math.round(TRANSLATE_TIMEOUT_MS / 1000)}s)`,
     );
     // The generated image is now fully downloaded into extension memory. Free
-    // the single Flow slot before reporting so the next prefetched image can be
-    // submitted in parallel with this task's server upload.
+    // this generation slot before reporting so another serial submission can
+    // start while this task's server upload continues.
     taskState.phase = 'reporting';
     broadcastTasksChanged();
     releaseFlowSlot(task.assignmentId);
@@ -1399,9 +1393,9 @@ async function executeTask(service, task, conn = null) {
       scheduleLoop(POLL_INTERVAL_MS);
     }
   } finally {
-    // Cache hits, policy fallbacks and failures do not pass through the normal
-    // translated-result handoff above. Always release a slot still owned by
-    // this assignment so the one-item pipeline cannot deadlock.
+    // Cache hits, policy fallbacks and failures may exit before or after the
+    // submitted event. Release either the serial submission slot or the exact
+    // generation slot owned by this assignment.
     releaseFlowSlot(task.assignmentId);
   }
 }

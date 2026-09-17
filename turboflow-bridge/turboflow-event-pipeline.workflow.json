@@ -21,7 +21,7 @@
   ],
   "groups": [
     { "id": "serial_ui_group", "label": "withUiLock：设置、上传、引用、输入、提交不可并行", "lane": "flow_page", "fromCol": 1, "toCol": 4, "variant": "emphasis" },
-    { "id": "parallel_group", "label": "单项前瞻流水线", "lane": "extension_bg", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+    { "id": "parallel_group", "label": "1 个提交槽 + 4 个生成槽", "lane": "extension_bg", "fromCol": 4, "toCol": 5, "variant": "dashed" }
   ],
   "mainPath": [
     "poll_task",
@@ -47,14 +47,14 @@
   "nodes": [
     { "id": "poll_task", "lane": "task_server", "col": 0, "type": "cloud", "label": "轮询任务", "width": 150 },
     { "id": "report_result", "lane": "task_server", "col": 5, "type": "cloud", "label": "完成上报", "tag": "退避重试", "width": 158 },
-    { "id": "reserve_slot", "lane": "extension_bg", "col": 0, "type": "backend", "label": "占用 Flow 槽", "tag": "并发数 1 · assignmentId", "width": 154 },
+    { "id": "reserve_slot", "lane": "extension_bg", "col": 0, "type": "backend", "label": "占用串行提交槽", "tag": "提交并发 = 1", "width": 164 },
     { "id": "prefetch_next", "lane": "extension_bg", "col": 4, "type": "messagebus", "label": "预取下一任务", "tag": "与生成 N 并行", "width": 160 },
-    { "id": "start_next", "lane": "extension_bg", "col": 5, "type": "backend", "label": "启动预取任务 N+1", "tag": "与上报 N 并行", "width": 176 },
+    { "id": "start_next", "lane": "extension_bg", "col": 5, "type": "backend", "label": "提交任务 N+1", "tag": "生成容量未满", "width": 176 },
     { "id": "reset_settings", "lane": "flow_page", "col": 1, "type": "frontend", "label": "重置页面状态", "tag": "模型 · x1 · 比例", "width": 170 },
     { "id": "upload_rpc", "lane": "flow_page", "col": 2, "type": "messagebus", "label": "上传源图", "tag": "maseQ · 45s", "width": 168 },
     { "id": "search_attach", "lane": "flow_page", "col": 3, "type": "frontend", "label": "搜索并引用源图", "tag": "每 1–2s 重搜", "width": 180 },
-    { "id": "submit_claim", "lane": "flow_page", "col": 4, "type": "frontend", "label": "输入并提交 Prompt", "tag": "认领 Tile", "width": 174 },
-    { "id": "generate_download", "lane": "flow_page", "col": 5, "type": "external", "label": "生成并下载结果", "tag": "Data URL · 180s", "width": 174 },
+    { "id": "submit_claim", "lane": "flow_page", "col": 4, "type": "frontend", "label": "输入并提交 Prompt", "tag": "唯一认领 Tile", "width": 174 },
+    { "id": "generate_download", "lane": "flow_page", "col": 5, "type": "external", "label": "并行生成并下载", "tag": "最多 4 个 Tile", "width": 174 },
     { "id": "failure_recovery", "lane": "failure_lane", "col": 5, "type": "security", "label": "失败上报与恢复", "tag": "连续 5 次暂停", "width": 176 }
   ],
   "edges": [
@@ -65,9 +65,9 @@
     { "id": "attach_to_submit", "from": "search_attach", "to": "submit_claim", "label": "源图已加入 Prompt", "variant": "emphasis", "role": "main" },
     { "id": "submit_to_generate", "from": "submit_claim", "to": "generate_download", "label": "Tile 已认领", "variant": "default", "role": "main" },
     { "id": "download_to_report", "from": "generate_download", "to": "report_result", "label": "resultDataUrl", "variant": "emphasis", "role": "async" },
-    { "id": "submitted_prefetch", "from": "submit_claim", "to": "prefetch_next", "label": "FLOW_DOM_TRANSLATION_SUBMITTED", "variant": "dashed", "role": "async" },
-    { "id": "prefetch_wait", "from": "prefetch_next", "to": "start_next", "label": "等待 Flow 槽释放", "variant": "dashed", "role": "async" },
-    { "id": "download_release", "from": "generate_download", "to": "start_next", "label": "结果已在内存 → releaseFlowSlot", "variant": "emphasis", "role": "async" },
+    { "id": "submitted_prefetch", "from": "submit_claim", "to": "prefetch_next", "label": "Tile 已认领 → 释放提交槽", "variant": "dashed", "role": "async" },
+    { "id": "prefetch_wait", "from": "prefetch_next", "to": "start_next", "label": "生成槽 < 4", "variant": "dashed", "role": "async" },
+    { "id": "download_release", "from": "generate_download", "to": "start_next", "label": "结果入内存 → 释放生成槽", "variant": "emphasis", "role": "async" },
     { "id": "upload_error", "from": "upload_rpc", "to": "failure_recovery", "label": "RPC/超时", "variant": "security", "role": "error" },
     { "id": "attach_error", "from": "search_attach", "to": "failure_recovery", "label": "搜索/引用失败", "variant": "security", "role": "error" },
     { "id": "generation_error", "from": "generate_download", "to": "failure_recovery", "label": "生成/下载失败", "variant": "security", "role": "error" },
@@ -78,24 +78,24 @@
       "dot": "emerald",
       "title": "严格串行边界",
       "items": [
-        "同一时刻只有 1 个 Flow 任务占用页面",
-        "上传、选择、Add to prompt、Prompt、提交均在 withUiLock 内顺序执行"
+        "同一时刻只有 1 个任务操作 Flow 页面",
+        "上传、选择、Add to prompt、Prompt、提交和 Tile 认领均在 withUiLock 内"
       ]
     },
     {
       "dot": "violet",
       "title": "允许并行的部分",
       "items": [
-        "任务 N 生成时，后台只预取任务 N+1 的源图数据",
-        "结果 N 下载完成后，上报 N 与提交 N+1 可以同时进行"
+        "Tile 认领后立即释放提交槽，最多 4 个任务同时生成",
+        "结果 N 下载与上报时，下一任务仍可串行提交"
       ]
     },
     {
       "dot": "amber",
-      "title": "关键门槛",
+      "title": "结果不串图",
       "items": [
-        "maseQ 成功后才搜索素材；未索引时每 1–2 秒重新查询",
-        "源图引用计数通过两次校验后才允许 Start generation"
+        "每个 assignmentId 绑定唯一 Tile 与稳定 Tile ID",
+        "Tile 身份不明确时直接失败，不使用页面全局新结果兜底"
       ]
     },
     {
