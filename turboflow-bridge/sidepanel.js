@@ -63,9 +63,20 @@
   }
 
   /* ── Main View ── */
-  btnOpenFlow.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'OPEN_FLOW' });
-    log('info', 'Opening Google Flow tab');
+  btnOpenFlow.addEventListener('click', async () => {
+    btnOpenFlow.disabled = true;
+    btnOpenFlow.textContent = 'Preparing Flow...';
+    log('info', 'Opening Flow: deleting all projects, then creating a new project');
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'OPEN_FLOW' });
+      if (!response?.ok) throw new Error(response?.error || 'Could not prepare Flow');
+      log('info', `New Flow project ready: ${response.projectId}`);
+    } catch (error) {
+      log('error', `Open Flow failed: ${error.message}`);
+    } finally {
+      btnOpenFlow.disabled = false;
+      btnOpenFlow.textContent = 'Open Flow';
+    }
   });
 
   // Google 风控触发后 pollPaused=true，需要用户显式 Run Now 才能恢复。

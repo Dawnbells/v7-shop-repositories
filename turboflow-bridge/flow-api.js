@@ -3,6 +3,7 @@
 // All API calls execute inside the Flow tab via chrome.scripting.executeScript
 
 import {
+  FLOW_HOME_URL,
   FLOW_TAB_URL_PATTERNS,
   buildFlowMediaRedirectUrl,
   buildFlowProjectUrl,
@@ -220,20 +221,30 @@ export async function getRecaptchaToken(tabId, action = 'IMAGE_GENERATION') {
  * 等待目标 tab 进入 complete 状态，超时即拒绝。
  * 用于 reload / 导航后阻塞到页面真正可交互。
  */
-function waitForTabComplete(tabId, timeoutMs) {
+function waitForTabComplete(tabId, timeoutMs, expectedUrl = null) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+    const finish = (error) => {
       chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error('Page load timed out'));
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => {
+      finish(new Error('Page load timed out'));
     }, timeoutMs);
-    function listener(updatedTabId, changeInfo) {
-      if (updatedTabId === tabId && changeInfo.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        clearTimeout(timer);
-        resolve();
+    function listener(updatedTabId, changeInfo, tab) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete'
+          && (!expectedUrl || tab?.url === expectedUrl)) {
+        finish();
       }
     }
     chrome.tabs.onUpdated.addListener(listener);
+    // The load may finish before the listener is registered.
+    if (expectedUrl) {
+      chrome.tabs.get(tabId).then((tab) => {
+        if (tab.status === 'complete' && tab.url === expectedUrl) finish();
+      }).catch(finish);
+    }
   });
 }
 
@@ -336,7 +347,7 @@ async function createFlowProjectAndNavigate(tabId) {
     func: (url) => { window.location.href = url; },
     args: [targetUrl],
   });
-  await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS);
+  await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS, targetUrl);
   projectId = result.projectId;
   return projectId;
 }
@@ -348,6 +359,20 @@ export async function ensureFlowProjectOpen(tabId) {
     return currentProjectId;
   }
   return await createFlowProjectAndNavigate(tabId);
+}
+
+// Explicit Open Flow action: finish the entire cleanup before creating anything.
+export async function openFreshFlowProject(onProgress) {
+  clearTokenCache();
+  clearProjectIdCache();
+  const tab = await chrome.tabs.create({ url: FLOW_HOME_URL });
+  await waitForTabComplete(tab.id, PAGE_LOAD_TIMEOUT_MS, FLOW_HOME_URL);
+  const cleanup = await deleteAllUserProjects(tab.id, onProgress);
+  if (cleanup.error || cleanup.failed > 0) {
+    throw new Error(cleanup.error || `Failed to delete ${cleanup.failed} Flow project(s)`);
+  }
+  const newProjectId = await createFlowProjectAndNavigate(tab.id);
+  return { tabId: tab.id, projectId: newProjectId };
 }
 
 /**
@@ -1146,8 +1171,9 @@ export async function listAllUserProjects(tabId) {
   let safety = 0;
   while (safety++ < 1000) {
     const data = await searchUserProjectsPage(tabId, cursor);
-    const inner = data?.result?.data?.json?.result || data?.result?.data?.json || {};
-    const items = inner.projects || inner.userProjects || inner.results || inner.items || [];
+    const inner = data?.result?.data?.json?.result || data?.result?.data?.json;
+    const items = inner?.projects || inner?.userProjects || inner?.results || inner?.items;
+    if (!Array.isArray(items)) throw new Error('Invalid Flow project list response');
     for (const p of items) {
       const pid = p?.projectId || p?.id;
       if (pid) {
@@ -1158,9 +1184,9 @@ export async function listAllUserProjects(tabId) {
       }
     }
     cursor = inner.nextPageToken || inner.nextCursor || inner.cursor || null;
-    if (!cursor) break;
+    if (!cursor) return all;
   }
-  return all;
+  throw new Error('Flow project list exceeded the pagination limit');
 }
 
 export async function deleteFlowProject(tabId, projectIdToDelete) {
@@ -1202,7 +1228,7 @@ export async function deleteAllUserProjects(tabId, onProgress) {
     projects = await listAllUserProjects(tabId);
   } catch (e) {
     if (typeof onProgress === 'function') onProgress({ phase: 'list-failed', error: e.message });
-    return { listed: 0, deleted: 0, failed: 0 };
+    return { listed: 0, deleted: 0, failed: 0, error: e.message };
   }
   const total = projects.length;
   let deleted = 0;

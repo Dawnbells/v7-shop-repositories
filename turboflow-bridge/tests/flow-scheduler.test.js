@@ -16,7 +16,7 @@ function scheduler() {
     flowTasks: registry, submissionPacer: pacer,
     Date: { now: () => now }, PREFETCH_LIMIT: 1, POLL_INTERVAL_MS: 500,
     running: false, prefetchedTask: null, pollPaused: false,
-    recoveryPromise: null, flowTabAvailable: true, nextPollAt: 0, serviceCursor: 0,
+    recoveryPromise: null, openingFlowPromise: null, flowTabAvailable: true, nextPollAt: 0, serviceCursor: 0,
     scheduleLoop: () => {}, broadcast: () => {}, broadcastTasksChanged: () => {}, addLog: () => {},
     createThumbnail: async () => 'thumbnail', ensureDataUrl: value => value, buildPrompt: () => 'translate',
     loadConfig: async () => ({ services: [{ baseUrl: 'server', token: 'test' }] }),
@@ -68,6 +68,23 @@ test('starts standby immediately when a slot finishes after the global deadline'
   await s.tick();
   s.time(10000);
   s.context.releaseFlowSlot('task-1');
+  assert.deepEqual(s.started, ['task-1', 'task-2']);
+});
+
+test('Open Flow blocks polling and holds the standby until project cleanup finishes', async () => {
+  const s = scheduler();
+  await s.tick();
+  s.submit();
+  await s.tick();
+  s.time(10000);
+  s.context.openingFlowPromise = Promise.resolve();
+  s.context.releaseFlowSlot('task-1');
+  await s.tick();
+  assert.equal(s.polls(), 2);
+  assert.deepEqual(s.started, ['task-1']);
+  assert.equal(s.context.prefetchedTask.task.assignmentId, 'task-2');
+  s.context.openingFlowPromise = null;
+  assert.equal(s.context.startPrefetchedTask(), true);
   assert.deepEqual(s.started, ['task-1', 'task-2']);
 });
 

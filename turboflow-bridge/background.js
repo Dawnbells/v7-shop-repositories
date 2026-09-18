@@ -7,9 +7,9 @@ import {
   setSessionToken,
   runRecoveryChain,
   deleteAllUserProjects,
+  openFreshFlowProject,
 } from './flow-api.js';
 import {
-  FLOW_HOME_URL,
   FLOW_TAB_URL_PATTERNS,
   isFlowUrl,
 } from './flow-sites.js';
@@ -135,6 +135,7 @@ let recoveryState = {
 // 恢复链运行中的 Promise 门闩：scheduleLoop 在 pending 时不发起新 poll，
 // 4 并发场景下避免一边 reload 一边新 poll 拉 task 撞上半残页面。
 let recoveryPromise = null;
+let openingFlowPromise = null;
 
 // Flow 标签页可用性看门狗：每秒探测，标签关闭 → 立即阻断 poll；重新打开 → 自动恢复
 const WATCHDOG_INTERVAL_MS = 1000;
@@ -494,6 +495,46 @@ async function stopAndDelete(reason, options = {}) {
   }
 }
 
+function openFlowWithFreshProject() {
+  if (openingFlowPromise) return openingFlowPromise;
+  openingFlowPromise = (async () => {
+    if (timerId) clearTimeout(timerId);
+    timerId = null;
+    nextPollAt = 0;
+    broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt: 0 });
+    lastStatus = { connected: false, message: 'Preparing a new Flow project...' };
+    broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus, projectId: null });
+    // Let existing work finish before deleting its project. New work is gated.
+    while (running || currentTasks.length || recoveryPromise || deletingProjects) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    addLog('info', '🧹 Open Flow: deleting all projects before creating a new one');
+    const result = await openFreshFlowProject((progress) => {
+      if (progress.phase === 'start') {
+        addLog('info', `🧹 共 ${progress.total} 个 project 待删除`);
+      } else if (progress.phase === 'progress') {
+        addLog('info', `🧹 删除中: ${progress.current}/${progress.total}（成功 ${progress.deleted} / 失败 ${progress.failed}）`);
+      }
+    });
+    // A prefetched task may still refer to the project that was just deleted.
+    if (prefetchedTask) prefetchedTask.conn = { connected: true, ...result };
+    flowTabAvailable = true;
+    lastStatus = { connected: true, message: 'Connected', projectId: result.projectId };
+    broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
+    addLog('info', `✅ Open Flow: new project ${result.projectId}`);
+    return { ok: true, ...result };
+  })().catch((error) => {
+    lastStatus = { connected: false, message: `Open Flow failed: ${error.message}` };
+    broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus, projectId: null });
+    addLog('error', lastStatus.message);
+    return { ok: false, error: error.message };
+  }).finally(() => {
+    openingFlowPromise = null;
+    if (lastStatus.connected) scheduleLoop(100);
+  });
+  return openingFlowPromise;
+}
+
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
 chrome.tabs.onUpdated.addListener((tabId, _changeInfo, tab) => {
@@ -531,7 +572,15 @@ startPendingPolicyReportRetry();
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CHECK_CONNECTION') {
+    if (openingFlowPromise) {
+      sendResponse({ connected: false, reason: 'Preparing a new Flow project...' });
+      return false;
+    }
     checkConnection().then((state) => {
+      if (openingFlowPromise) {
+        sendResponse({ connected: false, reason: 'Preparing a new Flow project...' });
+        return;
+      }
       lastStatus = { connected: state.connected, message: state.reason || 'Connected', projectId: state.projectId };
       sendResponse(state);
     }).catch((e) => sendResponse({ connected: false, reason: e.message }));
@@ -539,7 +588,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'OPEN_FLOW') {
-    chrome.tabs.create({ url: FLOW_HOME_URL }).then(() => sendResponse({ ok: true }));
+    openFlowWithFreshProject().then(sendResponse);
     return true;
   }
 
@@ -1052,7 +1101,7 @@ function scheduleLoop(delayMs) {
     return;
   }
   // reCAPTCHA 恢复链运行中（reload + 建 project + settle）— 不发起新 poll，避免撞上半残 Flow tab
-  if (recoveryPromise) {
+  if (recoveryPromise || openingFlowPromise) {
     return;
   }
   // Flow tab 不可用时不发起 poll，等 watchdog 检测到重新打开再自动 schedule
@@ -1094,7 +1143,7 @@ function getPrefetchedTaskSummary() {
 }
 
 function reserveFlowSlotAndExecute(service, task, conn, { prefetched = false } = {}) {
-  if (pollPaused) return false;
+  if (pollPaused || openingFlowPromise) return false;
   if (submissionPacer.remainingMs > 0 || !flowTasks.reserveSubmission(task.assignmentId)) return false;
   addLog('info', `${prefetched ? 'Starting prefetched task' : 'Task received'}: ${task.subTaskId} from ${service.baseUrl}`);
   executeTask(service, task, conn)
@@ -1104,7 +1153,7 @@ function reserveFlowSlotAndExecute(service, task, conn, { prefetched = false } =
 
 function startPrefetchedTask() {
   if (!prefetchedTask || flowTasks.submissionOwner || !flowTasks.hasCapacity
-      || pollPaused || recoveryPromise || !flowTabAvailable) {
+      || pollPaused || recoveryPromise || openingFlowPromise || !flowTabAvailable) {
     return false;
   }
   if (submissionPacer.remainingMs > 0) {
@@ -1130,7 +1179,7 @@ async function runLoop() {
   running = true;
   let scheduleNext = true;
   try {
-    if (pollPaused || recoveryPromise || !flowTabAvailable) return;
+    if (pollPaused || recoveryPromise || openingFlowPromise || !flowTabAvailable) return;
     startPrefetchedTask();
     // Download one standby even when all four generation slots are occupied.
     if ((prefetchedTask ? 1 : 0) >= PREFETCH_LIMIT) {
@@ -1147,7 +1196,7 @@ async function runLoop() {
     const config = await loadConfig();
     const services = config.services.filter((s) => s.enabled !== false && s.baseUrl && s.token);
     const conn = await checkConnection().catch((e) => ({ connected: false, reason: e.message }));
-    if (pollPaused) return;
+    if (pollPaused || openingFlowPromise) return;
     lastStatus = { connected: conn.connected, message: conn.reason || 'Connected', projectId: conn.projectId };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
 
@@ -1161,7 +1210,7 @@ async function runLoop() {
     // 单次 tick 至多启动 1 个任务（对齐 nano-b lt 调度器每 tick 至多 g() 一次）
     const orderedServices = rotateServices(services);
     for (let i = 0; i < orderedServices.length; i++) {
-      if (pollPaused) break;
+      if (pollPaused || openingFlowPromise) break;
       const service = orderedServices[i];
       const task = await pollTask(service, conn, flowTasks.inUse > 0 || !!prefetchedTask);
       if (task?.hasTask) {
