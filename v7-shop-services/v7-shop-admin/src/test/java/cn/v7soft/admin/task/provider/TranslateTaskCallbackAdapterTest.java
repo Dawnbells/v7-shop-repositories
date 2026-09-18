@@ -25,6 +25,32 @@ class TranslateTaskCallbackAdapterTest {
     @Mock private AiAccountTranslateTaskStatus status;
 
     @Test
+    void failedCompletionRetainsAssignedSlotUntilRetrySucceeds() {
+        TranslateByAIRequest request = new TranslateByAIRequest();
+        request.setProductId("1");
+        request.setCountryId("1");
+        request.setLanguageId("1");
+        request.setAiAccountId("7");
+        AiAccountTranslateSubTask subTask = AiAccountTranslateSubTask.image(1L, "99", request);
+        subTask.dispatch("bridge", "assignment", LocalDateTime.now().plusMinutes(30));
+        AiAccountRuntimeState runtime = new AiAccountRuntimeState(7L);
+        runtime.reserveSlots(cn.v7soft.dao.entities.primary.AiAccount.builder().maxConcurrency(2).build(), 2);
+        when(taskContext.getOrCreateRuntimeState(7L)).thenReturn(runtime);
+        when(taskContext.getTaskStatus(1L)).thenReturn(status);
+        SubTaskResult result = SubTaskResult.builder().build();
+        org.mockito.Mockito.doThrow(new IllegalStateException("temporary database failure")).doNothing()
+                .when(taskContext).updateUsageRecord(subTask, result);
+        TranslateTaskCallbackAdapter adapter = new TranslateTaskCallbackAdapter(taskContext);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> adapter.onSubTaskCompleted(subTask, result));
+        assertEquals(2, runtime.getInFlightCount());
+        when(status.getCompletedSubTaskCount()).thenReturn(new java.util.concurrent.atomic.AtomicInteger());
+        when(status.getFailedSubTaskCount()).thenReturn(new java.util.concurrent.atomic.AtomicInteger());
+        adapter.onSubTaskCompleted(subTask, result);
+        assertEquals(1, runtime.getInFlightCount());
+    }
+
+    @Test
     void codedTurboFlowFailureKeepsRetryingAfterThreeAttempts() {
         TranslateByAIRequest request = new TranslateByAIRequest();
         request.setProductId("1");

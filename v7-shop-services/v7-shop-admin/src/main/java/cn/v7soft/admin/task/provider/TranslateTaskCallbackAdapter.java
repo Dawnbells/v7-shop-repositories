@@ -40,6 +40,7 @@ public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
     @Override
     public void onSubTaskCompleted(AiAccountTranslateSubTask subTask, SubTaskResult result) {
         AiAccountRuntimeState runtimeState = taskContext.getOrCreateRuntimeState(subTask.getAiAccountId());
+        boolean completed = false;
         try {
             log.debug("[TranslateTaskCallbackAdapter] subtask completion received: taskId={}, subTaskId={}, type={}, cacheHit={}, elapsedMs={}, businessCredits={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), subTask.getType(), result.isCacheHit(),
@@ -48,6 +49,7 @@ public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
             if (status == null) {
                 log.debug("[TranslateTaskCallbackAdapter] completion ignored because parent task is missing: taskId={}, subTaskId={}",
                         subTask.getTaskId(), subTask.getSubTaskId());
+                completed = true;
                 return;
             }
 
@@ -70,10 +72,15 @@ public class TranslateTaskCallbackAdapter implements TranslateProviderCallback {
             log.debug("[TranslateTaskCallbackAdapter] subtask completion applied: taskId={}, subTaskId={}, completed={}, failed={}, progress={}",
                     subTask.getTaskId(), subTask.getSubTaskId(),
                     status.getCompletedSubTaskCount().get(), status.getFailedSubTaskCount().get(), status.getProgress());
+            completed = true;
         } finally {
-            runtimeState.releaseFinishedSlot();
-            log.debug("[TranslateTaskCallbackAdapter] runtime slot released after completion: aiAccountId={}, subTaskId={}, inFlight={}",
+            // TurboFlow retains its assignment when persistence fails, so its slot
+            // must survive until successful completion, explicit failure or expiry.
+            if (completed || subTask.getAssignmentId() == null) {
+                runtimeState.releaseFinishedSlot();
+                log.debug("[TranslateTaskCallbackAdapter] runtime slot released after completion: aiAccountId={}, subTaskId={}, inFlight={}",
                     subTask.getAiAccountId(), subTask.getSubTaskId(), runtimeState.getInFlightCount());
+            }
         }
     }
 

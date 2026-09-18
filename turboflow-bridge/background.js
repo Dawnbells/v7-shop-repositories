@@ -53,7 +53,7 @@ import { FlowTaskRegistry } from './flow-task-registry.js';
 import { FlowSubmissionPacer } from './flow-submission-pacer.js';
 import { translateImageViaApi } from './flow-image-translation.js';
 
-const VERSION = '1.5.1';
+const VERSION = '1.5.3';
 const POLL_INTERVAL_MS = 500;
 // Upload / Add to prompt / prompt entry / submit stay strictly serial, while
 // already-claimed Flow tiles may generate concurrently.
@@ -81,6 +81,11 @@ const TRANSLATE_TIMEOUT_MS = 300 * 1000;
 // fail 上报失败的重试次数与基础间隔（指数退避）。尽量保证 server 端能及时收到失败信号，避免等到 lease 过期。
 const FAIL_REPORT_MAX_RETRIES = 3;
 const FAIL_REPORT_RETRY_BASE_MS = 1000;
+// Keep the original assignment through slow uploads and transient backend errors.
+// Nine 120s uploads, 30s notices and capped backoff fit inside the 30-minute report lease.
+const COMPLETION_REPORT_MAX_RETRIES = 8;
+const COMPLETION_REPORT_TIMEOUT_MS = 120 * 1000;
+const TRANSLATED_NOTICE_TIMEOUT_MS = 30 * 1000;
 const PENDING_POLICY_REPORT_ALARM = 'retry-pending-policy-fallbacks';
 let pendingPolicyFlushRunning = false;
 
@@ -1236,6 +1241,9 @@ async function runLoop() {
 
 async function pollTask(service, conn, busy) {
   if (pollPaused) return null;
+  const pending = { service: service.baseUrl, startedAt: Date.now(), phase: 'fetching' };
+  currentTasks.push(pending);
+  broadcastTasksChanged();
   return postJson(service, '/turboflow-bridge/tasks/poll', {
     bridgeId,
     version: VERSION,
@@ -1243,9 +1251,15 @@ async function pollTask(service, conn, busy) {
     projectId: conn.projectId || null,
     currentUrl: null,
     busy: !!busy,
-  }).catch((e) => {
+  }, { onResponse: () => {
+    pending.phase = 'downloading_source';
+    broadcastTasksChanged();
+  } }).catch((e) => {
     addLog('warn', `Poll failed: ${service.baseUrl} ${e.message}`);
     return null;
+  }).finally(() => {
+    currentTasks = currentTasks.filter((item) => item !== pending);
+    broadcastTasksChanged();
   });
 }
 
@@ -1590,9 +1604,20 @@ function isReprocessRequired(error) {
  * 译图完成上报带指数退避（此前完全没有重试，一次网络抖动就当翻译失败、整张图重译）。
  */
 async function postCompletionWithRetry(service, payload) {
-  for (let attempt = 0; attempt <= FAIL_REPORT_MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= COMPLETION_REPORT_MAX_RETRIES; attempt++) {
+    setTaskPhase(payload.assignmentId, attempt ? 'reporting_retry' : 'reporting', attempt);
     try {
-      await postJson(service, '/turboflow-bridge/tasks/complete', payload);
+      // Notify before sending the large image. A missing/temporarily unreachable
+      // notice endpoint must not discard a finished translation (older servers).
+      try {
+        await postJson(service, '/turboflow-bridge/tasks/translated', {
+          bridgeId: payload.bridgeId, assignmentId: payload.assignmentId,
+        }, { timeoutMs: TRANSLATED_NOTICE_TIMEOUT_MS });
+      } catch (noticeError) {
+        addLog('warn', `Translation notice failed; still attempting image upload: ${noticeError.message}`);
+      }
+      await postJson(service, '/turboflow-bridge/tasks/complete', payload,
+        { timeoutMs: COMPLETION_REPORT_TIMEOUT_MS });
       if (attempt > 0) {
         addLog('info', `Completion reported on retry ${attempt}: ${payload.assignmentId}`);
       }
@@ -1602,10 +1627,11 @@ async function postCompletionWithRetry(service, payload) {
         addLog('warn', `Server asked to reprocess ${payload.assignmentId} — caching the translated image instead of retrying`);
         throw err;
       }
-      if (attempt === FAIL_REPORT_MAX_RETRIES) {
+      if (attempt === COMPLETION_REPORT_MAX_RETRIES) {
         throw err;
       }
-      const backoff = FAIL_REPORT_RETRY_BASE_MS * Math.pow(2, attempt);
+      setTaskPhase(payload.assignmentId, 'reporting_retry', attempt + 1);
+      const backoff = Math.min(30000, FAIL_REPORT_RETRY_BASE_MS * Math.pow(2, attempt));
       addLog('warn', `Completion report attempt ${attempt + 1} failed (${err.message}), retrying in ${backoff}ms`);
       await sleep(backoff);
     }
@@ -1614,7 +1640,7 @@ async function postCompletionWithRetry(service, payload) {
 
 /**
  * 翻译成功但上报失败：把译图按源图 sha256 落盘，等服务端重派同一张图时复用。
- * 同时照常 reportFail，让服务端立刻重排而不用等 lease 过期（6 分钟）。
+ * 原 assignment 的回传重试耗尽后才 reportFail，释放任务并保留译图作最后的复用兜底。
  */
 async function retainTranslationForReuse(service, task, context, result, imageHash, reportError) {
   const elapsed = Date.now() - context.startedAt;
@@ -1673,6 +1699,8 @@ async function retainTranslationForReuse(service, task, context, result, imageHa
  */
 async function completeWithCachedTranslation(service, task, context, cached) {
   addLog('info', `♻️ 命中译图复用缓存，跳过翻译直接重投: ${task.subTaskId}`);
+  setTaskPhase(task.assignmentId, 'reporting');
+  releaseFlowSlot(task.assignmentId);
   try {
     await postCompletionWithRetry(service, {
       bridgeId,
@@ -1684,21 +1712,7 @@ async function completeWithCachedTranslation(service, task, context, cached) {
       elapsedMs: cached.elapsedMs ?? (Date.now() - context.startedAt),
     });
   } catch (reportError) {
-    // 还是送不出去：记录留着，匹配窗口继续倒数
-    addLog('warn', `译图重投仍失败，记录保留: ${task.subTaskId} (${reportError.message})`);
-    applyFailureStreak(FAILURE_STREAK_INCREMENT);
-    recordStat(STAT_FAILED);
-    await reportFailWithRetry(service, {
-      bridgeId,
-      assignmentId: task.assignmentId,
-      errorCode: 'COMPLETION_REPORT_FAILED',
-      message: reportError.message,
-      stack: reportError.stack || null,
-      retryable: true,
-      elapsedMs: Date.now() - context.startedAt,
-    });
-    removeCurrentTask(task.assignmentId);
-    scheduleLoop(POLL_INTERVAL_MS);
+    await retainTranslationForReuse(service, task, context, cached, cached.imageHash, reportError);
     return false;
   }
 
@@ -1738,6 +1752,7 @@ async function completeWithCachedTranslation(service, task, context, cached) {
  * 政策回退按完成上报；这里只重试上报本身，绝不重新上传或生成图片。
  */
 async function reportPolicyFallbackWithRetry(service, payload) {
+  setTaskPhase(payload.assignmentId, 'reporting');
   return reportPolicyFallback({
     post: (completion) => postJson(service, '/turboflow-bridge/tasks/complete', completion),
     payload,
@@ -1745,6 +1760,7 @@ async function reportPolicyFallbackWithRetry(service, payload) {
     retryBaseMs: FAIL_REPORT_RETRY_BASE_MS,
     sleep,
     onRetry: (attempt, backoff, error) => {
+      setTaskPhase(payload.assignmentId, 'reporting_retry', attempt);
       addLog('warn', `Policy fallback report attempt ${attempt} failed (${error.message}), retrying in ${backoff}ms`);
     },
     onRecovered: (attempt) => {
@@ -1845,6 +1861,7 @@ async function translateImage(task, conn) {
     aspectRatio: aspectRatioFor(task.sourceWidth, task.sourceHeight),
     model: sanitizeModel(task.model),
     beforeSubmit: assertFlowSubmissionAllowed,
+    onPhase: (phase) => setTaskPhase(task.assignmentId, phase),
     onSubmitted: ({ submittedAt }) => {
       if (!flowTasks.acceptSubmission(task.assignmentId)) return;
       submissionPacer.submitted(submittedAt);
@@ -2053,20 +2070,38 @@ async function clearFlowPageCache(tabId) {
   await chrome.tabs.reload(tabId, { bypassCache: true });
 }
 
-async function postJson(service, path, body) {
-  const res = await fetch(normalizeBaseUrl(service.baseUrl) + path, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${service.token}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${text.substring(0, 300)}`);
+function setTaskPhase(assignmentId, phase, reportRetry = 0) {
+  const task = currentTasks.find((item) => item.assignmentId === assignmentId);
+  if (!task) return;
+  task.phase = phase;
+  task.reportRetry = reportRetry;
+  broadcastTasksChanged();
+}
+
+async function postJson(service, path, body, { timeoutMs = 120000, onResponse } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(normalizeBaseUrl(service.baseUrl) + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${service.token}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (res.ok) onResponse?.();
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${text.substring(0, 300)}`);
+    }
+    const result = text ? JSON.parse(text) : {};
+    if (result.accepted === false) throw new Error(result.reason || result.message || 'Server rejected request');
+    return result;
+  } finally {
+    clearTimeout(timer);
   }
-  return text ? JSON.parse(text) : {};
 }
 
 function normalizeBaseUrl(baseUrl) {

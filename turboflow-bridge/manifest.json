@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TurboFlow Bridge",
-  "version": "1.5.1",
+  "version": "1.5.3",
   "description": "Image translation through Google Flow page automation using Nano Banana models",
   "permissions": [
     "sidePanel",

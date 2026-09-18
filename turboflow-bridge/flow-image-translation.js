@@ -38,6 +38,7 @@ export async function translateImageViaApi(conn, task, api = defaultApi) {
   });
   // Once submitted, always drain generation, download and reporting even when
   // another task has stopped new submissions due to quota exhaustion.
+  task.onPhase?.('downloading_result');
   const resultUrl = await api.resolveFlowImageUrl(conn.tabId, generation, conn.flowUrl);
   if (!resultUrl) throw new Error('Flow API returned no downloadable image');
   const image = await api.fetchImageAsBase64(conn.tabId, resultUrl);

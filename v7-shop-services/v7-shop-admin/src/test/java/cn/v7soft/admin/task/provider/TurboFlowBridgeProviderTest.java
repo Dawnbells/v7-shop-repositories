@@ -25,7 +25,7 @@ import cn.v7soft.admin.controller.req.TurboFlowBridgeFailRequest;
 import cn.v7soft.admin.controller.req.TranslateByAIRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgePollRequest;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeTaskResponse;
-import cn.v7soft.admin.exception.TurboFlowReprocessRequiredException;
+import cn.v7soft.admin.controller.req.TurboFlowBridgeTranslatedRequest;
 import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.ILanguageService;
 import cn.v7soft.admin.service.IMultimediaFileService;
@@ -393,7 +393,8 @@ class TurboFlowBridgeProviderTest {
         request.setPolicyFallbackReason("PUBLIC_ERROR_SEXUAL_UPLOAD");
 
         assertThrows(IllegalStateException.class, () -> provider.completeTask("token", request));
-        verify(callback).onSubTaskFailed(eq(subTask), anyString(), eq(true), eq(null), eq("COMPLETE_PROCESSING_FAILED"));
+        verify(callback, never()).onSubTaskFailed(eq(subTask), anyString(), eq(true), eq(null), any());
+        assertEquals(polled.getAssignmentId(), subTask.getAssignmentId());
         verify(callback, never()).onSubTaskCompleted(eq(subTask), any());
     }
 
@@ -526,7 +527,7 @@ class TurboFlowBridgeProviderTest {
     }
 
     @Test
-    void completePostProcessingFailureAsksThePluginToKeepTheTranslatedImage() throws Exception {
+    void completePostProcessingFailureKeepsAssignmentAndAcceptsRetryWithoutRedispatch() throws Exception {
         TurboFlowBridgeProvider provider = provider();
         AiAccount account = billedAccount();
         Language language = language(1L, "Polski");
@@ -543,7 +544,7 @@ class TurboFlowBridgeProviderTest {
         when(imagePolicyCacheRepository.findByImageHash(anyString())).thenReturn(Optional.empty());
         when(languageService.getById(1L)).thenReturn(language);
         when(multimediaFileService.saveTranslatedImage(any(byte[].class), anyString(), any()))
-                .thenThrow(new RuntimeException("s3 write failed"));
+                .thenThrow(new RuntimeException("s3 write failed")).thenReturn(image(900L));
 
         AiAccountTranslateSubTask subTask = imageSubTask(812L, "812");
         provider.executeSubTask(subTask);
@@ -551,21 +552,103 @@ class TurboFlowBridgeProviderTest {
         pollRequest.setBridgeId("bridge-a");
         TurboFlowBridgeTaskResponse polled = provider.pollTask("token", pollRequest);
 
+        TurboFlowBridgeTranslatedRequest ready = new TurboFlowBridgeTranslatedRequest();
+        ready.setAssignmentId(polled.getAssignmentId());
+        ready.setBridgeId("bridge-b");
+        assertThrows(IllegalArgumentException.class, () -> provider.translationReady("token", ready));
+        assertEquals(polled.getLeaseUntil(), subTask.getLeaseUntil());
+        ready.setBridgeId("bridge-a");
+        provider.translationReady("token", ready);
+        assertTrue(subTask.getLeaseUntil().isAfter(LocalDateTime.now().plusMinutes(29)));
+        assertEquals(1, subTask.getAttemptCount().get());
+
         TurboFlowBridgeCompleteRequest completeRequest = new TurboFlowBridgeCompleteRequest();
         completeRequest.setBridgeId("bridge-a");
         completeRequest.setAssignmentId(polled.getAssignmentId());
         completeRequest.setResultImageBase64("AQID");
         completeRequest.setResultMimeType("image/png");
 
-        assertThrows(TurboFlowReprocessRequiredException.class,
+        assertThrows(IllegalStateException.class,
                 () -> provider.completeTask("token", completeRequest));
-        // 子任务已重排，等插件用新 assignmentId 复用译图；不需要它重新调 Google
-        verify(callback).onSubTaskFailed(
-                eq(subTask),
-                eq("complete processing failed: s3 write failed"),
-                eq(true),
-                eq(null),
-                eq("COMPLETE_PROCESSING_FAILED"));
+        verify(callback, never()).onSubTaskFailed(any(), anyString(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any());
+        assertEquals(polled.getAssignmentId(), subTask.getAssignmentId());
+        provider.reclaimExpiredAssignments();
+        pollRequest.setBridgeId("bridge-b");
+        assertFalse(provider.pollTask("token", pollRequest).isHasTask());
+        provider.completeTask("token", completeRequest);
+        provider.completeTask("token", completeRequest); // Lost response / duplicate upload.
+        verify(callback).onSubTaskCompleted(eq(subTask), any());
+        verify(multimediaFileService, org.mockito.Mockito.times(2))
+                .saveTranslatedImage(any(byte[].class), anyString(), any());
+    }
+
+    @Test
+    void retryAfterCacheFailureReusesTheAlreadySavedFile() throws Exception {
+        TurboFlowBridgeProvider provider = provider();
+        AiAccountTranslateSubTask task = dispatchImage(provider, 820L);
+        when(multimediaFileService.saveTranslatedImage(any(byte[].class), anyString(), any()))
+                .thenReturn(image(920L));
+        when(imageTranslationCacheRepository.save(any(ImageTranslationCache.class)))
+                .thenThrow(new IllegalStateException("database offline")).thenAnswer(call -> call.getArgument(0));
+        TurboFlowBridgeCompleteRequest request = completion(task);
+        assertThrows(IllegalStateException.class, () -> provider.completeTask("token", request));
+        provider.completeTask("token", request);
+        verify(multimediaFileService).saveTranslatedImage(any(byte[].class), anyString(), any());
+        verify(callback).onSubTaskCompleted(eq(task), any());
+    }
+
+    @Test
+    void concurrentDuplicateCompletionWaitsForPersistenceAndOnlyCompletesOnce() throws Exception {
+        TurboFlowBridgeProvider provider = provider();
+        AiAccountTranslateSubTask task = dispatchImage(provider, 821L);
+        java.util.concurrent.CountDownLatch saving = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch finish = new java.util.concurrent.CountDownLatch(1);
+        when(multimediaFileService.saveTranslatedImage(any(byte[].class), anyString(), any())).thenAnswer(call -> {
+            saving.countDown();
+            assertTrue(finish.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            return image(921L);
+        });
+        TurboFlowBridgeCompleteRequest request = completion(task);
+        java.util.concurrent.CompletableFuture<Void> first = java.util.concurrent.CompletableFuture.runAsync(
+                () -> provider.completeTask("token", request));
+        java.util.concurrent.CompletableFuture<Void> second;
+        try {
+            assertTrue(saving.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            second = java.util.concurrent.CompletableFuture.runAsync(() -> provider.completeTask("token", request));
+            assertThrows(java.util.concurrent.TimeoutException.class,
+                    () -> second.get(100, java.util.concurrent.TimeUnit.MILLISECONDS));
+        } finally {
+            finish.countDown();
+        }
+        first.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        second.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        verify(callback).onSubTaskCompleted(eq(task), any());
+        verify(multimediaFileService).saveTranslatedImage(any(byte[].class), anyString(), any());
+    }
+
+    private AiAccountTranslateSubTask dispatchImage(TurboFlowBridgeProvider provider, Long id) {
+        when(aiAccountService.findAvailableAccountsByApiKey(AiProvider.TURBOFLOW_GEMINI, "token"))
+                .thenReturn(List.of(billedAccount()));
+        when(callback.isTaskActive(anyLong())).thenReturn(true);
+        when(multimediaFileService.getById(id)).thenReturn(image(id));
+        when(multimediaFileService.download(eq(id.toString()), eq(0)))
+                .thenReturn(new ByteArrayInputStream(new byte[] {1, 2, 3}));
+        when(languageService.getById(1L)).thenReturn(language(1L, "Polski"));
+        AiAccountTranslateSubTask task = imageSubTask(id, id.toString());
+        provider.executeSubTask(task);
+        TurboFlowBridgePollRequest poll = new TurboFlowBridgePollRequest();
+        poll.setBridgeId("bridge-a");
+        assertTrue(provider.pollTask("token", poll).isHasTask());
+        return task;
+    }
+
+    private TurboFlowBridgeCompleteRequest completion(AiAccountTranslateSubTask task) {
+        TurboFlowBridgeCompleteRequest request = new TurboFlowBridgeCompleteRequest();
+        request.setBridgeId("bridge-a");
+        request.setAssignmentId(task.getAssignmentId());
+        request.setResultImageBase64("AQID");
+        request.setResultMimeType("image/png");
+        return request;
     }
 
     private AiAccountTranslateSubTask imageSubTask(Long taskId, String imageId) {

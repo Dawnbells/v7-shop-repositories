@@ -243,12 +243,20 @@
 
   function updateCurrentTaskContent() {
     if (activeTasks.length === 0) return;
-    let runningIndex = 0;
     currentTaskEl.innerHTML = activeTasks.map((task) => {
       const standby = task.phase === 'standby';
-      const reporting = task.phase === 'reporting';
-      const statusClass = standby ? 'standby' : reporting ? 'reporting' : 'running';
-      const statusLabel = standby ? '预备' : reporting ? '回传中' : `Running ${++runningIndex}`;
+      const phases = {
+        fetching: ['standby', '获取中'],
+        downloading_source: ['standby', '下载中'],
+        standby: ['standby', '预备'],
+        preparing: ['standby', '预备'],
+        submitting: ['standby', '上传中'],
+        generating: ['running', '翻译中'],
+        downloading_result: ['reporting', '下载中'],
+        reporting: ['reporting', '回传中'],
+        reporting_retry: ['reporting', `回传重试中(${Number(task.reportRetry) || 1})`],
+      };
+      const [statusClass, statusLabel] = phases[task.phase] || ['running', 'RUNNING'];
       const elapsed = Math.max(0, Math.round((Date.now() - (task.startedAt || task.preparedAt)) / 1000));
       const thumbSrc = task.sourceThumb || task.sourceImage;
       const previewSrc = task.sourceImage || task.sourceThumb;

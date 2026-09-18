@@ -298,14 +298,18 @@ button {
 }
 .task-card.standby {
   border-style: dashed;
+  border-color: #b7791f;
+}
+.task-card.reporting {
+  border-color: #38a169;
 }
 .task-status-badge.standby {
   color: #b7791f;
   background: rgba(214, 158, 46, 0.14);
 }
 .task-status-badge.reporting {
-  color: #718096;
-  background: rgba(113, 128, 150, 0.14);
+  color: #38a169;
+  background: rgba(56, 161, 105, 0.14);
 }
 .task-status-badge.running {
   color: var(--accent);

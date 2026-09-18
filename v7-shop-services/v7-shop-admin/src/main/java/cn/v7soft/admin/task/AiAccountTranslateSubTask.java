@@ -142,6 +142,13 @@ public class AiAccountTranslateSubTask {
                 && now.isAfter(leaseUntil);
     }
 
+    /** Extend the current assignment without counting another translation attempt. */
+    public void extendLease(LocalDateTime until) {
+        if (leaseUntil == null || until.isAfter(leaseUntil)) {
+            leaseUntil = until;
+        }
+    }
+
     public void retry(String message) {
         this.state = AiAccountTranslateSubTaskState.PENDING;
         this.message = message;

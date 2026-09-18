@@ -49,6 +49,17 @@ test('a failed upload never submits generation', async () => {
   }), value => value === error);
 });
 
+test('result download phase starts after generation and before reading the result', async () => {
+  const events = [];
+  await translateImageViaApi(conn, { imageBase64: 'YWJj', onPhase: phase => events.push(phase) }, {
+    uploadImageToFlow: async () => 'source',
+    generateWithReference: async () => { events.push('generated'); return { mediaId: 'result' }; },
+    resolveFlowImageUrl: async () => { events.push('resolve'); return 'https://result'; },
+    fetchImageAsBase64: async () => { events.push('download'); return { dataUrl: 'translated' }; },
+  });
+  assert.deepEqual(events, ['generated', 'downloading_result', 'resolve', 'download']);
+});
+
 test('quota pause blocks a task still uploading but lets submitted generation finish and download', async () => {
   let paused = false;
   let finishGeneration;

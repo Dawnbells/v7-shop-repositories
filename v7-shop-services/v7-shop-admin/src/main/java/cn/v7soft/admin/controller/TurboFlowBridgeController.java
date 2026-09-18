@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeCompleteRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeFailRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgePollRequest;
+import cn.v7soft.admin.controller.req.TurboFlowBridgeTranslatedRequest;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeHeartbeatResponse;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeTaskResponse;
 import cn.v7soft.admin.exception.TurboFlowReprocessRequiredException;
@@ -46,6 +47,13 @@ public class TurboFlowBridgeController {
         }
     }
 
+    @PostMapping("/tasks/translated")
+    public TurboFlowBridgeHeartbeatResponse translated(HttpServletRequest servletRequest,
+            @RequestBody TurboFlowBridgeTranslatedRequest request) {
+        turboFlowBridgeProvider.translationReady(bearerToken(servletRequest), request);
+        return TurboFlowBridgeHeartbeatResponse.builder().accepted(true).message("report lease extended").build();
+    }
+
     @PostMapping("/tasks/complete")
     public ResponseEntity<TurboFlowBridgeHeartbeatResponse> complete(
             HttpServletRequest servletRequest,
@@ -67,6 +75,10 @@ public class TurboFlowBridgeController {
                             .reason(TurboFlowReprocessRequiredException.REASON)
                             .message(e.getMessage())
                             .build());
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
+                    TurboFlowBridgeHeartbeatResponse.builder().accepted(false)
+                            .reason("COMPLETION_RETRY_REQUIRED").message(e.getMessage()).build());
         } catch (IllegalArgumentException e) {
             if (!isInvalidBridgeToken(e)) {
                 throw e;

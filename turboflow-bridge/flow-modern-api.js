@@ -8,7 +8,6 @@ export const RPC_UPLOAD_IMAGE = 'maseQ';
 export const RPC_BATCH_GENERATE_IMAGES = 'ogiZ0b';
 export const RPC_GET_MEDIA_URL = 'uurnC';
 export const RPC_GET_PROJECT_CONTENTS = 'Zzl0ze';
-
 // Canonical google.rpc.Code values. RESOURCE_EXHAUSTED alone does not tell
 // us whether the exhausted resource is a daily quota, credits or a rate limit.
 const RPC_STATUS_NAMES = Object.freeze([

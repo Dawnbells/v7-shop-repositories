@@ -29,6 +29,11 @@ import {
   extractUploadedMediaName,
   parseBatchexecuteResponse,
 } from './flow-modern-api.js';
+import {
+  inspectModernFlowProjectPage,
+  clickModernFlowNewProject,
+  deleteModernFlowProject,
+} from './flow-project-dom.js';
 
 const RECAPTCHA_SITE_KEY = '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV';
 const API_BASE = 'https://aisandbox-pa.googleapis.com';
@@ -41,6 +46,7 @@ const PAGE_LOAD_TIMEOUT_MS = 30 * 1000;
 const RECAPTCHA_SETTLE_MS = 5 * 1000;
 const RECAPTCHA_POST_RELOAD_SETTLE_MS = 3 * 1000;
 const RECAPTCHA_POST_CREATE_SETTLE_MS = 5 * 1000;
+const PROJECT_UI_TIMEOUT_MS = 30 * 1000;
 
 let cachedToken = null;
 let tokenTimestamp = 0;
@@ -166,13 +172,12 @@ export async function getProjectId(tabId) {
   // cached project id behind.
   try {
     const tab = await chrome.tabs.get(tabId);
-    const liveProjectId = getProjectIdFromFlowUrl(tab?.url || '');
-    if (liveProjectId) {
-      projectId = liveProjectId;
+    if (tab?.url) {
+      projectId = getProjectIdFromFlowUrl(tab.url);
       return projectId;
     }
   } catch {}
-  if (!projectId) projectId = await readProjectIdFromTab(tabId);
+  projectId = await readProjectIdFromTab(tabId);
   return projectId;
 }
 
@@ -311,6 +316,30 @@ async function reloadFlowPageRaw(tabId) {
  */
 async function createFlowProjectAndNavigate(tabId) {
   projectId = null;
+  let result;
+  if (await usesModernFlow(tabId)) {
+    await waitForModernProjectHome(tabId);
+    const clicked = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: clickModernFlowNewProject,
+    });
+    const clickResult = clicked?.[0]?.result;
+    if (!clickResult?.clicked) {
+      throw new Error(clickResult?.error || 'Failed to click Flow New project');
+    }
+    const deadline = Date.now() + PROJECT_UI_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const tab = await chrome.tabs.get(tabId);
+      const pid = getProjectIdFromFlowUrl(tab?.url || '');
+      if (pid) {
+        projectId = pid;
+        return projectId;
+      }
+      await sleep(100);
+    }
+    throw new Error('Flow New project navigation timed out');
+  } else {
   const createRes = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -334,7 +363,8 @@ async function createFlowProjectAndNavigate(tabId) {
       }
     },
   });
-  const result = createRes?.[0]?.result;
+  result = createRes?.[0]?.result;
+  }
   if (!result?.success) {
     throw new Error(result?.error || 'Failed to create Flow project');
   }
@@ -545,12 +575,11 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
 }
 
 async function usesModernFlow(tabId) {
-  if (isModernFlowUrl(flowTabUrl)) return true;
   try {
     const tab = await chrome.tabs.get(tabId);
-    if (tab.url && isModernFlowUrl(tab.url)) {
+    if (tab.url) {
       flowTabUrl = tab.url;
-      return true;
+      return isModernFlowUrl(tab.url);
     }
   } catch {}
   return false;
@@ -1133,7 +1162,38 @@ export async function checkConnection({ requireApiSession = false } = {}) {
 //   list:   GET  /fx/api/trpc/project.searchUserProjects?input=<URL-encoded JSON>
 //   delete: POST /fx/api/trpc/project.deleteProject  body: {"json":{"projectToDeleteId":"..."}}
 
+async function waitForModernProjectHome(tabId) {
+  const deadline = Date.now() + PROJECT_UI_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: inspectModernFlowProjectPage,
+    });
+    const state = results?.[0]?.result;
+    if (state?.error) throw new Error(state.error);
+    if (state?.ready) return state;
+    await sleep(100);
+  }
+  throw new Error('Flow project home did not become ready');
+}
+
+async function ensureModernProjectHome(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  const homeUrl = getFlowOrigin(tab?.url) + '/';
+  if (tab?.url !== homeUrl) {
+    await chrome.tabs.update(tabId, { url: homeUrl });
+    await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS, homeUrl);
+  }
+  return waitForModernProjectHome(tabId);
+}
+
 async function searchUserProjectsPage(tabId, cursor) {
+  if (await usesModernFlow(tabId)) {
+    if (cursor) throw new Error('Modern Flow project UI returned an unexpected cursor');
+    const state = await ensureModernProjectHome(tabId);
+    return { projects: state.projects, nextPageToken: null };
+  }
   // trpc SuperJSON 透传：cursor=null 时需要 meta.values.cursor=["undefined"]，告诉服务端把 null 反序列化为 undefined
   const input = cursor === null
     ? { json: { pageSize: 20, toolName: 'PINHOLE', cursor: null }, meta: { values: { cursor: ['undefined'] } } }
@@ -1155,7 +1215,7 @@ async function searchUserProjectsPage(tabId, cursor) {
   });
   const result = results?.[0]?.result;
   if (!result?.success) throw new Error(result?.error || 'searchUserProjects failed');
-  return result.data;
+  return result.data?.result?.data?.json?.result || result.data?.result?.data?.json;
 }
 
 /**
@@ -1170,8 +1230,7 @@ export async function listAllUserProjects(tabId) {
   let cursor = null;
   let safety = 0;
   while (safety++ < 1000) {
-    const data = await searchUserProjectsPage(tabId, cursor);
-    const inner = data?.result?.data?.json?.result || data?.result?.data?.json;
+    const inner = await searchUserProjectsPage(tabId, cursor);
     const items = inner?.projects || inner?.userProjects || inner?.results || inner?.items;
     if (!Array.isArray(items)) throw new Error('Invalid Flow project list response');
     for (const p of items) {
@@ -1190,6 +1249,18 @@ export async function listAllUserProjects(tabId) {
 }
 
 export async function deleteFlowProject(tabId, projectIdToDelete) {
+  if (await usesModernFlow(tabId)) {
+    await ensureModernProjectHome(tabId);
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: deleteModernFlowProject,
+      args: [projectIdToDelete, PROJECT_UI_TIMEOUT_MS, 100],
+    });
+    const result = results?.[0]?.result;
+    if (!result?.deleted) throw new Error(result?.error || 'Flow project UI deletion failed');
+    return;
+  }
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',

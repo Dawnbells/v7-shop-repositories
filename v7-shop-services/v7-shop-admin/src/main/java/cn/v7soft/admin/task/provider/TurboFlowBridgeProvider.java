@@ -16,6 +16,7 @@ import cn.hutool.crypto.digest.DigestUtil;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeCompleteRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeFailRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgePollRequest;
+import cn.v7soft.admin.controller.req.TurboFlowBridgeTranslatedRequest;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeTaskResponse;
 import cn.v7soft.admin.service.IAiAccountService;
 import cn.v7soft.admin.service.ILanguageService;
@@ -33,7 +34,6 @@ import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
 import cn.v7soft.admin.exception.GeminiContentBlockedException;
-import cn.v7soft.admin.exception.TurboFlowReprocessRequiredException;
 import cn.v7soft.core.exception.ClientException;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
@@ -72,6 +72,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
      * 覆盖两段完整生成窗口，避免预取任务还没来得及上报就被回收。
      */
     private static final int TURBOFLOW_LEASE_MINUTES = 12;
+    private static final int TURBOFLOW_REPORT_LEASE_MINUTES = 30;
 
     /** 分发失败（读图 / 建 assignment 异常）后的退避上限，避免 500ms 一轮的热循环。 */
     private static final int DISPATCH_BACKOFF_MAX_SECONDS = 60;
@@ -111,6 +112,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final ConcurrentMap<Long, ConcurrentLinkedQueue<AiAccountTranslateSubTask>> priorityInternalQueues = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, AiAccountTranslateSubTask> assignments = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, LocalDateTime> completedAssignments = new ConcurrentHashMap<>();
+    // Reuse files already saved when cache persistence or the completion callback needs retrying.
+    private final ConcurrentMap<String, MultimediaFile> reportingFiles = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, TurboFlowBridgeState> bridgeStates = new ConcurrentHashMap<>();
 
     private volatile TranslateProviderCallback callback;
@@ -444,6 +447,31 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         return false;
     }
 
+    /** Reserve time for result upload/retries without releasing the original assignment. */
+    public void translationReady(String token, TurboFlowBridgeTranslatedRequest request) {
+        List<AiAccount> accounts = findAllTurboFlowAccounts(token);
+        if (accounts.isEmpty()) throw new IllegalArgumentException("invalid TurboFlow bridge token");
+        AiAccountTranslateSubTask subTask = assignments.get(request.getAssignmentId());
+        if (subTask == null) {
+            if (completedAssignments.containsKey(request.getAssignmentId())) return;
+            throw new IllegalArgumentException("assignment not found or expired");
+        }
+        synchronized (subTask) {
+            if (assignments.get(request.getAssignmentId()) != subTask) {
+                if (completedAssignments.containsKey(request.getAssignmentId())) return;
+                throw new IllegalArgumentException("assignment not found or expired");
+            }
+            if (accounts.stream().noneMatch(a -> a.getId().equals(subTask.getAiAccountId()))) {
+                throw new IllegalArgumentException("assignment does not belong to account");
+            }
+            if (StrUtil.isBlank(request.getBridgeId())
+                    || !subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
+                throw new IllegalArgumentException("assignment does not belong to bridge");
+            }
+            subTask.extendLease(LocalDateTime.now().plusMinutes(TURBOFLOW_REPORT_LEASE_MINUTES));
+        }
+    }
+
     /**
      * 插件上报翻译完成。
      * 验证归属 → 解码翻译图片 → 保存文件和缓存 → 计算 token 用量 → 通过 callback 通知完成
@@ -463,6 +491,17 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             }
             throw new IllegalArgumentException("assignment not found or expired");
         }
+        synchronized (subTask) {
+            if (assignments.get(request.getAssignmentId()) != subTask) {
+                if (completedAssignments.containsKey(request.getAssignmentId())) return;
+                throw new IllegalArgumentException("assignment not found or expired");
+            }
+            completeAssignedTask(accounts, subTask, request);
+        }
+    }
+
+    private void completeAssignedTask(List<AiAccount> accounts, AiAccountTranslateSubTask subTask,
+                                      TurboFlowBridgeCompleteRequest request) {
         // 从匹配的账号中找出拥有该 subtask 的账号
         AiAccount account = accounts.stream()
                 .filter(a -> a.getId().equals(subTask.getAiAccountId()))
@@ -487,10 +526,9 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 throw new IllegalArgumentException("assignment does not belong to bridge");
             }
         }
-        // 原子移除 assignment，防止重复 complete
-        if (!assignments.remove(request.getAssignmentId(), subTask)) {
-            throw new IllegalArgumentException("assignment not found or expired");
-        }
+        // Keep ownership until success. The subtask lock serializes duplicate uploads,
+        // cancellation and lease reclamation while backend persistence is running.
+        subTask.extendLease(LocalDateTime.now().plusMinutes(TURBOFLOW_REPORT_LEASE_MINUTES));
         try {
             if (Boolean.TRUE.equals(request.getPolicyFallback())) {
                 if (!"INVALID_ARGUMENT".equals(request.getPolicyFallbackStatus())) {
@@ -523,6 +561,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                         request.getPolicyFallbackStatus(), reason);
                 callback.onSubTaskCompleted(subTask, result);
                 completedAssignments.put(request.getAssignmentId(), LocalDateTime.now());
+                assignments.remove(request.getAssignmentId(), subTask);
                 return;
             }
 
@@ -530,7 +569,11 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             byte[] imageBytes = decodeBase64Image(request.getResultImageBase64());
             MultimediaFile sourceFile = subTask.resolveSourceFile(multimediaFileService);
             String suffix = suffixFromMimeType(request.getResultMimeType(), sourceFile.getSuffix());
-            MultimediaFile translatedFile = multimediaFileService.saveTranslatedImage(imageBytes, suffix, subTask.getOwner());
+            MultimediaFile translatedFile = reportingFiles.get(request.getAssignmentId());
+            if (translatedFile == null) {
+                translatedFile = multimediaFileService.saveTranslatedImage(imageBytes, suffix, subTask.getOwner());
+                reportingFiles.put(request.getAssignmentId(), translatedFile);
+            }
 
             log.debug("[TurboFlowBridge] translated image saved from bridge result: taskId={}, subTaskId={}, sourceImageId={}, translatedFileId={}, bytes={}",
                     subTask.getTaskId(), subTask.getSubTaskId(), sourceFile.getId(), translatedFile.getId(), imageBytes.length);
@@ -564,19 +607,13 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     subTask.getTaskId(), subTask.getSubTaskId(), promptTokens, completionTokens, businessCredits);
             callback.onSubTaskCompleted(subTask, result);
             completedAssignments.put(request.getAssignmentId(), LocalDateTime.now());
+            assignments.remove(request.getAssignmentId(), subTask);
+            reportingFiles.remove(request.getAssignmentId());
         } catch (Exception e) {
-            callback.onSubTaskFailed(subTask, "complete processing failed: " + e.getMessage(), true, null, "COMPLETE_PROCESSING_FAILED");
-            log.error("[TurboFlowBridge] completeTask 处理失败, 已推入重试队列: assignmentId={}",
+            subTask.extendLease(LocalDateTime.now().plusMinutes(TURBOFLOW_REPORT_LEASE_MINUTES));
+            log.error("[TurboFlowBridge] completeTask 处理失败, 保留 assignment 等待原 bridge 回传重试: assignmentId={}",
                     request.getAssignmentId(), e);
-            if (Boolean.TRUE.equals(request.getPolicyFallback())) {
-                // 政策回退没有译图可留给插件复用，插件侧本来就有 pending policy report 重试机制，
-                // 保持原有异常语义即可。
-                throw new IllegalStateException("complete turboflow task failed: " + e.getMessage(), e);
-            }
-            // assignment 已在上面被移除、子任务已重排，插件用同一个 assignmentId 重投必然收到
-            // "assignment not found or expired"。抛这个专用异常让 controller 回 REPROCESS_REQUIRED，
-            // 插件据此直接把译图落盘、等新 assignmentId 重派时按 sha256 复用，不必白跑三次退避。
-            throw new TurboFlowReprocessRequiredException(
+            throw new IllegalStateException(
                     "complete turboflow task failed: " + e.getMessage(), e);
         }
     }
@@ -593,6 +630,14 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     request.getAssignmentId());
             return;
         }
+        synchronized (subTask) {
+            if (assignments.get(request.getAssignmentId()) != subTask) return;
+            failAssignedTask(accounts, subTask, request);
+        }
+    }
+
+    private void failAssignedTask(List<AiAccount> accounts, AiAccountTranslateSubTask subTask,
+                                  TurboFlowBridgeFailRequest request) {
         // 从匹配的账号中找出拥有该 subtask 的账号
         accounts.stream()
                 .filter(a -> a.getId().equals(subTask.getAiAccountId()))
@@ -613,6 +658,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         if (!assignments.remove(request.getAssignmentId(), subTask)) {
             return;
         }
+        reportingFiles.remove(request.getAssignmentId());
         String message = StrUtil.blankToDefault(request.getMessage(), "TurboFlow task failed");
         // 图片是否可重试完全由插件决定：插件只在明确的终态（目前仅内容政策拒绝，且那条走
         // policy-fallback completion）才会给 false。这里尊重字段，不再强制覆盖。
@@ -635,8 +681,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             Map.Entry<String, AiAccountTranslateSubTask> entry = it.next();
             AiAccountTranslateSubTask subTask = entry.getValue();
             if (taskId.equals(subTask.getTaskId())) {
-                it.remove();
-                callback.onSubTaskFailed(subTask, "task cancelled", false, null, null);
+                synchronized (subTask) {
+                    if (assignments.remove(entry.getKey(), subTask)) {
+                        reportingFiles.remove(entry.getKey());
+                        callback.onSubTaskFailed(subTask, "task cancelled", false, null, null);
+                    }
+                }
             }
         }
     }
@@ -650,14 +700,16 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         while (it.hasNext()) {
             Map.Entry<String, AiAccountTranslateSubTask> entry = it.next();
             AiAccountTranslateSubTask subTask = entry.getValue();
-            if (!subTask.isLeaseExpired(now)) {
-                continue;
+            // Active uploads have a long lease; do not block the status scheduler
+            // on their I/O. Recheck under the lock before reclaiming an expired one.
+            if (!subTask.isLeaseExpired(now)) continue;
+            synchronized (subTask) {
+                if (!subTask.isLeaseExpired(now) || !assignments.remove(entry.getKey(), subTask)) continue;
+                reportingFiles.remove(entry.getKey());
+                log.warn("[TurboFlowBridge] lease expired: taskId={}, subTaskId={}, assignmentId={}",
+                        subTask.getTaskId(), subTask.getSubTaskId(), entry.getKey());
+                callback.onSubTaskFailed(subTask, "TurboFlow lease expired", true, null, "LEASE_EXPIRED");
             }
-            // 从 assignments 移除并通知过期
-            it.remove();
-            log.warn("[TurboFlowBridge] lease expired: taskId={}, subTaskId={}, assignmentId={}",
-                    subTask.getTaskId(), subTask.getSubTaskId(), entry.getKey());
-            callback.onSubTaskFailed(subTask, "TurboFlow lease expired", true, null, "LEASE_EXPIRED");
         }
     }
 
