@@ -9,6 +9,28 @@ export const RPC_BATCH_GENERATE_IMAGES = 'ogiZ0b';
 export const RPC_GET_MEDIA_URL = 'uurnC';
 export const RPC_GET_PROJECT_CONTENTS = 'Zzl0ze';
 
+// Canonical google.rpc.Code values. RESOURCE_EXHAUSTED alone does not tell
+// us whether the exhausted resource is a daily quota, credits or a rate limit.
+const RPC_STATUS_NAMES = Object.freeze([
+  'OK', 'CANCELLED', 'UNKNOWN', 'INVALID_ARGUMENT', 'DEADLINE_EXCEEDED',
+  'NOT_FOUND', 'ALREADY_EXISTS', 'PERMISSION_DENIED', 'RESOURCE_EXHAUSTED',
+  'FAILED_PRECONDITION', 'ABORTED', 'OUT_OF_RANGE', 'UNIMPLEMENTED',
+  'INTERNAL', 'UNAVAILABLE', 'DATA_LOSS', 'UNAUTHENTICATED',
+]);
+
+export function createFlowRpcError(rpcId, rawStatus, serverMessage = '') {
+  const status = /^\d+$/.test(String(rawStatus)) ? Number(rawStatus) : undefined;
+  const statusName = RPC_STATUS_NAMES[status] || 'UNRECOGNIZED_STATUS';
+  const message = typeof serverMessage === 'string' ? serverMessage.slice(0, 500) : '';
+  const error = new Error(`Flow RPC ${rpcId} failed (RPC status ${status ?? 'unknown'}: ${statusName})${message ? ': ' + message : ''}`);
+  error.code = status === 16 ? 'FLOW_AUTHENTICATION_FAILED'
+    : status === 8 ? 'FLOW_RESOURCE_EXHAUSTED' : 'FLOW_RPC_REJECTED';
+  error.rpcId = rpcId;
+  error.rpcStatus = status;
+  error.rpcStatusName = statusName;
+  return error;
+}
+
 const ASPECT_RATIO_ENUM = Object.freeze({
   IMAGE_ASPECT_RATIO_SQUARE: 1,
   IMAGE_ASPECT_RATIO_PORTRAIT: 2,
@@ -150,11 +172,8 @@ export function parseBatchexecuteResponse(text, rpcId) {
 
   if (rpcPayload == null) {
     const status = rpcError?.[0] === 'wrb.fr' ? rpcError?.[5]?.[0] : rpcError?.[2];
-    const error = new Error('Flow RPC ' + rpcId + ' failed (RPC status ' + (status ?? 'unknown') + ')');
-    error.code = status === 16 ? 'FLOW_AUTHENTICATION_FAILED' : 'FLOW_RPC_REJECTED';
-    error.rpcId = rpcId;
-    error.rpcStatus = status;
-    throw error;
+    const serverMessage = rpcError?.[0] === 'wrb.fr' ? rpcError?.[5]?.[1] : rpcError?.[3];
+    throw createFlowRpcError(rpcId, status, serverMessage);
   }
   if (typeof rpcPayload !== 'string') return rpcPayload;
   try {

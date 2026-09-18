@@ -15,16 +15,27 @@ export const FAILURE_STREAK_INCREMENT = 'increment';
 export const FAILURE_STREAK_RESET = 'reset';
 export const FAILURE_STREAK_NEUTRAL = 'neutral';
 
+export function isQuotaErrorCode(errorCode) {
+  return errorCode === 'DAILY_QUOTA_REACHED' || errorCode === 'FLOW_RESOURCE_EXHAUSTED';
+}
+
 export function classifyErrorCode(errorOrMessage) {
   const structuredCode = typeof errorOrMessage === 'object' && errorOrMessage
     ? errorOrMessage.code
     : null;
-  if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RPC_REJECTED', 'FLOW_VERIFICATION_REQUIRED'].includes(structuredCode)) return structuredCode;
-
   const message = typeof errorOrMessage === 'string'
     ? errorOrMessage
     : errorOrMessage?.message;
   const text = (message || '').toLowerCase();
+  // Classify RPC status before the old generic FLOW_RPC_REJECTED code, also
+  // supporting errors restored from logs where custom Error fields were lost.
+  const rpcStatus = errorOrMessage?.rpcStatus
+    ?? text.match(/flow rpc \S+ failed \(rpc status (\d+)\b/)?.[1];
+  if (Number(rpcStatus) === 8) return 'FLOW_RESOURCE_EXHAUSTED';
+  if (Number(rpcStatus) === 16) return 'FLOW_AUTHENTICATION_FAILED';
+  if (isQuotaErrorCode(structuredCode)) return structuredCode;
+  if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RPC_REJECTED', 'FLOW_VERIFICATION_REQUIRED'].includes(structuredCode)) return structuredCode;
+  if (rpcStatus != null) return 'FLOW_RPC_REJECTED';
 
   // 上传或生成接口返回 401/UNAUTHENTICATED 表示当前 Flow 凭据已失效。该错误必须暂停，
   // 等用户重新登录并点击 Run Now；不能按普通 FLOW_EXECUTION_FAILED 持续重试。
@@ -33,8 +44,9 @@ export function classifyErrorCode(errorOrMessage) {
     && (text.includes('unauthenticated') || text.includes('invalid authentication credentials'))) {
     return 'FLOW_AUTHENTICATION_FAILED';
   }
-  // 每日额度耗尽是账号级硬性限制 — 走 stopAndDelete 终态，删 project 等账号自然恢复
-  if (text.includes('daily_quota_reached') || text.includes('resource_exhausted')) return 'DAILY_QUOTA_REACHED';
+  // 额度耗尽立即停止；删项目不能恢复账号额度。
+  if (text.includes('daily_quota_reached')) return 'DAILY_QUOTA_REACHED';
+  if (text.includes('resource_exhausted')) return 'FLOW_RESOURCE_EXHAUSTED';
   // 下载结果图失败（fetchImageAsBase64 全部重试都失败）— 连续 3 张触发 L1 恢复
   if (text.includes('[download_failed]')) return 'DOWNLOAD_FAILED';
   // reCAPTCHA 风控：包含 callFlowApi 抛出的 'reCAPTCHA blocked' 和 'No reCAPTCHA token' 两种
@@ -54,12 +66,14 @@ export function classifyErrorCode(errorOrMessage) {
  * Errors that put the bridge into its persisted stopped state until the user
  * explicitly clicks Run Now. Kept separate from stop-and-delete conditions.
  *
- * 三个触发源：
+ * 触发源：
+ *   0. RPC 拒绝、验证未就绪、额度耗尽 — 首次失败立即暂停
  *   1. Flow 凭据失效 — 必须人重新登录，重试没有意义
  *   2. Flow tab 在却连续 3 次断连失败 — watchdog 救不了的「僵死」页面
  *   3. 任意错误连续 5 次 — 兜底闸门，防止无限重试空转烧额度
  */
 export function shouldPauseForRunNow(errorCode, options = {}) {
+  if (isQuotaErrorCode(errorCode)) return true;
   if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RPC_REJECTED', 'FLOW_VERIFICATION_REQUIRED'].includes(errorCode)) return true;
   if (errorCode === 'FLOW_DISCONNECTED'
     && Number(options.consecutiveFlowDisconnects) >= FLOW_DISCONNECTED_PAUSE_THRESHOLD) {

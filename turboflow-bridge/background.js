@@ -40,6 +40,7 @@ import {
 } from './translated-image-cache.js';
 import {
   classifyErrorCode,
+  isQuotaErrorCode,
   nextConsecutiveFailureCount,
   nextFlowDisconnectedCount,
   shouldPauseForRunNow,
@@ -88,7 +89,7 @@ let pendingPolicyFlushRunning = false;
  */
 function friendlyErrorMessage(errorCode, rawMessage) {
   if (errorCode === 'FLOW_DISCONNECTED') return 'Flow tab unavailable (closed / navigated away)';
-  if (errorCode === 'DAILY_QUOTA_REACHED') return '⚠️ Google 账号每日额度已用尽，需等几小时自然恢复';
+  if (errorCode === 'DAILY_QUOTA_REACHED') return '⚠️ Google Flow 每日额度已用尽，等待额度恢复后点击 Run Now';
   if (errorCode === 'FLOW_AUTHENTICATION_FAILED') return '⚠️ Google Flow 认证已失效，请重新登录后点击 Run Now';
   return rawMessage;
 }
@@ -239,7 +240,7 @@ function resetRecoveryStateAll() {
  * 记一次任务结局对「连续失败」计数的影响，并在越过阈值时进入停止态。
  * 返回是否已经（或本来就）处于停止态。
  */
-function applyFailureStreak(outcome, { errorCode = null } = {}) {
+function applyFailureStreak(outcome, { errorCode = null, errorMessage = '' } = {}) {
   recoveryState.consecutiveFailures = nextConsecutiveFailureCount(
     recoveryState.consecutiveFailures,
     outcome,
@@ -250,12 +251,21 @@ function applyFailureStreak(outcome, { errorCode = null } = {}) {
     consecutiveFailures: recoveryState.consecutiveFailures,
   });
   if (pause) {
-    pausePoll(buildPauseReason(errorCode), { code: pauseCodeFor(errorCode) });
+    pausePoll(buildPauseReason(errorCode, errorMessage), { code: pauseCodeFor(errorCode) });
   }
   return pause;
 }
 
-function buildPauseReason(errorCode) {
+function buildPauseReason(errorCode, errorMessage = '') {
+  if (isQuotaErrorCode(errorCode)) {
+    return `${errorCode === 'DAILY_QUOTA_REACHED' ? 'Google Flow daily quota reached' : 'Google Flow resource/quota exhausted (RPC status 8 / RESOURCE_EXHAUSTED)'} — no new tasks or submissions; submitted translations will finish. Wait for quota to recover, then click Run Now`;
+  }
+  if (errorCode === 'FLOW_RPC_REJECTED') {
+    return `${errorMessage || 'Google Flow RPC rejected'} — check the Flow error before clicking Run Now`;
+  }
+  if (errorCode === 'FLOW_VERIFICATION_REQUIRED') {
+    return 'Google Flow verification required — open Flow and complete verification, then click Run Now';
+  }
   if (errorCode === 'FLOW_AUTHENTICATION_FAILED') {
     return 'Google Flow authentication failed — sign in again, then click Run Now';
   }
@@ -267,7 +277,7 @@ function buildPauseReason(errorCode) {
 }
 
 function pauseCodeFor(errorCode) {
-  if (errorCode === 'FLOW_AUTHENTICATION_FAILED') return errorCode;
+  if (shouldPauseForRunNow(errorCode)) return errorCode;
   if (errorCode === 'FLOW_DISCONNECTED'
     && recoveryState.consecutiveFlowDisconnects >= FLOW_DISCONNECTED_PAUSE_THRESHOLD) {
     return errorCode;
@@ -295,6 +305,9 @@ function clearStopState() {
  */
 function pausePoll(reason, options = {}) {
   const alreadyPaused = pollPaused;
+  // Later in-flight failures must not replace the quota stop reason.
+  if (alreadyPaused && isQuotaErrorCode(pauseReasonCode)) return;
+  const reasonChanged = pauseReason !== reason;
   pollPaused = true;
   pauseReason = reason;
   pauseReasonCode = options.code || pauseReasonCode || null;
@@ -303,11 +316,11 @@ function pausePoll(reason, options = {}) {
     clearTimeout(timerId);
     timerId = null;
   }
-  if (alreadyPaused) {
+  if (alreadyPaused && !reasonChanged) {
     persistStopState();
     return;
   }
-  pausedAt = Date.now();
+  if (!alreadyPaused) pausedAt = Date.now();
   safeAction((action) => action.setBadgeText({ text: '!' }));
   safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
   lastStatus = { connected: false, message: reason };
@@ -373,6 +386,7 @@ function decideRecoveryLevel() {
  * 并发安全：多个 in-flight task 同时抛 reCAPTCHA 时，第二个之后的调用 await 同一个 Promise，不会重复触发恢复链。
  */
 async function triggerRecovery(level, options = {}) {
+  if (pollPaused && isQuotaErrorCode(pauseReasonCode)) return false;
   if (recoveryPromise) return recoveryPromise;
   // 本次失败刚把 bridge 推进停止态时仍要跑恢复链（风控该清还是要清，否则用户点 Run Now
   // 立刻又撞墙）；但跑完不自动恢复轮询。已停止态是历史遗留时照旧短路。
@@ -420,6 +434,7 @@ async function triggerRecovery(level, options = {}) {
  * triggerRecovery 内部的升档实现：不再设置 recoveryPromise（外层已设），直接跑链。
  */
 async function triggerRecoveryInner(level) {
+  if (pollPaused && isQuotaErrorCode(pauseReasonCode)) return false;
   const conn = await checkConnection().catch(() => null);
   const tabId = conn?.tabId;
   if (!tabId) {
@@ -839,6 +854,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           fileName: buildDomUploadFileName(msg, 'test.png'),
           prompt,
           aspectRatio,
+          beforeSubmit: assertFlowSubmissionAllowed,
         });
         sendResponse({ ok: true, ...result });
       } catch (e) {
@@ -1078,6 +1094,7 @@ function getPrefetchedTaskSummary() {
 }
 
 function reserveFlowSlotAndExecute(service, task, conn, { prefetched = false } = {}) {
+  if (pollPaused) return false;
   if (submissionPacer.remainingMs > 0 || !flowTasks.reserveSubmission(task.assignmentId)) return false;
   addLog('info', `${prefetched ? 'Starting prefetched task' : 'Task received'}: ${task.subTaskId} from ${service.baseUrl}`);
   executeTask(service, task, conn)
@@ -1130,6 +1147,7 @@ async function runLoop() {
     const config = await loadConfig();
     const services = config.services.filter((s) => s.enabled !== false && s.baseUrl && s.token);
     const conn = await checkConnection().catch((e) => ({ connected: false, reason: e.message }));
+    if (pollPaused) return;
     lastStatus = { connected: conn.connected, message: conn.reason || 'Connected', projectId: conn.projectId };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
 
@@ -1143,6 +1161,7 @@ async function runLoop() {
     // 单次 tick 至多启动 1 个任务（对齐 nano-b lt 调度器每 tick 至多 g() 一次）
     const orderedServices = rotateServices(services);
     for (let i = 0; i < orderedServices.length; i++) {
+      if (pollPaused) break;
       const service = orderedServices[i];
       const task = await pollTask(service, conn, flowTasks.inUse > 0 || !!prefetchedTask);
       if (task?.hasTask) {
@@ -1167,6 +1186,7 @@ async function runLoop() {
 }
 
 async function pollTask(service, conn, busy) {
+  if (pollPaused) return null;
   return postJson(service, '/turboflow-bridge/tasks/poll', {
     bridgeId,
     version: VERSION,
@@ -1298,6 +1318,17 @@ async function executeTask(service, task, conn = null) {
     scheduleLoop(POLL_INTERVAL_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
+    if (e.code === 'FLOW_SUBMISSION_PAUSED') {
+      // This assignment never submitted generation. Return it for retry without
+      // counting another Google failure or disturbing already-submitted tasks.
+      await reportFailWithRetry(service, {
+        bridgeId, assignmentId: task.assignmentId,
+        errorCode: e.code, message: e.message, retryable: true, elapsedMs: elapsed,
+      });
+      addLog('info', `Task not submitted while paused: ${task.subTaskId}`);
+      removeCurrentTask(task.assignmentId);
+      return;
+    }
     if (e.code === 'FLOW_UPLOAD_POLICY_REJECTED') {
       const policy = await rememberImagePolicyFallback(chrome.storage.local, task.imageBase64, {
         apiStatus: e.apiStatus || 'INVALID_ARGUMENT',
@@ -1325,7 +1356,7 @@ async function executeTask(service, task, conn = null) {
     );
     // 先停 poll，再上报失败；即使 fail 上报需要退避重试，也不能继续领取新的翻译任务。
     // 全局连续失败计数在这里推进（tab 缺失的断连也算 —— 反复关 tab 本身就该停下来）。
-    const pauseForRunNow = applyFailureStreak(FAILURE_STREAK_INCREMENT, { errorCode });
+    const pauseForRunNow = applyFailureStreak(FAILURE_STREAK_INCREMENT, { errorCode, errorMessage: e.message });
     await reportFailWithRetry(service, {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -1355,15 +1386,14 @@ async function executeTask(service, task, conn = null) {
     // 停止态 —— 风控该清还是要清，否则用户点 Run Now 会立刻又撞墙。停止态只保证「不领新任务」，
     // 所以下面所有 scheduleLoop 在停止态下都会被 scheduleLoop 自身短路。
     // - FLOW_AUTHENTICATION_FAILED → 立即停止 poll，等用户重新登录后点 Run Now（不删 project）
-    // - DAILY_QUOTA_REACHED → 终态停止 + 删 project（账号级硬限制，重试无意义）
+    // - DAILY_QUOTA_REACHED / FLOW_RESOURCE_EXHAUSTED → 立即停止，等待额度恢复
     // - RECAPTCHA_BLOCKED   → 决策 L1/L2 触发恢复链；recovery 失败由 triggerRecovery 内部走 stopAndDelete
     // - DOWNLOAD_FAILED     → 连续计数；达 3 张触发 L1 恢复
     // - FLOW_DISCONNECTED   → tab 在却连续 3 次失败则暂停；tab 真没了交给 watchdog 自动恢复
     // - 任意错误连续 5 次   → 兜底暂停（applyFailureStreak 已处理）
     // - GOOGLE_BLOCKED / TIMEOUT / 其它 → 500ms 后正常重试
-    if (errorCode === 'DAILY_QUOTA_REACHED') {
-      stopAndDelete('Google daily quota reached — stopped and deleting all projects', { code: 'DAILY_QUOTA_REACHED' });
-    } else if (errorCode === 'RECAPTCHA_BLOCKED') {
+    if (pollPaused && isQuotaErrorCode(pauseReasonCode)) return;
+    if (errorCode === 'RECAPTCHA_BLOCKED') {
       if (recoveryState.lastRecoveryLevel === 'L2') {
         // L2 后仍 reCAPTCHA → 终态停止 + 删 project（策略第 6 条）
         stopAndDelete('reCAPTCHA blocked after L2 recovery — stopped and deleting all projects', { code: 'RECAPTCHA_BLOCKED_AFTER_L2' });
@@ -1748,6 +1778,14 @@ async function createThumbnail(base64OrDataUrl, maxSize) {
   }
 }
 
+function assertFlowSubmissionAllowed() {
+  if (pollPaused) {
+    throw Object.assign(new Error('New Flow submissions paused; already-submitted translations continue'), {
+      code: 'FLOW_SUBMISSION_PAUSED',
+    });
+  }
+}
+
 async function translateImage(task, conn) {
   if (!conn || !conn.tabId || !conn.projectId) throw new Error('Flow is not connected');
   return await translateImageViaApi(conn, {
@@ -1757,6 +1795,7 @@ async function translateImage(task, conn) {
     prompt: buildPrompt(task),
     aspectRatio: aspectRatioFor(task.sourceWidth, task.sourceHeight),
     model: sanitizeModel(task.model),
+    beforeSubmit: assertFlowSubmissionAllowed,
     onSubmitted: ({ submittedAt }) => {
       if (!flowTasks.acceptSubmission(task.assignmentId)) return;
       submissionPacer.submitted(submittedAt);

@@ -23,6 +23,42 @@ test('rejects an HTTP-200 envelope whose RPC payload is null', () => {
   assert.throws(() => parseBatchexecuteResponse(response, RPC_BATCH_GENERATE_IMAGES), /ogiZ0b/);
 });
 
+test('decodes all canonical RPC failures with symbolic names and server messages', () => {
+  const names = ['CANCELLED', 'UNKNOWN', 'INVALID_ARGUMENT', 'DEADLINE_EXCEEDED',
+    'NOT_FOUND', 'ALREADY_EXISTS', 'PERMISSION_DENIED', 'RESOURCE_EXHAUSTED',
+    'FAILED_PRECONDITION', 'ABORTED', 'OUT_OF_RANGE', 'UNIMPLEMENTED',
+    'INTERNAL', 'UNAVAILABLE', 'DATA_LOSS', 'UNAUTHENTICATED'];
+  for (const [index, name] of names.entries()) {
+    const status = index + 1;
+    for (const rpcId of [RPC_UPLOAD_IMAGE, RPC_BATCH_GENERATE_IMAGES]) {
+      for (const entry of [
+        ['wrb.fr', rpcId, null, null, null, [status, 'server explanation']],
+        ['er', rpcId, String(status), 'server explanation'],
+      ]) {
+        assert.throws(() => parseBatchexecuteResponse(JSON.stringify([entry]), rpcId), error => {
+          assert.equal(error.rpcStatus, status);
+          assert.equal(error.rpcStatusName, name);
+          assert.equal(error.rpcId, rpcId);
+          assert.equal(error.code, status === 8 ? 'FLOW_RESOURCE_EXHAUSTED'
+            : status === 16 ? 'FLOW_AUTHENTICATION_FAILED' : 'FLOW_RPC_REJECTED');
+          assert.ok(error.message.includes(name));
+          assert.ok(error.message.includes('server explanation'));
+          return true;
+        });
+      }
+    }
+  }
+});
+
+test('missing status is not treated as success or quota exhaustion', () => {
+  assert.throws(() => parseBatchexecuteResponse('[]', RPC_UPLOAD_IMAGE), error => {
+    assert.equal(error.rpcStatus, undefined);
+    assert.equal(error.code, 'FLOW_RPC_REJECTED');
+    assert.match(error.message, /unknown: UNRECOGNIZED_STATUS/);
+    return true;
+  });
+});
+
 test('builds the protobuf JSON upload request used by flow.google.com', () => {
   const request = buildModernUploadRequest({
     base64: 'YWJj',

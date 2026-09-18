@@ -48,3 +48,38 @@ test('a failed upload never submits generation', async () => {
     generateWithReference: () => assert.fail('must not generate'),
   }), value => value === error);
 });
+
+test('quota pause blocks a task still uploading but lets submitted generation finish and download', async () => {
+  let paused = false;
+  let finishGeneration;
+  let finishUpload;
+  const submissions = [];
+  const downloads = [];
+  const beforeSubmit = () => {
+    if (paused) throw Object.assign(new Error('paused'), { code: 'FLOW_SUBMISSION_PAUSED' });
+  };
+  const api = {
+    uploadImageToFlow: async (_tab, options) => options.base64 === 'waiting'
+      ? new Promise(resolve => { finishUpload = resolve; }) : 'active-media',
+    generateWithReference: async (_tab, options) => {
+      submissions.push(options.referenceMediaId);
+      return new Promise(resolve => { finishGeneration = resolve; });
+    },
+    resolveFlowImageUrl: async () => 'https://flow-content.google/image/completed',
+    fetchImageAsBase64: async (_tab, url) => {
+      downloads.push(url);
+      return { dataUrl: 'data:image/png;base64,done' };
+    },
+  };
+  const active = translateImageViaApi(conn, { imageBase64: 'active', beforeSubmit }, api);
+  await new Promise(resolve => setImmediate(resolve));
+  const waiting = translateImageViaApi(conn, { imageBase64: 'waiting', beforeSubmit }, api);
+  const rejected = assert.rejects(waiting, { code: 'FLOW_SUBMISSION_PAUSED' });
+  paused = true;
+  finishUpload('waiting-media');
+  finishGeneration({ mediaId: 'active-result' });
+  await rejected;
+  assert.equal((await active).mediaId, 'active-result');
+  assert.deepEqual(submissions, ['active-media']);
+  assert.equal(downloads.length, 1);
+});

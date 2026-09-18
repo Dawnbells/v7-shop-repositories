@@ -17,6 +17,7 @@ export async function translateImageViaApi(conn, task, api = defaultApi) {
   const base64 = match ? match[2] : input;
   if (!base64 || (input.startsWith('data:') && !match)) throw new Error('A base64 source image is required');
   const token = conn.transport === 'boq' ? null : await api.getSessionToken(conn.tabId);
+  task.beforeSubmit?.();
   const referenceMediaId = await api.uploadImageToFlow(conn.tabId, {
     base64,
     mimeType: match?.[1] || task.mimeType || 'image/png',
@@ -24,15 +25,19 @@ export async function translateImageViaApi(conn, task, api = defaultApi) {
     pid: conn.projectId,
     token,
   });
+  task.beforeSubmit?.();
   const generation = await api.generateWithReference(conn.tabId, {
     prompt: task.prompt,
     referenceMediaId,
     onSubmitted: task.onSubmitted,
+    beforeSubmit: task.beforeSubmit,
     aspectRatio: task.aspectRatio,
     model: task.model,
     pid: conn.projectId,
     token,
   });
+  // Once submitted, always drain generation, download and reporting even when
+  // another task has stopped new submissions due to quota exhaustion.
   const resultUrl = await api.resolveFlowImageUrl(conn.tabId, generation, conn.flowUrl);
   if (!resultUrl) throw new Error('Flow API returned no downloadable image');
   const image = await api.fetchImageAsBase64(conn.tabId, resultUrl);

@@ -47,7 +47,26 @@ test('leaves unrelated upload failures on the ordinary execution path', () => {
 test('authentication failure always waits for an explicit Run Now', () => {
   assert.equal(shouldPauseForRunNow('FLOW_AUTHENTICATION_FAILED'), true);
   assert.equal(shouldPauseForRunNow('FLOW_EXECUTION_FAILED'), false);
-  assert.equal(shouldPauseForRunNow('DAILY_QUOTA_REACHED'), false);
+  assert.equal(shouldPauseForRunNow('DAILY_QUOTA_REACHED'), true);
+});
+
+test('quota errors stop on the first failure, including old generic RPC errors and log messages', () => {
+  for (const error of [
+    { code: 'FLOW_RESOURCE_EXHAUSTED' },
+    { code: 'FLOW_RPC_REJECTED', rpcStatus: 8 },
+    { code: 'FLOW_RPC_REJECTED', rpcStatus: '8' },
+    'Flow RPC ogiZ0b failed (RPC status 8)',
+    'Flow RPC maseQ failed (RPC status 8: RESOURCE_EXHAUSTED)',
+    'HTTP 429: RESOURCE_EXHAUSTED',
+  ]) {
+    const code = classifyErrorCode(error);
+    assert.equal(code, 'FLOW_RESOURCE_EXHAUSTED');
+    assert.equal(shouldPauseForRunNow(code, { consecutiveFailures: 1 }), true);
+  }
+  assert.equal(classifyErrorCode({ code: 'DAILY_QUOTA_REACHED' }), 'DAILY_QUOTA_REACHED');
+  assert.equal(classifyErrorCode('DAILY_QUOTA_REACHED'), 'DAILY_QUOTA_REACHED');
+  assert.equal(classifyErrorCode('Flow RPC ogiZ0b failed (RPC status 16)'), 'FLOW_AUTHENTICATION_FAILED');
+  assert.equal(classifyErrorCode('Flow RPC maseQ failed (RPC status 3)'), 'FLOW_RPC_REJECTED');
 });
 
 test('the third consecutive Flow disconnection waits for Run Now', () => {

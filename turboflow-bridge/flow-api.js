@@ -21,6 +21,7 @@ import {
   buildModernGetProjectContentsRequest,
   buildModernGetMediaUrlRequest,
   buildModernUploadRequest,
+  createFlowRpcError,
   extractModernGenerationResult,
   extractModernMediaUrl,
   extractProjectGenerationResult,
@@ -378,9 +379,9 @@ function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATION', retryCount = 0, onSubmitted) {
-  // 风控恢复在 background 层处理：当 callFlowApi 抛 'reCAPTCHA blocked' 后，background 会停 poll、
-  // 同步跑 runRecoveryChain（L1 或 L2）、成功后再恢复 poll。期间不再发起新 callFlowApi，所以这里不需要门闩。
+async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATION', retryCount = 0, onSubmitted, beforeSubmit) {
+  // Background owns recovery and pauses. Recheck before dispatch after async
+  // verification, since another task may exhaust quota while this one waits.
   const recaptchaToken = await getRecaptchaToken(tabId, action);
   if (!recaptchaToken) {
     throw new Error('No reCAPTCHA token — try refreshing the Flow page');
@@ -402,6 +403,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
 
   const bodyStr = JSON.stringify(payloadCopy);
 
+  beforeSubmit?.();
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -469,7 +471,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
         await sleep(1500);
         clearTokenCache();
         const freshToken = await getSessionToken(tabId);
-        return callFlowApi(tabId, url, payload, freshToken || token, action, 1);
+        return callFlowApi(tabId, url, payload, freshToken || token, action, 1, onSubmitted, beforeSubmit);
       }
       if (isRecaptcha) {
         throw new Error('reCAPTCHA blocked — auto recovery required');
@@ -484,7 +486,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
       clearTokenCache();
       const freshToken = await getSessionToken(tabId);
       if (freshToken) {
-        return callFlowApi(tabId, url, payload, freshToken, action, 1);
+        return callFlowApi(tabId, url, payload, freshToken, action, 1, onSubmitted, beforeSubmit);
       }
     }
     // 刷过 token 仍 401（或压根拿不到新 token）：Flow 凭据确实失效了，必须等用户重新登录。
@@ -508,7 +510,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
       if (retryCount < 3 && !onSubmitted) {
         const backoff = 3000 * Math.pow(2, retryCount) + Math.random() * 1000;
         await sleep(backoff);
-        return callFlowApi(tabId, url, payload, token, action, retryCount + 1);
+        return callFlowApi(tabId, url, payload, token, action, retryCount + 1, onSubmitted, beforeSubmit);
       }
     }
     throw new Error(result.error);
@@ -631,10 +633,15 @@ async function callModernFlowRpc(tabId, rpcId, payload, onSubmitted) {
   const result = await finishDispatchedRequest(tabId, results?.[0]?.result, onSubmitted);
   if (!result) throw new Error('Flow BOQ script execution failed');
   if (result.error) {
-    if (result.status === 401 || result.status === 403) {
+    if (result.status === 401) {
       const error = new Error('Flow BOQ authentication failed: ' + result.error);
       error.name = 'FlowAuthenticationError';
       error.code = 'FLOW_AUTHENTICATION_FAILED';
+      error.httpStatus = result.status;
+      throw error;
+    }
+    if (result.status === 403 || result.status === 429) {
+      const error = createFlowRpcError(rpcId, result.status === 429 ? 8 : 7, result.error);
       error.httpStatus = result.status;
       throw error;
     }
@@ -682,6 +689,7 @@ async function generateWithModernFlow(tabId, options) {
     batchId,
     seed,
   });
+  options.beforeSubmit?.();
   const data = await callModernFlowRpc(tabId, RPC_BATCH_GENERATE_IMAGES, payload, options.onSubmitted);
   let generated = extractModernGenerationResult(data);
   if (!generated.mediaId && generated.workflowId) {
@@ -848,7 +856,7 @@ export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid
 
 // ── Generate image with reference (Nano Banana 2) ──────────────────
 
-export async function generateWithReference(tabId, { prompt, referenceMediaId, aspectRatio, pid, token, model, onSubmitted }) {
+export async function generateWithReference(tabId, { prompt, referenceMediaId, aspectRatio, pid, token, model, onSubmitted, beforeSubmit }) {
   if (await usesModernFlow(tabId)) {
     return generateWithModernFlow(tabId, {
       prompt,
@@ -857,6 +865,7 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
       pid,
       model,
       onSubmitted,
+      beforeSubmit,
     });
   }
   const batchId = uuid();
@@ -917,7 +926,7 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
     ],
   };
 
-  const data = await callFlowApi(tabId, url, payload, token, 'IMAGE_GENERATION', 0, onSubmitted);
+  const data = await callFlowApi(tabId, url, payload, token, 'IMAGE_GENERATION', 0, onSubmitted, beforeSubmit);
 
   let fifeUrl = null;
   let mediaId = null;
@@ -969,7 +978,8 @@ export async function resolveFlowImageUrl(tabId, generation, sourceUrl = flowTab
       const imageUrl = extractModernMediaUrl(data);
       if (imageUrl) return imageUrl;
     } catch (error) {
-      if (error.code === 'FLOW_AUTHENTICATION_FAILED') throw error;
+      if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RESOURCE_EXHAUSTED'].includes(error.code)
+        || error.rpcStatus === 7) throw error;
       lastError = error;
     }
     await sleep(2000);
