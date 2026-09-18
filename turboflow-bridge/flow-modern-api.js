@@ -68,6 +68,8 @@ export function buildModernGenerateRequest({
   model = 'NARWHAL',
   batchId,
   seed,
+  requestId = crypto.randomUUID(),
+  clientMediaId = crypto.randomUUID(),
 }) {
   const context = buildModernClientContext(projectId, recaptchaToken);
 
@@ -75,13 +77,16 @@ export function buildModernGenerateRequest({
   imageInput[0] = referenceMediaId;
   imageInput[4] = 1; // IMAGE_INPUT_TYPE_REFERENCE
 
-  const request = sparseMessage(9);
+  const request = sparseMessage(14);
   request[2] = [imageInput];
   request[3] = seed;
   request[4] = modernAspectRatioEnum(aspectRatio);
-  request[5] = modernImageModelEnum(model);
+  // Requests use the symbolic name; numeric model enums occur in responses.
+  request[5] = Object.hasOwn(IMAGE_MODEL_ENUM, model) ? model : 'NARWHAL';
   request[7] = context;
   request[8] = [[[prompt]]]; // StructuredPrompt.parts[].text
+  request[12] = requestId;
+  request[13] = clientMediaId;
 
   const outer = sparseMessage(5);
   outer[1] = [request];
@@ -132,6 +137,7 @@ export function parseBatchexecuteResponse(text, rpcId) {
     visitArrays(chunk, (entry) => {
       if (entry[0] === 'wrb.fr' && entry[1] === rpcId) {
         rpcPayload = entry[2];
+        if (rpcPayload == null) rpcError = entry;
         return true;
       }
       if (entry[0] === 'er' && (!entry[1] || entry[1] === rpcId)) {
@@ -142,9 +148,13 @@ export function parseBatchexecuteResponse(text, rpcId) {
     if (rpcPayload !== undefined) break;
   }
 
-  if (rpcPayload === undefined) {
-    const suffix = rpcError ? ': ' + JSON.stringify(rpcError).slice(0, 400) : '';
-    throw new Error('Flow batchexecute response did not contain RPC ' + rpcId + suffix);
+  if (rpcPayload == null) {
+    const status = rpcError?.[0] === 'wrb.fr' ? rpcError?.[5]?.[0] : rpcError?.[2];
+    const error = new Error('Flow RPC ' + rpcId + ' failed (RPC status ' + (status ?? 'unknown') + ')');
+    error.code = status === 16 ? 'FLOW_AUTHENTICATION_FAILED' : 'FLOW_RPC_REJECTED';
+    error.rpcId = rpcId;
+    error.rpcStatus = status;
+    throw error;
   }
   if (typeof rpcPayload !== 'string') return rpcPayload;
   try {
@@ -196,7 +206,9 @@ export function extractModernGenerationResult(payload) {
   const mediaList = Array.isArray(payload?.[0]) ? payload[0] : [];
   const workflowList = Array.isArray(payload?.[1]) ? payload[1] : [];
   const workflow = workflowList.find((item) => typeof item?.[0] === 'string') || null;
-  const primaryMediaId = typeof workflow?.[3]?.[0] === 'string' ? workflow[3][0] : null;
+  const primaryMediaId = typeof workflow?.[3]?.[4] === 'string'
+    ? workflow[3][4]
+    : typeof workflow?.[3]?.[0] === 'string' ? workflow[3][0] : null;
   const matchedMedia = primaryMediaId
     ? mediaList.find((media) => mediaNamesEqual(media?.[0], primaryMediaId))
     : null;
@@ -215,7 +227,9 @@ export function extractProjectGenerationResult(payload, workflowId) {
   const mediaList = Array.isArray(payload?.[2]) ? payload[2] : [];
   const workflowList = Array.isArray(payload?.[1]) ? payload[1] : [];
   const workflow = workflowList.find((item) => item?.[0] === workflowId);
-  const primaryMediaId = typeof workflow?.[3]?.[0] === 'string' ? workflow[3][0] : null;
+  const primaryMediaId = typeof workflow?.[3]?.[4] === 'string'
+    ? workflow[3][4]
+    : typeof workflow?.[3]?.[0] === 'string' ? workflow[3][0] : null;
   const media = primaryMediaId
     ? mediaList.find((item) => mediaNamesEqual(item?.[0], primaryMediaId))
     : null;

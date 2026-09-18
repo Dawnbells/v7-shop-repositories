@@ -19,7 +19,7 @@ export function classifyErrorCode(errorOrMessage) {
   const structuredCode = typeof errorOrMessage === 'object' && errorOrMessage
     ? errorOrMessage.code
     : null;
-  if (structuredCode === 'FLOW_AUTHENTICATION_FAILED') return structuredCode;
+  if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RPC_REJECTED', 'FLOW_VERIFICATION_REQUIRED'].includes(structuredCode)) return structuredCode;
 
   const message = typeof errorOrMessage === 'string'
     ? errorOrMessage
@@ -60,7 +60,7 @@ export function classifyErrorCode(errorOrMessage) {
  *   3. 任意错误连续 5 次 — 兜底闸门，防止无限重试空转烧额度
  */
 export function shouldPauseForRunNow(errorCode, options = {}) {
-  if (errorCode === 'FLOW_AUTHENTICATION_FAILED') return true;
+  if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RPC_REJECTED', 'FLOW_VERIFICATION_REQUIRED'].includes(errorCode)) return true;
   if (errorCode === 'FLOW_DISCONNECTED'
     && Number(options.consecutiveFlowDisconnects) >= FLOW_DISCONNECTED_PAUSE_THRESHOLD) {
     return true;

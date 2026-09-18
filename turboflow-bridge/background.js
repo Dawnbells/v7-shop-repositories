@@ -49,19 +49,19 @@ import {
   FAILURE_STREAK_RESET,
 } from './task-error-policy.js';
 import { FlowTaskRegistry } from './flow-task-registry.js';
+import { FlowSubmissionPacer } from './flow-submission-pacer.js';
+import { translateImageViaApi } from './flow-image-translation.js';
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const POLL_INTERVAL_MS = 500;
 // Upload / Add to prompt / prompt entry / submit stay strictly serial, while
 // already-claimed Flow tiles may generate concurrently.
 const FLOW_CONCURRENCY = 4;
 const PREFETCH_LIMIT = 1;
-const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V20';
-const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V20';
-// 两次「启动翻译任务」之间的最小间隔，每次启动时在 [MIN, MAX] 内随机摇定一个下次允许时间戳
-// （见 nextTranslateAllowedAt）。随机化对齐本扩展整体的反风控风格，避免固定节拍被识别。
-const TRANSLATE_START_INTERVAL_MIN_MS = 2 * 1000;
-const TRANSLATE_START_INTERVAL_MAX_MS = 5 * 1000;
+const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V21';
+const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V21';
+const DOM_PORT_ACK_TIMEOUT_MS = 5000;
+const DOM_PORT_CONNECT_ATTEMPTS = 3;
 const STOP_STATE_STORAGE_KEY = 'bridgeStopState';
 const RECOVERY_STATE_STORAGE_KEY = 'bridgeRecoveryState';
 const RECOVERY_SUCCESS_THRESHOLD = 20;
@@ -102,9 +102,7 @@ let timerId = null;
 let serviceCursor = 0;
 let lastStatus = { connected: false, message: 'Not checked' };
 let nextPollAt = 0;
-// 启动任务时摇定的「下次允许启动翻译」时间戳（now + random(2~5s)）；runLoop 只跟这个固定值比较，
-// 避免每个 poll tick 重新摇随机导致阈值乱跳。
-let nextTranslateAllowedAt = 0;
+const submissionPacer = new FlowSubmissionPacer();
 let taskHistory = [];
 let logHistory = [];
 // 当日 + 累计统计。独立于 taskHistory 持久化，所以历史裁剪到 10 条也不影响计数。
@@ -542,6 +540,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     const assignmentId = msg.assignmentId || null;
     const fromFlowTab = !!_sender.tab?.url && isFlowUrl(_sender.tab.url);
     if (fromFlowTab && flowTasks.acceptSubmission(assignmentId)) {
+      submissionPacer.submitted();
       const taskState = currentTasks.find((task) => task.assignmentId === assignmentId);
       if (taskState) taskState.phase = 'generating';
       broadcastTasksChanged();
@@ -827,7 +826,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'TEST_TRANSLATE') {
     (async () => {
       try {
-        const conn = await checkConnection();
+        const conn = await checkConnection({ requireApiSession: true });
         if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
         const prompt = msg.prompt || buildPrompt({
           targetLanguage: msg.targetLanguage || 'Simplified Chinese',
@@ -835,7 +834,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const aspectRatio = msg.aspectRatio === 'auto'
           ? aspectRatioFor(msg.width, msg.height)
           : msg.aspectRatio;
-        const result = await runFlowDomTranslation(conn, {
+        const result = await translateImageViaApi(conn, {
           ...msg,
           fileName: buildDomUploadFileName(msg, 'test.png'),
           prompt,
@@ -1071,14 +1070,15 @@ function getPrefetchedTaskSummary() {
     assignmentId: task.assignmentId,
     targetLang: task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese',
     preparedAt,
+    phase: 'standby',
+    sourceImage: ensureDataUrl(task.imageBase64),
+    sourceThumb: prefetchedTask.sourceThumb || null,
+    prompt: buildPrompt(task),
   };
 }
 
 function reserveFlowSlotAndExecute(service, task, conn, { prefetched = false } = {}) {
-  if (!flowTasks.reserveSubmission(task.assignmentId)) return false;
-  const interval = TRANSLATE_START_INTERVAL_MIN_MS
-    + Math.random() * (TRANSLATE_START_INTERVAL_MAX_MS - TRANSLATE_START_INTERVAL_MIN_MS);
-  nextTranslateAllowedAt = Date.now() + interval;
+  if (submissionPacer.remainingMs > 0 || !flowTasks.reserveSubmission(task.assignmentId)) return false;
   addLog('info', `${prefetched ? 'Starting prefetched task' : 'Task received'}: ${task.subTaskId} from ${service.baseUrl}`);
   executeTask(service, task, conn)
     .catch((e) => addLog('error', `Task runner error: ${e.message}`));
@@ -1090,9 +1090,16 @@ function startPrefetchedTask() {
       || pollPaused || recoveryPromise || !flowTabAvailable) {
     return false;
   }
+  if (submissionPacer.remainingMs > 0) {
+    scheduleLoop(submissionPacer.remainingMs);
+    return false;
+  }
   const next = prefetchedTask;
   prefetchedTask = null;
-  return reserveFlowSlotAndExecute(next.service, next.task, next.conn, { prefetched: true });
+  const started = reserveFlowSlotAndExecute(next.service, next.task, next.conn, { prefetched: true });
+  if (!started) prefetchedTask = next;
+  else scheduleLoop(0); // Refill the single standby slot while generation runs.
+  return started;
 }
 
 function releaseFlowSlot(assignmentId) {
@@ -1106,30 +1113,16 @@ async function runLoop() {
   running = true;
   let scheduleNext = true;
   try {
-    // A prefetched task owns the only look-ahead slot. As soon as the serial
-    // submit lane is free and one of four generation slots is available, it
-    // starts before any further poll can claim another assignment.
-    if (!flowTasks.submissionOwner && flowTasks.hasCapacity && prefetchedTask) {
-      startPrefetchedTask();
-      nextPollAt = 0;
-      broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
-      scheduleNext = false;
-      return;
-    }
-
-    // At most one task is being submitted and one additional source is kept as
-    // look-ahead. Already claimed tiles continue generating independently.
-    const prefetchedCount = prefetchedTask ? 1 : 0;
-    if (!flowTasks.hasCapacity || prefetchedCount >= PREFETCH_LIMIT) {
-      nextPollAt = 0;
-      broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
-      scheduleNext = false;
-      return;
-    }
-
-    const waitForTranslateSlot = nextTranslateAllowedAt - Date.now();
-    if (waitForTranslateSlot > 0) {
-      scheduleLoop(waitForTranslateSlot);
+    if (pollPaused || recoveryPromise || !flowTabAvailable) return;
+    startPrefetchedTask();
+    // Download one standby even when all four generation slots are occupied.
+    if ((prefetchedTask ? 1 : 0) >= PREFETCH_LIMIT) {
+      if (!flowTasks.submissionOwner && flowTasks.hasCapacity) {
+        scheduleLoop(submissionPacer.remainingMs);
+      } else {
+        nextPollAt = 0;
+        broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
+      }
       scheduleNext = false;
       return;
     }
@@ -1154,15 +1147,14 @@ async function runLoop() {
       const task = await pollTask(service, conn, flowTasks.inUse > 0 || !!prefetchedTask);
       if (task?.hasTask) {
         serviceCursor = (serviceCursor + i + 1) % orderedServices.length;
-        if (flowTasks.submissionOwner || !flowTasks.hasCapacity) {
-          prefetchedTask = { service, task, conn, preparedAt: Date.now() };
-          addLog('info', `Next image prepared locally: ${task.subTaskId}`);
-          nextPollAt = 0;
-          broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt });
-          scheduleNext = false;
-        } else {
-          reserveFlowSlotAndExecute(service, task, conn);
-        }
+        // Poll returns the downloaded source bytes, so this slot is ready locally.
+        const prepared = { service, task, conn, preparedAt: Date.now() };
+        prefetchedTask = prepared;
+        broadcastTasksChanged();
+        prepared.sourceThumb = await createThumbnail(task.imageBase64, 64);
+        addLog('info', `Next image prepared locally: ${task.subTaskId}`);
+        broadcastTasksChanged();
+        startPrefetchedTask();
         break;
       }
     }
@@ -1213,6 +1205,7 @@ async function executeTask(service, task, conn = null) {
   const startedAt = Date.now();
   const targetLanguageKey = task.targetLanguageCode || task.targetLanguage || targetLang;
   const context = { sourceThumb, sourceImage, targetLang, targetLanguageKey, startedAt };
+  let translationPromise = null;
   try {
     const imageHash = await imageDigest(task.imageBase64);
 
@@ -1247,8 +1240,9 @@ async function executeTask(service, task, conn = null) {
     // 3. 真正翻译
     taskState.phase = 'submitting';
     broadcastTasksChanged();
+    translationPromise = translateImage(task, conn);
     const result = await runWithTimeout(
-      translateImage(task, conn),
+      translationPromise,
       TRANSLATE_TIMEOUT_MS,
       `translate timeout (${Math.round(TRANSLATE_TIMEOUT_MS / 1000)}s)`,
     );
@@ -1396,7 +1390,16 @@ async function executeTask(service, task, conn = null) {
     // Cache hits, policy fallbacks and failures may exit before or after the
     // submitted event. Release either the serial submission slot or the exact
     // generation slot owned by this assignment.
-    releaseFlowSlot(task.assignmentId);
+    // A local timeout does not cancel the page request. Retain its slot until
+    // that request settles, otherwise a fifth generation could be launched.
+    if (translationPromise) {
+      translationPromise.then(
+        () => releaseFlowSlot(task.assignmentId),
+        () => releaseFlowSlot(task.assignmentId),
+      );
+    } else {
+      releaseFlowSlot(task.assignmentId);
+    }
   }
 }
 
@@ -1700,7 +1703,10 @@ function sleep(ms) {
 }
 
 function getCurrentTasks() {
-  return currentTasks.map((task) => ({ ...task }));
+  const tasks = currentTasks.map((task) => ({ ...task }));
+  const standby = getPrefetchedTaskSummary();
+  if (standby) tasks.push(standby);
+  return tasks;
 }
 
 function removeCurrentTask(assignmentId) {
@@ -1744,26 +1750,73 @@ async function createThumbnail(base64OrDataUrl, maxSize) {
 
 async function translateImage(task, conn) {
   if (!conn || !conn.tabId || !conn.projectId) throw new Error('Flow is not connected');
-  return await runFlowDomTranslation(conn, {
+  return await translateImageViaApi(conn, {
     ...task,
     imageBase64: ensureDataUrl(task.imageBase64),
     fileName: buildDomUploadFileName(task, task.fileName || 'source.png'),
     prompt: buildPrompt(task),
     aspectRatio: aspectRatioFor(task.sourceWidth, task.sourceHeight),
     model: sanitizeModel(task.model),
+    onSubmitted: ({ submittedAt }) => {
+      if (!flowTasks.acceptSubmission(task.assignmentId)) return;
+      submissionPacer.submitted(submittedAt);
+      const state = currentTasks.find((item) => item.assignmentId === task.assignmentId);
+      if (state) state.phase = 'generating';
+      broadcastTasksChanged();
+      addLog('info', `API translation submitted: ${task.subTaskId}; ${flowTasks.generatingOwners.size}/${FLOW_CONCURRENCY} generating`);
+      scheduleLoop(0);
+    },
   });
 }
 
 async function runFlowDomTranslation(conn, task) {
-  await chrome.scripting.executeScript({
-    target: { tabId: conn.tabId },
-    files: ['flow-dom-method.js'],
-    world: 'ISOLATED',
-  });
-
   const requestId = `${task.assignmentId || 'flow'}:${crypto.randomUUID()}`;
-  const port = chrome.tabs.connect(conn.tabId, { name: DOM_TRANSLATE_PORT });
-  const result = await new Promise((resolve, reject) => {
+  const taskPayload = {
+    assignmentId: task.assignmentId || null,
+    imageBase64: ensureDataUrl(task.imageBase64),
+    fileName: task.fileName || 'turboflow-source.png',
+    mimeType: task.mimeType || 'image/png',
+    aspectRatio: task.aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE',
+    model: sanitizeModel(task.model),
+    stealthMode: task.stealthMode !== false,
+    delayMin: Number(task.delayMin || 0),
+    delayMax: Number(task.delayMax || 0),
+    prompt: task.prompt || '',
+  };
+  let result = null;
+  let lastChannelError = null;
+  for (let attempt = 1; attempt <= DOM_PORT_CONNECT_ATTEMPTS; attempt++) {
+    // Re-execution is idempotent: V21 refreshes its listeners without resetting
+    // the UI queue, claimed Tile registry, or in-flight request state.
+    await chrome.scripting.executeScript({
+      target: { tabId: conn.tabId },
+      files: ['flow-dom-method.js'],
+      world: 'ISOLATED',
+    });
+    try {
+      result = await sendFlowDomRequestOverPort(conn.tabId, requestId, taskPayload);
+      break;
+    } catch (error) {
+      lastChannelError = error;
+      if (!error?.retryableChannel || attempt >= DOM_PORT_CONNECT_ATTEMPTS) throw error;
+      addLog('warn', `Flow page channel retry ${attempt}/${DOM_PORT_CONNECT_ATTEMPTS} for ${task.subTaskId || task.assignmentId}: ${error.message}`);
+      await sleep(200 * attempt);
+    }
+  }
+  if (!result) throw lastChannelError || new Error(`Flow page automation returned no result for ${requestId}`);
+
+  let resultDataUrl = result.resultDataUrl || null;
+  if (!resultDataUrl && result.resultUrl) {
+    const image = await fetchImageAsBase64(conn.tabId, result.resultUrl);
+    resultDataUrl = image.dataUrl;
+  }
+  if (!resultDataUrl) throw new Error('Flow page automation completed but no readable result image was returned');
+  return { resultDataUrl, resultUrl: result.resultUrl || null };
+}
+
+function sendFlowDomRequestOverPort(tabId, requestId, taskPayload) {
+  const port = chrome.tabs.connect(tabId, { name: DOM_TRANSLATE_PORT, frameId: 0 });
+  return new Promise((resolve, reject) => {
     let settled = false;
     let accepted = false;
     const finish = (callback, value) => {
@@ -1773,10 +1826,14 @@ async function runFlowDomTranslation(conn, task) {
       callback(value);
       try { port.disconnect(); } catch {}
     };
-    const fail = (message) => finish(reject, new Error(message));
+    const fail = (message, retryableChannel = false) => {
+      const error = new Error(message);
+      error.retryableChannel = retryableChannel;
+      finish(reject, error);
+    };
     const ackTimer = setTimeout(() => {
-      fail(`Flow page automation did not acknowledge request ${requestId} within 15s`);
-    }, 15000);
+      fail(`Flow page automation did not acknowledge request ${requestId} within ${DOM_PORT_ACK_TIMEOUT_MS / 1000}s`, true);
+    }, DOM_PORT_ACK_TIMEOUT_MS);
 
     port.onMessage.addListener((message) => {
       if (message?.requestId !== requestId) return;
@@ -1795,38 +1852,19 @@ async function runFlowDomTranslation(conn, task) {
     port.onDisconnect.addListener(() => {
       if (settled) return;
       const detail = chrome.runtime.lastError?.message || 'message port disconnected';
-      fail(`Flow page automation channel closed before result (accepted=${accepted}): ${detail}`);
+      fail(`Flow page automation channel closed before result (accepted=${accepted}): ${detail}`, true);
     });
 
     try {
       port.postMessage({
         type: DOM_TRANSLATE_MESSAGE,
         requestId,
-        task: {
-          assignmentId: task.assignmentId || null,
-          imageBase64: ensureDataUrl(task.imageBase64),
-          fileName: task.fileName || 'turboflow-source.png',
-          mimeType: task.mimeType || 'image/png',
-          aspectRatio: task.aspectRatio || 'IMAGE_ASPECT_RATIO_LANDSCAPE',
-          model: sanitizeModel(task.model),
-          stealthMode: task.stealthMode !== false,
-          delayMin: Number(task.delayMin || 0),
-          delayMax: Number(task.delayMax || 0),
-          prompt: task.prompt || '',
-        },
+        task: taskPayload,
       });
     } catch (error) {
-      fail(`Flow page automation request could not be sent: ${error?.message || String(error)}`);
+      fail(`Flow page automation request could not be sent: ${error?.message || String(error)}`, true);
     }
   });
-
-  let resultDataUrl = result.resultDataUrl || null;
-  if (!resultDataUrl && result.resultUrl) {
-    const image = await fetchImageAsBase64(conn.tabId, result.resultUrl);
-    resultDataUrl = image.dataUrl;
-  }
-  if (!resultDataUrl) throw new Error('Flow page automation completed but no readable result image was returned');
-  return { resultDataUrl, resultUrl: result.resultUrl || null };
 }
 
 function buildDomUploadFileName(task, fallbackName) {

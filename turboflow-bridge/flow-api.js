@@ -187,7 +187,16 @@ export async function getRecaptchaToken(tabId, action = 'IMAGE_GENERATION') {
     func: async (siteKey, act) => {
       try {
         if (typeof grecaptcha !== 'undefined' && grecaptcha.enterprise) {
-          return await grecaptcha.enterprise.execute(siteKey, { action: act });
+          return await new Promise((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 15000);
+            const finish = (token) => { clearTimeout(timeout); resolve(token); };
+            grecaptcha.enterprise.ready(() => {
+              try {
+                Promise.resolve(grecaptcha.enterprise.execute(siteKey, { action: act }))
+                  .then(finish, () => finish(null));
+              } catch { finish(null); }
+            });
+          });
         }
         return null;
       } catch {
@@ -369,7 +378,7 @@ function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATION', retryCount = 0) {
+async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATION', retryCount = 0, onSubmitted) {
   // 风控恢复在 background 层处理：当 callFlowApi 抛 'reCAPTCHA blocked' 后，background 会停 poll、
   // 同步跑 runRecoveryChain（L1 或 L2）、成功后再恢复 poll。期间不再发起新 callFlowApi，所以这里不需要门闩。
   const recaptchaToken = await getRecaptchaToken(tabId, action);
@@ -396,9 +405,9 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
-    func: async (apiUrl, body, bearerToken) => {
+    func: async (apiUrl, body, bearerToken, trackSubmission) => {
       try {
-        const res = await fetch(apiUrl, {
+        const pendingResponse = fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'text/plain;charset=UTF-8',
@@ -406,6 +415,8 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
           },
           body,
         });
+        const submittedAt = Date.now();
+        const completion = pendingResponse.then(async (res) => {
         const text = await res.text();
         if (!res.ok) {
           return {
@@ -421,14 +432,22 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
           data = text;
         }
         return { success: true, data };
+        }).catch(error => ({ error: error.message }));
+        if (trackSubmission) {
+          const requestKey = crypto.randomUUID();
+          window.__turboFlowRequests ||= new Map();
+          window.__turboFlowRequests.set(requestKey, completion);
+          return { requestKey, submittedAt };
+        }
+        return await completion;
       } catch (e) {
         return { error: e.message };
       }
     },
-    args: [url, bodyStr, token],
+    args: [url, bodyStr, token, !!onSubmitted],
   });
 
-  const result = results?.[0]?.result;
+  const result = await finishDispatchedRequest(tabId, results?.[0]?.result, onSubmitted);
   if (!result) throw new Error('Script execution failed');
 
   if (result.error) {
@@ -446,7 +465,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
         || errText.includes('forbidden')
         || errText.includes('auth');
 
-      if (retryCount === 0) {
+      if (retryCount === 0 && !onSubmitted) {
         await sleep(1500);
         clearTokenCache();
         const freshToken = await getSessionToken(tabId);
@@ -461,7 +480,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
       throw new Error('Blocked by Google (403) — refresh the Flow page, disable VPN if active, and try again');
     }
     // On 401: token expired, refresh and retry once
-    if (result.status === 401 && retryCount === 0) {
+    if (result.status === 401 && retryCount === 0 && !onSubmitted) {
       clearTokenCache();
       const freshToken = await getSessionToken(tabId);
       if (freshToken) {
@@ -486,7 +505,7 @@ async function callFlowApi(tabId, url, payload, token, action = 'IMAGE_GENERATIO
         throw new Error('DAILY_QUOTA_REACHED — daily generation limit reached. Try again in a few hours.');
       }
       // 重试次数对齐 nano-b lt 调度器：最多 3 次（retryCount < 3）
-      if (retryCount < 3) {
+      if (retryCount < 3 && !onSubmitted) {
         const backoff = 3000 * Math.pow(2, retryCount) + Math.random() * 1000;
         await sleep(backoff);
         return callFlowApi(tabId, url, payload, token, action, retryCount + 1);
@@ -526,12 +545,31 @@ async function getModernFlowPageState(tabId) {
   return results?.[0]?.result || null;
 }
 
-async function callModernFlowRpc(tabId, rpcId, payload) {
+// The first injection returns after dispatch, while the request stays in the
+// page. This releases the serial submission lane before generation completes.
+async function finishDispatchedRequest(tabId, result, onSubmitted) {
+  if (!result?.requestKey) return result;
+  onSubmitted?.({ submittedAt: result.submittedAt });
+  const completed = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async (key) => {
+      const pending = window.__turboFlowRequests;
+      if (!pending?.has(key)) return { error: 'Flow request was lost after page navigation' };
+      try { return await pending.get(key); }
+      finally { pending.delete(key); }
+    },
+    args: [result.requestKey],
+  });
+  return completed?.[0]?.result;
+}
+
+async function callModernFlowRpc(tabId, rpcId, payload, onSubmitted) {
   const fReq = buildBatchexecuteRequest(rpcId, payload);
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
-    func: async (rpc, requestEnvelope) => {
+    func: async (rpc, requestEnvelope, trackSubmission) => {
       try {
         const wiz = window.WIZ_global_data || {};
         const xsrfToken = wiz.SNlM0e;
@@ -555,7 +593,7 @@ async function callModernFlowRpc(tabId, rpcId, payload) {
         const form = new URLSearchParams();
         form.set('f.req', requestEnvelope);
         form.set('at', xsrfToken);
-        const response = await fetch(endpoint.href, {
+        const pendingResponse = fetch(endpoint.href, {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -564,6 +602,8 @@ async function callModernFlowRpc(tabId, rpcId, payload) {
           },
           body: form.toString(),
         });
+        const submittedAt = Date.now();
+        const completion = pendingResponse.then(async (response) => {
         const text = await response.text();
         if (!response.ok) {
           return {
@@ -573,14 +613,22 @@ async function callModernFlowRpc(tabId, rpcId, payload) {
           };
         }
         return { success: true, text };
+        }).catch(error => ({ error: error.message, isNetworkError: true }));
+        if (trackSubmission) {
+          const requestKey = crypto.randomUUID();
+          window.__turboFlowRequests ||= new Map();
+          window.__turboFlowRequests.set(requestKey, completion);
+          return { requestKey, submittedAt };
+        }
+        return await completion;
       } catch (error) {
         return { error: error.message, isNetworkError: true };
       }
     },
-    args: [rpcId, fReq],
+    args: [rpcId, fReq, !!onSubmitted],
   });
 
-  const result = results?.[0]?.result;
+  const result = await finishDispatchedRequest(tabId, results?.[0]?.result, onSubmitted);
   if (!result) throw new Error('Flow BOQ script execution failed');
   if (result.error) {
     if (result.status === 401 || result.status === 403) {
@@ -597,7 +645,7 @@ async function callModernFlowRpc(tabId, rpcId, payload) {
 
 async function uploadImageToModernFlow(tabId, options, retryCount) {
   const recaptchaToken = await getRecaptchaToken(tabId, 'UPLOAD_IMAGE');
-  if (!recaptchaToken) throw new Error('No reCAPTCHA token — try refreshing the Flow page');
+  if (!recaptchaToken) throw Object.assign(new Error('Flow verification is not ready; refresh Flow and retry'), { code: 'FLOW_VERIFICATION_REQUIRED' });
   const payload = buildModernUploadRequest({
     base64: options.base64,
     fileName: options.fileName,
@@ -611,7 +659,7 @@ async function uploadImageToModernFlow(tabId, options, retryCount) {
     if (!mediaName) throw new Error('No mediaId in Flow BOQ upload response');
     return mediaName;
   } catch (error) {
-    if (error.code !== 'FLOW_AUTHENTICATION_FAILED' && retryCount < 2) {
+    if (!error.code && retryCount < 2) {
       await sleep(1000 * Math.pow(2, retryCount));
       return uploadImageToModernFlow(tabId, options, retryCount + 1);
     }
@@ -623,7 +671,7 @@ async function generateWithModernFlow(tabId, options) {
   const batchId = uuid();
   const seed = randomSeed();
   const recaptchaToken = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
-  if (!recaptchaToken) throw new Error('No reCAPTCHA token — try refreshing the Flow page');
+  if (!recaptchaToken) throw Object.assign(new Error('Flow verification is not ready; refresh Flow and retry'), { code: 'FLOW_VERIFICATION_REQUIRED' });
   const payload = buildModernGenerateRequest({
     prompt: options.prompt,
     referenceMediaId: options.referenceMediaId,
@@ -634,7 +682,7 @@ async function generateWithModernFlow(tabId, options) {
     batchId,
     seed,
   });
-  const data = await callModernFlowRpc(tabId, RPC_BATCH_GENERATE_IMAGES, payload);
+  const data = await callModernFlowRpc(tabId, RPC_BATCH_GENERATE_IMAGES, payload, options.onSubmitted);
   let generated = extractModernGenerationResult(data);
   if (!generated.mediaId && generated.workflowId) {
     const deadline = Date.now() + 120000;
@@ -800,7 +848,7 @@ export async function uploadImageToFlow(tabId, { base64, fileName, mimeType, pid
 
 // ── Generate image with reference (Nano Banana 2) ──────────────────
 
-export async function generateWithReference(tabId, { prompt, referenceMediaId, aspectRatio, pid, token, model }) {
+export async function generateWithReference(tabId, { prompt, referenceMediaId, aspectRatio, pid, token, model, onSubmitted }) {
   if (await usesModernFlow(tabId)) {
     return generateWithModernFlow(tabId, {
       prompt,
@@ -808,6 +856,7 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
       aspectRatio,
       pid,
       model,
+      onSubmitted,
     });
   }
   const batchId = uuid();
@@ -868,7 +917,7 @@ export async function generateWithReference(tabId, { prompt, referenceMediaId, a
     ],
   };
 
-  const data = await callFlowApi(tabId, url, payload, token, 'IMAGE_GENERATION');
+  const data = await callFlowApi(tabId, url, payload, token, 'IMAGE_GENERATION', 0, onSubmitted);
 
   let fifeUrl = null;
   let mediaId = null;

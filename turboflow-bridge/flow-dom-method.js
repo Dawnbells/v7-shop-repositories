@@ -1,10 +1,13 @@
 (function () {
   'use strict';
 
-  const VERSION = 20;
-  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V20';
+  const VERSION = 21;
+  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V21';
   const previous = window.__turboFlowDomMethod;
-  if (previous?.version === VERSION) return;
+  if (previous?.version === VERSION) {
+    try { previous.refreshListeners?.(); } catch {}
+    return;
+  }
   if (previous?.listener) {
     try { chrome.runtime.onMessage.removeListener(previous.listener); } catch {}
   }
@@ -25,9 +28,11 @@
   const RESULT_TIMEOUT_MS = 180000;
   const RESULT_SCAN_MS = 1000;
   const GENERATION_TILE_TIMEOUT_MS = 30000;
+  const REQUEST_RESULT_TTL_MS = 2 * 60 * 1000;
   let uiQueueTail = Promise.resolve();
   const claimedTiles = new WeakSet();
   const claimedTileKeys = new Map();
+  const requestStates = new Map();
 
   async function withUiLock(work) {
     const previous = uiQueueTail;
@@ -958,7 +963,7 @@
   const errorMessage = (error) => error?.message || String(error || 'Unknown Flow page automation error');
 
   const listener = (msg, _sender, sendResponse) => {
-    if (msg.type !== 'RUN_DOM_TRANSLATE_V20') return false;
+    if (msg.type !== 'RUN_DOM_TRANSLATE_V21') return false;
     runDomTranslate(msg.task || {})
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -968,35 +973,71 @@
   const portListener = (port) => {
     if (port.name !== DOM_TRANSLATE_PORT) return;
     let started = false;
+    let subscribedRequestId = null;
+    const safePost = (message) => {
+      try {
+        port.postMessage(message);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    port.onDisconnect.addListener(() => {
+      if (!subscribedRequestId) return;
+      requestStates.get(subscribedRequestId)?.ports.delete(port);
+    });
     port.onMessage.addListener((msg) => {
-      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V20') return;
+      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V21') return;
       started = true;
       const requestId = msg.requestId || null;
-      try {
-        port.postMessage({ type: 'FLOW_DOM_TRANSLATION_ACCEPTED', requestId, ok: true });
-      } catch {
+      if (!requestId) {
+        safePost({ type: 'FLOW_DOM_TRANSLATION_RESULT', requestId, ok: false, error: 'Missing Flow requestId' });
         return;
       }
+      subscribedRequestId = requestId;
+      const existing = requestStates.get(requestId);
+      if (existing) {
+        existing.ports.add(port);
+        safePost({ type: 'FLOW_DOM_TRANSLATION_ACCEPTED', requestId, ok: true, resumed: true });
+        if (existing.status === 'complete' && existing.response) safePost(existing.response);
+        return;
+      }
+
+      const state = { status: 'running', ports: new Set([port]), response: null };
+      requestStates.set(requestId, state);
+      safePost({ type: 'FLOW_DOM_TRANSLATION_ACCEPTED', requestId, ok: true });
+      const complete = (response) => {
+        state.status = 'complete';
+        state.response = response;
+        for (const subscriber of state.ports) {
+          try { subscriber.postMessage(response); } catch {}
+        }
+        setTimeout(() => {
+          if (requestStates.get(requestId) === state) requestStates.delete(requestId);
+        }, REQUEST_RESULT_TTL_MS);
+      };
       runDomTranslate(msg.task || {})
         .then((result) => {
-          try {
-            port.postMessage({ type: 'FLOW_DOM_TRANSLATION_RESULT', requestId, ok: true, ...result });
-          } catch {}
+          complete({ type: 'FLOW_DOM_TRANSLATION_RESULT', requestId, ok: true, ...result });
         })
         .catch((error) => {
-          try {
-            port.postMessage({
-              type: 'FLOW_DOM_TRANSLATION_RESULT',
-              requestId,
-              ok: false,
-              error: errorMessage(error),
-            });
-          } catch {}
+          complete({
+            type: 'FLOW_DOM_TRANSLATION_RESULT',
+            requestId,
+            ok: false,
+            error: errorMessage(error),
+          });
         });
     });
   };
 
-  chrome.runtime.onMessage.addListener(listener);
-  chrome.runtime.onConnect.addListener(portListener);
-  window.__turboFlowDomMethod = { version: VERSION, listener, portListener };
+  const refreshListeners = () => {
+    try { chrome.runtime.onMessage.removeListener(listener); } catch {}
+    try { chrome.runtime.onConnect.removeListener(portListener); } catch {}
+    chrome.runtime.onMessage.addListener(listener);
+    chrome.runtime.onConnect.addListener(portListener);
+  };
+
+  refreshListeners();
+  window.__turboFlowDomMethod = { version: VERSION, listener, portListener, refreshListeners };
 })();

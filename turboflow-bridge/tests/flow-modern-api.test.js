@@ -18,6 +18,11 @@ import {
   parseBatchexecuteResponse,
 } from '../flow-modern-api.js';
 
+test('rejects an HTTP-200 envelope whose RPC payload is null', () => {
+  const response = ")]}'\n" + JSON.stringify([['wrb.fr', RPC_BATCH_GENERATE_IMAGES, null, null, null, [7]]]);
+  assert.throws(() => parseBatchexecuteResponse(response, RPC_BATCH_GENERATE_IMAGES), /ogiZ0b/);
+});
+
 test('builds the protobuf JSON upload request used by flow.google.com', () => {
   const request = buildModernUploadRequest({
     base64: 'YWJj',
@@ -43,11 +48,13 @@ test('builds the protobuf JSON batch generation request used by flow.google.com'
     model: 'NARWHAL',
     batchId: 'batch-123',
     seed: 12345,
+    requestId: 'request-123',
+    clientMediaId: 'client-media-123',
   });
 
   assert.equal(
     JSON.stringify(request),
-    '[null,[[null,null,[["media/abc",null,null,null,1]],12345,3,29,null,[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],[[["translate this"]]]]],1,[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],["batch-123"]]',
+    '[null,[[null,null,[["media/abc",null,null,null,1]],12345,3,"NARWHAL",null,[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],[[["translate this"]]],null,null,null,"request-123","client-media-123"]],1,[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],["batch-123"]]',
   );
   assert.equal(modernImageModelEnum('GEM_PIX_2'), 25);
   assert.equal(modernImageModelEnum('NARWHAL'), 29);

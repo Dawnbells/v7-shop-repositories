@@ -296,6 +296,17 @@ button {
   background: var(--bg-input);
   border: 1px solid var(--border);
 }
+.task-card.standby {
+  border-style: dashed;
+}
+.task-status-badge.standby {
+  color: #b7791f;
+  background: rgba(214, 158, 46, 0.14);
+}
+.task-status-badge.reporting {
+  color: #718096;
+  background: rgba(113, 128, 150, 0.14);
+}
 .task-status-badge.running {
   color: var(--accent);
   background: rgba(91, 141, 239, .1);

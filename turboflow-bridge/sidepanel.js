@@ -104,7 +104,8 @@
       const tasks = Array.isArray(msg.currentTasks)
         ? msg.currentTasks
         : (msg.currentTask ? [msg.currentTask] : []);
-      const completedOrFailed = tasks.length < activeTasks.length;
+      const completedOrFailed = activeTasks.some(previous =>
+        !tasks.some(task => task.assignmentId === previous.assignmentId));
       renderCurrentTasks(tasks);
       if (completedOrFailed || tasks.length === 0) {
         loadTaskHistory();
@@ -231,8 +232,13 @@
 
   function updateCurrentTaskContent() {
     if (activeTasks.length === 0) return;
-    currentTaskEl.innerHTML = activeTasks.map((task, index) => {
-      const elapsed = Math.round((Date.now() - task.startedAt) / 1000);
+    let runningIndex = 0;
+    currentTaskEl.innerHTML = activeTasks.map((task) => {
+      const standby = task.phase === 'standby';
+      const reporting = task.phase === 'reporting';
+      const statusClass = standby ? 'standby' : reporting ? 'reporting' : 'running';
+      const statusLabel = standby ? '预备' : reporting ? '回传中' : `Running ${++runningIndex}`;
+      const elapsed = Math.max(0, Math.round((Date.now() - (task.startedAt || task.preparedAt)) / 1000));
       const thumbSrc = task.sourceThumb || task.sourceImage;
       const previewSrc = task.sourceImage || task.sourceThumb;
       const imgHtml = thumbSrc
@@ -242,9 +248,9 @@
         ? `<div class="task-prompt" title="${escAttr(task.prompt || '')}">${esc(task.targetLang)}</div>`
         : '';
       return `
-        <div class="task-card running">
-          <span class="task-status-badge running">Running ${index + 1}</span>
-          <span class="task-elapsed">${elapsed}s</span>
+        <div class="task-card ${statusClass}">
+          <span class="task-status-badge ${statusClass}">${statusLabel}</span>
+          <span class="task-elapsed">${standby ? '图片已就绪' : elapsed + 's'}</span>
           <div class="task-detail">
             ${imgHtml}
             <div class="task-meta">
@@ -622,7 +628,7 @@
     btnTestRun.disabled = false;
   }
 
-  btnTestRun.addEventListener('click', () => runTestTranslate('TEST_TRANSLATE', 'Translating through Flow UI'));
+  btnTestRun.addEventListener('click', () => runTestTranslate('TEST_TRANSLATE', 'Translating through Flow API'));
 
   init();
 })();
