@@ -246,8 +246,7 @@
     currentTaskEl.innerHTML = activeTasks.map((task) => {
       const standby = task.phase === 'standby';
       const phases = {
-        fetching: ['standby', '获取中'],
-        downloading_source: ['standby', '下载中'],
+        downloading_source: ['standby', '获取中'],
         standby: ['standby', '预备'],
         preparing: ['standby', '预备'],
         submitting: ['standby', '上传中'],

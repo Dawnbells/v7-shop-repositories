@@ -53,7 +53,7 @@ import { FlowTaskRegistry } from './flow-task-registry.js';
 import { FlowSubmissionPacer } from './flow-submission-pacer.js';
 import { translateImageViaApi } from './flow-image-translation.js';
 
-const VERSION = '1.5.3';
+const VERSION = '1.5.4';
 const POLL_INTERVAL_MS = 500;
 // Upload / Add to prompt / prompt entry / submit stay strictly serial, while
 // already-claimed Flow tiles may generate concurrently.
@@ -1241,9 +1241,8 @@ async function runLoop() {
 
 async function pollTask(service, conn, busy) {
   if (pollPaused) return null;
-  const pending = { service: service.baseUrl, startedAt: Date.now(), phase: 'fetching' };
-  currentTasks.push(pending);
-  broadcastTasksChanged();
+  const pending = { service: service.baseUrl, startedAt: Date.now(), phase: 'downloading_source' };
+  let pendingShown = false;
   return postJson(service, '/turboflow-bridge/tasks/poll', {
     bridgeId,
     version: VERSION,
@@ -1252,14 +1251,17 @@ async function pollTask(service, conn, busy) {
     currentUrl: null,
     busy: !!busy,
   }, { onResponse: () => {
-    pending.phase = 'downloading_source';
+    currentTasks.push(pending);
+    pendingShown = true;
     broadcastTasksChanged();
   } }).catch((e) => {
     addLog('warn', `Poll failed: ${service.baseUrl} ${e.message}`);
     return null;
   }).finally(() => {
-    currentTasks = currentTasks.filter((item) => item !== pending);
-    broadcastTasksChanged();
+    if (pendingShown) {
+      currentTasks = currentTasks.filter((item) => item !== pending);
+      broadcastTasksChanged();
+    }
   });
 }
 

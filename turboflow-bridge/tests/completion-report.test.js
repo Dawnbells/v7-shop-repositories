@@ -100,7 +100,7 @@ test('current cards distinguish stages and retain their before/during/after colo
   const panel = readFileSync(new URL('../sidepanel.js', import.meta.url), 'utf8');
   const currentTaskEl = {};
   const stages = [
-    ['fetching', 'standby', '获取中'], ['downloading_source', 'standby', '下载中'],
+    ['downloading_source', 'standby', '获取中'],
     ['standby', 'standby', '预备'], ['submitting', 'standby', '上传中'],
     ['generating', 'running', '翻译中'], ['downloading_result', 'reporting', '下载中'],
     ['reporting', 'reporting', '回传中'], ['reporting_retry', 'reporting', '回传重试中(2)'],
@@ -113,4 +113,28 @@ test('current cards distinguish stages and retain their before/during/after colo
     assert.ok(currentTaskEl.innerHTML.includes(`task-status-badge ${colorClass}">${label}</span>`));
     assert.ok(!currentTaskEl.innerHTML.includes('NaN'));
   }
+  assert.ok(!panel.includes('fetching:'));
+});
+
+test('polling stays hidden until a task response starts downloading', async () => {
+  let onResponse;
+  let finish;
+  const context = vm.createContext({
+    pollPaused: false, bridgeId: 'bridge', VERSION: 'test', currentTasks: [],
+    broadcastTasksChanged() {}, addLog() {},
+    postJson: (_service, _path, _body, options) => {
+      onResponse = options.onResponse;
+      return new Promise(resolve => { finish = resolve; });
+    },
+  });
+  vm.runInContext(source.slice(source.indexOf('async function pollTask('),
+    source.indexOf('async function executeTask(')), context);
+  const polling = context.pollTask({ baseUrl: 'server' }, {}, false);
+  assert.equal(context.currentTasks.length, 0);
+  onResponse();
+  assert.equal(context.currentTasks.length, 1);
+  assert.equal(context.currentTasks[0].phase, 'downloading_source');
+  finish({ hasTask: true });
+  await polling;
+  assert.equal(context.currentTasks.length, 0);
 });
