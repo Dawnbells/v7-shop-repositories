@@ -50,3 +50,21 @@ test('ignores stale acceptance and release events from other assignments', () =>
   assert.equal(registry.submissionOwner, 'current');
   assert.equal(registry.inUse, 1);
 });
+
+test('lowering the limit keeps running generations and blocks new submissions until they drain', () => {
+  const registry = new FlowTaskRegistry(4);
+  for (const id of ['a', 'b', 'c']) {
+    registry.reserveSubmission(id);
+    registry.acceptSubmission(id);
+  }
+  registry.setLimit(1);
+  assert.equal(registry.inUse, 3);
+  assert.equal(registry.reserveSubmission('d'), false);
+  registry.release('a');
+  registry.release('b');
+  assert.equal(registry.reserveSubmission('d'), false);
+  registry.release('c');
+  assert.equal(registry.reserveSubmission('d'), true);
+  registry.setLimit(0);
+  assert.equal(registry.limit, 1);
+});

@@ -58,12 +58,14 @@ import { translateImageViaApi } from './flow-image-translation.js';
 
 const VERSION = '1.5.4';
 const POLL_INTERVAL_MS = 500;
-// 单线程：同一时间只有一张图在 Flow 里（上传 → 提交 → 生成 → 译图下载完成）。
-// 译图下载到扩展后立即释放槽位开始下一张源图，服务端回传与下一张并行。
-const FLOW_CONCURRENCY = 1;
+// 同时「翻译中」的上限，设置页可调（1–10，默认 1 = 单线程）。上传 / 挂图 / 写 prompt / 提交
+// 始终串行；译图下载到扩展后立即释放槽位，服务端回传与后续任务并行。
+const FLOW_CONCURRENCY_STORAGE_KEY = 'flowConcurrency';
+const DEFAULT_FLOW_CONCURRENCY = 1;
+const MAX_FLOW_CONCURRENCY = 10;
 const PREFETCH_LIMIT = 1;
-const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V24';
-const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V24';
+const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V25';
+const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V25';
 const GENERATION_MODE_STORAGE_KEY = 'generationMode';
 const DOM_PORT_ACK_TIMEOUT_MS = 5000;
 const DOM_PORT_CONNECT_ATTEMPTS = 3;
@@ -105,9 +107,10 @@ function friendlyErrorMessage(errorCode, rawMessage) {
 
 let bridgeId = null;
 let generationMode = 'api';
+let flowConcurrency = DEFAULT_FLOW_CONCURRENCY;
 let running = false;
 let currentTasks = [];
-const flowTasks = new FlowTaskRegistry(FLOW_CONCURRENCY);
+const flowTasks = new FlowTaskRegistry(flowConcurrency);
 let prefetchedTask = null;
 let timerId = null;
 let serviceCursor = 0;
@@ -614,7 +617,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       const taskState = currentTasks.find((task) => task.assignmentId === assignmentId);
       if (taskState) taskState.phase = 'generating';
       broadcastTasksChanged();
-      addLog('info', `Flow accepted task: ${taskState?.subTaskId || assignmentId}; ${flowTasks.generatingOwners.size}/${FLOW_CONCURRENCY} generating`);
+      addLog('info', `Flow accepted task: ${taskState?.subTaskId || assignmentId}; ${flowTasks.generatingOwners.size}/${flowTasks.limit} generating`);
       if (!startPrefetchedTask()) scheduleLoop(0);
     }
     sendResponse({ ok: true });
@@ -627,7 +630,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({ ok: false, error: 'Trusted submit is only available to the Flow tab' });
       return false;
     }
-    submitFlowGeneration(tabId, msg.selector, _sender.tab.url)
+    submitFlowGeneration(tabId, msg.selector, _sender.tab.url, msg.referenceMediaIds)
       .then((generateToken) => sendResponse({ ok: true, generateToken }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -652,7 +655,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     saveConfig(msg.config || {}).then(async () => {
       const stored = await chrome.storage.local.get(['services']);
       const count = Array.isArray(stored.services) ? stored.services.length : 0;
-      addLog('info', `Config saved (${count} services, ${generationMode.toUpperCase()} mode)`);
+      addLog('info', `Config saved (${count} services, ${generationMode.toUpperCase()} mode, concurrency ${flowConcurrency})`);
       scheduleLoop(1000);
       sendResponse({ ok: true });
     });
@@ -764,7 +767,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           if (text.includes(`"wrb.fr","${uploadRpcId}","[]"`)) {
             return { status: 'error', error: 'Flow upload returned no media record' };
           }
-          return { status: 'ok', rpcId: uploadRpcId, httpStatus: status };
+          return { status: 'ok', rpcId: uploadRpcId, httpStatus: status, mediaId: extractUploadMediaId(text) };
+        };
+        // maseQ 响应 [[mediaId, projectId, ...], ...]：并发时用它核对 ogiZ0b 引用的是哪张源图。
+        const extractUploadMediaId = (text) => {
+          for (const line of String(text || '').split('\n')) {
+            if (!line.trim().startsWith('[')) continue;
+            try {
+              for (const entry of JSON.parse(line)) {
+                if (entry?.[0] !== 'wrb.fr' || entry?.[1] !== uploadRpcId || typeof entry[2] !== 'string') continue;
+                const mediaId = JSON.parse(entry[2])?.[0]?.[0];
+                if (typeof mediaId === 'string' && mediaId) return mediaId;
+              }
+            } catch {}
+          }
+          return null;
         };
 
         let captureUpload = false;
@@ -1014,6 +1031,7 @@ async function loadPersistedState() {
     'logHistory',
     STATS_STORAGE_KEY,
     GENERATION_MODE_STORAGE_KEY,
+    FLOW_CONCURRENCY_STORAGE_KEY,
     STOP_STATE_STORAGE_KEY,
     LEGACY_PAUSE_STATE_STORAGE_KEY,
   ]);
@@ -1026,6 +1044,8 @@ async function loadPersistedState() {
   logHistory = Array.isArray(stored.logHistory) ? stored.logHistory : [];
   bridgeStats = normalizeStats(stored[STATS_STORAGE_KEY], Date.now());
   generationMode = stored[GENERATION_MODE_STORAGE_KEY] === 'ui' ? 'ui' : 'api';
+  flowConcurrency = normalizeFlowConcurrency(stored[FLOW_CONCURRENCY_STORAGE_KEY]);
+  flowTasks.setLimit(flowConcurrency);
   // 旧版冷静期遗留 state：直接清掉，新方案不再使用
   if (stored[LEGACY_PAUSE_STATE_STORAGE_KEY]) {
     chrome.storage.local.remove([LEGACY_PAUSE_STATE_STORAGE_KEY]).catch(() => {});
@@ -1046,11 +1066,13 @@ async function loadPersistedState() {
 
 async function loadConfig() {
   await ensureBridgeId();
-  const stored = await chrome.storage.local.get(['services', GENERATION_MODE_STORAGE_KEY]);
+  const stored = await chrome.storage.local.get(['services', GENERATION_MODE_STORAGE_KEY, FLOW_CONCURRENCY_STORAGE_KEY]);
   return {
     bridgeId,
     services: Array.isArray(stored.services) ? stored.services : [],
     generationMode: stored[GENERATION_MODE_STORAGE_KEY] === 'ui' ? 'ui' : 'api',
+    flowConcurrency: normalizeFlowConcurrency(stored[FLOW_CONCURRENCY_STORAGE_KEY]),
+    maxFlowConcurrency: MAX_FLOW_CONCURRENCY,
   };
 }
 function startPendingPolicyReportRetry() {
@@ -1101,8 +1123,21 @@ async function saveConfig(config) {
       })).filter((s) => s.baseUrl && s.token)
     : [];
   const nextGenerationMode = config.generationMode === 'ui' ? 'ui' : 'api';
-  await chrome.storage.local.set({ services, [GENERATION_MODE_STORAGE_KEY]: nextGenerationMode });
+  const nextConcurrency = normalizeFlowConcurrency(config.flowConcurrency);
+  await chrome.storage.local.set({
+    services,
+    [GENERATION_MODE_STORAGE_KEY]: nextGenerationMode,
+    [FLOW_CONCURRENCY_STORAGE_KEY]: nextConcurrency,
+  });
   generationMode = nextGenerationMode;
+  flowConcurrency = nextConcurrency;
+  flowTasks.setLimit(nextConcurrency);
+}
+
+function normalizeFlowConcurrency(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_FLOW_CONCURRENCY;
+  return Math.min(MAX_FLOW_CONCURRENCY, Math.max(1, n));
 }
 
 function addTaskHistory(entry) {
@@ -1966,7 +2001,7 @@ async function translateImage(task, conn) {
       const state = currentTasks.find((item) => item.assignmentId === task.assignmentId);
       if (state) state.phase = 'generating';
       broadcastTasksChanged();
-      addLog('info', `API translation submitted: ${task.subTaskId}; ${flowTasks.generatingOwners.size}/${FLOW_CONCURRENCY} generating`);
+      addLog('info', `API translation submitted: ${task.subTaskId}; ${flowTasks.generatingOwners.size}/${flowTasks.limit} generating`);
       scheduleLoop(0);
     },
   });
@@ -1989,7 +2024,7 @@ async function runFlowDomTranslation(conn, task) {
   let result = null;
   let lastChannelError = null;
   for (let attempt = 1; attempt <= DOM_PORT_CONNECT_ATTEMPTS; attempt++) {
-    // Re-execution is idempotent: V24 refreshes its listeners without resetting
+    // Re-execution is idempotent: V25 refreshes its listeners without resetting
     // the UI queue, claimed Tile registry, or in-flight request state.
     await chrome.scripting.executeScript({
       target: { tabId: conn.tabId },
@@ -2029,11 +2064,13 @@ const SUBMIT_CLEARED_GRACE_MS = 15000;
 // 提交 = 先挂 ogiZ0b 监听，再真实点击；以「ogiZ0b 真的发出」为提交成功。
 // 没发出且 prompt 还在 → 重点（最多 3 次）；prompt 已被清空说明 Flow 已受理，只延长等待，
 // 绝不重复点击，避免同一张图生成两次。
-async function submitFlowGeneration(tabId, selector, tabUrl) {
+async function submitFlowGeneration(tabId, selector, tabUrl, referenceMediaIds = []) {
   if (!isModernFlowUrl(tabUrl || '')) {
     throw new Error('Flow UI mode requires flow.google.com; open the new Flow and retry');
   }
-  const token = await armModernGenerateMonitor(tabId);
+  const expected = Array.isArray(referenceMediaIds) ? referenceMediaIds.filter((id) => typeof id === 'string' && id) : [];
+  if (!expected.length) addLog('warn', 'Source media id unavailable; generation request will be matched by submit order only');
+  const token = await armModernGenerateMonitor(tabId, { referenceMediaIds: expected });
   let lastError = null;
   for (let attempt = 1; attempt <= SUBMIT_CLICK_ATTEMPTS; attempt++) {
     try {

@@ -14,6 +14,7 @@
 
   const servicesEl = document.getElementById('services');
   const generationModeEl = document.getElementById('generation-mode');
+  const flowConcurrencyEl = document.getElementById('flow-concurrency');
   const btnAddService = document.getElementById('btn-add-service');
   const btnSave = document.getElementById('btn-save');
   const toastEl = document.getElementById('toast');
@@ -409,6 +410,7 @@
     services = config.services || [];
     generationMode = config.generationMode === 'ui' ? 'ui' : 'api';
     generationModeEl.value = generationMode;
+    flowConcurrencyEl.value = String(config.flowConcurrency || 1);
     updateTestModeLabel();
     renderServices();
   }
@@ -450,7 +452,7 @@
   async function saveConfig() {
     const response = await chrome.runtime.sendMessage({
       type: 'SAVE_CONFIG',
-      config: { services, generationMode: generationModeEl.value },
+      config: { services, generationMode: generationModeEl.value, flowConcurrency: Number(flowConcurrencyEl.value) || 1 },
     });
     if (!response?.ok) throw new Error(response?.error || 'Could not save settings');
     generationMode = generationModeEl.value;

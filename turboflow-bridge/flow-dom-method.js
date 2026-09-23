@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  const VERSION = 24;
-  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V24';
+  const VERSION = 25;
+  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V25';
   const previous = window.__turboFlowDomMethod;
   if (previous?.version === VERSION) {
     try { previous.refreshListeners?.(); } catch {}
@@ -397,24 +397,28 @@
     if (!result.success || !uploadConfirmed) {
       throw new Error(result.error || uploadResult?.error || uploadResult || 'Flow upload injection failed');
     }
-    console.log(`[TurboFlow DOM] Upload RPC completed: ${uploadResult?.rpcId || 'legacy'} HTTP ${uploadResult?.httpStatus || 200}`);
+    console.log(`[TurboFlow DOM] Upload RPC completed: ${uploadResult?.rpcId || 'legacy'} HTTP ${uploadResult?.httpStatus || 200} media=${uploadResult?.mediaId || '?'}`);
+    return uploadResult?.mediaId || null;
   }
 
+  // 返回每张源图的 Flow media id，用于在并发时核对 ogiZ0b 请求引用的正是本任务的源图。
   async function uploadAllImages(images, task) {
-    if (!images.length) return true;
+    const mediaIds = [];
+    if (!images.length) return mediaIds;
     // 上传文件名按 assignmentId 唯一生成，素材库里不可能已有同名图；不再预先搜索，
     // 否则每个任务都要白等一次搜索超时。
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
       const name = image.name || `reference_${i + 1}.png`;
       await openPicker(task);
-      await injectUploadThroughPicker(image, name);
+      const mediaId = await injectUploadThroughPicker(image, name);
+      if (mediaId) mediaIds.push(mediaId);
       await waitForUploadedAssetReady(name, task);
       await closePicker(task);
       if (i < images.length - 1) await sleep(FILE_INJECT_GAP_MS);
     }
 
-    return true;
+    return mediaIds;
   }
 
   async function attachOneImage(fileName, task, targetReferenceCount) {
@@ -681,12 +685,12 @@
   // Start generation 只认 isTrusted 点击，el.click() 会被静默忽略。交给 background：
   // 先挂 ogiZ0b 监听，再用 chrome.debugger 真实点击，以请求真的发出为提交成功（必要时重点）。
   // 返回的 generateToken 用于 background 读取本次生成的响应。
-  async function submitPrompt(_task) {
+  async function submitPrompt(_task, referenceMediaIds = []) {
     const button = await waitFor(() =>
       document.querySelector(`${START_GENERATION_SELECTOR}:not(:disabled):not([aria-disabled="true"])`)
     , 10000, 200);
     if (!button) throw new Error('Flow Start generation button did not become enabled');
-    const response = await chrome.runtime.sendMessage({ type: 'FLOW_TRUSTED_SUBMIT', selector: START_GENERATION_SELECTOR });
+    const response = await chrome.runtime.sendMessage({ type: 'FLOW_TRUSTED_SUBMIT', selector: START_GENERATION_SELECTOR, referenceMediaIds });
     if (!response?.ok || !response.generateToken) throw new Error(response?.error || 'Flow generation submit failed');
     return response.generateToken;
   }
@@ -704,7 +708,7 @@
       await applySettings(task);
       await clearAttachedReferences(task);
       await randomDelay(task, 'reference upload');
-      await uploadAllImages(images, task);
+      const referenceMediaIds = await uploadAllImages(images, task);
       await attachAllImages(images, task);
       await requireAttachedReferences(images.length);
       // Once Add to prompt has attached the source image, continue directly:
@@ -713,7 +717,7 @@
       await requireAttachedReferences(images.length);
       const gate = await chrome.runtime.sendMessage({ type: 'FLOW_DOM_BEFORE_SUBMIT' });
       if (!gate?.ok) throw new Error(gate?.error || 'New Flow submissions are paused');
-      return await submitPrompt(task);
+      return await submitPrompt(task, referenceMediaIds);
     });
 
     try {
@@ -731,7 +735,7 @@
   const errorMessage = (error) => error?.message || String(error || 'Unknown Flow page automation error');
 
   const listener = (msg, _sender, sendResponse) => {
-    if (msg.type !== 'RUN_DOM_TRANSLATE_V24') return false;
+    if (msg.type !== 'RUN_DOM_TRANSLATE_V25') return false;
     runDomTranslate(msg.task || {})
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -755,7 +759,7 @@
       requestStates.get(subscribedRequestId)?.ports.delete(port);
     });
     port.onMessage.addListener((msg) => {
-      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V24') return;
+      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V25') return;
       started = true;
       const requestId = msg.requestId || null;
       if (!requestId) {

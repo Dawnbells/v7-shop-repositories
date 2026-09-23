@@ -781,14 +781,15 @@ async function completeModernGeneration(tabId, data, pid) {
 //
 // UI 方式点击 Start generation 后，由 Flow 前端发 ogiZ0b。在 MAIN world 挂一个常驻
 // XHR/fetch 监听，按 token 认领「下一次」ogiZ0b：请求发出即确认提交成功，响应即生成结果。
-// 单线程下同一时刻只有一个待认领 token，不再依赖 DOM Tile 映射结果。
+// 提交串行，同一时刻只有一个待认领 token；并发时再以请求体里引用的源图 media id 核对，
+// 迟到的旧请求不会被下一张认领。不再依赖 DOM Tile 映射结果。
 
-export async function armModernGenerateMonitor(tabId) {
+export async function armModernGenerateMonitor(tabId, { referenceMediaIds = [] } = {}) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
-    func: (rpcId) => {
-      const state = window.__turboFlowGenerateMonitor ||= { entries: new Map(), installed: false };
+    func: (rpcId, expectedMediaIds) => {
+      const state = window.__turboFlowGenerateMonitorV2 ||= { entries: new Map(), installed: false };
       if (!state.installed) {
         state.installed = true;
         const isTarget = (rawUrl) => {
@@ -798,7 +799,18 @@ export async function armModernGenerateMonitor(tabId) {
             return String(rawUrl || '').includes(`rpcids=${rpcId}`);
           }
         };
-        const claim = () => Array.from(state.entries.values()).find((entry) => !entry.sentAt) || null;
+        const bodyText = (body) => {
+          if (typeof body === 'string') return body;
+          if (body instanceof URLSearchParams) return body.toString();
+          return '';
+        };
+        const claim = (body) => {
+          const raw = bodyText(body);
+          let decoded = raw;
+          try { decoded = decodeURIComponent(raw.replace(/\+/g, ' ')); } catch {}
+          return Array.from(state.entries.values()).find((entry) => !entry.sentAt
+            && entry.expected.every((id) => raw.includes(id) || decoded.includes(id))) || null;
+        };
         const markSent = (entry) => {
           entry.sentAt = Date.now();
           entry.resolveSent(true);
@@ -810,7 +822,7 @@ export async function armModernGenerateMonitor(tabId) {
           return originalOpen.call(this, method, url, ...rest);
         };
         XMLHttpRequest.prototype.send = function (...args) {
-          const entry = isTarget(this.__turboFlowGenerateUrl) ? claim() : null;
+          const entry = isTarget(this.__turboFlowGenerateUrl) ? claim(args[0]) : null;
           if (entry) {
             markSent(entry);
             this.addEventListener('loadend', () => {
@@ -824,7 +836,7 @@ export async function armModernGenerateMonitor(tabId) {
         const originalFetch = window.fetch;
         window.fetch = function (...args) {
           const rawUrl = typeof args[0] === 'string' || args[0] instanceof URL ? args[0] : args[0]?.url;
-          const entry = isTarget(rawUrl) ? claim() : null;
+          const entry = isTarget(rawUrl) ? claim(args[1]?.body) : null;
           const request = originalFetch.apply(this, args);
           if (entry) {
             markSent(entry);
@@ -842,13 +854,13 @@ export async function armModernGenerateMonitor(tabId) {
         if (!entry.sentAt) state.entries.delete(key);
       }
       const token = crypto.randomUUID();
-      const entry = { sentAt: 0 };
+      const entry = { sentAt: 0, expected: (expectedMediaIds || []).filter(Boolean) };
       entry.sent = new Promise((resolve) => { entry.resolveSent = resolve; });
       entry.response = new Promise((resolve) => { entry.resolveResponse = resolve; });
       state.entries.set(token, entry);
       return token;
     },
-    args: [RPC_BATCH_GENERATE_IMAGES],
+    args: [RPC_BATCH_GENERATE_IMAGES, referenceMediaIds],
   });
   const token = results?.[0]?.result;
   if (!token) throw new Error('Flow generation monitor could not be installed');
@@ -861,7 +873,7 @@ export async function waitModernGenerateSent(tabId, token, timeoutMs) {
     target: { tabId },
     world: 'MAIN',
     func: async (key, ms) => {
-      const entry = window.__turboFlowGenerateMonitor?.entries.get(key);
+      const entry = window.__turboFlowGenerateMonitorV2?.entries.get(key);
       if (!entry) return { sent: false, lost: true };
       const sent = await Promise.race([entry.sent, new Promise((resolve) => setTimeout(() => resolve(false), ms))]);
       const editor = document.querySelector('.ProseMirror[contenteditable="true"], [data-slate-editor="true"]');
@@ -878,7 +890,7 @@ export async function resolveModernGenerateResponse(tabId, token, { projectId: p
     target: { tabId },
     world: 'MAIN',
     func: async (key, ms) => {
-      const state = window.__turboFlowGenerateMonitor;
+      const state = window.__turboFlowGenerateMonitorV2;
       const entry = state?.entries.get(key);
       if (!entry) return { error: 'Flow generation request was lost after page navigation' };
       try {

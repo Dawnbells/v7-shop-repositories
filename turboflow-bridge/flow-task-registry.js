@@ -5,6 +5,11 @@ export class FlowTaskRegistry {
     this.generatingOwners = new Set();
   }
 
+  // 调小上限不打断已在生成的任务，只是在它们释放前不再放行新提交。
+  setLimit(limit) {
+    this.limit = Math.max(1, Number(limit) || 1);
+  }
+
   get inUse() {
     return this.generatingOwners.size + (this.submissionOwner ? 1 : 0);
   }

@@ -159,7 +159,7 @@ test('submits generation with a trusted click and confirms it by the real ogiZ0b
 
   // 监听先于点击挂好；只有 prompt 仍在时才重点，已清空时只延长等待，避免重复生成。
   const flow = extractFrom(background, 'submitFlowGeneration');
-  assert.ok(flow.indexOf('armModernGenerateMonitor(tabId)') < flow.indexOf('dispatchTrustedClick(tabId, selector)'));
+  assert.ok(flow.indexOf('armModernGenerateMonitor(tabId, { referenceMediaIds: expected })') > 0 && flow.indexOf('armModernGenerateMonitor(tabId, { referenceMediaIds: expected })') < flow.indexOf('dispatchTrustedClick(tabId, selector)'));
   assert.match(flow, /if \(state\.sent\) return token;/);
   assert.match(flow, /if \(state\.promptCleared\) \{[\s\S]*?SUBMIT_CLEARED_GRACE_MS[\s\S]*?throw new Error/);
 });
