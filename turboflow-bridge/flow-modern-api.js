@@ -172,7 +172,11 @@ export function parseBatchexecuteResponse(text, rpcId) {
   if (rpcPayload == null) {
     const status = rpcError?.[0] === 'wrb.fr' ? rpcError?.[5]?.[0] : rpcError?.[2];
     const serverMessage = rpcError?.[0] === 'wrb.fr' ? rpcError?.[5]?.[1] : rpcError?.[3];
-    throw createFlowRpcError(rpcId, status, serverMessage);
+    const errorInfo = rpcError?.[0] === 'wrb.fr'
+      ? rpcError?.[5]?.[2]?.find?.((detail) => detail?.[0] === 'type.googleapis.com/google.rpc.ErrorInfo')
+      : null;
+    const reason = errorInfo?.[1]?.[0];
+    throw createFlowRpcError(rpcId, status, serverMessage || reason);
   }
   if (typeof rpcPayload !== 'string') return rpcPayload;
   try {

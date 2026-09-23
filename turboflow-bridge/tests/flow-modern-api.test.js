@@ -23,6 +23,16 @@ test('rejects an HTTP-200 envelope whose RPC payload is null', () => {
   assert.throws(() => parseBatchexecuteResponse(response, RPC_BATCH_GENERATE_IMAGES), /ogiZ0b/);
 });
 
+test('surfaces Google ErrorInfo reason when the RPC has no message', () => {
+  const response = JSON.stringify([['wrb.fr', RPC_BATCH_GENERATE_IMAGES, null, null, null,
+    [7, null, [['type.googleapis.com/google.rpc.ErrorInfo', ['PUBLIC_ERROR_UNUSUAL_ACTIVITY']]]]]]);
+  assert.throws(() => parseBatchexecuteResponse(response, RPC_BATCH_GENERATE_IMAGES), error => {
+    assert.equal(error.rpcStatus, 7);
+    assert.match(error.message, /PUBLIC_ERROR_UNUSUAL_ACTIVITY/);
+    return true;
+  });
+});
+
 test('decodes all canonical RPC failures with symbolic names and server messages', () => {
   const names = ['CANCELLED', 'UNKNOWN', 'INVALID_ARGUMENT', 'DEADLINE_EXCEEDED',
     'NOT_FOUND', 'ALREADY_EXISTS', 'PERMISSION_DENIED', 'RESOURCE_EXHAUSTED',

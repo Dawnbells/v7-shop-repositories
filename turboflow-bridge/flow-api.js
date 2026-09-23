@@ -391,18 +391,11 @@ export async function ensureFlowProjectOpen(tabId) {
   return await createFlowProjectAndNavigate(tabId);
 }
 
-// Explicit Open Flow action: finish the entire cleanup before creating anything.
-export async function openFreshFlowProject(onProgress) {
-  clearTokenCache();
-  clearProjectIdCache();
+// Explicit Open Flow action: project selection and management stay in the page.
+export async function openFlowHome() {
   const tab = await chrome.tabs.create({ url: FLOW_HOME_URL });
   await waitForTabComplete(tab.id, PAGE_LOAD_TIMEOUT_MS, FLOW_HOME_URL);
-  const cleanup = await deleteAllUserProjects(tab.id, onProgress);
-  if (cleanup.error || cleanup.failed > 0) {
-    throw new Error(cleanup.error || `Failed to delete ${cleanup.failed} Flow project(s)`);
-  }
-  const newProjectId = await createFlowProjectAndNavigate(tab.id);
-  return { tabId: tab.id, projectId: newProjectId };
+  return { tabId: tab.id };
 }
 
 /**

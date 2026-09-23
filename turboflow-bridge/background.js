@@ -7,7 +7,7 @@ import {
   setSessionToken,
   runRecoveryChain,
   deleteAllUserProjects,
-  openFreshFlowProject,
+  openFlowHome,
 } from './flow-api.js';
 import {
   FLOW_TAB_URL_PATTERNS,
@@ -180,6 +180,8 @@ function startConnectionWatchdog() {
     } else {
       const reason = 'Flow tab closed — open Google Flow to resume';
       addLog('warn', '⚠️ ' + reason);
+      // Open Flow 打开页面期间 tab 可能短暂不可用；预取任务由打开动作自行处理。
+      if (!openingFlowPromise) releasePrefetchedTask('Flow tab closed');
       lastStatus = { connected: false, message: reason };
       if (timerId) {
         clearTimeout(timerId);
@@ -317,6 +319,8 @@ function pausePoll(reason, options = {}) {
   pollPaused = true;
   pauseReason = reason;
   pauseReasonCode = options.code || pauseReasonCode || null;
+  // 停止态下预取任务永远启动不了，还给服务端重派。
+  releasePrefetchedTask('bridge stopped');
   nextPollAt = 0;
   if (timerId) {
     clearTimeout(timerId);
@@ -500,33 +504,25 @@ async function stopAndDelete(reason, options = {}) {
   }
 }
 
-function openFlowWithFreshProject() {
+function openFlowForManualProject() {
   if (openingFlowPromise) return openingFlowPromise;
   openingFlowPromise = (async () => {
     if (timerId) clearTimeout(timerId);
     timerId = null;
     nextPollAt = 0;
     broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt: 0 });
-    lastStatus = { connected: false, message: 'Preparing a new Flow project...' };
+    lastStatus = { connected: false, message: 'Opening Flow...' };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus, projectId: null });
-    // Let existing work finish before deleting its project. New work is gated.
+    // Let existing work finish before changing the active Flow tab. New work is gated.
     while (running || currentTasks.length || recoveryPromise || deletingProjects) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    addLog('info', '🧹 Open Flow: deleting all projects before creating a new one');
-    const result = await openFreshFlowProject((progress) => {
-      if (progress.phase === 'start') {
-        addLog('info', `🧹 共 ${progress.total} 个 project 待删除`);
-      } else if (progress.phase === 'progress') {
-        addLog('info', `🧹 删除中: ${progress.current}/${progress.total}（成功 ${progress.deleted} / 失败 ${progress.failed}）`);
-      }
-    });
-    // A prefetched task may still refer to the project that was just deleted.
-    if (prefetchedTask) prefetchedTask.conn = { connected: true, ...result };
+    releasePrefetchedTask('Open Flow awaiting manual project selection');
+    const result = await openFlowHome();
     flowTabAvailable = true;
-    lastStatus = { connected: true, message: 'Connected', projectId: result.projectId };
+    lastStatus = { connected: false, message: 'Flow opened. Create or open a project in Flow.', projectId: null };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
-    addLog('info', `✅ Open Flow: new project ${result.projectId}`);
+    addLog('info', 'Flow opened. Create or select a project manually.');
     return { ok: true, ...result };
   })().catch((error) => {
     lastStatus = { connected: false, message: `Open Flow failed: ${error.message}` };
@@ -535,7 +531,7 @@ function openFlowWithFreshProject() {
     return { ok: false, error: error.message };
   }).finally(() => {
     openingFlowPromise = null;
-    if (lastStatus.connected) scheduleLoop(100);
+    scheduleLoop(100);
   });
   return openingFlowPromise;
 }
@@ -578,12 +574,12 @@ startPendingPolicyReportRetry();
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CHECK_CONNECTION') {
     if (openingFlowPromise) {
-      sendResponse({ connected: false, reason: 'Preparing a new Flow project...' });
+      sendResponse({ connected: false, reason: 'Opening Flow...' });
       return false;
     }
     checkConnection().then((state) => {
       if (openingFlowPromise) {
-        sendResponse({ connected: false, reason: 'Preparing a new Flow project...' });
+        sendResponse({ connected: false, reason: 'Opening Flow...' });
         return;
       }
       lastStatus = { connected: state.connected, message: state.reason || 'Connected', projectId: state.projectId };
@@ -593,7 +589,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'OPEN_FLOW') {
-    openFlowWithFreshProject().then(sendResponse);
+    openFlowForManualProject().then(sendResponse);
     return true;
   }
 
@@ -1173,6 +1169,29 @@ function startPrefetchedTask() {
   return started;
 }
 
+/**
+ * 预取的图还没提交给 Flow，而本 bridge 暂时跑不了它（翻译失败 / 已停止 / Flow tab 关闭）时，
+ * 立即 reportFail 把它还给服务端重派给别的 bridge，不要攥在内存里等 lease 过期。
+ * 不计失败统计、不推进连续失败数 —— 这张图根本没碰过 Google。
+ * 同步摘掉 prefetchedTask，保证之后任何 releaseFlowSlot 都不会再把它启动起来。
+ */
+function releasePrefetchedTask(reason) {
+  if (!prefetchedTask) return false;
+  const { service, task, preparedAt } = prefetchedTask;
+  prefetchedTask = null;
+  broadcastTasksChanged();
+  addLog('warn', `Standby task released for another bridge: ${task.subTaskId} (${reason})`);
+  reportFailWithRetry(service, {
+    bridgeId,
+    assignmentId: task.assignmentId,
+    errorCode: 'PREFETCH_RELEASED',
+    message: `Prefetched task released before submission: ${reason}`,
+    retryable: true,
+    elapsedMs: Date.now() - preparedAt,
+  }).catch((e) => addLog('warn', `Standby release report failed: ${e.message}`));
+  return true;
+}
+
 function releaseFlowSlot(assignmentId) {
   if (!flowTasks.release(assignmentId)) return false;
   if (!startPrefetchedTask()) scheduleLoop(0);
@@ -1224,6 +1243,11 @@ async function runLoop() {
         const prepared = { service, task, conn, preparedAt: Date.now() };
         prefetchedTask = prepared;
         broadcastTasksChanged();
+        // poll 在途时 bridge 可能已经停止 / tab 已关：这张图跑不了，立刻还回去。
+        if (pollPaused || !flowTabAvailable) {
+          releasePrefetchedTask(pollPaused ? 'bridge stopped while polling' : 'Flow tab closed while polling');
+          break;
+        }
         prepared.sourceThumb = await createThumbnail(task.imageBase64, 64);
         addLog('info', `Next image prepared locally: ${task.subTaskId}`);
         broadcastTasksChanged();
@@ -1408,6 +1432,9 @@ async function executeTask(service, task, conn = null) {
       return;
     }
     const errorCode = classifyErrorCode(e);
+    // 翻译失败说明本 bridge 当前状态不可靠：预取的那张图同步还给服务端，让别的 bridge 去跑。
+    // 必须抢在下面任何 await 之前，否则别的任务释放槽位时会先把它启动起来。
+    releasePrefetchedTask(`task ${task.subTaskId} failed [${errorCode}]`);
     // 断连失败要区分「tab 真的没了」和「tab 在却僵死」：前者 watchdog 会在 tab 重开后自动恢复，
     // 不该消耗人工介入配额；后者才是这个阈值要抓的对象。所以当场主动探一次，而不是读缓存的
     // flowTabAvailable —— watchdog 最多有 1 秒延迟，in-flight 任务往往比它先抛错。

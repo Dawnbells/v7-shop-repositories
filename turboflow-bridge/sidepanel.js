@@ -65,12 +65,12 @@
   /* ── Main View ── */
   btnOpenFlow.addEventListener('click', async () => {
     btnOpenFlow.disabled = true;
-    btnOpenFlow.textContent = 'Preparing Flow...';
-    log('info', 'Opening Flow: deleting all projects, then creating a new project');
+    btnOpenFlow.textContent = 'Opening Flow...';
+    log('info', 'Opening Flow');
     try {
       const response = await chrome.runtime.sendMessage({ type: 'OPEN_FLOW' });
-      if (!response?.ok) throw new Error(response?.error || 'Could not prepare Flow');
-      log('info', `New Flow project ready: ${response.projectId}`);
+      if (!response?.ok) throw new Error(response?.error || 'Could not open Flow');
+      log('info', 'Flow opened. Create or select a project manually.');
     } catch (error) {
       log('error', `Open Flow failed: ${error.message}`);
     } finally {

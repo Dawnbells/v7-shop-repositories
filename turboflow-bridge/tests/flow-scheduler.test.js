@@ -10,6 +10,7 @@ function scheduler() {
   let now = 1000;
   let polls = 0;
   const started = [];
+  const failReports = [];
   const registry = new FlowTaskRegistry(4);
   const pacer = new FlowSubmissionPacer({ now: () => now, random: () => 0.5 });
   const context = vm.createContext({
@@ -23,10 +24,12 @@ function scheduler() {
     checkConnection: async () => ({ connected: true }), rotateServices: services => services,
     pollTask: async () => ({ hasTask: true, assignmentId: `task-${++polls}`, imageBase64: 'image' }),
     executeTask: async (_, task) => { started.push(task.assignmentId); },
+    bridgeId: 'bridge',
+    reportFailWithRetry: async (service, payload) => { failReports.push({ service, payload }); },
   });
   vm.runInContext(source.slice(source.indexOf('function getPrefetchedTaskSummary()'),
     source.indexOf('async function pollTask(')), context);
-  return { context, registry, pacer, started, polls: () => polls, time: value => { now = value; },
+  return { context, registry, pacer, started, failReports, polls: () => polls, time: value => { now = value; },
     tick: () => context.runLoop(),
     submit() { registry.acceptSubmission(registry.submissionOwner); pacer.submitted(); },
   };
@@ -71,7 +74,7 @@ test('starts standby immediately when a slot finishes after the global deadline'
   assert.deepEqual(s.started, ['task-1', 'task-2']);
 });
 
-test('Open Flow blocks polling and holds the standby until project cleanup finishes', async () => {
+test('Open Flow blocks polling and releases standby before manual project selection', async () => {
   const s = scheduler();
   await s.tick();
   s.submit();
@@ -83,9 +86,48 @@ test('Open Flow blocks polling and holds the standby until project cleanup finis
   assert.equal(s.polls(), 2);
   assert.deepEqual(s.started, ['task-1']);
   assert.equal(s.context.prefetchedTask.task.assignmentId, 'task-2');
+  s.context.releasePrefetchedTask('Open Flow awaiting manual project selection');
   s.context.openingFlowPromise = null;
-  assert.equal(s.context.startPrefetchedTask(), true);
-  assert.deepEqual(s.started, ['task-1', 'task-2']);
+  assert.equal(s.context.startPrefetchedTask(), false);
+  assert.deepEqual(s.started, ['task-1']);
+});
+
+test('a released standby is failed back to the server and can never start locally', async () => {
+  const s = scheduler();
+  await s.tick();
+  s.submit();
+  await s.tick();
+  assert.equal(s.context.prefetchedTask.task.assignmentId, 'task-2');
+  assert.equal(s.context.releasePrefetchedTask('task sub-1 failed [TIMEOUT]'), true);
+  assert.equal(s.context.prefetchedTask, null);
+  assert.equal(s.failReports.length, 1);
+  assert.equal(s.failReports[0].service.baseUrl, 'server');
+  const { payload } = s.failReports[0];
+  assert.equal(payload.assignmentId, 'task-2');
+  assert.equal(payload.bridgeId, 'bridge');
+  assert.equal(payload.errorCode, 'PREFETCH_RELEASED');
+  assert.equal(payload.retryable, true);
+  assert.match(payload.message, /TIMEOUT/);
+  s.time(10000);
+  s.context.releaseFlowSlot('task-1');
+  assert.deepEqual(s.started, ['task-1']);
+  // Nothing left to release.
+  assert.equal(s.context.releasePrefetchedTask('again'), false);
+  assert.equal(s.failReports.length, 1);
+});
+
+test('a task that arrives after the bridge stopped is returned instead of held', async () => {
+  const s = scheduler();
+  await s.tick();
+  s.submit();
+  s.context.pollTask = async () => {
+    s.context.pollPaused = true;
+    return { hasTask: true, assignmentId: 'late', subTaskId: 'late-sub', imageBase64: 'image' };
+  };
+  await s.tick();
+  assert.equal(s.context.prefetchedTask, null);
+  assert.deepEqual(s.failReports.map(r => r.payload.assignmentId), ['late']);
+  assert.deepEqual(s.started, ['task-1']);
 });
 
 test('draws a 5–10 second deadline only on submission, never on polling or completion', () => {

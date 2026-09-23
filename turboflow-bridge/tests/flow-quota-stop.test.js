@@ -10,8 +10,10 @@ function backgroundStopHarness() {
   const source = readFileSync(new URL('../background.js', import.meta.url), 'utf8');
   const saved = {};
   const events = [];
+  const releases = [];
   const context = vm.createContext({
     ...policy,
+    releasePrefetchedTask: reason => releases.push(reason),
     recoveryState: { consecutiveFailures: 0, consecutiveFlowDisconnects: 0 },
     pollPaused: false, pauseReason: null, pauseReasonCode: null, pausedAt: 0,
     nextPollAt: 1000, timerId: 1, lastStatus: {},
@@ -24,8 +26,15 @@ function backgroundStopHarness() {
   });
   vm.runInContext(source.slice(source.indexOf('function applyFailureStreak('),
     source.indexOf('function resumePoll(')), context);
-  return { context, saved, events };
+  return { context, saved, events, releases };
 }
+
+test('entering the stopped state hands the standby task back to the server', () => {
+  const { context, releases } = backgroundStopHarness();
+  context.applyFailureStreak('increment', { errorCode: 'FLOW_AUTHENTICATION_FAILED' });
+  assert.equal(context.pollPaused, true);
+  assert.deepEqual(releases, ['bridge stopped']);
+});
 
 test('the first RPC 8 persists a quota stop and later concurrent failures cannot overwrite it', () => {
   const { context, saved, events } = backgroundStopHarness();
@@ -173,4 +182,28 @@ test('a submitted task reports completion after another task causes a quota stop
   assert.equal(context.currentTasks.length, 0);
   assert.equal(context.pollPaused, true);
   assert.equal(saved.bridgeStopState.pauseReasonCode, 'FLOW_RESOURCE_EXHAUSTED');
+});
+
+test('a failed translation releases the standby before reporting its own failure', async () => {
+  const { context } = backgroundStopHarness();
+  const source = readFileSync(new URL('../background.js', import.meta.url), 'utf8');
+  const order = [];
+  Object.assign(context, {
+    currentTasks: [], reuseSummary: { count: 0 }, bridgeId: 'bridge',
+    TRANSLATE_TIMEOUT_MS: 300000, POLL_INTERVAL_MS: 500, STAT_FAILED: 'failed',
+    buildPrompt: () => 'translate', ensureDataUrl: value => value,
+    broadcastTasksChanged() {}, createThumbnail: async () => null,
+    imageDigest: async () => 'digest', findImagePolicyFallback: async () => null,
+    translateImage: async () => { throw new Error('translate timeout (300s)'); },
+    runWithTimeout: promise => promise,
+    releaseFlowSlot() {}, recordStat() {}, addTaskHistory() {}, removeCurrentTask() {}, scheduleLoop() {},
+    friendlyErrorMessage: (_code, message) => message,
+    releasePrefetchedTask: reason => order.push(`release:${reason}`),
+    reportFailWithRetry: async (_service, payload) => order.push(`fail:${payload.assignmentId}:${payload.errorCode}`),
+  });
+  vm.runInContext(source.slice(source.indexOf('async function executeTask('), source.indexOf('function runWithTimeout(')), context);
+  await context.executeTask({ baseUrl: 'service' }, {
+    assignmentId: 'active', taskId: 'task', subTaskId: 'sub', imageBase64: 'source',
+  }, {});
+  assert.deepEqual(order, ['release:task sub failed [TIMEOUT]', 'fail:active:TIMEOUT']);
 });
