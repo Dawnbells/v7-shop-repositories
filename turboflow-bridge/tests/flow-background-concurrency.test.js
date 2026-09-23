@@ -68,3 +68,18 @@ test('ships the concurrency registry in the extension package', () => {
   const occurrences = packageScript.match(/'flow-task-registry\.js'/g) || [];
   assert.equal(occurrences.length, 2);
 });
+
+test('Flow UI submissions pace the next upload by the same random 5–10 s gap as the API path', () => {
+  // UI：ogiZ0b 真正发出后页面上报 SUBMITTED，此刻抽取间隔；API：onSubmitted 时抽取。
+  const ui = background.slice(background.indexOf("if (msg.type === 'FLOW_DOM_TRANSLATION_SUBMITTED')"));
+  const accepted = ui.indexOf('flowTasks.acceptSubmission(assignmentId)');
+  const paced = ui.indexOf('submissionPacer.submitted();');
+  const next = ui.indexOf('startPrefetchedTask()');
+  assert.ok(accepted > 0 && paced > accepted && next > paced);
+  assert.match(extractFunction(background, 'translateImage'), /submissionPacer\.submitted\(submittedAt\)/);
+
+  // 任何新任务开始（第一步即上传源图）前都要过同一个间隔闸门。
+  assert.match(extractFunction(background, 'reserveFlowSlotAndExecute'), /submissionPacer\.remainingMs > 0/);
+  const pacer = readFileSync(new URL('../flow-submission-pacer.js', import.meta.url), 'utf8');
+  assert.match(pacer, /at \+ 5000 \+ Math\.min\(1, Math\.max\(0, this\.random\(\)\)\) \* 5000/);
+});
