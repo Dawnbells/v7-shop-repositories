@@ -27,6 +27,9 @@ export function classifyErrorCode(errorOrMessage) {
     ? errorOrMessage
     : errorOrMessage?.message;
   const text = (message || '').toLowerCase();
+  // Flow 风控拒绝：现代接口是 RPC 7 + ErrorInfo PUBLIC_ERROR_UNUSUAL_ACTIVITY，
+  // UI 方式是 Tile 文案 "unusual activity"。与旧接口 403 unusual_activity 一致，按 reCAPTCHA 风控处理。
+  if (text.includes('unusual_activity') || text.includes('unusual activity')) return 'RECAPTCHA_BLOCKED';
   // Classify RPC status before the old generic FLOW_RPC_REJECTED code, also
   // supporting errors restored from logs where custom Error fields were lost.
   const rpcStatus = errorOrMessage?.rpcStatus

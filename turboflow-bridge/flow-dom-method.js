@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  const VERSION = 21;
-  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V21';
+  const VERSION = 24;
+  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V24';
   const previous = window.__turboFlowDomMethod;
   if (previous?.version === VERSION) {
     try { previous.refreshListeners?.(); } catch {}
@@ -23,15 +23,9 @@
   const SEARCH_RETRY_MIN_MS = 1000;
   const SEARCH_RETRY_MAX_MS = 2000;
   const PICKER_TIMEOUT_MS = 8000;
-  const SEARCH_TIMEOUT_MS = 15000;
   const PICKER_CLOSE_TIMEOUT_MS = 8000;
-  const RESULT_TIMEOUT_MS = 180000;
-  const RESULT_SCAN_MS = 1000;
-  const GENERATION_TILE_TIMEOUT_MS = 30000;
   const REQUEST_RESULT_TTL_MS = 2 * 60 * 1000;
   let uiQueueTail = Promise.resolve();
-  const claimedTiles = new WeakSet();
-  const claimedTileKeys = new Map();
   const requestStates = new Map();
 
   async function withUiLock(work) {
@@ -46,13 +40,12 @@
     }
   }
 
+  // Flow 已下线 Imagen 4，模型菜单只剩 Nano Banana Pro / 2 / 2 Lite。
   const MODEL_LABELS = {
     GEM_PIX_2: 'Nano Banana Pro',
     NARWHAL: 'Nano Banana 2',
-    IMAGEN_3_5: 'Imagen 4',
     nano_banana_pro: 'Nano Banana Pro',
     nano_banana2: 'Nano Banana 2',
-    imagen4: 'Imagen 4',
   };
 
   const ASPECT_CONFIG = {
@@ -130,7 +123,35 @@
       cancelable: true,
       composed: true,
     });
-    document.dispatchEvent(event);
+    // CDK overlay 的键盘监听挂在 body 上；派发到 document 冒泡不到，弹层关不掉。
+    (document.activeElement || document.body).dispatchEvent(event);
+  }
+
+  // 按钮文字 = 图标 ligature + 标签（如 "imageImage"），去掉图标部分只留标签。
+  function controlLabel(control) {
+    const text = control?.textContent || '';
+    const iconText = Array.from(control?.querySelectorAll?.('i, mat-icon') || [])
+      .map((icon) => icon.textContent || '')
+      .join('');
+    return (iconText && text.startsWith(iconText) ? text.slice(iconText.length) : text)
+      .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function findAgentModeChip() {
+    return document.querySelector('flow-base-prompt-box button.agent-mode-chip, button.agent-mode-chip');
+  }
+
+  // Agent 模式下 prompt 会进 Agent 对话（默认还要二次确认），不会直接出生成 Tile。
+  async function ensureAgentModeOff() {
+    const chip = findAgentModeChip();
+    if (!chip || chip.getAttribute('aria-pressed') !== 'true') return false;
+    clickDom(chip);
+    const off = await waitFor(() => findAgentModeChip()?.getAttribute('aria-pressed') !== 'true', 3000, 100);
+    if (!off) throw new Error('Flow Agent mode could not be turned off');
+    console.log('[TurboFlow DOM] Agent mode turned off for direct generation');
+    return true;
   }
 
   function setNativeInputValue(input, value) {
@@ -202,10 +223,6 @@
     if (current) return current;
     const images = Array.from(document.querySelectorAll('[data-testid="virtuoso-item-list"] img[alt]'));
     return images.find((img) => String(img.getAttribute('alt') || '').trim().toLowerCase() === target) || null;
-  }
-
-  async function waitForPickerImage(fileName) {
-    return await waitFor(() => findPickerImage(fileName), SEARCH_TIMEOUT_MS, 300);
   }
 
   function pickerAssetRoot(result) {
@@ -325,48 +342,15 @@
     return el?.closest('button, [role="button"]') || el?.parentElement || el;
   }
 
-  async function searchPicker(dialog, fileName, task) {
-    const input = dialog.querySelector('input[aria-label="Search assets"], input[placeholder="Search assets"], input[type="text"]');
-    if (!input) throw new Error('Image picker search input not found');
-    if (task.stealthMode) await sleep(100 + Math.random() * 300);
-    input.focus();
-    setNativeInputValue(input, fileName || '');
-    return await waitForPickerImage(fileName);
-  }
-
-  async function checkImagesInLibrary(fileNames, task) {
-    const found = new Set();
-    let dialog;
-    try {
-      dialog = await openPicker(task);
-    } catch {
-      return found;
-    }
-
-    for (const name of fileNames) {
-      const input = dialog.querySelector('input[type="text"]');
-      if (!input) break;
-      setNativeInputValue(input, '');
-      await sleep(120);
-      const result = await searchPicker(dialog, name, task);
-      if (result) found.add(name);
-      await sleep(200);
-    }
-
-    await closePicker(task);
-    await sleep(300);
-    return found;
-  }
-
   async function clearAttachedReferences(task) {
-    const promptBox = document.querySelector('.base-prompt-box, flow-base-prompt-box');
-    const clearButtons = findAttachedReferenceClearButtons(promptBox);
-    if (!clearButtons.length) {
+    const chips = findAttachedReferenceChips();
+    if (!chips.length) {
       console.log('[TurboFlow DOM] Reference area already clean');
       return false;
     }
-    for (const button of clearButtons) {
-      click(button, task);
+    // 点击 Ingredient chip 本身即移除该参考图。
+    for (const chip of chips) {
+      click(chip, task);
       await sleep(200);
     }
     const cleared = await waitFor(() => attachedReferenceCount() === 0, 5000, 150);
@@ -374,17 +358,15 @@
     return true;
   }
 
-  function findAttachedReferenceClearButtons(promptBox = document.querySelector('.base-prompt-box, flow-base-prompt-box')) {
-    const buttons = Array.from(promptBox?.querySelectorAll('button') || []);
-    return buttons.filter((button) => {
-      if (button.matches('[aria-label="Add ingredients to the prompt box"], [aria-label="Settings trigger"], [aria-label="Start generation"]')) return false;
-      const icon = button.querySelector('i.google-symbols, i, mat-icon');
-      return icon?.textContent?.trim() === 'close';
-    });
+  // 参考图渲染为 flow-image-ingredient-chip > button[aria-label="Ingredient"]（悬浮图标 cancel）。
+  // 不能按 close 图标计数：那是有内容时才出现的 "Clear prompt" 按钮，只写了文字也会出现。
+  function findAttachedReferenceChips(promptBox = document.querySelector('.base-prompt-box, flow-base-prompt-box')) {
+    const chips = Array.from(promptBox?.querySelectorAll('flow-image-ingredient-chip button, button[aria-label="Ingredient"]') || []);
+    return Array.from(new Set(chips));
   }
 
   function attachedReferenceCount() {
-    return findAttachedReferenceClearButtons().length;
+    return findAttachedReferenceChips().length;
   }
 
   async function requireAttachedReferences(expectedCount) {
@@ -420,21 +402,16 @@
 
   async function uploadAllImages(images, task) {
     if (!images.length) return true;
-    const names = images.map((image, index) => image.name || `reference_${index + 1}.png`);
-    const alreadyInLibrary = await checkImagesInLibrary(names, task);
-    const missingCount = images.length - alreadyInLibrary.size;
-    let injected = 0;
-
+    // 上传文件名按 assignmentId 唯一生成，素材库里不可能已有同名图；不再预先搜索，
+    // 否则每个任务都要白等一次搜索超时。
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
-      const name = names[i];
-      if (alreadyInLibrary.has(name)) continue;
+      const name = image.name || `reference_${i + 1}.png`;
       await openPicker(task);
       await injectUploadThroughPicker(image, name);
-      injected++;
       await waitForUploadedAssetReady(name, task);
       await closePicker(task);
-      if (injected < missingCount) await sleep(FILE_INJECT_GAP_MS);
+      if (i < images.length - 1) await sleep(FILE_INJECT_GAP_MS);
     }
 
     return true;
@@ -531,24 +508,18 @@
       '[aria-label]',
       '[title]',
     ].join(',')) || []);
-    const settingControlText = (control) => [
-      control?.textContent,
-      control?.getAttribute?.('aria-label'),
-      control?.getAttribute?.('title'),
-      control?.getAttribute?.('data-value'),
-      control?.getAttribute?.('value'),
-    ].filter(Boolean).join(' ').replace(/\s+/g, '').toLowerCase();
     const clickableSettingControl = (control) => control?.matches?.('button, [role="radio"], [role="tab"], [role="menuitem"]')
       ? control
       : control?.closest?.('button, [role="radio"], [role="tab"], [role="menuitem"]') || control;
+    const controlIcons = (control) => Array.from(control?.querySelectorAll?.('i, mat-icon') || [])
+      .map((icon) => (icon.textContent || '').trim());
+    // 只在叶子选项（radio / button）里找，并按标签或图标精确匹配。按 textContent 包含匹配时，
+    // 会先命中包住全部 5 个比例的外层容器（文本含所有比例），点击无效且无选中状态。
     const findAspectControl = (root) => {
-      const icon = aspect.icon.toLowerCase();
-      const label = aspect.label.replace(/\s+/g, '').toLowerCase();
-      const match = settingControls(root).find((control) => {
-        const text = settingControlText(control);
-        return text.includes(icon) || text.includes(label);
-      });
-      return clickableSettingControl(match);
+      const options = Array.from(root?.querySelectorAll('[role="radio"], [role="tab"], button') || []);
+      return options.find((control) => controlLabel(control) === aspect.label)
+        || options.find((control) => controlIcons(control).includes(aspect.icon))
+        || null;
     };
     const visibleOverlayPanes = () => Array.from(new Set(document.querySelectorAll([
       '.cdk-overlay-pane',
@@ -587,14 +558,19 @@
       throw new Error(`Flow settings panel did not open after 3 attempts (aria-expanded=${lastTriggerState})`);
     }
 
-    const imageTab = settingControls(settingsPanel)
+    const isSelected = (control) => control?.getAttribute('aria-checked') === 'true'
+      || control?.getAttribute('aria-selected') === 'true'
+      || control?.getAttribute('data-state') === 'active';
+    // Image / Video 切换按钮的 textContent 是 "imageImage"，按去掉图标后的标签精确匹配。
+    const findImageTab = () => settingControls(findSettingsPanel() || settingsPanel)
       .map(clickableSettingControl)
-      .find((button) => /(^|\s)Image(\s|$)/i.test((button?.textContent || '').trim()));
-    if (imageTab && imageTab.getAttribute('aria-checked') !== 'true'
-        && imageTab.getAttribute('aria-selected') !== 'true'
-        && imageTab.getAttribute('data-state') !== 'active') {
+      .find((button) => controlLabel(button).toLowerCase() === 'image');
+    const imageTab = findImageTab();
+    if (imageTab && !isSelected(imageTab)) {
       clickDom(imageTab);
-      await sleep(400);
+      if (!await waitFor(() => isSelected(findImageTab()), 3000, 100)) {
+        throw new Error('Flow Image generation tab was not selected');
+      }
     }
 
     const findAspectTab = () => findAspectControl(findSettingsPanel() || settingsPanel);
@@ -606,31 +582,23 @@
     // Flow remembers the previous task's setting. Re-click the best matching
     // aspect ratio for every source image so a stale selection cannot leak
     // into the next translation.
-    clickDom(aspectTab);
-    const aspectSelected = await waitFor(() => {
-      const current = findAspectTab();
-      if (!current) return false;
-      const exposesSelectionState = current.hasAttribute('aria-checked')
-        || current.hasAttribute('aria-selected')
-        || current.hasAttribute('data-state');
-      if (!exposesSelectionState) return true;
-      return current.getAttribute('aria-checked') === 'true'
-        || current.getAttribute('aria-selected') === 'true'
-        || current.getAttribute('data-state') === 'active';
-    }, 3000, 100);
+    if (!isSelected(aspectTab)) clickDom(aspectTab);
+    // 必须看到明确的选中状态；不暴露状态的元素不算选中，避免误报成功。
+    const aspectSelected = await waitFor(() => isSelected(findAspectTab()), 3000, 100);
     if (!aspectSelected) {
       throw new Error(`Flow aspect ratio was not selected: ${aspect.label}`);
     }
     console.log(`[TurboFlow DOM] Aspect ratio reselected for this task: ${aspect.label}`);
 
-    const countTab = settingControls(findSettingsPanel() || settingsPanel)
-      .map(clickableSettingControl)
-      .find((button) => (button?.textContent || '').trim() === 'x1');
-    if (countTab && countTab.getAttribute('aria-checked') !== 'true'
-        && countTab.getAttribute('aria-selected') !== 'true'
-        && countTab.getAttribute('data-state') !== 'active') {
+    const findCountTab = () => Array.from((findSettingsPanel() || settingsPanel)
+      ?.querySelectorAll('[role="radio"], [role="tab"], button') || [])
+      .find((button) => controlLabel(button) === 'x1');
+    const countTab = findCountTab();
+    if (countTab && !isSelected(countTab)) {
       clickDom(countTab);
-      await sleep(300);
+      if (!await waitFor(() => isSelected(findCountTab()), 3000, 100)) {
+        throw new Error('Flow output count x1 was not selected');
+      }
     }
 
     const modelLabel = MODEL_LABELS[settings.model] || MODEL_LABELS.NARWHAL;
@@ -640,9 +608,10 @@
     if (modelTrigger) {
       clickDom(modelTrigger);
       await sleep(500);
+      // 精确匹配：includes 会让 "Nano Banana 2" 命中 "Nano Banana 2 Lite"。
       const modelOption = Array.from(document.querySelectorAll('[role="menuitem"]'))
-        .find((option) => (option.textContent || '').includes(modelLabel))
-        || xPath(`//div[@role='menuitem']//button[.//span[contains(normalize-space(text()),'${modelLabel}')]]`);
+        .find((option) => controlLabel(option) === modelLabel)
+        || xPath(`//div[@role='menuitem']//button[.//span[normalize-space(text())='${modelLabel}']]`);
       if (modelOption) {
         clickDom(modelOption);
         await sleep(400);
@@ -660,6 +629,11 @@
         pressEscape();
         await waitFor(() => !findSettingsPanel(), 2000, 100);
       }
+    }
+    // 面板关闭后，触发按钮上显示的是当前生效的比例图标（如 crop_9_16），再核对一次。
+    const appliedTrigger = findSettingsTrigger();
+    if (appliedTrigger && !controlIcons(appliedTrigger).includes(aspect.icon)) {
+      throw new Error(`Flow aspect ratio did not apply: expected ${aspect.label}, trigger shows ${controlIcons(appliedTrigger).join(' ')}`);
     }
     return true;
   }
@@ -702,225 +676,19 @@
     if (!await fastInjectPrompt(prompt)) throw new Error('Prompt injection failed');
   }
 
-  async function submitPrompt(task) {
+  const START_GENERATION_SELECTOR = 'button[aria-label="Start generation"]';
+
+  // Start generation 只认 isTrusted 点击，el.click() 会被静默忽略。交给 background：
+  // 先挂 ogiZ0b 监听，再用 chrome.debugger 真实点击，以请求真的发出为提交成功（必要时重点）。
+  // 返回的 generateToken 用于 background 读取本次生成的响应。
+  async function submitPrompt(_task) {
     const button = await waitFor(() =>
-      document.querySelector('button[aria-label="Start generation"]:not(:disabled):not([aria-disabled="true"])')
-      || xPath("(//button[.//i[normalize-space()='arrow_forward'] and not(@disabled) and not(@aria-disabled='true')])[last()]")
+      document.querySelector(`${START_GENERATION_SELECTOR}:not(:disabled):not([aria-disabled="true"])`)
     , 10000, 200);
-    if (!button) return false;
-    click(button, task);
-    return true;
-  }
-
-  function resultImages(scope = document) {
-    return Array.from(scope.querySelectorAll(
-      'img[alt="Tile displaying a user\'s image"][data-media-id], '
-      + 'flow-grid-tile-container img[data-media-id], '
-      + 'img[src*="media.getMediaUrlRedirect"], '
-      + 'img[src*="flow-content.google/image/"], '
-      + 'img[src*="flow.google.com/asb/"]',
-    ));
-  }
-
-  function resultImageKey(img) {
-    return img?.getAttribute('data-media-id') || img?.currentSrc || img?.src || '';
-  }
-
-  function snapshotImageIds() {
-    const ids = new Set();
-    resultImages().forEach((img) => {
-      const id = resultImageKey(img);
-      if (id) ids.add(id);
-    });
-    return ids;
-  }
-
-  function generationTiles() {
-    const currentTiles = Array.from(document.querySelectorAll('flow-grid-tile-container'));
-    if (currentTiles.length) return currentTiles;
-    return Array.from(document.querySelectorAll('[data-tile-id]'));
-  }
-
-  function snapshotGenerationTiles() {
-    const tiles = generationTiles();
-    return {
-      elements: new Set(tiles),
-      stableKeys: new Set(tiles.map(tileStableKey).filter(Boolean)),
-    };
-  }
-
-  function tileStableKey(tile) {
-    if (!tile) return '';
-    for (const name of ['data-tile-id', 'data-generation-id', 'data-workflow-id', 'data-id', 'id']) {
-      const value = tile.getAttribute?.(name);
-      if (value) return `${name}:${value}`;
-    }
-    return '';
-  }
-
-  function tileAnchor(tile) {
-    return tile?.closest('.virtual-item-container, .tile-row') || tile?.parentElement || null;
-  }
-
-  function tilePositionInAnchor(tile, anchor) {
-    if (!tile || !anchor) return 0;
-    const tiles = Array.from(anchor.querySelectorAll('flow-grid-tile-container, [data-tile-id]'));
-    const position = tiles.indexOf(tile);
-    return position >= 0 ? position : 0;
-  }
-
-  function tileLabel(tile) {
-    return tile?.getAttribute('aria-label') || tile?.getAttribute('title') || '';
-  }
-
-  function createTileClaim(tile, preSubmitImageIds, assignmentId) {
-    if (!tile || claimedTiles.has(tile)) return null;
-    const tileKey = tileStableKey(tile);
-    if (tileKey && claimedTileKeys.has(tileKey)) return null;
-    claimedTiles.add(tile);
-    if (assignmentId) tile.setAttribute('data-turboflow-assignment-id', assignmentId);
-    if (tileKey) claimedTileKeys.set(tileKey, assignmentId || tileKey);
-    const anchor = tileAnchor(tile);
-    return {
-      tile,
-      tileKey,
-      anchor,
-      anchorKey: tileStableKey(anchor),
-      position: tilePositionInAnchor(tile, anchor),
-      label: tileLabel(tile),
-      assignmentId: assignmentId || '',
-      preSubmitImageIds,
-    };
-  }
-
-  function findClaimReplacement(claim) {
-    const tiles = generationTiles();
-    const eligible = (tile) => {
-      const owner = tile.getAttribute('data-turboflow-assignment-id');
-      return !owner || !claim.assignmentId || owner === claim.assignmentId;
-    };
-    if (claim.assignmentId) {
-      const marked = tiles.filter((tile) =>
-        tile.getAttribute('data-turboflow-assignment-id') === claim.assignmentId);
-      if (marked.length === 1) return marked[0];
-    }
-    if (claim.tileKey) {
-      const keyed = tiles.filter((tile) => eligible(tile) && tileStableKey(tile) === claim.tileKey);
-      if (keyed.length === 1) return keyed[0];
-    }
-    if (claim.anchorKey && claim.label) {
-      const anchored = tiles.filter((tile) =>
-        eligible(tile)
-        && tileStableKey(tileAnchor(tile)) === claim.anchorKey
-        && tileLabel(tile) === claim.label);
-      if (anchored.length === 1) return anchored[0];
-    }
-    if (claim.label) {
-      const labelled = tiles.filter((tile) => eligible(tile) && tileLabel(tile) === claim.label);
-      if (labelled.length === 1) return labelled[0];
-    }
-    return null;
-  }
-
-  function findTileError(tile) {
-    if (!tile) return null;
-    const icons = Array.from(tile.querySelectorAll('i')).map((icon) => icon.textContent.trim());
-    if (!icons.includes('warning')) return null;
-    if (Array.from(tile.querySelectorAll('a[href]')).some((a) => {
-      const href = a.getAttribute('href') || '';
-      return href.includes('/faq') || href.includes('/policies') || href.includes('policy');
-    })) return 'Prompt flagged by content policy';
-    if (icons.includes('refresh')) return 'Generation failed - Flow encountered an error';
-    return 'Generation error detected';
-  }
-
-  async function imageToDataUrl(src) {
-    return await new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve(null), 30000);
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
-          canvas.getContext('2d').drawImage(img, 0, 0);
-          clearTimeout(timeout);
-          resolve(canvas.toDataURL('image/png'));
-        } catch {
-          clearTimeout(timeout);
-          resolve(null);
-        }
-      };
-      img.onerror = () => {
-        clearTimeout(timeout);
-        resolve(null);
-      };
-      img.src = src;
-    });
-  }
-
-  async function claimGenerationTile(preSubmitTiles, preSubmitImageIds, assignmentId) {
-    const started = Date.now();
-    while (Date.now() - started < GENERATION_TILE_TIMEOUT_MS) {
-      const newTiles = generationTiles().filter((tile) => {
-        if (claimedTiles.has(tile) || preSubmitTiles.elements.has(tile)) return false;
-        const key = tileStableKey(tile);
-        return !key || (!preSubmitTiles.stableKeys.has(key) && !claimedTileKeys.has(key));
-      });
-      if (newTiles.length > 1) {
-        throw new Error(`Flow created ${newTiles.length} unclaimed generation tiles; refusing ambiguous result mapping`);
-      }
-      const newTile = newTiles[0];
-      if (newTile) {
-        const error = findTileError(newTile);
-        if (error) throw new Error(error);
-        const claim = createTileClaim(newTile, preSubmitImageIds, assignmentId);
-        if (claim) return claim;
-      }
-      await sleep(200);
-    }
-    throw new Error('Flow did not create a generation tile after submit');
-  }
-
-  async function waitForGeneratedImage(claim) {
-    const started = Date.now();
-    while (Date.now() - started < RESULT_TIMEOUT_MS) {
-      if (!claim.tile?.isConnected) {
-        const replacement = findClaimReplacement(claim);
-        if (replacement) {
-          const replacementOwner = replacement.getAttribute?.('data-turboflow-assignment-id');
-          if (replacementOwner && claim.assignmentId && replacementOwner !== claim.assignmentId) {
-            throw new Error(`Replacement Flow tile belongs to ${replacementOwner}, not ${claim.assignmentId}`);
-          }
-          claim.tile = replacement;
-          claimedTiles.add(replacement);
-          if (claim.assignmentId) {
-            replacement.setAttribute('data-turboflow-assignment-id', claim.assignmentId);
-          }
-        }
-        if (!claim.tile?.isConnected) {
-          await sleep(RESULT_SCAN_MS);
-          continue;
-        }
-      }
-      const claimedAssignment = claim.tile.getAttribute?.('data-turboflow-assignment-id');
-      if (claimedAssignment && claim.assignmentId && claimedAssignment !== claim.assignmentId) {
-        throw new Error(`Claimed Flow tile changed owner from ${claim.assignmentId} to ${claimedAssignment}`);
-      }
-      const error = findTileError(claim.tile);
-      if (error) throw new Error(error);
-      for (const img of resultImages(claim.tile)) {
-        const id = resultImageKey(img);
-        if (!id || claim.preSubmitImageIds.has(id)) continue;
-        if (img?.src) {
-          const resultDataUrl = await imageToDataUrl(img.src);
-          return { resultUrl: img.src, resultDataUrl };
-        }
-      }
-      await sleep(RESULT_SCAN_MS);
-    }
-    throw new Error('Timed out waiting for generated image tile');
+    if (!button) throw new Error('Flow Start generation button did not become enabled');
+    const response = await chrome.runtime.sendMessage({ type: 'FLOW_TRUSTED_SUBMIT', selector: START_GENERATION_SELECTOR });
+    if (!response?.ok || !response.generateToken) throw new Error(response?.error || 'Flow generation submit failed');
+    return response.generateToken;
   }
 
   async function runDomTranslate(task) {
@@ -931,7 +699,8 @@
       mimeType: task.mimeType || 'image/png',
     }];
 
-    const claim = await withUiLock(async () => {
+    const generateToken = await withUiLock(async () => {
+      await ensureAgentModeOff();
       await applySettings(task);
       await clearAttachedReferences(task);
       await randomDelay(task, 'reference upload');
@@ -942,14 +711,11 @@
       // write the translation prompt, verify the reference, and submit.
       await injectPrompt(task.prompt || '');
       await requireAttachedReferences(images.length);
-      const preSubmitTiles = snapshotGenerationTiles();
-      const preSubmitImageIds = snapshotImageIds();
-      if (!await submitPrompt(task)) throw new Error('Submit failed');
-      return await claimGenerationTile(preSubmitTiles, preSubmitImageIds, task.assignmentId || '');
+      const gate = await chrome.runtime.sendMessage({ type: 'FLOW_DOM_BEFORE_SUBMIT' });
+      if (!gate?.ok) throw new Error(gate?.error || 'New Flow submissions are paused');
+      return await submitPrompt(task);
     });
 
-    // The serial UI section is complete and this request now owns one exact
-    // Flow tile. Background may submit the next task while this tile generates.
     try {
       await chrome.runtime.sendMessage({
         type: 'FLOW_DOM_TRANSLATION_SUBMITTED',
@@ -957,13 +723,15 @@
       });
     } catch {}
 
-    return await waitForGeneratedImage(claim);
+    // 页面职责到此为止：生成结果由 background 从 ogiZ0b 响应解析并下载，
+    // 不再从 Tile 网格猜测（网格重渲染会让旧 Tile 看起来像新 Tile）。
+    return { generateToken };
   }
 
   const errorMessage = (error) => error?.message || String(error || 'Unknown Flow page automation error');
 
   const listener = (msg, _sender, sendResponse) => {
-    if (msg.type !== 'RUN_DOM_TRANSLATE_V21') return false;
+    if (msg.type !== 'RUN_DOM_TRANSLATE_V24') return false;
     runDomTranslate(msg.task || {})
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -987,7 +755,7 @@
       requestStates.get(subscribedRequestId)?.ports.delete(port);
     });
     port.onMessage.addListener((msg) => {
-      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V21') return;
+      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V24') return;
       started = true;
       const requestId = msg.requestId || null;
       if (!requestId) {

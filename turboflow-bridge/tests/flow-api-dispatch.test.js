@@ -10,7 +10,20 @@ for (const modern of [true, false]) {
     globalThis.document = { documentElement: { lang: 'en' } };
     const pending = [];
     const submitted = [];
-    globalThis.fetch = () => new Promise(resolve => pending.push(resolve));
+    const rpcCalls = [];
+    globalThis.fetch = (url, options) => {
+      if (modern) {
+        const rpcId = new URL(url).searchParams.get('rpcids');
+        rpcCalls.push({ rpcId, envelope: JSON.parse(new URLSearchParams(options.body).get('f.req')) });
+        if (rpcId === 'nzlxg') {
+          return Promise.resolve({
+            ok: true,
+            text: async () => JSON.stringify([['wrb.fr', 'nzlxg', '[1050,1,2,2,null,1050]']]),
+          });
+        }
+      }
+      return new Promise(resolve => pending.push(resolve));
+    };
     globalThis.chrome = {
       tabs: { get: async () => ({ url: modern ? 'https://flow.google.com/project/test' : 'https://labs.google/fx/tools/flow/project/test' }) },
       scripting: { executeScript: async ({ func, args = [] }) => [{
@@ -26,6 +39,15 @@ for (const modern of [true, false]) {
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(submitted.length, 4);
     assert.equal(pending.length, 4);
+    if (modern) {
+      assert.deepEqual(rpcCalls.map(call => call.rpcId), [
+        'nzlxg', 'nzlxg', 'nzlxg', 'nzlxg',
+        'ogiZ0b', 'ogiZ0b', 'ogiZ0b', 'ogiZ0b',
+      ]);
+      for (const call of rpcCalls.filter(call => call.rpcId === 'nzlxg')) {
+        assert.deepEqual(JSON.parse(call.envelope[0][0][1]), []);
+      }
+    }
     assert.equal(settled, 0);
     assert.equal(window.__turboFlowRequests.size, 4);
     for (const i of [3, 1, 0, 2]) {

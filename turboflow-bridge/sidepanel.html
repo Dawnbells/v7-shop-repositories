@@ -110,9 +110,16 @@
         </svg>
         Back
       </button>
-      <h1>Server Settings</h1>
+      <h1>Settings</h1>
     </header>
     <div class="page-body">
+      <div class="settings-field">
+        <label for="generation-mode">Generation method</label>
+        <select id="generation-mode">
+          <option value="api">API</option>
+          <option value="ui">Flow UI</option>
+        </select>
+      </div>
       <div id="services"></div>
       <div class="btn-group">
         <button id="btn-add-service" class="secondary">+ Add Service</button>

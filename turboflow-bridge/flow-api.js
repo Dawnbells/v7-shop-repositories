@@ -14,6 +14,7 @@ import {
 } from './flow-sites.js';
 import {
   RPC_BATCH_GENERATE_IMAGES,
+  RPC_EDITOR_INPUT_FOCUS,
   RPC_GET_PROJECT_CONTENTS,
   RPC_GET_MEDIA_URL,
   RPC_UPLOAD_IMAGE,
@@ -737,7 +738,21 @@ async function generateWithModernFlow(tabId, options) {
     seed,
   });
   options.beforeSubmit?.();
+  await callModernFlowRpc(tabId, RPC_EDITOR_INPUT_FOCUS, []);
   const data = await callModernFlowRpc(tabId, RPC_BATCH_GENERATE_IMAGES, payload, options.onSubmitted);
+  const generated = await completeModernGeneration(tabId, data, options.pid);
+  return {
+    fifeUrl: generated.fifeUrl,
+    mediaId: generated.mediaId,
+    workflowId: generated.workflowId,
+    batchId,
+    seed,
+    raw: data,
+  };
+}
+
+// BatchGenerateImages 可能只返回 workflow；轮询项目内容直到 primaryMediaId 发布。
+async function completeModernGeneration(tabId, data, pid) {
   let generated = extractModernGenerationResult(data);
   if (!generated.mediaId && generated.workflowId) {
     const deadline = Date.now() + 120000;
@@ -746,7 +761,7 @@ async function generateWithModernFlow(tabId, options) {
       const contents = await callModernFlowRpc(
         tabId,
         RPC_GET_PROJECT_CONTENTS,
-        buildModernGetProjectContentsRequest(options.pid),
+        buildModernGetProjectContentsRequest(pid),
       );
       const polled = extractProjectGenerationResult(contents, generated.workflowId);
       generated = { ...generated, ...polled };
@@ -759,14 +774,145 @@ async function generateWithModernFlow(tabId, options) {
         : 'Flow BatchGenerateImages returned neither media nor workflow',
     );
   }
-  return {
-    fifeUrl: generated.fifeUrl,
-    mediaId: generated.mediaId,
-    workflowId: generated.workflowId,
-    batchId,
-    seed,
-    raw: data,
-  };
+  return generated;
+}
+
+// ── UI 方式：监听 Flow 页面自己发出的 BatchGenerateImages ─────────────
+//
+// UI 方式点击 Start generation 后，由 Flow 前端发 ogiZ0b。在 MAIN world 挂一个常驻
+// XHR/fetch 监听，按 token 认领「下一次」ogiZ0b：请求发出即确认提交成功，响应即生成结果。
+// 单线程下同一时刻只有一个待认领 token，不再依赖 DOM Tile 映射结果。
+
+export async function armModernGenerateMonitor(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: (rpcId) => {
+      const state = window.__turboFlowGenerateMonitor ||= { entries: new Map(), installed: false };
+      if (!state.installed) {
+        state.installed = true;
+        const isTarget = (rawUrl) => {
+          try {
+            return (new URL(String(rawUrl || ''), location.href).searchParams.get('rpcids') || '').split(',').includes(rpcId);
+          } catch {
+            return String(rawUrl || '').includes(`rpcids=${rpcId}`);
+          }
+        };
+        const claim = () => Array.from(state.entries.values()).find((entry) => !entry.sentAt) || null;
+        const markSent = (entry) => {
+          entry.sentAt = Date.now();
+          entry.resolveSent(true);
+        };
+        const originalOpen = XMLHttpRequest.prototype.open;
+        const originalSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+          this.__turboFlowGenerateUrl = String(url || '');
+          return originalOpen.call(this, method, url, ...rest);
+        };
+        XMLHttpRequest.prototype.send = function (...args) {
+          const entry = isTarget(this.__turboFlowGenerateUrl) ? claim() : null;
+          if (entry) {
+            markSent(entry);
+            this.addEventListener('loadend', () => {
+              let text = '';
+              try { text = this.responseText || ''; } catch {}
+              entry.resolveResponse({ status: this.status, text });
+            }, { once: true });
+          }
+          return originalSend.apply(this, args);
+        };
+        const originalFetch = window.fetch;
+        window.fetch = function (...args) {
+          const rawUrl = typeof args[0] === 'string' || args[0] instanceof URL ? args[0] : args[0]?.url;
+          const entry = isTarget(rawUrl) ? claim() : null;
+          const request = originalFetch.apply(this, args);
+          if (entry) {
+            markSent(entry);
+            Promise.resolve(request).then(async (response) => {
+              let text = '';
+              try { text = await response.clone().text(); } catch {}
+              entry.resolveResponse({ status: response.status, text });
+            }).catch((error) => entry.resolveResponse({ status: 0, text: '', error: error.message }));
+          }
+          return request;
+        };
+      }
+      // 上一张若残留未发出的 token，作废，保证只认领本次点击触发的请求。
+      for (const [key, entry] of state.entries) {
+        if (!entry.sentAt) state.entries.delete(key);
+      }
+      const token = crypto.randomUUID();
+      const entry = { sentAt: 0 };
+      entry.sent = new Promise((resolve) => { entry.resolveSent = resolve; });
+      entry.response = new Promise((resolve) => { entry.resolveResponse = resolve; });
+      state.entries.set(token, entry);
+      return token;
+    },
+    args: [RPC_BATCH_GENERATE_IMAGES],
+  });
+  const token = results?.[0]?.result;
+  if (!token) throw new Error('Flow generation monitor could not be installed');
+  return token;
+}
+
+/** 等待本 token 对应的 ogiZ0b 发出；返回 { sent, promptCleared }。 */
+export async function waitModernGenerateSent(tabId, token, timeoutMs) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async (key, ms) => {
+      const entry = window.__turboFlowGenerateMonitor?.entries.get(key);
+      if (!entry) return { sent: false, lost: true };
+      const sent = await Promise.race([entry.sent, new Promise((resolve) => setTimeout(() => resolve(false), ms))]);
+      const editor = document.querySelector('.ProseMirror[contenteditable="true"], [data-slate-editor="true"]');
+      return { sent: !!sent, promptCleared: !(editor?.textContent || '').trim() };
+    },
+    args: [token, timeoutMs],
+  });
+  return results?.[0]?.result || { sent: false, lost: true };
+}
+
+/** 等 ogiZ0b 响应并解析为可下载的译图（dataUrl）。RPC 拒绝按原错误抛出。 */
+export async function resolveModernGenerateResponse(tabId, token, { projectId: pid, timeoutMs = 180000 } = {}) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async (key, ms) => {
+      const state = window.__turboFlowGenerateMonitor;
+      const entry = state?.entries.get(key);
+      if (!entry) return { error: 'Flow generation request was lost after page navigation' };
+      try {
+        return await Promise.race([
+          entry.response,
+          new Promise((resolve) => setTimeout(() => resolve({ error: `Flow generation response timed out (${ms / 1000}s)` }), ms)),
+        ]);
+      } finally {
+        state.entries.delete(key);
+      }
+    },
+    args: [token, timeoutMs],
+  });
+  const response = results?.[0]?.result;
+  if (!response) throw new Error('Flow generation response could not be read');
+  if (response.error) throw new Error(response.error);
+  if (response.status === 401) {
+    throw Object.assign(new Error('Flow BOQ authentication failed: HTTP 401'), { code: 'FLOW_AUTHENTICATION_FAILED', httpStatus: 401 });
+  }
+  if (response.status === 403 || response.status === 429) {
+    const error = createFlowRpcError(RPC_BATCH_GENERATE_IMAGES, response.status === 429 ? 8 : 7, `HTTP ${response.status}`);
+    error.httpStatus = response.status;
+    throw error;
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Flow generation HTTP ${response.status}: ${String(response.text || '').slice(0, 300)}`);
+  }
+  const data = parseBatchexecuteResponse(response.text, RPC_BATCH_GENERATE_IMAGES);
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const generated = await completeModernGeneration(tabId, data, pid);
+  const imageUrl = await resolveFlowImageUrl(tabId, generated, tab?.url || flowTabUrl);
+  if (!imageUrl) throw new Error('Flow generation finished without a downloadable image');
+  const image = imageUrl.startsWith('data:') ? { dataUrl: imageUrl } : await fetchImageAsBase64(tabId, imageUrl);
+  return { resultDataUrl: image.dataUrl, resultUrl: imageUrl.startsWith('data:') ? null : imageUrl, mediaId: generated.mediaId };
 }
 
 export function buildPolicyFallbackCompletion({

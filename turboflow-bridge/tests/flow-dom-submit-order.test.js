@@ -6,7 +6,7 @@ const source = readFileSync(new URL('../flow-dom-method.js', import.meta.url), '
 
 test('attaches the source image before writing and submitting the translation prompt', () => {
   const start = source.indexOf('await attachAllImages(images, task);');
-  const end = source.indexOf("if (!await submitPrompt(task)) throw new Error('Submit failed');", start);
+  const end = source.indexOf("return await submitPrompt(task);", start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
 
@@ -18,7 +18,7 @@ test('attaches the source image before writing and submitting the translation pr
 
 test('does not add artificial waits between Add to prompt and generation submit', () => {
   const start = source.indexOf('await attachAllImages(images, task);');
-  const end = source.indexOf("if (!await submitPrompt(task)) throw new Error('Submit failed');", start);
+  const end = source.indexOf("return await submitPrompt(task);", start);
   const pipeline = source.slice(start, end);
 
   assert.doesNotMatch(pipeline, /randomDelay\s*\(/);

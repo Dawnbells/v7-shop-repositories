@@ -11,7 +11,8 @@
     "tabs",
     "activeTab",
     "cookies",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "host_permissions": [
     "https://labs.google/*",

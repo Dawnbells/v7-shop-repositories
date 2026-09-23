@@ -1,17 +1,20 @@
 import {
   checkConnection,
   buildPolicyFallbackCompletion,
-  fetchImageAsBase64,
   clearTokenCache,
   clearProjectIdCache,
   setSessionToken,
   runRecoveryChain,
   deleteAllUserProjects,
   openFlowHome,
+  armModernGenerateMonitor,
+  waitModernGenerateSent,
+  resolveModernGenerateResponse,
 } from './flow-api.js';
 import {
   FLOW_TAB_URL_PATTERNS,
   isFlowUrl,
+  isModernFlowUrl,
 } from './flow-sites.js';
 import {
   findImagePolicyFallback,
@@ -55,12 +58,13 @@ import { translateImageViaApi } from './flow-image-translation.js';
 
 const VERSION = '1.5.4';
 const POLL_INTERVAL_MS = 500;
-// Upload / Add to prompt / prompt entry / submit stay strictly serial, while
-// already-claimed Flow tiles may generate concurrently.
-const FLOW_CONCURRENCY = 4;
+// 单线程：同一时间只有一张图在 Flow 里（上传 → 提交 → 生成 → 译图下载完成）。
+// 译图下载到扩展后立即释放槽位开始下一张源图，服务端回传与下一张并行。
+const FLOW_CONCURRENCY = 1;
 const PREFETCH_LIMIT = 1;
-const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V21';
-const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V21';
+const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V24';
+const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V24';
+const GENERATION_MODE_STORAGE_KEY = 'generationMode';
 const DOM_PORT_ACK_TIMEOUT_MS = 5000;
 const DOM_PORT_CONNECT_ATTEMPTS = 3;
 const STOP_STATE_STORAGE_KEY = 'bridgeStopState';
@@ -100,6 +104,7 @@ function friendlyErrorMessage(errorCode, rawMessage) {
 }
 
 let bridgeId = null;
+let generationMode = 'api';
 let running = false;
 let currentTasks = [];
 const flowTasks = new FlowTaskRegistry(FLOW_CONCURRENCY);
@@ -616,6 +621,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  if (msg.type === 'FLOW_TRUSTED_SUBMIT') {
+    const tabId = _sender.tab?.id;
+    if (!tabId || !isFlowUrl(_sender.tab.url || '')) {
+      sendResponse({ ok: false, error: 'Trusted submit is only available to the Flow tab' });
+      return false;
+    }
+    submitFlowGeneration(tabId, msg.selector, _sender.tab.url)
+      .then((generateToken) => sendResponse({ ok: true, generateToken }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (msg.type === 'FLOW_DOM_BEFORE_SUBMIT') {
+    try {
+      assertFlowSubmissionAllowed();
+      sendResponse({ ok: true });
+    } catch (error) {
+      sendResponse({ ok: false, error: error.message });
+    }
+    return false;
+  }
+
   if (msg.type === 'GET_CONFIG') {
     loadConfig().then(sendResponse);
     return true;
@@ -625,7 +652,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     saveConfig(msg.config || {}).then(async () => {
       const stored = await chrome.storage.local.get(['services']);
       const count = Array.isArray(stored.services) ? stored.services.length : 0;
-      addLog('info', `Config saved (${count} services)`);
+      addLog('info', `Config saved (${count} services, ${generationMode.toUpperCase()} mode)`);
       scheduleLoop(1000);
       sendResponse({ ok: true });
     });
@@ -806,7 +833,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             const text = (button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
             const aria = (button.getAttribute('aria-label') || '').trim().toLowerCase();
             const icon = (button.querySelector('mat-icon, i')?.textContent || '').trim().toLowerCase();
+            // textContent 含图标 ligature，实际是 "uploadUpload media"
             return text === 'upload media'
+              || text === 'uploadupload media'
               || aria === 'upload media'
               || icon === 'upload'
               || icon === 'upload_file'
@@ -865,9 +894,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         transfer.items.add(new File([bytes], fileName, { type: mime }));
         fileInput.files = transfer.files;
         captureUpload = true;
+        // 账号首次上传时 Flow 会在选完文件后弹 "Rights to use this image"，
+        // 必须点 I agree 才会真正发出 maseQ；否则只能等到 45s 超时。
+        const acceptUploadRightsDialog = async () => {
+          const deadline = Date.now() + 10000;
+          while (!uploadSettled && Date.now() < deadline) {
+            const dialog = Array.from(document.querySelectorAll('mat-dialog-container, [role="dialog"], [role="alertdialog"], .cdk-overlay-pane'))
+              .find((element) => element.getClientRects().length > 0
+                && /rights to use this image/i.test(element.textContent || ''));
+            const agree = dialog && Array.from(dialog.querySelectorAll('button'))
+              .find((button) => /^i agree$/i.test((button.textContent || '').replace(/\s+/g, ' ').trim()));
+            if (agree) {
+              agree.click();
+              return true;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
+          return false;
+        };
         try {
           fileInput.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
           fileInput.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          acceptUploadRightsDialog().catch(() => {});
           const timeoutResult = new Promise((resolve) => setTimeout(() => resolve({
             status: 'error',
             error: observedUpload
@@ -891,7 +939,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'TEST_TRANSLATE') {
     (async () => {
       try {
-        const conn = await checkConnection({ requireApiSession: true });
+        const mode = generationMode;
+        const conn = await checkConnection({ requireApiSession: mode === 'api' });
         if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
         const prompt = msg.prompt || buildPrompt({
           targetLanguage: msg.targetLanguage || 'Simplified Chinese',
@@ -899,13 +948,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const aspectRatio = msg.aspectRatio === 'auto'
           ? aspectRatioFor(msg.width, msg.height)
           : msg.aspectRatio;
-        const result = await translateImageViaApi(conn, {
+        const options = {
           ...msg,
           fileName: buildDomUploadFileName(msg, 'test.png'),
           prompt,
           aspectRatio,
-          beforeSubmit: assertFlowSubmissionAllowed,
-        });
+        };
+        const result = mode === 'ui'
+          ? await runFlowDomTranslation(conn, options)
+          : await translateImageViaApi(conn, { ...options, beforeSubmit: assertFlowSubmissionAllowed });
         sendResponse({ ok: true, ...result });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
@@ -962,6 +1013,7 @@ async function loadPersistedState() {
     'taskHistory',
     'logHistory',
     STATS_STORAGE_KEY,
+    GENERATION_MODE_STORAGE_KEY,
     STOP_STATE_STORAGE_KEY,
     LEGACY_PAUSE_STATE_STORAGE_KEY,
   ]);
@@ -973,6 +1025,7 @@ async function loadPersistedState() {
   }
   logHistory = Array.isArray(stored.logHistory) ? stored.logHistory : [];
   bridgeStats = normalizeStats(stored[STATS_STORAGE_KEY], Date.now());
+  generationMode = stored[GENERATION_MODE_STORAGE_KEY] === 'ui' ? 'ui' : 'api';
   // 旧版冷静期遗留 state：直接清掉，新方案不再使用
   if (stored[LEGACY_PAUSE_STATE_STORAGE_KEY]) {
     chrome.storage.local.remove([LEGACY_PAUSE_STATE_STORAGE_KEY]).catch(() => {});
@@ -993,10 +1046,11 @@ async function loadPersistedState() {
 
 async function loadConfig() {
   await ensureBridgeId();
-  const stored = await chrome.storage.local.get(['services']);
+  const stored = await chrome.storage.local.get(['services', GENERATION_MODE_STORAGE_KEY]);
   return {
     bridgeId,
     services: Array.isArray(stored.services) ? stored.services : [],
+    generationMode: stored[GENERATION_MODE_STORAGE_KEY] === 'ui' ? 'ui' : 'api',
   };
 }
 function startPendingPolicyReportRetry() {
@@ -1046,7 +1100,9 @@ async function saveConfig(config) {
         enabled: s.enabled !== false,
       })).filter((s) => s.baseUrl && s.token)
     : [];
-  await chrome.storage.local.set({ services });
+  const nextGenerationMode = config.generationMode === 'ui' ? 'ui' : 'api';
+  await chrome.storage.local.set({ services, [GENERATION_MODE_STORAGE_KEY]: nextGenerationMode });
+  generationMode = nextGenerationMode;
 }
 
 function addTaskHistory(entry) {
@@ -1205,7 +1261,7 @@ async function runLoop() {
   try {
     if (pollPaused || recoveryPromise || openingFlowPromise || !flowTabAvailable) return;
     startPrefetchedTask();
-    // Download one standby even when all four generation slots are occupied.
+    // Download one standby source image while the single Flow slot is busy.
     if ((prefetchedTask ? 1 : 0) >= PREFETCH_LIMIT) {
       if (!flowTasks.submissionOwner && flowTasks.hasCapacity) {
         scheduleLoop(submissionPacer.remainingMs);
@@ -1882,13 +1938,26 @@ function assertFlowSubmissionAllowed() {
 
 async function translateImage(task, conn) {
   if (!conn || !conn.tabId || !conn.projectId) throw new Error('Flow is not connected');
-  return await translateImageViaApi(conn, {
+  const mode = generationMode;
+  // 每张图按自身实际像素选最接近的比例；服务端元数据宽高可能缺失或不准，只作兜底。
+  const size = await readImageSize(task.imageBase64)
+    || { width: task.sourceWidth, height: task.sourceHeight, fromServer: true };
+  const aspectRatio = aspectRatioFor(size.width, size.height);
+  addLog('info', `Aspect ratio for ${task.subTaskId || task.assignmentId}: ${size.width || '?'}x${size.height || '?'}${size.fromServer ? ' (server)' : ''} → ${ASPECT_RATIO_LABELS[aspectRatio]}`);
+  const options = {
     ...task,
     imageBase64: ensureDataUrl(task.imageBase64),
     fileName: buildDomUploadFileName(task, task.fileName || 'source.png'),
     prompt: buildPrompt(task),
-    aspectRatio: aspectRatioFor(task.sourceWidth, task.sourceHeight),
+    aspectRatio,
     model: sanitizeModel(task.model),
+  };
+  if (mode === 'ui') {
+    assertFlowSubmissionAllowed();
+    return runFlowDomTranslation(conn, options);
+  }
+  return translateImageViaApi(conn, {
+    ...options,
     beforeSubmit: assertFlowSubmissionAllowed,
     onPhase: (phase) => setTaskPhase(task.assignmentId, phase),
     onSubmitted: ({ submittedAt }) => {
@@ -1920,7 +1989,7 @@ async function runFlowDomTranslation(conn, task) {
   let result = null;
   let lastChannelError = null;
   for (let attempt = 1; attempt <= DOM_PORT_CONNECT_ATTEMPTS; attempt++) {
-    // Re-execution is idempotent: V21 refreshes its listeners without resetting
+    // Re-execution is idempotent: V24 refreshes its listeners without resetting
     // the UI queue, claimed Tile registry, or in-flight request state.
     await chrome.scripting.executeScript({
       target: { tabId: conn.tabId },
@@ -1938,14 +2007,114 @@ async function runFlowDomTranslation(conn, task) {
     }
   }
   if (!result) throw lastChannelError || new Error(`Flow page automation returned no result for ${requestId}`);
+  if (!result.generateToken) throw new Error(`Flow page automation did not report a submitted generation for ${requestId}`);
 
-  let resultDataUrl = result.resultDataUrl || null;
-  if (!resultDataUrl && result.resultUrl) {
-    const image = await fetchImageAsBase64(conn.tabId, result.resultUrl);
-    resultDataUrl = image.dataUrl;
+  // 页面只负责到「ogiZ0b 已发出」为止；结果以 ogiZ0b 响应里的 media 为准，
+  // 不再按 DOM Tile 猜测（Tile 网格重渲染会让旧 Tile 看起来像新 Tile）。
+  const generated = await resolveModernGenerateResponse(conn.tabId, result.generateToken, { projectId: conn.projectId });
+  const resultDataUrl = generated.resultDataUrl || null;
+  if (!resultDataUrl) throw new Error('Flow generation completed but no readable result image was returned');
+  addLog('info', `Flow generated ${generated.mediaId || 'image'} for ${task.subTaskId || task.assignmentId || requestId}`);
+  return { resultDataUrl, resultUrl: generated.resultUrl || null };
+}
+
+// Flow 的 Start generation 只响应 isTrusted 事件：el.click()、合成 pointer/mouse 事件和
+// 合成 Enter 都会被忽略（不发 ogiZ0b，Tile 不出现，任务卡在「上传中」）。
+// 这里通过 CDP Input.dispatchMouseEvent 发一次真实点击，点完立即 detach。
+let trustedClickQueue = Promise.resolve();
+const SUBMIT_CLICK_ATTEMPTS = 3;
+const SUBMIT_SENT_TIMEOUT_MS = 5000;
+const SUBMIT_CLEARED_GRACE_MS = 15000;
+
+// 提交 = 先挂 ogiZ0b 监听，再真实点击；以「ogiZ0b 真的发出」为提交成功。
+// 没发出且 prompt 还在 → 重点（最多 3 次）；prompt 已被清空说明 Flow 已受理，只延长等待，
+// 绝不重复点击，避免同一张图生成两次。
+async function submitFlowGeneration(tabId, selector, tabUrl) {
+  if (!isModernFlowUrl(tabUrl || '')) {
+    throw new Error('Flow UI mode requires flow.google.com; open the new Flow and retry');
   }
-  if (!resultDataUrl) throw new Error('Flow page automation completed but no readable result image was returned');
-  return { resultDataUrl, resultUrl: result.resultUrl || null };
+  const token = await armModernGenerateMonitor(tabId);
+  let lastError = null;
+  for (let attempt = 1; attempt <= SUBMIT_CLICK_ATTEMPTS; attempt++) {
+    try {
+      await dispatchTrustedClick(tabId, selector);
+    } catch (error) {
+      lastError = error;
+    }
+    let state = await waitModernGenerateSent(tabId, token, SUBMIT_SENT_TIMEOUT_MS);
+    if (state.sent) return token;
+    if (state.lost) throw new Error('Flow page reloaded while submitting generation');
+    if (state.promptCleared) {
+      state = await waitModernGenerateSent(tabId, token, SUBMIT_CLEARED_GRACE_MS);
+      if (state.sent) return token;
+      throw new Error('Flow cleared the prompt but no generation request was sent');
+    }
+    addLog('warn', `Start generation not accepted (attempt ${attempt}/${SUBMIT_CLICK_ATTEMPTS})${lastError ? ': ' + lastError.message : ''}; retrying click`);
+    await sleep(500);
+  }
+  throw new Error(`Flow did not send the generation request after ${SUBMIT_CLICK_ATTEMPTS} clicks${lastError ? ': ' + lastError.message : ''}`);
+}
+
+function dispatchTrustedClick(tabId, selector) {
+  const run = trustedClickQueue.then(() => dispatchTrustedClickNow(tabId, selector));
+  trustedClickQueue = run.catch(() => {});
+  return run;
+}
+
+async function dispatchTrustedClickNow(tabId, selector) {
+  if (typeof selector !== 'string' || !selector) throw new Error('Trusted click selector is missing');
+  const target = { tabId };
+  const send = (method, params) => chrome.debugger.sendCommand(target, method, params);
+  let attached = false;
+  try {
+    await chrome.debugger.attach(target, '1.3');
+    attached = true;
+  } catch (error) {
+    if (!/already attached/i.test(error?.message || '')) {
+      throw new Error(`Flow trusted click unavailable (close DevTools on the Flow tab and retry): ${error?.message || error}`);
+    }
+  }
+  try {
+    // attach 会弹出「正在调试此浏览器」信息栏并改变视口高度；等按钮位置稳定后再取坐标。
+    const measure = async () => {
+      const { result } = await send('Runtime.evaluate', {
+        expression: `(() => {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return null;
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height) return null;
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          return { x, y, vh: window.innerHeight, hit: el.contains(document.elementFromPoint(x, y)) };
+        })()`,
+        returnByValue: true,
+      });
+      return result?.value || null;
+    };
+    // 信息栏出现有延迟和动画：视口高度与按钮坐标连续 3 次（约 300ms）不变才点击。
+    await sleep(200);
+    let point = null;
+    let stableReads = 0;
+    for (let attempt = 0; attempt < 30 && stableReads < 3; attempt++) {
+      const next = await measure();
+      const same = next && point && next.vh === point.vh
+        && Math.abs(next.x - point.x) < 1 && Math.abs(next.y - point.y) < 1;
+      stableReads = same && next.hit ? stableReads + 1 : 0;
+      point = next;
+      if (stableReads < 3) await sleep(100);
+    }
+    if (!point) throw new Error(`Flow trusted click target not found or disabled: ${selector}`);
+    if (!point.hit) throw new Error(`Flow trusted click target is covered: ${selector}`);
+    const base = { x: point.x, y: point.y, button: 'left', clickCount: 1 };
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
+    await sleep(60);
+    await send('Input.dispatchMouseEvent', { ...base, type: 'mousePressed', buttons: 1 });
+    await sleep(40);
+    await send('Input.dispatchMouseEvent', { ...base, type: 'mouseReleased', buttons: 0 });
+  } finally {
+    if (attached) await chrome.debugger.detach(target).catch(() => {});
+  }
 }
 
 function sendFlowDomRequestOverPort(tabId, requestId, taskPayload) {
@@ -2045,15 +2214,24 @@ Rules:
 always translate it as overlay text.`;
 }
 
-const SUPPORTED_MODELS = ['GEM_PIX_2', 'NARWHAL', 'IMAGEN_3_5'];
+// Flow 已下线 Imagen 4（IMAGEN_3_5），旧任务带该模型时回落到 NARWHAL。
+const SUPPORTED_MODELS = ['GEM_PIX_2', 'NARWHAL'];
 
 function sanitizeModel(model) {
   if (model && SUPPORTED_MODELS.includes(model)) return model;
   return 'NARWHAL';
 }
 
+const ASPECT_RATIO_LABELS = {
+  IMAGE_ASPECT_RATIO_LANDSCAPE: '16:9',
+  IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE: '4:3',
+  IMAGE_ASPECT_RATIO_SQUARE: '1:1',
+  IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR: '3:4',
+  IMAGE_ASPECT_RATIO_PORTRAIT: '9:16',
+};
+
 function aspectRatioFor(width, height) {
-  if (!width || !height) return 'IMAGE_ASPECT_RATIO_LANDSCAPE';
+  if (!(width > 0) || !(height > 0)) return 'IMAGE_ASPECT_RATIO_LANDSCAPE';
   const ratio = width / height;
   const options = [
     { value: 16 / 9, key: 'IMAGE_ASPECT_RATIO_LANDSCAPE' },
@@ -2062,9 +2240,24 @@ function aspectRatioFor(width, height) {
     { value: 3 / 4, key: 'IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR' },
     { value: 9 / 16, key: 'IMAGE_ASPECT_RATIO_PORTRAIT' },
   ];
+  // 按对数距离比较，横图和竖图对称（1.5 与 2/3 分别落到 4:3 与 3:4）。
+  const distance = (value) => Math.abs(Math.log(ratio / value));
   return options.reduce((best, item) =>
-    Math.abs(item.value - ratio) < Math.abs(best.value - ratio) ? item : best
+    distance(item.value) < distance(best.value) ? item : best
   ).key;
+}
+
+async function readImageSize(base64OrDataUrl) {
+  if (!base64OrDataUrl) return null;
+  try {
+    const blob = await (await fetch(ensureDataUrl(base64OrDataUrl))).blob();
+    const bmp = await createImageBitmap(blob);
+    const size = { width: bmp.width, height: bmp.height };
+    bmp.close();
+    return size.width > 0 && size.height > 0 ? size : null;
+  } catch {
+    return null;
+  }
 }
 
 function ensureDataUrl(value) {

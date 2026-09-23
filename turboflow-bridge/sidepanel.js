@@ -13,6 +13,7 @@
   const paginationEl = document.getElementById('pagination');
 
   const servicesEl = document.getElementById('services');
+  const generationModeEl = document.getElementById('generation-mode');
   const btnAddService = document.getElementById('btn-add-service');
   const btnSave = document.getElementById('btn-save');
   const toastEl = document.getElementById('toast');
@@ -45,6 +46,7 @@
   let countdownTimer = null;
   let nextPollAt = 0;
   let services = [];
+  let generationMode = 'api';
   let logsLoaded = false;
   let autoScrollLogs = true;
 
@@ -175,6 +177,8 @@
   async function init() {
     const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
     bridgeIdEl.textContent = config.bridgeId || '-';
+    generationMode = config.generationMode === 'ui' ? 'ui' : 'api';
+    updateTestModeLabel();
 
     const status = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
     if (status) {
@@ -403,7 +407,14 @@
   async function loadSettings() {
     const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
     services = config.services || [];
+    generationMode = config.generationMode === 'ui' ? 'ui' : 'api';
+    generationModeEl.value = generationMode;
+    updateTestModeLabel();
     renderServices();
+  }
+
+  function updateTestModeLabel() {
+    btnTestRun.textContent = generationMode === 'ui' ? 'Translate via Flow UI' : 'Translate via Flow API';
   }
 
   function renderServices() {
@@ -437,10 +448,13 @@
   }
 
   async function saveConfig() {
-    await chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: 'SAVE_CONFIG',
-      config: { services },
+      config: { services, generationMode: generationModeEl.value },
     });
+    if (!response?.ok) throw new Error(response?.error || 'Could not save settings');
+    generationMode = generationModeEl.value;
+    updateTestModeLabel();
     showToast('Settings saved');
   }
 
@@ -646,7 +660,9 @@
     btnTestRun.disabled = false;
   }
 
-  btnTestRun.addEventListener('click', () => runTestTranslate('TEST_TRANSLATE', 'Translating through Flow API'));
+  btnTestRun.addEventListener('click', () => runTestTranslate(
+    'TEST_TRANSLATE', generationMode === 'ui' ? 'Translating through Flow UI' : 'Translating through Flow API',
+  ));
 
   init();
 })();

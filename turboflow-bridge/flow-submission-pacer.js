@@ -1,4 +1,4 @@
-// One shared deadline across all four workers. Draw once per actual request.
+// One shared deadline across all Flow submissions. Draw once per actual request.
 export class FlowSubmissionPacer {
   constructor({ now = Date.now, random = Math.random } = {}) {
     this.now = now;

@@ -31,6 +31,8 @@
 
 - `maseQ / 3`：上传请求参数被拒。仅凭 3 不能确定是图片格式、请求字段还是内容政策，不能自动把所有 3 都当作内容政策回退。
 - `ogiZ0b / 7`：生成请求被拒绝访问。仅凭 7 不能确定是账号权限、模型权限还是验证问题，也不等同于登录过期。
+  若 ErrorInfo reason 为 `PUBLIC_ERROR_UNUSUAL_ACTIVITY`（UI 上是 Tile 文案 "We noticed some unusual activity"），
+  是账号/环境被风控：已实测官方 UI 手动生成也同样被拒，与请求结构无关。Bridge 按 `RECAPTCHA_BLOCKED` 走风控恢复链。
 - `ogiZ0b / 8`：生成资源或额度不足。日限额是可能原因，也可能是其他配额或限速；等待时间不能仅由 8 推断。
 
 ## Bridge 处理方式

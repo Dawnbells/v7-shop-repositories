@@ -5,6 +5,8 @@
 
 export const MODERN_FLOW_ORIGIN = 'https://flow.google.com';
 export const RPC_UPLOAD_IMAGE = 'maseQ';
+// Flow sends this empty-argument RPC when the editor input receives focus.
+export const RPC_EDITOR_INPUT_FOCUS = 'nzlxg';
 export const RPC_BATCH_GENERATE_IMAGES = 'ogiZ0b';
 export const RPC_GET_MEDIA_URL = 'uurnC';
 export const RPC_GET_PROJECT_CONTENTS = 'Zzl0ze';
