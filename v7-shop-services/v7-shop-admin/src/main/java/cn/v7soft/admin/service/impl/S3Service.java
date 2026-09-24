@@ -2,6 +2,7 @@ package cn.v7soft.admin.service.impl;
 
 import java.io.InputStream;
 import java.net.URI;
+import java.time.Duration;
 
 import org.springframework.stereotype.Service;
 
@@ -74,6 +75,17 @@ public class S3Service implements IS3Service {
             e.printStackTrace();
         }
         return false;
+    }
+
+    @Override
+    public void upload(byte[] data, String key, String contentType, Duration timeout) {
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(s3Property.getBucketName())
+                .key(key)
+                .contentType(contentType)
+                .overrideConfiguration(o -> o.apiCallTimeout(timeout))
+                .build();
+        s3Client.putObject(putObjectRequest, RequestBody.fromBytes(data));
     }
 
     @Override

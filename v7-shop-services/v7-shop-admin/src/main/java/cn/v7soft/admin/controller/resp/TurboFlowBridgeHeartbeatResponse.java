@@ -16,4 +16,9 @@ public class TurboFlowBridgeHeartbeatResponse {
      * 插件应直接落盘译图等重派，不要再退避重投同一个 assignmentId。
      */
     private String reason;
+    /**
+     * 仅 /tasks/translated 返回：LEASE_EXTENDED / COMPLETING / COMPLETED。
+     * 插件据此跳过重复上传——上一份译图仍在处理或已落库时不必再传一遍大图。
+     */
+    private String status;
 }

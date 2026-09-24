@@ -50,8 +50,16 @@ public class TurboFlowBridgeController {
     @PostMapping("/tasks/translated")
     public TurboFlowBridgeHeartbeatResponse translated(HttpServletRequest servletRequest,
             @RequestBody TurboFlowBridgeTranslatedRequest request) {
-        turboFlowBridgeProvider.translationReady(bearerToken(servletRequest), request);
-        return TurboFlowBridgeHeartbeatResponse.builder().accepted(true).message("report lease extended").build();
+        TurboFlowBridgeProvider.ReportState state =
+                turboFlowBridgeProvider.translationReady(bearerToken(servletRequest), request);
+        return TurboFlowBridgeHeartbeatResponse.builder().accepted(true)
+                .status(state.name())
+                .message(switch (state) {
+                    case LEASE_EXTENDED -> "report lease extended";
+                    case COMPLETING -> "previous upload is still being processed";
+                    case COMPLETED -> "already completed";
+                })
+                .build();
     }
 
     @PostMapping("/tasks/complete")

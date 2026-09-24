@@ -2,13 +2,17 @@ package cn.v7soft.admin.service.impl;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -38,6 +42,12 @@ import lombok.extern.slf4j.Slf4j;
 public class MultimediaFileService
         extends BaseDataRangeService<MultimediaFile, MultimediaFileRepository>
         implements IMultimediaFileService {
+
+    /**
+     * 译图 PUT 的整体时限（含 SDK 内部重试）。必须小于 TurboFlow 插件回传超时（120s），
+     * 让服务端先失败并回 503 COMPLETION_RETRY_REQUIRED，而不是插件已放弃、服务端还在后台上传。
+     */
+    private static final Duration TRANSLATED_IMAGE_UPLOAD_TIMEOUT = Duration.ofSeconds(90);
 
     private final MultimediaFileProperty multimediaFileProperty;
     private final FolderService folderService;
@@ -168,11 +178,12 @@ public class MultimediaFileService
                 MediaType.IMAGE, newFileName, now, suffix);
 
         String mimeType = "image/" + (suffix.equalsIgnoreCase("jpg") ? "jpeg" : suffix.toLowerCase());
-        s3Service.upload(new ByteArrayInputStream(imageBytes), relativePath, mimeType);
+        // 上传失败必须抛出：以前 upload 吞异常返回 false，这里照样落库，产生指向不存在对象的译图记录。
+        s3Service.upload(imageBytes, relativePath, mimeType, TRANSLATED_IMAGE_UPLOAD_TIMEOUT);
 
-        BufferedImage bufferedImage = ImageIO.read(new ByteArrayInputStream(imageBytes));
-        int width = bufferedImage != null ? bufferedImage.getWidth() : 0;
-        int height = bufferedImage != null ? bufferedImage.getHeight() : 0;
+        int[] size = readImageSize(imageBytes);
+        int width = size[0];
+        int height = size[1];
 
         MultimediaFile file = MultimediaFile.builder()
                 .name(newFileName).suffix(suffix)
@@ -182,6 +193,26 @@ public class MultimediaFileService
                 .mediaState(MediaState.UPLOADED).build();
         file.setOwner(owner);
         return multimediaFileService.saveAndFlush(file);
+    }
+
+    /**
+     * 只读图片头拿宽高，不解码像素。译图多为 2K PNG，ImageIO.read 整图解码要十几 MB 堆和几百毫秒 CPU，
+     * 并发回传时会放大 GC 停顿。读不出来返回 0x0，与原先 ImageIO.read 返回 null 时的行为一致。
+     */
+    static int[] readImageSize(byte[] imageBytes) throws IOException {
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(imageBytes))) {
+            Iterator<ImageReader> readers = input == null ? null : ImageIO.getImageReaders(input);
+            if (readers == null || !readers.hasNext()) {
+                return new int[] {0, 0};
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                return new int[] {reader.getWidth(0), reader.getHeight(0)};
+            } finally {
+                reader.dispose();
+            }
+        }
     }
 
     @Override

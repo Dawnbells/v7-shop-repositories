@@ -5,12 +5,13 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../background.js', import.meta.url), 'utf8');
 
-function reportHarness(postJson) {
+function reportHarness(postJson, { uploadConcurrency = 3 } = {}) {
   const phases = [];
   const waits = [];
   const context = vm.createContext({
     COMPLETION_REPORT_MAX_RETRIES: 8, COMPLETION_REPORT_TIMEOUT_MS: 120000,
     TRANSLATED_NOTICE_TIMEOUT_MS: 30000, FAIL_REPORT_RETRY_BASE_MS: 1000,
+    COMPLETION_UPLOAD_CONCURRENCY: uploadConcurrency, activeCompletionUploads: 0, completionUploadWaiters: [],
     postJson, addLog() {}, isReprocessRequired: e => e.message.includes('REPROCESS_REQUIRED'),
     setTaskPhase: (...args) => phases.push(args), sleep: async ms => waits.push(ms),
   });
@@ -18,6 +19,62 @@ function reportHarness(postJson) {
     source.indexOf('async function retainTranslationForReuse(')), context);
   return { report: context.postCompletionWithRetry, phases, waits };
 }
+
+test('retry skips the image upload when the server already stored an earlier attempt', async () => {
+  const calls = [];
+  const { report, waits } = reportHarness(async (_service, path) => {
+    calls.push(path);
+    if (path.endsWith('/translated')) {
+      return calls.length === 1 ? { accepted: true, status: 'LEASE_EXTENDED' } : { accepted: true, status: 'COMPLETED' };
+    }
+    throw new Error('signal is aborted without reason');
+  });
+  await report({}, { assignmentId: 'slow' });
+  assert.deepEqual(calls, ['/turboflow-bridge/tasks/translated', '/turboflow-bridge/tasks/complete',
+    '/turboflow-bridge/tasks/translated']);
+  assert.deepEqual(waits, [1000]);
+});
+
+test('retry waits instead of re-uploading while the server is still processing the previous upload', async () => {
+  const notices = ['LEASE_EXTENDED', 'COMPLETING', 'COMPLETING', 'LEASE_EXTENDED'];
+  let uploads = 0;
+  const { report, waits } = reportHarness(async (_service, path) => {
+    if (path.endsWith('/translated')) return { accepted: true, status: notices.shift() };
+    // 第一次在插件侧超时；服务端处理完却失败了（租约仍在），第二次真正重投
+    if (++uploads === 1) throw new Error('signal is aborted without reason');
+  });
+  await report({}, { assignmentId: 'busy' });
+  assert.equal(uploads, 2);
+  assert.deepEqual(waits, [1000, 2000, 4000]);
+});
+
+test('concurrent completion uploads are capped while notices still go out immediately', async () => {
+  let active = 0;
+  let peak = 0;
+  let notices = 0;
+  const releases = [];
+  const { report } = reportHarness(async (_service, path) => {
+    if (path.endsWith('/translated')) {
+      notices++;
+      return { accepted: true, status: 'LEASE_EXTENDED' };
+    }
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => releases.push(resolve));
+    active--;
+  }, { uploadConcurrency: 2 });
+  const reports = Array.from({ length: 5 }, (_, i) => report({}, { assignmentId: `a${i}` }));
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  await settle();
+  assert.equal(notices, 5);
+  assert.equal(active, 2);
+  while (releases.length) {
+    releases.shift()();
+    await settle();
+  }
+  await Promise.all(reports);
+  assert.equal(peak, 2);
+});
 
 test('extends the lease before each upload and retries the same image and assignment', async () => {
   const calls = [];

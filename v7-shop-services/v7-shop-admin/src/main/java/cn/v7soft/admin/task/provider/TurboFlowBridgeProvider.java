@@ -6,6 +6,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -114,6 +115,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     private final ConcurrentMap<String, LocalDateTime> completedAssignments = new ConcurrentHashMap<>();
     // Reuse files already saved when cache persistence or the completion callback needs retrying.
     private final ConcurrentMap<String, MultimediaFile> reportingFiles = new ConcurrentHashMap<>();
+    // 正在服务端后处理（存图 / 写缓存 / 回调）的 assignment，供 translationReady 无锁判断"上一份上传还在处理"。
+    private final Set<String> completingAssignments = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<String, TurboFlowBridgeState> bridgeStates = new ConcurrentHashMap<>();
 
     private volatile TranslateProviderCallback callback;
@@ -447,18 +450,27 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         return false;
     }
 
-    /** Reserve time for result upload/retries without releasing the original assignment. */
-    public void translationReady(String token, TurboFlowBridgeTranslatedRequest request) {
+    /**
+     * Reserve time for result upload/retries without releasing the original assignment.
+     * <p>
+     * 返回值告诉插件要不要（重新）上传大图：上一次 complete 超时后插件重试前会先打这个接口，
+     * 服务端若已落库（COMPLETED）或仍在处理上一份上传（COMPLETING），插件就不必再把整张图重传一遍。
+     * COMPLETING 判断必须放在 synchronized 之前：处理中的 complete 持有同一把锁，
+     * 在锁上排队会让这个轻量通知一直挂到上传结束，占着请求线程和 OSIV 数据库连接。
+     */
+    public ReportState translationReady(String token, TurboFlowBridgeTranslatedRequest request) {
         List<AiAccount> accounts = findAllTurboFlowAccounts(token);
         if (accounts.isEmpty()) throw new IllegalArgumentException("invalid TurboFlow bridge token");
+        if (completedAssignments.containsKey(request.getAssignmentId())) return ReportState.COMPLETED;
+        if (completingAssignments.contains(request.getAssignmentId())) return ReportState.COMPLETING;
         AiAccountTranslateSubTask subTask = assignments.get(request.getAssignmentId());
         if (subTask == null) {
-            if (completedAssignments.containsKey(request.getAssignmentId())) return;
+            if (completedAssignments.containsKey(request.getAssignmentId())) return ReportState.COMPLETED;
             throw new IllegalArgumentException("assignment not found or expired");
         }
         synchronized (subTask) {
             if (assignments.get(request.getAssignmentId()) != subTask) {
-                if (completedAssignments.containsKey(request.getAssignmentId())) return;
+                if (completedAssignments.containsKey(request.getAssignmentId())) return ReportState.COMPLETED;
                 throw new IllegalArgumentException("assignment not found or expired");
             }
             if (accounts.stream().noneMatch(a -> a.getId().equals(subTask.getAiAccountId()))) {
@@ -469,6 +481,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 throw new IllegalArgumentException("assignment does not belong to bridge");
             }
             subTask.extendLease(LocalDateTime.now().plusMinutes(TURBOFLOW_REPORT_LEASE_MINUTES));
+            return ReportState.LEASE_EXTENDED;
         }
     }
 
@@ -496,7 +509,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 if (completedAssignments.containsKey(request.getAssignmentId())) return;
                 throw new IllegalArgumentException("assignment not found or expired");
             }
-            completeAssignedTask(accounts, subTask, request);
+            completingAssignments.add(request.getAssignmentId());
+            try {
+                completeAssignedTask(accounts, subTask, request);
+            } finally {
+                completingAssignments.remove(request.getAssignmentId());
+            }
         }
     }
 
@@ -876,6 +894,16 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             log.debug("[TurboFlowBridge] image policy cache already exists: sourceImageId={}, imageHash={}",
                     sourceFile.getId(), imageHash);
         }
+    }
+
+    /** translationReady 的结果，插件据此决定是否需要（重新）上传译图。 */
+    public enum ReportState {
+        /** assignment 仍有效且没有上传在处理，插件应上传译图。 */
+        LEASE_EXTENDED,
+        /** 上一次上传仍在服务端处理，插件应稍后再问，不要重复上传。 */
+        COMPLETING,
+        /** 已完成落库（此前某次上传已成功，只是响应没送达插件）。 */
+        COMPLETED
     }
 
     @Getter

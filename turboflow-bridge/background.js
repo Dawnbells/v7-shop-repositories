@@ -92,6 +92,10 @@ const FAIL_REPORT_RETRY_BASE_MS = 1000;
 const COMPLETION_REPORT_MAX_RETRIES = 8;
 const COMPLETION_REPORT_TIMEOUT_MS = 120 * 1000;
 const TRANSLATED_NOTICE_TIMEOUT_MS = 30 * 1000;
+// 同时进行的译图回传上限，见 withCompletionUploadSlot。
+const COMPLETION_UPLOAD_CONCURRENCY = 3;
+let activeCompletionUploads = 0;
+const completionUploadWaiters = [];
 const PENDING_POLICY_REPORT_ALARM = 'retry-pending-policy-fallbacks';
 let pendingPolicyFlushRunning = false;
 
@@ -1729,15 +1733,25 @@ async function postCompletionWithRetry(service, payload) {
     try {
       // Notify before sending the large image. A missing/temporarily unreachable
       // notice endpoint must not discard a finished translation (older servers).
+      let notice = null;
       try {
-        await postJson(service, '/turboflow-bridge/tasks/translated', {
+        notice = await postJson(service, '/turboflow-bridge/tasks/translated', {
           bridgeId: payload.bridgeId, assignmentId: payload.assignmentId,
         }, { timeoutMs: TRANSLATED_NOTICE_TIMEOUT_MS });
       } catch (noticeError) {
         addLog('warn', `Translation notice failed; still attempting image upload: ${noticeError.message}`);
       }
-      await postJson(service, '/turboflow-bridge/tasks/complete', payload,
-        { timeoutMs: COMPLETION_REPORT_TIMEOUT_MS });
+      // 上一次 complete 在插件侧超时，但服务端其实已落库 / 还在处理——都不该再把整张图重传一遍，
+      // 否则并发高时重投的大包继续挤占带宽和服务端线程，超时越滚越多。老服务端不返回 status，照旧上传。
+      if (notice?.status === 'COMPLETED') {
+        addLog('info', `Completion already accepted by server: ${payload.assignmentId}`);
+        return;
+      }
+      if (notice?.status === 'COMPLETING') {
+        throw new Error('previous upload is still being processed by server');
+      }
+      await withCompletionUploadSlot(() => postJson(service, '/turboflow-bridge/tasks/complete', payload,
+        { timeoutMs: COMPLETION_REPORT_TIMEOUT_MS }));
       if (attempt > 0) {
         addLog('info', `Completion reported on retry ${attempt}: ${payload.assignmentId}`);
       }
@@ -1755,6 +1769,24 @@ async function postCompletionWithRetry(service, payload) {
       addLog('warn', `Completion report attempt ${attempt + 1} failed (${err.message}), retrying in ${backoff}ms`);
       await sleep(backoff);
     }
+  }
+}
+
+/**
+ * 限制同时上传的译图数量。生成槽位在回传前就释放了，并发调高后回传请求会无上限叠加：
+ * 每张 base64 PNG 数 MB，几路一起挤上行带宽和服务端存图，单个请求就容易拖过超时。
+ * 排队发生在 fetch 之前，不占用单次请求的超时预算；租约已由前面的 translated 通知延到 30 分钟。
+ */
+async function withCompletionUploadSlot(upload) {
+  while (activeCompletionUploads >= COMPLETION_UPLOAD_CONCURRENCY) {
+    await new Promise((resolve) => completionUploadWaiters.push(resolve));
+  }
+  activeCompletionUploads++;
+  try {
+    return await upload();
+  } finally {
+    activeCompletionUploads--;
+    completionUploadWaiters.shift()?.();
   }
 }
 

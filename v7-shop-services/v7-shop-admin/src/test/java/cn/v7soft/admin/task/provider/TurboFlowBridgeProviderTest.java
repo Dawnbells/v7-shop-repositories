@@ -626,6 +626,55 @@ class TurboFlowBridgeProviderTest {
         verify(multimediaFileService).saveTranslatedImage(any(byte[].class), anyString(), any());
     }
 
+    @Test
+    void translationNoticeReportsInFlightCompletionWithoutWaitingForItsLock() throws Exception {
+        TurboFlowBridgeProvider provider = provider();
+        AiAccountTranslateSubTask task = dispatchImage(provider, 822L);
+        java.util.concurrent.CountDownLatch saving = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch finish = new java.util.concurrent.CountDownLatch(1);
+        when(multimediaFileService.saveTranslatedImage(any(byte[].class), anyString(), any())).thenAnswer(call -> {
+            saving.countDown();
+            assertTrue(finish.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            return image(922L);
+        });
+        TurboFlowBridgeTranslatedRequest notice = new TurboFlowBridgeTranslatedRequest();
+        notice.setAssignmentId(task.getAssignmentId());
+        notice.setBridgeId("bridge-a");
+        assertEquals(TurboFlowBridgeProvider.ReportState.LEASE_EXTENDED, provider.translationReady("token", notice));
+
+        TurboFlowBridgeCompleteRequest request = completion(task);
+        java.util.concurrent.CompletableFuture<Void> upload = java.util.concurrent.CompletableFuture.runAsync(
+                () -> provider.completeTask("token", request));
+        try {
+            assertTrue(saving.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            // 插件 complete 超时后的重试：服务端还在处理上一份上传，通知要立即返回而不是排在同一把锁上
+            java.util.concurrent.CompletableFuture<TurboFlowBridgeProvider.ReportState> retryNotice =
+                    java.util.concurrent.CompletableFuture.supplyAsync(() -> provider.translationReady("token", notice));
+            assertEquals(TurboFlowBridgeProvider.ReportState.COMPLETING,
+                    retryNotice.get(1, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            finish.countDown();
+        }
+        upload.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(TurboFlowBridgeProvider.ReportState.COMPLETED, provider.translationReady("token", notice));
+        verify(callback).onSubTaskCompleted(eq(task), any());
+    }
+
+    @Test
+    void failedCompletionIsNoLongerReportedAsInFlight() throws Exception {
+        TurboFlowBridgeProvider provider = provider();
+        AiAccountTranslateSubTask task = dispatchImage(provider, 823L);
+        when(multimediaFileService.saveTranslatedImage(any(byte[].class), anyString(), any()))
+                .thenThrow(new RuntimeException("s3 timeout"));
+        assertThrows(IllegalStateException.class, () -> provider.completeTask("token", completion(task)));
+
+        TurboFlowBridgeTranslatedRequest notice = new TurboFlowBridgeTranslatedRequest();
+        notice.setAssignmentId(task.getAssignmentId());
+        notice.setBridgeId("bridge-a");
+        // 上一次处理失败后插件必须重新上传，而不是一直等一个已经结束的"处理中"
+        assertEquals(TurboFlowBridgeProvider.ReportState.LEASE_EXTENDED, provider.translationReady("token", notice));
+    }
+
     private AiAccountTranslateSubTask dispatchImage(TurboFlowBridgeProvider provider, Long id) {
         when(aiAccountService.findAvailableAccountsByApiKey(AiProvider.TURBOFLOW_GEMINI, "token"))
                 .thenReturn(List.of(billedAccount()));
