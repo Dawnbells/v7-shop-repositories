@@ -35,6 +35,7 @@ import cn.v7soft.dao.enums.AiProvider;
 import cn.v7soft.dao.enums.TranslationContentType;
 import cn.v7soft.admin.service.impl.GeminiTranslateService;
 import cn.v7soft.admin.exception.GeminiContentBlockedException;
+import cn.v7soft.admin.exception.TurboFlowCompletionInProgressException;
 import cn.v7soft.core.exception.ClientException;
 import cn.v7soft.dao.repositories.primary.AiTokenUsageRecordRepository;
 import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
@@ -73,7 +74,12 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
      * 覆盖两段完整生成窗口，避免预取任务还没来得及上报就被回收。
      */
     private static final int TURBOFLOW_LEASE_MINUTES = 12;
-    private static final int TURBOFLOW_REPORT_LEASE_MINUTES = 30;
+    /**
+     * 译图生成完、等待回传阶段的心跳租约。插件每 60 秒发一次心跳（/tasks/translated），
+     * 连续 3 次没收到（插件崩溃 / 浏览器关闭）即过期回收，而不是一次性把租约拉到 30 分钟、
+     * 插件死掉后还要白等半小时才重派。
+     */
+    private static final int TURBOFLOW_REPORT_LEASE_SECONDS = 180;
 
     /** 分发失败（读图 / 建 assignment 异常）后的退避上限，避免 500ms 一轮的热循环。 */
     private static final int DISPATCH_BACKOFF_MAX_SECONDS = 60;
@@ -451,7 +457,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
     }
 
     /**
-     * Reserve time for result upload/retries without releasing the original assignment.
+     * 回传阶段的心跳：译图生成完到回传结束，插件每 60 秒调一次，每次把租约续到
+     * 当前时间 + {@link #TURBOFLOW_REPORT_LEASE_SECONDS}，连续 3 次没收到就过期回收。
      * <p>
      * 返回值告诉插件要不要（重新）上传大图：上一次 complete 超时后插件重试前会先打这个接口，
      * 服务端若已落库（COMPLETED）或仍在处理上一份上传（COMPLETING），插件就不必再把整张图重传一遍。
@@ -480,7 +487,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                     || !subTask.isAssignedTo(request.getBridgeId(), request.getAssignmentId())) {
                 throw new IllegalArgumentException("assignment does not belong to bridge");
             }
-            subTask.extendLease(LocalDateTime.now().plusMinutes(TURBOFLOW_REPORT_LEASE_MINUTES));
+            subTask.extendLease(LocalDateTime.now().plusSeconds(TURBOFLOW_REPORT_LEASE_SECONDS));
             return ReportState.LEASE_EXTENDED;
         }
     }
@@ -503,6 +510,10 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 return;
             }
             throw new IllegalArgumentException("assignment not found or expired");
+        }
+        // 重复上传不排在锁上等前一份处理完（那样会占着线程、数据库连接和几 MB 请求体），直接告诉插件稍后用心跳确认结果
+        if (completingAssignments.contains(request.getAssignmentId())) {
+            throw new TurboFlowCompletionInProgressException(request.getAssignmentId());
         }
         synchronized (subTask) {
             if (assignments.get(request.getAssignmentId()) != subTask) {
@@ -546,7 +557,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         }
         // Keep ownership until success. The subtask lock serializes duplicate uploads,
         // cancellation and lease reclamation while backend persistence is running.
-        subTask.extendLease(LocalDateTime.now().plusMinutes(TURBOFLOW_REPORT_LEASE_MINUTES));
+        subTask.extendLease(LocalDateTime.now().plusSeconds(TURBOFLOW_REPORT_LEASE_SECONDS));
         try {
             if (Boolean.TRUE.equals(request.getPolicyFallback())) {
                 if (!"INVALID_ARGUMENT".equals(request.getPolicyFallbackStatus())) {
@@ -628,7 +639,7 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
             assignments.remove(request.getAssignmentId(), subTask);
             reportingFiles.remove(request.getAssignmentId());
         } catch (Exception e) {
-            subTask.extendLease(LocalDateTime.now().plusMinutes(TURBOFLOW_REPORT_LEASE_MINUTES));
+            subTask.extendLease(LocalDateTime.now().plusSeconds(TURBOFLOW_REPORT_LEASE_SECONDS));
             log.error("[TurboFlowBridge] completeTask 处理失败, 保留 assignment 等待原 bridge 回传重试: assignmentId={}",
                     request.getAssignmentId(), e);
             throw new IllegalStateException(

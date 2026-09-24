@@ -5,20 +5,116 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../background.js', import.meta.url), 'utf8');
 
-function reportHarness(postJson, { uploadConcurrency = 3 } = {}) {
+function reportHarness(postJson, { uploadConcurrency = 3, handlesUploadSlot = false } = {}) {
   const phases = [];
   const waits = [];
+  const logs = [];
+  const heartbeat = { ticks: [], cleared: 0 };
   const context = vm.createContext({
     COMPLETION_REPORT_MAX_RETRIES: 8, COMPLETION_REPORT_TIMEOUT_MS: 120000,
     TRANSLATED_NOTICE_TIMEOUT_MS: 30000, FAIL_REPORT_RETRY_BASE_MS: 1000,
     COMPLETION_UPLOAD_CONCURRENCY: uploadConcurrency, activeCompletionUploads: 0, completionUploadWaiters: [],
-    postJson, addLog() {}, isReprocessRequired: e => e.message.includes('REPROCESS_REQUIRED'),
+    SERVER_UPLOAD_SLOT_RETRY_MS: 1000, uploadSlotUnsupportedServices: new Set(),
+    REPORT_HEARTBEAT_INTERVAL_MS: 60000,
+    setInterval: (tick, ms) => { heartbeat.ticks.push([tick, ms]); return heartbeat.ticks.length; },
+    clearInterval: () => { heartbeat.cleared++; },
+    // 默认服务端直接发名额，只关心回传本身的用例不必处理 upload-slot
+    postJson: (service, path, body, options) => (!handlesUploadSlot && path.endsWith('/upload-slot')
+      ? Promise.resolve({ accepted: true, status: 'GRANTED' })
+      : postJson(service, path, body, options)),
+    addLog: (level, message) => logs.push([level, message]),
+    isReprocessRequired: e => e.message.includes('REPROCESS_REQUIRED'),
     setTaskPhase: (...args) => phases.push(args), sleep: async ms => waits.push(ms),
   });
   vm.runInContext(source.slice(source.indexOf('async function postCompletionWithRetry('),
     source.indexOf('async function retainTranslationForReuse(')), context);
-  return { report: context.postCompletionWithRetry, phases, waits };
+  return { report: context.postCompletionWithRetry, phases, waits, logs, heartbeat };
 }
+
+test('waits for the per-IP upload slot before sending the image, without spending report retries', async () => {
+  const calls = [];
+  let busy = 3;
+  const { report, waits } = reportHarness(async (_service, path, body) => {
+    calls.push(path.split('/').pop());
+    if (path.endsWith('/upload-slot')) {
+      assert.deepEqual({ ...body }, { bridgeId: 'bridge', assignmentId: 'queued' });
+      return { accepted: true, status: busy-- > 0 ? 'BUSY' : 'GRANTED' };
+    }
+    return { accepted: true, status: 'LEASE_EXTENDED' };
+  }, { handlesUploadSlot: true });
+  await report({}, { bridgeId: 'bridge', assignmentId: 'queued' });
+  assert.deepEqual(calls, ['translated', 'upload-slot', 'upload-slot', 'upload-slot', 'upload-slot', 'complete']);
+  assert.equal(waits.length, 3);
+  assert.ok(waits.every(ms => ms >= 1000 && ms < 2000));
+});
+
+test('the granted slot id rides along with the upload so the server returns exactly that slot', async () => {
+  let completeBody;
+  const payload = { bridgeId: 'bridge', assignmentId: 'slotted', resultImageBase64: 'img' };
+  const { report } = reportHarness(async (_service, path, body) => {
+    if (path.endsWith('/upload-slot')) return { accepted: true, status: 'GRANTED', uploadSlotId: 'slot-1' };
+    if (path.endsWith('/complete')) completeBody = body;
+    return { accepted: true, status: 'LEASE_EXTENDED' };
+  }, { handlesUploadSlot: true });
+  await report({}, payload);
+  assert.deepEqual({ ...completeBody }, { ...payload, uploadSlotId: 'slot-1' });
+  assert.equal(payload.uploadSlotId, undefined);
+});
+
+test('an old server without the upload-slot endpoint is probed once, then uploads go straight through', async () => {
+  const calls = [];
+  const { report, logs } = reportHarness(async (_service, path) => {
+    calls.push(path.split('/').pop());
+    if (path.endsWith('/upload-slot')) throw new Error('HTTP 404: Not Found');
+    return { accepted: true };
+  }, { handlesUploadSlot: true });
+  const service = { baseUrl: 'https://old-server' };
+  await report(service, { assignmentId: 'legacy-1' });
+  await report(service, { assignmentId: 'legacy-2' });
+  assert.deepEqual(calls, ['translated', 'upload-slot', 'complete', 'translated', 'complete']);
+  assert.equal(logs.filter(([, message]) => message.includes('without server limit')).length, 1);
+});
+
+test('an overloaded slot endpoint costs a report retry instead of bypassing the limit', async () => {
+  const calls = [];
+  let slotRequests = 0;
+  const { report, waits } = reportHarness(async (_service, path) => {
+    calls.push(path.split('/').pop());
+    if (path.endsWith('/upload-slot')) {
+      if (++slotRequests === 1) throw new Error('signal is aborted without reason');
+      return { accepted: true, status: 'GRANTED', uploadSlotId: 'slot-2' };
+    }
+    return { accepted: true, status: 'LEASE_EXTENDED' };
+  }, { handlesUploadSlot: true });
+  await report({ baseUrl: 'https://busy-server' }, { assignmentId: 'overloaded' });
+  assert.deepEqual(calls, ['translated', 'upload-slot', 'translated', 'upload-slot', 'complete']);
+  assert.deepEqual(waits, [1000]);
+});
+
+test('heartbeats keep the lease alive for the whole report and stop when it ends', async () => {
+  const heartbeats = [];
+  let releaseUpload;
+  const { report, heartbeat } = reportHarness(async (_service, path, body) => {
+    if (path.endsWith('/translated')) {
+      heartbeats.push({ ...body });
+      return { accepted: true, status: 'LEASE_EXTENDED' };
+    }
+    await new Promise(resolve => { releaseUpload = resolve; });
+  });
+  const reporting = report({}, { bridgeId: 'bridge', assignmentId: 'slow-upload', resultImageBase64: 'img' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(heartbeat.ticks.length, 1);
+  assert.equal(heartbeat.ticks[0][1], 60000);
+  const [tick] = heartbeat.ticks[0];
+  tick();
+  tick(); // 上一拍还没返回：跳过，不堆积请求
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(heartbeats, Array(2).fill({ bridgeId: 'bridge', assignmentId: 'slow-upload' }));
+  assert.equal(heartbeat.cleared, 0);
+  releaseUpload();
+  await reporting;
+  assert.equal(heartbeat.cleared, 1);
+});
 
 test('retry skips the image upload when the server already stored an earlier attempt', async () => {
   const calls = [];

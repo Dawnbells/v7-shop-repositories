@@ -224,6 +224,9 @@ application:
       NUXT_MALL: ${FRONT_AGENT_SERVICE_NUXT_MALL:}
       VIKE: ${FRONT_AGENT_SERVICE_VIKE:}
       THYMELEAF: ${FRONT_AGENT_SERVICE_THYMELEAF:}
+  turboflow:
+    # 同一出口 IP 同时回传译图的上限（同一台电脑上的多个插件共用）
+    upload-slots-per-ip: ${TURBOFLOW_UPLOAD_SLOTS_PER_IP:3}
   s3:
     access-key-id: ${S3_ACCESS_KEY_ID}
     endpoint: ${S3_ENDPOINT}

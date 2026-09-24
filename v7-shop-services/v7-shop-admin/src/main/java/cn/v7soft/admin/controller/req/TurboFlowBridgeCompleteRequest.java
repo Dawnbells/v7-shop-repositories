@@ -17,4 +17,6 @@ public class TurboFlowBridgeCompleteRequest {
     private Boolean policyFallback;
     private String policyFallbackStatus;
     private String policyFallbackReason;
+    /** /tasks/upload-slot 发的名额 id，处理结束后据此归还；老插件不带。 */
+    private String uploadSlotId;
 }

@@ -21,4 +21,6 @@ public class TurboFlowBridgeHeartbeatResponse {
      * 插件据此跳过重复上传——上一份译图仍在处理或已落库时不必再传一遍大图。
      */
     private String status;
+    /** 仅 /tasks/upload-slot 在 GRANTED 时返回，插件随 complete 带回用于归还名额。 */
+    private String uploadSlotId;
 }

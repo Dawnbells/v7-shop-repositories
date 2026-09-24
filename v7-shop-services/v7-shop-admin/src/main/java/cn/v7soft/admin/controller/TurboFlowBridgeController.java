@@ -1,14 +1,17 @@
 package cn.v7soft.admin.controller;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.extra.servlet.JakartaServletUtil;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeCompleteRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeFailRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgePollRequest;
 import cn.v7soft.admin.controller.req.TurboFlowBridgeTranslatedRequest;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeHeartbeatResponse;
 import cn.v7soft.admin.controller.resp.TurboFlowBridgeTaskResponse;
+import cn.v7soft.admin.exception.TurboFlowCompletionInProgressException;
 import cn.v7soft.admin.exception.TurboFlowReprocessRequiredException;
 import cn.v7soft.admin.task.provider.TurboFlowBridgeProvider;
+import cn.v7soft.admin.task.provider.TurboFlowUploadGate;
 import cn.v7soft.core.annotation.IgnoreResponsePackage;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class TurboFlowBridgeController {
 
     private final TurboFlowBridgeProvider turboFlowBridgeProvider;
+    private final TurboFlowUploadGate turboFlowUploadGate;
 
     @PostMapping("/tasks/poll")
     public TurboFlowBridgeTaskResponse poll(HttpServletRequest servletRequest,
@@ -62,6 +66,25 @@ public class TurboFlowBridgeController {
                 .build();
     }
 
+    /**
+     * 上传大图前领取本 IP 的回传名额。BUSY 时插件退避后再领，GRANTED 后才发 /tasks/complete。
+     * 请求体沿用 translated 通知的 {bridgeId, assignmentId}。
+     */
+    @PostMapping("/tasks/upload-slot")
+    public TurboFlowBridgeHeartbeatResponse uploadSlot(HttpServletRequest servletRequest,
+            @RequestBody TurboFlowBridgeTranslatedRequest request) {
+        if (request == null || StrUtil.isBlank(request.getAssignmentId())) {
+            throw new IllegalArgumentException("assignmentId is required");
+        }
+        String slotId = turboFlowUploadGate.tryAcquire(
+                JakartaServletUtil.getClientIP(servletRequest), request.getAssignmentId());
+        return TurboFlowBridgeHeartbeatResponse.builder().accepted(true)
+                .status(slotId != null ? "GRANTED" : "BUSY")
+                .uploadSlotId(slotId)
+                .message(slotId != null ? "upload slot granted" : "too many uploads from this IP")
+                .build();
+    }
+
     @PostMapping("/tasks/complete")
     public ResponseEntity<TurboFlowBridgeHeartbeatResponse> complete(
             HttpServletRequest servletRequest,
@@ -83,6 +106,11 @@ public class TurboFlowBridgeController {
                             .reason(TurboFlowReprocessRequiredException.REASON)
                             .message(e.getMessage())
                             .build());
+        } catch (TurboFlowCompletionInProgressException e) {
+            // 同一张图的上一份上传还在处理：不排队等锁，插件退避后发心跳确认结果
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    TurboFlowBridgeHeartbeatResponse.builder().accepted(false)
+                            .reason(TurboFlowCompletionInProgressException.REASON).message(e.getMessage()).build());
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(
                     TurboFlowBridgeHeartbeatResponse.builder().accepted(false)
@@ -95,6 +123,11 @@ public class TurboFlowBridgeController {
                     request == null ? null : request.getAssignmentId());
             return ResponseEntity.ok(
                     TurboFlowBridgeHeartbeatResponse.builder().accepted(false).message("invalid bridge token").build());
+        } finally {
+            // 请求体已经传完，无论结果如何都把这次领到的名额让出来（只还自己那次，见 TurboFlowUploadGate）
+            if (request != null) {
+                turboFlowUploadGate.release(request.getAssignmentId(), request.getUploadSlotId());
+            }
         }
     }
 
@@ -111,6 +144,9 @@ public class TurboFlowBridgeController {
             log.debug("[TurboFlowBridge] fail rejected: invalid bridge token, assignmentId={}",
                     request == null ? null : request.getAssignmentId());
             return TurboFlowBridgeHeartbeatResponse.builder().accepted(false).message("invalid bridge token").build();
+        } finally {
+            // 回传重试耗尽后插件会上报 fail，此时它领过的名额不会再用
+            turboFlowUploadGate.release(request == null ? null : request.getAssignmentId(), null);
         }
     }
 

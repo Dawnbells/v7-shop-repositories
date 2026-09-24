@@ -87,8 +87,8 @@ const TRANSLATE_TIMEOUT_MS = 300 * 1000;
 // fail 上报失败的重试次数与基础间隔（指数退避）。尽量保证 server 端能及时收到失败信号，避免等到 lease 过期。
 const FAIL_REPORT_MAX_RETRIES = 3;
 const FAIL_REPORT_RETRY_BASE_MS = 1000;
-// Keep the original assignment through slow uploads and transient backend errors.
-// Nine 120s uploads, 30s notices and capped backoff fit inside the 30-minute report lease.
+// Keep the original assignment through slow uploads and transient backend errors;
+// the report heartbeat keeps the server lease alive for as long as reporting takes.
 const COMPLETION_REPORT_MAX_RETRIES = 8;
 const COMPLETION_REPORT_TIMEOUT_MS = 120 * 1000;
 const TRANSLATED_NOTICE_TIMEOUT_MS = 30 * 1000;
@@ -96,6 +96,11 @@ const TRANSLATED_NOTICE_TIMEOUT_MS = 30 * 1000;
 const COMPLETION_UPLOAD_CONCURRENCY = 3;
 let activeCompletionUploads = 0;
 const completionUploadWaiters = [];
+// 服务端按 IP 发放回传名额，见 acquireServerUploadSlot。领不到时 1~2 秒后再领。
+const SERVER_UPLOAD_SLOT_RETRY_MS = 1000;
+const uploadSlotUnsupportedServices = new Set();
+// 回传阶段心跳间隔：服务端租约 180 秒，连续漏 3 次心跳才过期，见 startReportHeartbeat。
+const REPORT_HEARTBEAT_INTERVAL_MS = 60 * 1000;
 const PENDING_POLICY_REPORT_ALARM = 'retry-pending-policy-fallbacks';
 let pendingPolicyFlushRunning = false;
 
@@ -1726,8 +1731,18 @@ function isReprocessRequired(error) {
 
 /**
  * 译图完成上报带指数退避（此前完全没有重试，一次网络抖动就当翻译失败、整张图重译）。
+ * 从译图生成完到上报结束全程发心跳，服务端据此保住 assignment 租约（见 startReportHeartbeat）。
  */
 async function postCompletionWithRetry(service, payload) {
+  const stopHeartbeat = startReportHeartbeat(service, payload);
+  try {
+    await reportCompletion(service, payload);
+  } finally {
+    stopHeartbeat();
+  }
+}
+
+async function reportCompletion(service, payload) {
   for (let attempt = 0; attempt <= COMPLETION_REPORT_MAX_RETRIES; attempt++) {
     setTaskPhase(payload.assignmentId, attempt ? 'reporting_retry' : 'reporting', attempt);
     try {
@@ -1735,9 +1750,7 @@ async function postCompletionWithRetry(service, payload) {
       // notice endpoint must not discard a finished translation (older servers).
       let notice = null;
       try {
-        notice = await postJson(service, '/turboflow-bridge/tasks/translated', {
-          bridgeId: payload.bridgeId, assignmentId: payload.assignmentId,
-        }, { timeoutMs: TRANSLATED_NOTICE_TIMEOUT_MS });
+        notice = await postReportHeartbeat(service, payload);
       } catch (noticeError) {
         addLog('warn', `Translation notice failed; still attempting image upload: ${noticeError.message}`);
       }
@@ -1750,8 +1763,12 @@ async function postCompletionWithRetry(service, payload) {
       if (notice?.status === 'COMPLETING') {
         throw new Error('previous upload is still being processed by server');
       }
-      await withCompletionUploadSlot(() => postJson(service, '/turboflow-bridge/tasks/complete', payload,
-        { timeoutMs: COMPLETION_REPORT_TIMEOUT_MS }));
+      await withCompletionUploadSlot(async () => {
+        const uploadSlotId = await acquireServerUploadSlot(service, payload);
+        return postJson(service, '/turboflow-bridge/tasks/complete',
+          uploadSlotId ? { ...payload, uploadSlotId } : payload,
+          { timeoutMs: COMPLETION_REPORT_TIMEOUT_MS });
+      });
       if (attempt > 0) {
         addLog('info', `Completion reported on retry ${attempt}: ${payload.assignmentId}`);
       }
@@ -1772,10 +1789,32 @@ async function postCompletionWithRetry(service, payload) {
   }
 }
 
+function postReportHeartbeat(service, { bridgeId, assignmentId }) {
+  return postJson(service, '/turboflow-bridge/tasks/translated', { bridgeId, assignmentId },
+    { timeoutMs: TRANSLATED_NOTICE_TIMEOUT_MS });
+}
+
+/**
+ * 回传阶段的心跳。服务端给等待回传的 assignment 只续 3 分钟租约，插件每分钟续一次：
+ * 排队等名额、上传、退避重试期间都不会过期；插件崩溃或浏览器关闭时，最多 3 分钟后服务端就回收重派。
+ * 上一次心跳还没返回就跳过这一拍，避免网络卡住时请求越堆越多。心跳失败不影响回传本身。
+ */
+function startReportHeartbeat(service, payload) {
+  let inFlight = false;
+  const timer = setInterval(() => {
+    if (inFlight) return;
+    inFlight = true;
+    postReportHeartbeat(service, payload)
+      .catch((err) => addLog('warn', `Report heartbeat failed for ${payload.assignmentId}: ${err.message}`))
+      .finally(() => { inFlight = false; });
+  }, REPORT_HEARTBEAT_INTERVAL_MS);
+  return () => clearInterval(timer);
+}
+
 /**
  * 限制同时上传的译图数量。生成槽位在回传前就释放了，并发调高后回传请求会无上限叠加：
  * 每张 base64 PNG 数 MB，几路一起挤上行带宽和服务端存图，单个请求就容易拖过超时。
- * 排队发生在 fetch 之前，不占用单次请求的超时预算；租约已由前面的 translated 通知延到 30 分钟。
+ * 排队发生在 fetch 之前，不占用单次请求的超时预算；排队期间由心跳保住租约。
  */
 async function withCompletionUploadSlot(upload) {
   while (activeCompletionUploads >= COMPLETION_UPLOAD_CONCURRENCY) {
@@ -1787,6 +1826,36 @@ async function withCompletionUploadSlot(upload) {
   } finally {
     activeCompletionUploads--;
     completionUploadWaiters.shift()?.();
+  }
+}
+
+/**
+ * 向服务端领取本机出口 IP 的回传名额，返回 slotId（随 complete 带回，服务端据此归还）。
+ * 同一台电脑上多个 Chrome 用户配置里的插件互相隔离，只能靠服务端按 IP 协调，共用这台设备的上行带宽。
+ * 名额满（BUSY）就带抖动一直等：其余已完成的译图本来就该在本地排队，租约由心跳保住。
+ * 只有老服务端（404，没有这个接口）才跳过限流，并按服务记住、之后不再探测；
+ * 超时 / 5xx 往外抛，计入回传重试——过载时绕过限流直接上传，正好把限流废掉。
+ */
+async function acquireServerUploadSlot(service, { bridgeId, assignmentId }) {
+  if (uploadSlotUnsupportedServices.has(service.baseUrl)) return null;
+  let loggedWait = false;
+  for (;;) {
+    let slot;
+    try {
+      slot = await postJson(service, '/turboflow-bridge/tasks/upload-slot', { bridgeId, assignmentId },
+        { timeoutMs: TRANSLATED_NOTICE_TIMEOUT_MS });
+    } catch (err) {
+      if (!/^HTTP 404\b/.test(err.message)) throw err;
+      uploadSlotUnsupportedServices.add(service.baseUrl);
+      addLog('info', `Server has no upload-slot endpoint, uploading without server limit: ${service.baseUrl}`);
+      return null;
+    }
+    if (slot?.status !== 'BUSY') return slot?.uploadSlotId || null;
+    if (!loggedWait) {
+      addLog('info', `Waiting for an upload slot shared with other bridges on this IP: ${assignmentId}`);
+      loggedWait = true;
+    }
+    await sleep(SERVER_UPLOAD_SLOT_RETRY_MS + Math.floor(Math.random() * SERVER_UPLOAD_SLOT_RETRY_MS));
   }
 }
 

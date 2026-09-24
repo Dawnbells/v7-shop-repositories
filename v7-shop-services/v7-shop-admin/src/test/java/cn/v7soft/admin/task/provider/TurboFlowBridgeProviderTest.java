@@ -559,7 +559,8 @@ class TurboFlowBridgeProviderTest {
         assertEquals(polled.getLeaseUntil(), subTask.getLeaseUntil());
         ready.setBridgeId("bridge-a");
         provider.translationReady("token", ready);
-        assertTrue(subTask.getLeaseUntil().isAfter(LocalDateTime.now().plusMinutes(29)));
+        // 心跳只把租约续到"至少 180 秒后"，不会缩短分发时给的更长租约
+        assertFalse(subTask.getLeaseUntil().isBefore(LocalDateTime.now().plusSeconds(170)));
         assertEquals(1, subTask.getAttemptCount().get());
 
         TurboFlowBridgeCompleteRequest completeRequest = new TurboFlowBridgeCompleteRequest();
@@ -598,7 +599,7 @@ class TurboFlowBridgeProviderTest {
     }
 
     @Test
-    void concurrentDuplicateCompletionWaitsForPersistenceAndOnlyCompletesOnce() throws Exception {
+    void concurrentDuplicateCompletionFailsFastInsteadOfQueueingOnTheLock() throws Exception {
         TurboFlowBridgeProvider provider = provider();
         AiAccountTranslateSubTask task = dispatchImage(provider, 821L);
         java.util.concurrent.CountDownLatch saving = new java.util.concurrent.CountDownLatch(1);
@@ -611,17 +612,19 @@ class TurboFlowBridgeProviderTest {
         TurboFlowBridgeCompleteRequest request = completion(task);
         java.util.concurrent.CompletableFuture<Void> first = java.util.concurrent.CompletableFuture.runAsync(
                 () -> provider.completeTask("token", request));
-        java.util.concurrent.CompletableFuture<Void> second;
         try {
             assertTrue(saving.await(5, java.util.concurrent.TimeUnit.SECONDS));
-            second = java.util.concurrent.CompletableFuture.runAsync(() -> provider.completeTask("token", request));
-            assertThrows(java.util.concurrent.TimeoutException.class,
-                    () -> second.get(100, java.util.concurrent.TimeUnit.MILLISECONDS));
+            // 重复上传立即拿到"处理中"，而不是占着线程等前一份处理完
+            java.util.concurrent.CompletableFuture<Void> second =
+                    java.util.concurrent.CompletableFuture.runAsync(() -> provider.completeTask("token", request));
+            java.util.concurrent.ExecutionException error = assertThrows(java.util.concurrent.ExecutionException.class,
+                    () -> second.get(1, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue(error.getCause() instanceof cn.v7soft.admin.exception.TurboFlowCompletionInProgressException);
         } finally {
             finish.countDown();
         }
         first.get(5, java.util.concurrent.TimeUnit.SECONDS);
-        second.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        provider.completeTask("token", request); // 前一份处理完后再重投：按已完成确认
         verify(callback).onSubTaskCompleted(eq(task), any());
         verify(multimediaFileService).saveTranslatedImage(any(byte[].class), anyString(), any());
     }

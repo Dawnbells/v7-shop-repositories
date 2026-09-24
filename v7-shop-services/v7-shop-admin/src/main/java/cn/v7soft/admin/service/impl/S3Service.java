@@ -1,5 +1,6 @@
 package cn.v7soft.admin.service.impl;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.time.Duration;
@@ -85,7 +86,9 @@ public class S3Service implements IS3Service {
                 .contentType(contentType)
                 .overrideConfiguration(o -> o.apiCallTimeout(timeout))
                 .build();
-        s3Client.putObject(putObjectRequest, RequestBody.fromBytes(data));
+        // fromBytes 会整份拷贝数组；译图有几 MB，直接包成可重放的流，SDK 内部重试时重新读同一个数组
+        s3Client.putObject(putObjectRequest, RequestBody.fromContentProvider(
+                () -> new ByteArrayInputStream(data), data.length, contentType));
     }
 
     @Override
