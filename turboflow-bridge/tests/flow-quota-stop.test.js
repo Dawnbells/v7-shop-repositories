@@ -13,6 +13,7 @@ function backgroundStopHarness() {
   const releases = [];
   const context = vm.createContext({
     ...policy,
+    releaseApi2351: async () => { events.push({ type: 'VERIFICATION_RELEASE' }); },
     releasePrefetchedTask: reason => releases.push(reason),
     recoveryState: { consecutiveFailures: 0, consecutiveFlowDisconnects: 0 },
     pollPaused: false, pauseReason: null, pauseReasonCode: null, pausedAt: 0,
@@ -30,10 +31,11 @@ function backgroundStopHarness() {
 }
 
 test('entering the stopped state hands the standby task back to the server', () => {
-  const { context, releases } = backgroundStopHarness();
+  const { context, releases, events } = backgroundStopHarness();
   context.applyFailureStreak('increment', { errorCode: 'FLOW_AUTHENTICATION_FAILED' });
   assert.equal(context.pollPaused, true);
   assert.deepEqual(releases, ['bridge stopped']);
+  assert.ok(events.some(event => event.type === 'VERIFICATION_RELEASE'));
 });
 
 test('the first RPC 8 persists a quota stop and later concurrent failures cannot overwrite it', () => {

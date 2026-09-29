@@ -54,7 +54,9 @@ import {
 } from './task-error-policy.js';
 import { FlowTaskRegistry } from './flow-task-registry.js';
 import { FlowSubmissionPacer } from './flow-submission-pacer.js';
-import { translateImageViaApi } from './flow-image-translation.js';
+import { translateImageForMode } from './flow-generation-mode.js';
+import { releaseApi2351 } from './flow-api-2.3.5.1.js';
+import { normalizeGenerationMode, generationModeLabel } from './generation-mode.js';
 
 const VERSION = '1.5.4';
 const POLL_INTERVAL_MS = 500;
@@ -325,6 +327,7 @@ function pausePoll(reason, options = {}) {
   if (alreadyPaused && isQuotaErrorCode(pauseReasonCode)) return;
   const reasonChanged = pauseReason !== reason;
   pollPaused = true;
+  releaseApi2351().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
   pauseReason = reason;
   pauseReasonCode = options.code || pauseReasonCode || null;
   // 停止态下预取任务永远启动不了，还给服务端重派。
@@ -971,9 +974,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           prompt,
           aspectRatio,
         };
-        const result = mode === 'ui'
-          ? await runFlowDomTranslation(conn, options)
-          : await translateImageViaApi(conn, { ...options, beforeSubmit: assertFlowSubmissionAllowed });
+        const result = await translateImageForMode(mode, conn,
+          { ...options, beforeSubmit: assertFlowSubmissionAllowed }, runFlowDomTranslation);
         sendResponse({ ok: true, ...result });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
@@ -1043,7 +1045,7 @@ async function loadPersistedState() {
   }
   logHistory = Array.isArray(stored.logHistory) ? stored.logHistory : [];
   bridgeStats = normalizeStats(stored[STATS_STORAGE_KEY], Date.now());
-  generationMode = stored[GENERATION_MODE_STORAGE_KEY] === 'ui' ? 'ui' : 'api';
+  generationMode = normalizeGenerationMode(stored[GENERATION_MODE_STORAGE_KEY]);
   flowConcurrency = normalizeFlowConcurrency(stored[FLOW_CONCURRENCY_STORAGE_KEY]);
   flowTasks.setLimit(flowConcurrency);
   // 旧版冷静期遗留 state：直接清掉，新方案不再使用
@@ -1061,6 +1063,9 @@ async function loadPersistedState() {
     safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
   }
   await loadRecoveryState();
+  if (pollPaused || generationMode !== 'api-2.3.5.1') {
+    releaseApi2351().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
+  }
   await refreshReuseSummary();
 }
 
@@ -1070,7 +1075,7 @@ async function loadConfig() {
   return {
     bridgeId,
     services: Array.isArray(stored.services) ? stored.services : [],
-    generationMode: stored[GENERATION_MODE_STORAGE_KEY] === 'ui' ? 'ui' : 'api',
+    generationMode: normalizeGenerationMode(stored[GENERATION_MODE_STORAGE_KEY]),
     flowConcurrency: normalizeFlowConcurrency(stored[FLOW_CONCURRENCY_STORAGE_KEY]),
     maxFlowConcurrency: MAX_FLOW_CONCURRENCY,
   };
@@ -1122,7 +1127,7 @@ async function saveConfig(config) {
         enabled: s.enabled !== false,
       })).filter((s) => s.baseUrl && s.token)
     : [];
-  const nextGenerationMode = config.generationMode === 'ui' ? 'ui' : 'api';
+  const nextGenerationMode = normalizeGenerationMode(config.generationMode);
   const nextConcurrency = normalizeFlowConcurrency(config.flowConcurrency);
   await chrome.storage.local.set({
     services,
@@ -1130,6 +1135,9 @@ async function saveConfig(config) {
     [FLOW_CONCURRENCY_STORAGE_KEY]: nextConcurrency,
   });
   generationMode = nextGenerationMode;
+  if (generationMode !== 'api-2.3.5.1') {
+    releaseApi2351().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
+  }
   flowConcurrency = nextConcurrency;
   flowTasks.setLimit(nextConcurrency);
 }
@@ -1987,11 +1995,8 @@ async function translateImage(task, conn) {
     aspectRatio,
     model: sanitizeModel(task.model),
   };
-  if (mode === 'ui') {
-    assertFlowSubmissionAllowed();
-    return runFlowDomTranslation(conn, options);
-  }
-  return translateImageViaApi(conn, {
+  assertFlowSubmissionAllowed();
+  return translateImageForMode(mode, conn, {
     ...options,
     beforeSubmit: assertFlowSubmissionAllowed,
     onPhase: (phase) => setTaskPhase(task.assignmentId, phase),
@@ -2001,10 +2006,10 @@ async function translateImage(task, conn) {
       const state = currentTasks.find((item) => item.assignmentId === task.assignmentId);
       if (state) state.phase = 'generating';
       broadcastTasksChanged();
-      addLog('info', `API translation submitted: ${task.subTaskId}; ${flowTasks.generatingOwners.size}/${flowTasks.limit} generating`);
+      addLog('info', `${generationModeLabel(mode)} translation submitted: ${task.subTaskId}; ${flowTasks.generatingOwners.size}/${flowTasks.limit} generating`);
       scheduleLoop(0);
     },
-  });
+  }, runFlowDomTranslation);
 }
 
 async function runFlowDomTranslation(conn, task) {

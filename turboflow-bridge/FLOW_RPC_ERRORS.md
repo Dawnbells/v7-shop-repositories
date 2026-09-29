@@ -1,5 +1,27 @@
 # Flow RPC 错误排查
 
+## 1.5.8 验证辅助页加载修正
+
+`api-2.3.5.1` 的 1.5.7 实现注册的 Trusted Types 默认规则只允许入口 `enterprise.js`，未允许 reCAPTCHA 后续从 `www.gstatic.com/recaptcha/` 加载的脚本。这是一个可导致初始化停在 `ready`、最终报 `Flow verification timed out` 的实现缺陷；仅凭该超时日志不能排除网络或 Google 侧验证延迟。
+
+- 将脚本 URL 规则对齐到参考实现使用的 Google / gstatic HTTPS reCAPTCHA 资源目录，其他域名和目录仍拒绝。
+- 辅助页身份增加初始化版本；升级后重建旧辅助页，避免不可覆盖的旧 Trusted Types 规则继续生效，不关闭用户自己打开的页面。
+- 超时日志增加 `stage=script-load`、`stage=ready` 或 `stage=execute`，分别表示脚本加载、库初始化和 token 执行；脚本加载失败或 CSP 拒绝立即报告具体阶段。
+
+此修正有二级脚本加载和旧辅助页迁移回归测试，尚未确认真实账号生成。重载扩展后再点 Run Now；若仍失败，保留新的阶段信息定位下一步。
+
+## 1.5.7 可选 api-2.3.5.1 模式
+
+设置中的 Generation method 增加 `api-2.3.5.1`，已有 `API` / `Flow UI` 配置保持不变。
+该模式参考 TurboFlow 2.3.5.1 的图片调用流程，使用本地 RPC 常量和 REST 参数；不调用原扩展的登录、会员、批次授权、配置或统计服务。仍需在 Google Flow 网页中登录并打开项目。
+
+- 新版 Flow：上传 `maseQ` → 生成 `ogiZ0b` → 必要时按生成媒体 ID 查询 `uurnC`。保留 `/u/<账号序号>/` 路径；不执行旧 API 模式的生成前额度查询。
+- 上传和生成分别从扩展创建的非激活 `/about` 页获取新的 `IMAGE_GENERATION` 验证 token。辅助页不参与任务页识别；切换到其他模式或停止后，待当前翻译结束再关闭，用户自己打开的页面不关闭。
+- 旧版 Flow：使用五分钟会话缓存、`flow/uploadImage` 和 `flowMedia:batchGenerateImages`。生成前获取页面验证 token。
+- 继续使用当前项目的任务服务、并发、5–10 秒提交间隔、结果下载和上报；验证失败或协议拒绝沿用现有停止/恢复策略，不在此适配器内重复提交生成。
+
+验证范围：协议模拟覆盖新旧站点、提交早于响应、并发结果隔离、暂停门禁、辅助页生命周期和配置兼容。真实账号新旧站点生成仍需重载扩展后，通过测试入口选择 `api-2.3.5.1` 验收；模拟测试不代表真实账号调用已通过。
+
 ## 1.5.5 API 协议修正（2026-09-28）
 
 依据成功样本 `flow-api-check2.har` 及其中的前端脚本：

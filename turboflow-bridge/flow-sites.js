@@ -16,7 +16,8 @@ export function isFlowUrl(value) {
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:') return false;
-    if (url.hostname === 'flow.google.com') return true;
+    // The 2.3.5.1 verification helper is not a working Flow page.
+    if (url.hostname === 'flow.google.com') return !/^\/(?:u\/\d+\/)?about\/?$/.test(url.pathname);
     return url.hostname === 'labs.google' && LEGACY_FLOW_PATH_RE.test(url.pathname);
   } catch {
     return false;

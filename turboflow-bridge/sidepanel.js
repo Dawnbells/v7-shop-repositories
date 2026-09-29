@@ -1,3 +1,5 @@
+import { normalizeGenerationMode, generationModeLabel } from './generation-mode.js';
+
 (function () {
   /* ── DOM refs ── */
   const bridgeIdEl = document.getElementById('bridge-id');
@@ -178,7 +180,7 @@
   async function init() {
     const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
     bridgeIdEl.textContent = config.bridgeId || '-';
-    generationMode = config.generationMode === 'ui' ? 'ui' : 'api';
+    generationMode = normalizeGenerationMode(config.generationMode);
     updateTestModeLabel();
 
     const status = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
@@ -408,7 +410,7 @@
   async function loadSettings() {
     const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
     services = config.services || [];
-    generationMode = config.generationMode === 'ui' ? 'ui' : 'api';
+    generationMode = normalizeGenerationMode(config.generationMode);
     generationModeEl.value = generationMode;
     flowConcurrencyEl.value = String(config.flowConcurrency || 1);
     updateTestModeLabel();
@@ -416,7 +418,7 @@
   }
 
   function updateTestModeLabel() {
-    btnTestRun.textContent = generationMode === 'ui' ? 'Translate via Flow UI' : 'Translate via Flow API';
+    btnTestRun.textContent = `Translate via ${generationModeLabel(generationMode)}`;
   }
 
   function renderServices() {
@@ -455,7 +457,7 @@
       config: { services, generationMode: generationModeEl.value, flowConcurrency: Number(flowConcurrencyEl.value) || 1 },
     });
     if (!response?.ok) throw new Error(response?.error || 'Could not save settings');
-    generationMode = generationModeEl.value;
+    generationMode = normalizeGenerationMode(generationModeEl.value);
     updateTestModeLabel();
     showToast('Settings saved');
   }
@@ -663,7 +665,7 @@
   }
 
   btnTestRun.addEventListener('click', () => runTestTranslate(
-    'TEST_TRANSLATE', generationMode === 'ui' ? 'Translating through Flow UI' : 'Translating through Flow API',
+    'TEST_TRANSLATE', `Translating through ${generationModeLabel(generationMode)}`,
   ));
 
   init();

@@ -11,6 +11,10 @@ $packageEntries = @(
   'content-isolated.js'
   'content-main.js'
   'flow-api.js'
+  'flow-api-2.3.5.1.js'
+  'flow-verification-session.js'
+  'flow-generation-mode.js'
+  'generation-mode.js'
   'flow-dom-method.js'
   'flow-modern-api.js'
   'flow-image-translation.js'
@@ -30,6 +34,10 @@ $packageEntries = @(
 )
 
 $requiredArchiveEntries = @(
+  'flow-api-2.3.5.1.js'
+  'flow-verification-session.js'
+  'flow-generation-mode.js'
+  'generation-mode.js'
   'background.js'
   'bridge-stats.js'
   'flow-modern-api.js'

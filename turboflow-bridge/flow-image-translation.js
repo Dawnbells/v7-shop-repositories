@@ -11,6 +11,11 @@ const defaultApi = { getSessionToken, uploadImageToFlow, generateWithReference, 
 // Keep every upload and generation result scoped to its own task. No DOM tile
 // matching or shared "latest image" state is involved in the API pipeline.
 export async function translateImageViaApi(conn, task, api = defaultApi) {
+  const run = () => translateImage(conn, task, api);
+  return api.withTranslation ? api.withTranslation(run) : run();
+}
+
+async function translateImage(conn, task, api) {
   if (!conn?.connected || !conn.tabId || !conn.projectId) throw new Error('Flow is not connected');
   const input = String(task.imageBase64 || '');
   const match = input.match(/^data:(image\/[\w.+-]+);base64,([\s\S]+)$/i);
@@ -24,6 +29,7 @@ export async function translateImageViaApi(conn, task, api = defaultApi) {
     fileName: task.fileName || 'source.png',
     pid: conn.projectId,
     token,
+    beforeSubmit: task.beforeSubmit,
   });
   task.beforeSubmit?.();
   const generation = await api.generateWithReference(conn.tabId, {
