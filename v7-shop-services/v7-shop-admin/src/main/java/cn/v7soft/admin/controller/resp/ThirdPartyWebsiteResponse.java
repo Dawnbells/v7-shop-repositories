@@ -52,6 +52,9 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
     @Schema(title = "币种模式")
     private CurrencyMode currencyMode;
 
+    @Schema(title = "Shopify Client ID")
+    private String clientId;
+
     public static ThirdPartyWebsiteResponse convertEntity(ThirdPartyWebsite entity) {
         SystemUser owner = entity.getOwner();
         String ownerName = "";
@@ -66,7 +69,9 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
                 .id(String.valueOf(entity.getId()))
                 .nickName(entity.getNickName())
                 .handle(entity.getHandle())
-                .token(entity.getToken())
+                // Shopify 的 token 由后端自动换取，不下发给前端
+                .token(entity.getWebsiteType() == WebsiteTypeEnum.SHOPIFY ? "" : entity.getToken())
+                .clientId(entity.getClientId())
                 .authStatus(entity.getAuthStatus())
                 .websiteType(entity.getWebsiteType())
                 .ownerName(ownerName)

@@ -16,6 +16,14 @@ export function doEdit(data: any) {
   })
 }
 
+export function doEditShopify(data: any) {
+  return request({
+    url: '/third-party-website/shopify/doEdit',
+    method: 'post',
+    data,
+  })
+}
+
 export function doDelete(data: any) {
   return request({
     url: '/third-party-website/doDelete',

@@ -458,6 +458,7 @@ const platformLabels: Record<StatisticsPlatform, string> = {
   V7_SHOP: 'V7 Shop',
   SHOPLINE: 'SHOPLINE',
   XYZ: '小宇宙',
+  SHOPIFY: 'SHOPIFY',
 }
 
 const dimensionOptions = computed(() =>

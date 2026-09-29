@@ -2,7 +2,7 @@ import request from '/@/utils/request'
 
 export type StatisticsGranularity = 'DAY' | 'MONTH'
 export type StatisticsDimension = 'EMPLOYEE' | 'DEPARTMENT'
-export type StatisticsPlatform = 'V7_SHOP' | 'SHOPLINE' | 'XYZ'
+export type StatisticsPlatform = 'V7_SHOP' | 'SHOPLINE' | 'XYZ' | 'SHOPIFY'
 
 export interface StatisticsConfig {
   defaultTargetCurrencyCode: string

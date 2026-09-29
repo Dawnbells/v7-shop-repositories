@@ -94,4 +94,22 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
 
     @Column(name = "last_manual_sync_time")
     private LocalDateTime lastManualSyncTime;
+
+    /**
+     * Shopify 应用的 Client ID（仅 SHOPIFY 类型使用）
+     */
+    @Column(name = "client_id")
+    private String clientId;
+
+    /**
+     * Shopify 应用的 Client Secret（仅 SHOPIFY 类型使用）
+     */
+    @Column(name = "client_secret", length = 512)
+    private String clientSecret;
+
+    /**
+     * token 的过期时间（仅 SHOPIFY 类型使用，token 由 Client ID/Secret 换取，24 小时有效）
+     */
+    @Column(name = "token_expires_at")
+    private LocalDateTime tokenExpiresAt;
 }

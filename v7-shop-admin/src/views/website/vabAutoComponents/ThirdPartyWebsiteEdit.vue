@@ -5,14 +5,30 @@
         <el-input v-model.trim="form.nickName" clearable />
       </el-form-item>
       <el-form-item label="HANDLE" prop="handle">
-        <el-input v-model.trim="form.handle" clearable />
+        <el-input
+          v-model.trim="form.handle"
+          clearable
+          :placeholder="isShopify ? 'xxx.myshopify.com 中的 xxx' : ''"
+        />
       </el-form-item>
-      <el-form-item label="访问令牌" prop="token">
+      <el-form-item v-if="!isShopify" label="访问令牌" prop="token">
         <el-input v-model.trim="form.token" clearable />
       </el-form-item>
+      <el-form-item v-if="isShopify" label="Client ID" prop="clientId">
+        <el-input v-model.trim="form.clientId" clearable />
+      </el-form-item>
+      <el-form-item v-if="isShopify" label="Client Secret" prop="clientSecret">
+        <el-input
+          v-model.trim="form.clientSecret"
+          clearable
+          :placeholder="form.id ? '留空表示不修改' : ''"
+          show-password
+        />
+      </el-form-item>
       <el-form-item label="商城类型" prop="websiteType">
-        <el-select v-model="form.websiteType" placeholder="请选择店铺类型">
+        <el-select v-model="form.websiteType" :disabled="!!form.id" placeholder="请选择店铺类型">
           <el-option label="SHOPLINE" value="SHOPLINE" />
+          <el-option label="SHOPIFY" value="SHOPIFY" />
         </el-select>
       </el-form-item>
       <el-form-item label="币种模式" prop="currencyMode">
@@ -29,7 +45,7 @@
 </template>
 
 <script lang="ts" setup>
-import { doEdit } from '../../../api/ThirdPartyWebsite'
+import { doEdit, doEditShopify } from '../../../api/ThirdPartyWebsite'
 
 defineOptions({
   name: 'ThirdPartyWebsiteEdit',
@@ -45,13 +61,27 @@ const form = reactive<any>({
   nickName: '',
   handle: '',
   token: '',
+  clientId: '',
+  clientSecret: '',
   websiteType: 'SHOPLINE',
   currencyMode: 'SHOP_MONEY',
 })
+const isShopify = computed<boolean>(() => form.websiteType === 'SHOPIFY')
 const rules = reactive<any>({
   nickName: [{ required: true, trigger: 'blur', message: '请输入店铺名称' }],
   handle: [{ required: true, trigger: 'blur', message: '请输入店铺唯一标识' }],
   token: [{ required: true, trigger: 'blur', message: '请输入访问令牌' }],
+  clientId: [{ required: true, trigger: 'blur', message: '请输入Client ID' }],
+  clientSecret: [
+    {
+      trigger: 'blur',
+      validator: (_rule: any, value: string, callback: any) => {
+        // 编辑时留空表示不修改
+        if (!value && !form.id) callback(new Error('请输入Client Secret'))
+        else callback()
+      },
+    },
+  ],
 })
 
 const showEdit = (row: any) => {
@@ -74,6 +104,9 @@ const close = () => {
   formRef.value.resetFields()
   Object.assign(form, {
     id: undefined,
+    token: '',
+    clientId: '',
+    clientSecret: '',
   })
   emit('fetch-data')
 }
@@ -83,7 +116,7 @@ const save = () => {
     if (valid) {
       try {
         saveLoading.value = true
-        const { msg }: any = await doEdit(form)
+        const { msg }: any = isShopify.value ? await doEditShopify(form) : await doEdit(form)
         await $baseMessage(msg, 'success', 'hey')
         dialogFormVisible.value = false
       } finally {

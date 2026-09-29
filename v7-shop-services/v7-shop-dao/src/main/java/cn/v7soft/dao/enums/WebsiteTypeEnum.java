@@ -7,5 +7,6 @@ package cn.v7soft.dao.enums;
 public enum WebsiteTypeEnum {
     V7_SHOP,
     SHOPLINE,
-    XYZ
+    XYZ,
+    SHOPIFY
 }

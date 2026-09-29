@@ -192,6 +192,7 @@
                 <el-option label="新系统" value="V7_SHOP" />
                 <el-option label="小宇宙" value="XYZ" />
                 <el-option label="SHOPLINE" value="SHOPLINE" />
+                <el-option label="SHOPIFY" value="SHOPIFY" />
               </el-select>
             </el-form-item>
             <el-form-item label="建联状态">

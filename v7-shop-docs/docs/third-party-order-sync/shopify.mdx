@@ -1,0 +1,72 @@
+---
+sidebar_position: 7
+---
+
+# Shopify 订单同步
+
+将 Shopify 店铺的订单同步到 VantaSite 系统。同步规则（实时同步、历史订单同步、商品元字段补全、暂停与删除）与 Shopline 一致，区别只在于店铺的连接方式。
+
+## 1. 创建应用
+
+进入 [Shopify Dev Dashboard](https://dev.shopify.com/dashboard)，创建一个应用，名称不限。
+
+:::warning 注意
+应用必须与店铺属于同一个 Shopify 组织，否则无法获取访问令牌。
+:::
+
+## 2. 配置 API 权限
+
+在应用的版本配置中勾选以下访问范围（Scopes），然后发布版本：
+
+| 权限 | 用途 |
+| --- | --- |
+| `read_orders` | 读取订单（必选） |
+| `read_products` | 读取商品元字段，用于补全 SKU、中文品名和归属人 |
+| `read_all_orders` | 同步 60 天以前的历史订单时需要 |
+
+收货人姓名、地址、电话、邮箱属于 Shopify 的 **受保护客户数据（Protected customer data）**，组织内自用的应用默认可以读取。如果同步到的订单没有收货人信息，请在应用的 **API access requests** 中检查该项是否已开通。
+
+## 3. 安装应用
+
+将应用安装到需要同步订单的店铺。
+
+## 4. 复制 Client ID 和 Client Secret
+
+在应用的 **设置** 页面复制 **Client ID** 和 **Client Secret**。
+
+## 5. 在系统中添加店铺
+
+进入 VantaSite 系统的第三方商城页面，点击 **添加**：
+
+| 字段 | 填写内容 |
+| --- | --- |
+| 店铺名称 | 随意填写 |
+| 商城类型 | 选择 **SHOPIFY** |
+| HANDLE | `{handle}.myshopify.com` 中的 handle 部分 |
+| Client ID | 上一步复制的 Client ID |
+| Client Secret | 上一步复制的 Client Secret |
+| 币种模式 | 店铺结算币种或订单展示币种 |
+
+保存时系统会验证连接，验证通过后授权状态显示 **已连接**，并自动同步后续新增的订单。
+
+:::info 说明
+访问令牌由系统使用 Client ID 和 Client Secret 自动获取，有效期 24 小时，到期前系统会自动更新，无需手动维护。在 Shopify 重新生成 Client Secret 后，需要在系统中编辑店铺并填写新的 Client Secret。
+:::
+
+## 支付状态对照
+
+| Shopify 支付状态 | 系统支付状态 |
+| --- | --- |
+| pending | 处理中 |
+| authorized | 已授权 |
+| partially_paid | 部分付款 |
+| paid | 已付款 |
+| partially_refunded | 部分退款 |
+| refunded | 已退款 |
+| voided | 待付款 |
+
+如果 Shopify 返回的状态不在上述列表中，默认按 **待付款** 处理。
+
+## 商品元字段
+
+与 Shopline 使用相同的元字段，命名空间为 `xyz`，配置方式参考 [订单数据补全操作](./data-completion)。

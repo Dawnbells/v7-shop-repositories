@@ -10,6 +10,8 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
+import java.time.LocalDateTime;
+
 @Getter
 @Setter
 @SuperBuilder
@@ -22,6 +24,9 @@ public class ThirdPartyWebsiteDto extends IdDto {
     private String lastSyncOrderId;
     private CurrencyMode currencyMode;
     private SystemUserDto owner;
+    private String clientId;
+    private String clientSecret;
+    private LocalDateTime tokenExpiresAt;
 
     public static ThirdPartyWebsiteDto convert(ThirdPartyWebsite thirdPartyWebsite) {
         return ThirdPartyWebsiteDto.builder()
@@ -34,6 +39,9 @@ public class ThirdPartyWebsiteDto extends IdDto {
                 .lastSyncOrderId(thirdPartyWebsite.getLastSyncOrderId())
                 .currencyMode(thirdPartyWebsite.getCurrencyMode())
                 .owner(SystemUserDto.convert(thirdPartyWebsite.getOwner()))
+                .clientId(thirdPartyWebsite.getClientId())
+                .clientSecret(thirdPartyWebsite.getClientSecret())
+                .tokenExpiresAt(thirdPartyWebsite.getTokenExpiresAt())
                 .build();
     }
 }
