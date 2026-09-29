@@ -1,8 +1,8 @@
 (function () {
   'use strict';
 
-  const VERSION = 25;
-  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V25';
+  const VERSION = 26;
+  const DOM_TRANSLATE_PORT = 'TURBOFLOW_DOM_V26';
   const previous = window.__turboFlowDomMethod;
   if (previous?.version === VERSION) {
     try { previous.refreshListeners?.(); } catch {}
@@ -495,6 +495,81 @@
     }
   }
 
+  function isVisibleSettingsElement(element) {
+    return !!element?.isConnected && element.getClientRects().length > 0
+      && !element.closest('[hidden], [aria-hidden="true"]')
+      && getComputedStyle(element).visibility !== 'hidden';
+  }
+
+  function findSettingsTrigger() {
+    const usable = (button) => isVisibleSettingsElement(button)
+      && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
+    const promptBoxes = Array.from(document.querySelectorAll('flow-base-prompt-box, .base-prompt-box'));
+    const promptButtons = Array.from(new Set(promptBoxes.flatMap((box) =>
+      Array.from(box.querySelectorAll('button, [role="button"]'))))).filter(usable);
+    const explicit = (button) => button.getAttribute('aria-label') === 'Settings trigger';
+    const named = promptButtons.find(explicit)
+      || Array.from(document.querySelectorAll('button[aria-label="Settings trigger"]')).find(usable);
+    if (named) return named;
+
+    // Labels and nested text vary between Flow layouts. Limit icon-based
+    // matching to the prompt box so project/card settings cannot be clicked.
+    const hasSettingsSummary = (button) => {
+      const icons = Array.from(button.querySelectorAll('i, mat-icon'))
+        .map((icon) => (icon.textContent || '').trim());
+      return icons.some((icon) => Object.values(ASPECT_CONFIG).some((aspect) => aspect.icon === icon))
+        && /Nano Banana|Veo|(?:^|\s)x[1-4](?:\s|$)/i.test(controlLabel(button));
+    };
+    const semantic = promptButtons.find((button) =>
+      !button.closest('.cdk-overlay-pane, [role="menu"], [role="dialog"]')
+      && (Array.from(button.querySelectorAll('i, mat-icon'))
+        .some((icon) => ['tune', 'settings'].includes((icon.textContent || '').trim()))
+        || hasSettingsSummary(button)));
+    if (semantic) return semantic;
+
+    // Legacy menu triggers may wrap their label in spans rather than direct
+    // text nodes. Still require a generation summary, not just any popup.
+    return Array.from(document.querySelectorAll('button[aria-haspopup="menu"]'))
+      .find((button) => usable(button) && button.querySelector('[data-type="button-overlay"]')
+        && hasSettingsSummary(button)) || null;
+  }
+
+  async function openSettingsPanel(findSettingsPanel) {
+    let settingsPanel = findSettingsPanel();
+    let lastTriggerState = 'not-found';
+    let clicks = 0;
+    for (let attempt = 1; !settingsPanel && attempt <= 3; attempt++) {
+      // Poll both: a late panel must be reused, not toggled closed on retry.
+      const ready = await waitFor(() => {
+        const panel = findSettingsPanel();
+        if (panel) return { panel };
+        const trigger = findSettingsTrigger();
+        return trigger ? { trigger } : null;
+      }, 4000, 100);
+      settingsPanel = ready?.panel || findSettingsPanel();
+      if (settingsPanel) break;
+      const trigger = ready?.trigger;
+      if (trigger && isVisibleSettingsElement(trigger)) {
+        clickDom(trigger);
+        clicks++;
+        settingsPanel = await waitFor(findSettingsPanel, 4000, 100);
+        if (settingsPanel) break;
+        lastTriggerState = findSettingsTrigger()?.getAttribute('aria-expanded') || 'missing';
+      } else {
+        lastTriggerState = 'not-found';
+      }
+      console.warn(`[TurboFlow DOM] Settings panel open retry ${attempt}/3 (trigger=${lastTriggerState}, clicks=${clicks})`);
+      if (attempt < 3) {
+        pressEscape();
+        await sleep(300);
+      }
+    }
+    if (!settingsPanel) {
+      throw new Error(`Flow settings panel did not open after 3 attempts (trigger=${lastTriggerState}, clicks=${clicks})`);
+    }
+    return settingsPanel;
+  }
+
   async function applySettings(task) {
     const settings = {
       count: '1',
@@ -529,38 +604,14 @@
       '.cdk-overlay-pane',
       '[role="menu"][data-state="open"]',
     ].join(','))))
-      .filter((panel) => panel.isConnected && panel.getClientRects().length > 0);
+      .filter(isVisibleSettingsElement);
     const findSettingsPanel = () => visibleOverlayPanes().reverse().find((panel) =>
       panel.querySelector('button[aria-label="Select model family"]')
-      || findAspectControl(panel)
+      || Array.from(panel.querySelectorAll('[role="radio"], [role="tab"], button'))
+        .some((control) => Object.values(ASPECT_CONFIG).some((candidate) =>
+          controlLabel(control) === candidate.label || controlIcons(control).includes(candidate.icon)))
     ) || null;
-    const findSettingsTrigger = () => Array.from(document.querySelectorAll('button[aria-label="Settings trigger"]'))
-      .find((button) => button.isConnected
-        && button.getClientRects().length > 0
-        && !button.disabled
-        && button.getAttribute('aria-disabled') !== 'true')
-      || xPath("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
-
-    // A previous task can leave this panel open or halfway through its close
-    // animation. Reuse an already-open panel; otherwise reacquire and retry the
-    // trigger so a stale toggle cannot turn the panel off and cause a timeout.
-    let settingsPanel = findSettingsPanel();
-    let lastTriggerState = 'missing';
-    for (let attempt = 1; !settingsPanel && attempt <= 3; attempt++) {
-      const trigger = await waitFor(findSettingsTrigger, 4000, 100);
-      if (!trigger) break;
-      lastTriggerState = trigger.getAttribute('aria-expanded') || 'unknown';
-      clickDom(trigger);
-      settingsPanel = await waitFor(findSettingsPanel, 4000, 100);
-      if (settingsPanel) break;
-
-      console.warn(`[TurboFlow DOM] Settings panel open retry ${attempt}/3 (aria-expanded=${lastTriggerState})`);
-      pressEscape();
-      await sleep(300);
-    }
-    if (!settingsPanel) {
-      throw new Error(`Flow settings panel did not open after 3 attempts (aria-expanded=${lastTriggerState})`);
-    }
+    const settingsPanel = await openSettingsPanel(findSettingsPanel);
 
     const isSelected = (control) => control?.getAttribute('aria-checked') === 'true'
       || control?.getAttribute('aria-selected') === 'true'
@@ -636,7 +687,11 @@
     }
     // 面板关闭后，触发按钮上显示的是当前生效的比例图标（如 crop_9_16），再核对一次。
     const appliedTrigger = findSettingsTrigger();
-    if (appliedTrigger && !controlIcons(appliedTrigger).includes(aspect.icon)) {
+    // Icon-only settings buttons have no ratio summary; selection was already
+    // verified on the panel's radio above.
+    const hasAspectSummary = controlIcons(appliedTrigger)
+      .some((icon) => Object.values(ASPECT_CONFIG).some((candidate) => candidate.icon === icon));
+    if (hasAspectSummary && !controlIcons(appliedTrigger).includes(aspect.icon)) {
       throw new Error(`Flow aspect ratio did not apply: expected ${aspect.label}, trigger shows ${controlIcons(appliedTrigger).join(' ')}`);
     }
     return true;
@@ -735,7 +790,7 @@
   const errorMessage = (error) => error?.message || String(error || 'Unknown Flow page automation error');
 
   const listener = (msg, _sender, sendResponse) => {
-    if (msg.type !== 'RUN_DOM_TRANSLATE_V25') return false;
+    if (msg.type !== 'RUN_DOM_TRANSLATE_V26') return false;
     runDomTranslate(msg.task || {})
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -759,7 +814,7 @@
       requestStates.get(subscribedRequestId)?.ports.delete(port);
     });
     port.onMessage.addListener((msg) => {
-      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V25') return;
+      if (started || msg?.type !== 'RUN_DOM_TRANSLATE_V26') return;
       started = true;
       const requestId = msg.requestId || null;
       if (!requestId) {

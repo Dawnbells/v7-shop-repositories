@@ -48,7 +48,7 @@ test('claims only the page ogiZ0b request issued after arming and surfaces its R
   const early = await api.waitModernGenerateSent(1, token, 20);
   assert.deepEqual(early, { sent: false, promptCleared: true });
 
-  sendPageRequest('nzlxg');                            // 聚焦 RPC 不能被认领
+  sendPageRequest('nzlxg');                            // 额度查询 RPC 不能被认领
   const generate = sendPageRequest('ogiZ0b', 'media-a');
   assert.equal((await api.waitModernGenerateSent(1, token, 20)).sent, true);
 

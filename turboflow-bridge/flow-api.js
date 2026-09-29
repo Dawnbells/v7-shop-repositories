@@ -14,7 +14,7 @@ import {
 } from './flow-sites.js';
 import {
   RPC_BATCH_GENERATE_IMAGES,
-  RPC_EDITOR_INPUT_FOCUS,
+  RPC_GET_CREDITS,
   RPC_GET_PROJECT_CONTENTS,
   RPC_GET_MEDIA_URL,
   RPC_UPLOAD_IMAGE,
@@ -699,6 +699,12 @@ async function callModernFlowRpc(tabId, rpcId, payload, onSubmitted) {
 }
 
 async function uploadImageToModernFlow(tabId, options, retryCount) {
+  // Keep the same resource identity if a transport failure requires a retry.
+  options = {
+    ...options,
+    workflowIdSeed: options.workflowIdSeed || crypto.randomUUID(),
+    mediaIdSeed: options.mediaIdSeed || crypto.randomUUID(),
+  };
   const recaptchaToken = await getRecaptchaToken(tabId, 'UPLOAD_IMAGE');
   if (!recaptchaToken) throw Object.assign(new Error('Flow verification is not ready; refresh Flow and retry'), { code: 'FLOW_VERIFICATION_REQUIRED' });
   const payload = buildModernUploadRequest({
@@ -707,6 +713,8 @@ async function uploadImageToModernFlow(tabId, options, retryCount) {
     mimeType: options.mimeType,
     projectId: options.pid,
     recaptchaToken,
+    workflowIdSeed: options.workflowIdSeed,
+    mediaIdSeed: options.mediaIdSeed,
   });
   try {
     const data = await callModernFlowRpc(tabId, RPC_UPLOAD_IMAGE, payload);
@@ -725,6 +733,11 @@ async function uploadImageToModernFlow(tabId, options, retryCount) {
 async function generateWithModernFlow(tabId, options) {
   const batchId = uuid();
   const seed = randomSeed();
+  options.beforeSubmit?.();
+  // The page queries credits before requesting generation verification.
+  // Complete this preflight first so its latency does not age the token.
+  await callModernFlowRpc(tabId, RPC_GET_CREDITS, []);
+  options.beforeSubmit?.();
   const recaptchaToken = await getRecaptchaToken(tabId, 'IMAGE_GENERATION');
   if (!recaptchaToken) throw Object.assign(new Error('Flow verification is not ready; refresh Flow and retry'), { code: 'FLOW_VERIFICATION_REQUIRED' });
   const payload = buildModernGenerateRequest({
@@ -738,7 +751,6 @@ async function generateWithModernFlow(tabId, options) {
     seed,
   });
   options.beforeSubmit?.();
-  await callModernFlowRpc(tabId, RPC_EDITOR_INPUT_FOCUS, []);
   const data = await callModernFlowRpc(tabId, RPC_BATCH_GENERATE_IMAGES, payload, options.onSubmitted);
   const generated = await completeModernGeneration(tabId, data, options.pid);
   return {

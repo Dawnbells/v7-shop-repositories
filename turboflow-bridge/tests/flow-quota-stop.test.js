@@ -112,7 +112,9 @@ test('media URL resolution propagates RPC 8 immediately without readiness retrie
 
 for (const modern of [true, false]) {
   test(`${modern ? 'BOQ' : 'legacy'} checks the submission gate after awaiting verification`, async () => {
-    const calls = mockModernResponse({ ok: true, text: async () => '[]' });
+    const calls = mockModernResponse({ ok: true,
+      text: async () => JSON.stringify([['wrb.fr', 'nzlxg', '[1050,1,2,2,null,1050]']]),
+    });
     chrome.tabs.get = async () => ({ url: modern
       ? 'https://flow.google.com/project/test' : 'https://labs.google/fx/tools/flow/project/test' });
     let paused = false;
@@ -125,11 +127,10 @@ for (const modern of [true, false]) {
     await assert.rejects(generateWithReference(1, {
       prompt: 'translate', referenceMediaId: 'media/test', pid: 'test',
       beforeSubmit: () => {
-        assert.equal(paused, true);
-        throw Object.assign(new Error('paused'), { code: 'FLOW_SUBMISSION_PAUSED' });
+        if (paused) throw Object.assign(new Error('paused'), { code: 'FLOW_SUBMISSION_PAUSED' });
       },
     }), { code: 'FLOW_SUBMISSION_PAUSED' });
-    assert.equal(calls(), 0);
+    assert.equal(calls(), modern ? 1 : 0); // Only the credit preflight may have run.
   });
 }
 

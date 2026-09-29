@@ -5,8 +5,8 @@
 
 export const MODERN_FLOW_ORIGIN = 'https://flow.google.com';
 export const RPC_UPLOAD_IMAGE = 'maseQ';
-// Flow sends this empty-argument RPC when the editor input receives focus.
-export const RPC_EDITOR_INPUT_FOCUS = 'nzlxg';
+// VideoFxService.GetCredits; this queries credit state, not editor focus.
+export const RPC_GET_CREDITS = 'nzlxg';
 export const RPC_BATCH_GENERATE_IMAGES = 'ogiZ0b';
 export const RPC_GET_MEDIA_URL = 'uurnC';
 export const RPC_GET_PROJECT_CONTENTS = 'Zzl0ze';
@@ -72,13 +72,18 @@ export function buildModernUploadRequest({
   mimeType,
   projectId,
   recaptchaToken,
+  workflowIdSeed = crypto.randomUUID(),
+  mediaIdSeed = crypto.randomUUID(),
 }) {
-  const request = sparseMessage(9);
+  const request = sparseMessage(12);
   request[0] = buildModernClientContext(projectId, recaptchaToken);
   request[1] = base64;
   request[2] = mimeType;
   request[3] = 1; // isUserUploaded
   request[8] = fileName;
+  // Flow derives the resulting workflow/media IDs from these seeds.
+  request[10] = workflowIdSeed;
+  request[11] = mediaIdSeed;
   return request;
 }
 
@@ -129,7 +134,8 @@ export function buildModernGetMediaUrlRequest(mediaName) {
 }
 
 export function buildModernGetProjectContentsRequest(projectId) {
-  return [projectId];
+  const name = projectId.startsWith('projects/') ? projectId : `projects/${projectId}`;
+  return [name, null, null, null, [1]];
 }
 
 function visitArrays(value, visitor) {

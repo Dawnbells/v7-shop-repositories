@@ -76,11 +76,13 @@ test('builds the protobuf JSON upload request used by flow.google.com', () => {
     mimeType: 'image/png',
     projectId: 'project-123',
     recaptchaToken: 'captcha-token',
+    workflowIdSeed: 'workflow-seed',
+    mediaIdSeed: 'media-seed',
   });
 
   assert.equal(
     JSON.stringify(request),
-    '[[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],"YWJj","image/png",1,null,null,null,null,"source.png"]',
+    '[[null,22,null,null,null,"project-123",null,null,null,null,["captcha-token",1]],"YWJj","image/png",1,null,null,null,null,"source.png",null,"workflow-seed","media-seed"]',
   );
 });
 
@@ -144,7 +146,10 @@ test('extracts upload and generated media fields from protobuf arrays', () => {
   ]);
   assert.equal(generated.mediaId, 'media/generated');
   assert.equal(generated.fifeUrl, 'https://lh3.googleusercontent.com/result.png');
-  assert.equal(buildModernGetProjectContentsRequest('project-123')[0], 'project-123');
+  assert.deepEqual(buildModernGetProjectContentsRequest('project-123'),
+    ['projects/project-123', null, null, null, [1]]);
+  assert.deepEqual(buildModernGetProjectContentsRequest('projects/project-123'),
+    ['projects/project-123', null, null, null, [1]]);
 
   const nanoBananaPro = extractModernGenerationResult([
     [[
