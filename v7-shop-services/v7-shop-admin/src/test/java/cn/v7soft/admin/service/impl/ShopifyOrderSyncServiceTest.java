@@ -10,6 +10,8 @@ import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.core.exception.BaseException;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Currency;
+import cn.v7soft.dao.entities.primary.Country;
+import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.dao.entities.primary.TemporaryOrder;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
@@ -36,6 +38,9 @@ import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -56,6 +61,48 @@ class ShopifyOrderSyncServiceTest {
 
     @InjectMocks
     private ShopifyOrderSyncService service;
+
+    @Test
+    void shouldRejectUnsafeStoredHandleBeforeSendingToken() {
+        ThirdPartyWebsiteDto website = buildWebsiteDto(null);
+        website.setHandle("audit.example?");
+        assertThrows(BaseException.class, () -> service.loadOrders(website, buildRequest(null), "", SyncMode.AUTO));
+        verifyNoInteractions(restTemplate, tokenService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    void shouldResolveMetafieldOwnerWithinWebsiteCompany(int matchType) {
+        boolean telephoneMatches = matchType == 1;
+        JSONObject order = buildShopifyOrder();
+        order.getJSONArray("line_items").getJSONObject(0).set("product_id", "9001");
+        JSONArray orders = new JSONArray();
+        orders.add(order);
+        when(tokenService.getAccessToken(any())).thenReturn("old-token");
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                .thenAnswer(invocation -> {
+                    URI uri = invocation.getArgument(0);
+                    return uri.getPath().endsWith("metafields.json")
+                            ? ResponseEntity.ok("{\"metafields\":[{\"key\":\"owner_telephone\",\"value\":\"123\"},{\"key\":\"owner_name\",\"value\":\"同名用户\"}]}")
+                            : ordersResponse(orders, null);
+                });
+        SystemUser localOwner = SystemUser.builder().id(88L).companyId(100L).name("本公司用户").build();
+        when(systemUserRepository.findByTelephoneAndCompanyIdWithDepartment(eq("123"), eq(100L), any(Pageable.class)))
+                .thenReturn(telephoneMatches ? List.of(localOwner) : List.of());
+        if (!telephoneMatches) {
+            when(systemUserRepository.findByUserNameAndCompanyIdWithDepartment(eq("同名用户"), eq(100L), any(Pageable.class)))
+                    .thenReturn(matchType == 2 ? List.of(localOwner) : List.of());
+        }
+        ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
+        when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), eq(false))).thenReturn(true);
+
+        ShoplineOrderLoadResult result = service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.AUTO);
+
+        assertEquals(1, result.getCreatedCount());
+        assertEquals(matchType > 0 ? 88L : 1L, captor.getValue().getContextInfo().getSalesUid());
+        verify(systemUserRepository, never()).findByTelephoneWithDepartment(anyString(), any());
+        verify(systemUserRepository, never()).findByUserNameWithDepartment(anyString(), any());
+    }
 
     private ThirdPartyWebsiteDto buildWebsiteDto(String lastSyncOrderId) {
         return ThirdPartyWebsiteDto.builder()
@@ -293,6 +340,70 @@ class ShopifyOrderSyncServiceTest {
     @DisplayName("订单转换")
     class ConvertOrder {
 
+        @Test
+        void shouldPreferShippingCountryOverLocale() {
+            JSONObject order = buildShopifyOrder();
+            order.set("customer_locale", "en-US");
+            order.getJSONObject("shipping_address").set("country_code", "CA");
+            Country canada = Country.builder().code("CA").name("加拿大").build();
+            setId(canada, 2L);
+            when(countryService.getByCode("CA")).thenReturn(Optional.of(canada));
+
+            EditTemporaryOrderRequest request = loadAndCapture(buildWebsiteDto(null), order);
+
+            assertEquals("CA", request.getContextInfo().getCountryCode());
+            assertEquals(2L, request.getContextInfo().getCountryId());
+            assertEquals("EN", request.getContextInfo().getLanguageCode());
+            verify(countryService, never()).getByCode("US");
+        }
+
+        @Test
+        void shouldKeepShippingCountryEvenWhenNotInCountryTable() {
+            JSONObject order = buildShopifyOrder();
+            order.set("customer_locale", "en-US");
+            order.getJSONObject("shipping_address").set("country_code", "CA");
+            order.set("billing_address", new JSONObject().set("country_code", "US"));
+
+            EditTemporaryOrderRequest request = loadAndCapture(buildWebsiteDto(null), order);
+
+            assertEquals("CA", request.getContextInfo().getCountryCode());
+            verify(countryService, never()).getByCode("US");
+        }
+
+        @Test
+        void shouldFallBackToBillingCountryWhenShippingIsMissing() {
+            JSONObject order = buildShopifyOrder();
+            order.remove("shipping_address");
+            order.set("customer_locale", "en-US");
+            order.set("billing_address", new JSONObject().set("country_code", "CA"));
+            assertEquals("CA", loadAndCapture(buildWebsiteDto(null), order).getContextInfo().getCountryCode());
+        }
+
+        @Test
+        void shouldUseCurrentQuantityAndExcludeRemovedProducts() {
+            JSONObject order = buildShopifyOrder();
+            JSONArray items = order.getJSONArray("line_items");
+            items.getJSONObject(0).set("quantity", 3).set("current_quantity", 1);
+            items.add(new JSONObject().set("quantity", 2).set("current_quantity", 0)
+                    .set("sku", "REMOVED").set("product_id", "removed-product"));
+
+            EditTemporaryOrderRequest request = loadAndCapture(buildWebsiteDto(null), order);
+
+            assertEquals(1, request.getItemInfos().size());
+            assertEquals(1, request.getItemInfos().get(0).getQuantity());
+            verify(productSKUService).listBySkuCodes(eq(List.of("SKU-001")), anyLong());
+            verify(restTemplate, times(1)).exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+            verifyNoInteractions(systemUserRepository);
+        }
+
+        @Test
+        void shouldAllowAllItemsToBeRemoved() {
+            JSONObject order = buildShopifyOrder();
+            order.getJSONArray("line_items").getJSONObject(0).set("current_quantity", 0);
+            assertTrue(loadAndCapture(buildWebsiteDto(null), order).getItemInfos().isEmpty());
+            verifyNoInteractions(productSKUService);
+        }
+
         private EditTemporaryOrderRequest loadAndCapture(ThirdPartyWebsiteDto website, JSONObject order) {
             JSONArray orders = new JSONArray();
             orders.add(order);
@@ -425,6 +536,46 @@ class ShopifyOrderSyncServiceTest {
     @Nested
     @DisplayName("游标策略")
     class Cursor {
+
+        @Test
+        void shouldContinueManualPageAfterFailureAndPreserveNextPage() {
+            JSONArray orders = new JSONArray();
+            for (String id : List.of("10", "20", "30")) {
+                orders.add(buildBareOrder(id, "2026-01-01T10:00:00+08:00"));
+            }
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ordersResponse(orders, "<https://test-shop.myshopify.com/orders.json?page_info=next>; rel=\"next\""));
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(true)))
+                    .thenReturn(true).thenThrow(new RuntimeException("save failed")).thenReturn(true);
+
+            ShoplineOrderLoadResult result = service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.MANUAL);
+
+            assertEquals(3, result.getFetchedCount());
+            assertEquals(2, result.getSuccessCount());
+            assertEquals(1, result.getFailedCount());
+            assertEquals("next", result.getNextPageInfo());
+            ArgumentCaptor<EditTemporaryOrderRequest> requests = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
+            verify(temporaryOrderService, times(3)).synchronizeOrderFromExternalSystem(requests.capture(), eq(true));
+            assertEquals("30", requests.getAllValues().get(2).getOriginOrderId());
+            verify(websiteStore, never()).updateLastSyncInfo(any(), any());
+        }
+
+        @Test
+        void shouldKeepCursorEmptyWhenFirstAutomaticOrderFails() {
+            JSONArray orders = new JSONArray();
+            orders.add(buildBareOrder("10", "2026-01-01T10:00:00+08:00"));
+            orders.add(buildBareOrder("20", "2026-01-01T11:00:00+08:00"));
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false)))
+                    .thenThrow(new RuntimeException("save failed"));
+
+            ShoplineOrderLoadResult result = loadAuto(orders);
+
+            assertNull(result.getCursorOrderId());
+            assertNull(result.getCursorOrderTime());
+            assertEquals(1, result.getFailedCount());
+            verify(temporaryOrderService, times(1)).synchronizeOrderFromExternalSystem(any(), eq(false));
+        }
 
         private ShoplineOrderLoadResult loadAuto(JSONArray orders) {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");

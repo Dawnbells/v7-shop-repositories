@@ -32,6 +32,16 @@ public interface SystemUserRepository extends BaseRepository<SystemUser> {
     @Query("from SystemUser u where u.name = :userName and u.status <> 'DELETED'")
     List<SystemUser> findByUserNameWithDepartment(@Param("userName") String userName, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"department"})
+    @Query("from SystemUser u where u.telephone = :telephone and u.companyId = :companyId and u.status <> 'DELETED' order by u.id")
+    List<SystemUser> findByTelephoneAndCompanyIdWithDepartment(@Param("telephone") String telephone,
+                                                              @Param("companyId") Long companyId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"department"})
+    @Query("from SystemUser u where u.name = :userName and u.companyId = :companyId and u.status <> 'DELETED' order by u.id")
+    List<SystemUser> findByUserNameAndCompanyIdWithDepartment(@Param("userName") String userName,
+                                                             @Param("companyId") Long companyId, Pageable pageable);
+
     @Query("from SystemUser where telephone=:telephone and (:id is null or id<>:id) and status='VALID'")
     SystemUser findBySameUser(@Param("telephone") String telephone, @Param("id") Long id);
 

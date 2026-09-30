@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
+import cn.v7soft.admin.utils.ShopifyHost;
 import cn.v7soft.core.enums.ServiceResponseEnum;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -84,7 +85,7 @@ public class ShopifyTokenService {
         form.add("client_id", clientId);
         form.add("client_secret", clientSecret);
 
-        String url = "https://" + handle + ".myshopify.com/admin/oauth/access_token";
+        String url = "https://" + ShopifyHost.host(handle) + "/admin/oauth/access_token";
         ResponseEntity<String> response = restTemplate.postForEntity(url, new HttpEntity<>(form, headers), String.class);
 
         JSONObject body = StrUtil.isBlank(response.getBody()) ? new JSONObject() : JSONUtil.parseObj(response.getBody());

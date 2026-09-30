@@ -460,8 +460,9 @@ public class TaskExecutorService implements ITaskExecutorService {
                 asyncTaskService.updateAsyncTask(task, TaskState.PROCESSING, progress);
             }
             thirdPartyWebsiteService.updateLastManualSyncTime(request.getIdLongValue());
-            task.setMessage("同步完成，成功: " + successCount + " 条，失败: " + failedCount + " 条（共拉取 " + fetchedCount + " 条，" + page + " 页）");
-            asyncTaskService.updateAsyncTask(task, TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
+            task.setMessage((failedCount > 0 ? "同步存在失败，请重试，成功: " : "同步完成，成功: ")
+                    + successCount + " 条，失败: " + failedCount + " 条（共拉取 " + fetchedCount + " 条，" + page + " 页）");
+            asyncTaskService.updateAsyncTask(task, failedCount > 0 ? TaskState.FAILED : TaskState.COMPLETED, COMPLETED_OR_FAILED_PROGRESS);
         } catch (Throwable e) {
             log.error("Shopline手动同步任务异常: taskId={}, pages={}, fetched={}, success={}, failed={}, skipped={}",
                     task.getId(), page, fetchedCount, successCount, failedCount, skippedCount, e);

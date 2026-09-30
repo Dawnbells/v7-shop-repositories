@@ -24,6 +24,7 @@ import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.admin.utils.OrderQueryHelper;
+import cn.v7soft.admin.utils.ShopifyHost;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.core.enums.ServiceResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
@@ -274,7 +275,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     // ==================== 内部方法 ====================
 
     private String buildHost(String handle) {
-        return handle + ".myshopify.com";
+        return ShopifyHost.host(handle);
     }
 
     private String buildApiUrl(String handle, String endpoint) {
@@ -328,7 +329,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         boolean updateExisting = syncMode == SyncMode.MANUAL;
 
         // 保守策略游标：仅记录已成功处理（created/skipped）的最大 id；
-        // 一旦遇到失败单立即终止本页处理，剩余订单留待下一轮重新拉取，避免失败单被游标跳过造成漏单。
+        // 自动同步遇到失败单立即终止本页，手动同步则继续处理并统计本页所有订单。
         String cursorOrderId = null;
         LocalDateTime cursorOrderTime = null;
         boolean abortedByFailure = false;
@@ -352,11 +353,14 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                 }
             } catch (Exception e) {
                 failedCount++;
-                abortedByFailure = true;
                 log.error("Shopify order sync failed: websiteId={}, handle={}, syncMode={}, orderIndex={}/{}, orderId={}, orderName={}, createdAt={}, financialStatus={}, fulfillmentStatus={}",
                         website.getId(), website.getHandle(), syncMode, i, orders.size(), order.getStr("id"), order.getStr("name"),
                         order.getStr("created_at"), order.getStr("financial_status"), order.getStr("fulfillment_status"), e);
-                break;
+                if (!updateExisting) {
+                    abortedByFailure = true;
+                    break;
+                }
+                continue;
             }
             processedIndex = i + 1;
 
@@ -411,7 +415,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         request.setItemInfos(buildItemInfos(order, moneyKey, owner, productMetafieldsMap));
 
         // 归属人优先级：归属人账号(telephone) > 归属人(name) > 第三方商城归属(website owner)
-        applyOwnerFromMetafields(request.getContextInfo(), order, productMetafieldsMap);
+        applyOwnerFromMetafields(request.getContextInfo(), order, productMetafieldsMap, owner.getCompanyId());
 
         return temporaryOrderService.synchronizeOrderFromExternalSystem(request, updateExisting);
     }
@@ -538,20 +542,26 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                 if (!applyLanguage(info, langCode)) {
                     info.setLanguageCode(langCode.toUpperCase());
                 }
-                resolveCountry(info, matcher.group(2));
             } else {
                 applyLanguage(info, customerLocale.trim().toLowerCase());
             }
         }
 
         JSONObject shippingAddress = order.getJSONObject("shipping_address");
-        if (shippingAddress != null && info.getCountryId() == null) {
+        if (shippingAddress != null) {
             resolveCountry(info, shippingAddress.getStr("country_code"));
         }
 
         JSONObject billingAddress = order.getJSONObject("billing_address");
-        if (billingAddress != null && info.getCountryId() == null) {
+        if (billingAddress != null && StrUtil.isBlank(info.getCountryCode())) {
             resolveCountry(info, billingAddress.getStr("country_code"));
+        }
+
+        if (StrUtil.isBlank(info.getCountryCode()) && StrUtil.isNotBlank(customerLocale)) {
+            Matcher matcher = LOCALE_PATTERN.matcher(customerLocale);
+            if (matcher.find()) {
+                resolveCountry(info, matcher.group(2));
+            }
         }
 
         return info;
@@ -608,7 +618,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
      */
     private void applyOwnerFromMetafields(TemporaryOrderContextInfoRequest contextInfo,
                                           JSONObject order,
-                                          Map<String, Map<String, String>> productMetafieldsMap) {
+                                          Map<String, Map<String, String>> productMetafieldsMap, Long companyId) {
         if (contextInfo == null || productMetafieldsMap.isEmpty()) {
             return;
         }
@@ -619,7 +629,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         Map<String, String> firstMetafields = null;
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem == null) {
+            if (lineItem == null || currentQuantity(lineItem) <= 0) {
                 continue;
             }
             String pid = lineItem.getStr("product_id");
@@ -637,11 +647,11 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
 
         SystemUser resolvedOwner = null;
         if (StrUtil.isNotBlank(ownerTelephone)) {
-            List<SystemUser> users = systemUserRepository.findByTelephoneWithDepartment(ownerTelephone.trim(), PageRequest.of(0, 1));
+            List<SystemUser> users = systemUserRepository.findByTelephoneAndCompanyIdWithDepartment(ownerTelephone.trim(), companyId, PageRequest.of(0, 1));
             resolvedOwner = users.isEmpty() ? null : users.get(0);
         }
         if (resolvedOwner == null && StrUtil.isNotBlank(ownerName)) {
-            List<SystemUser> owners = systemUserRepository.findByUserNameWithDepartment(ownerName.trim(), PageRequest.of(0, 1));
+            List<SystemUser> owners = systemUserRepository.findByUserNameAndCompanyIdWithDepartment(ownerName.trim(), companyId, PageRequest.of(0, 1));
             resolvedOwner = owners.isEmpty() ? null : owners.get(0);
         }
 
@@ -665,7 +675,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         List<String> skuCodes = new ArrayList<>();
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem != null) {
+            if (lineItem != null && currentQuantity(lineItem) > 0) {
                 String code = resolveSkuCode(lineItem, productMetafieldsMap);
                 if (StrUtil.isNotBlank(code)) {
                     skuCodes.add(code.trim());
@@ -687,7 +697,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         List<TemporaryOrderItemInfoRequest> items = new ArrayList<>(lineItems.size());
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem == null) {
+            if (lineItem == null || currentQuantity(lineItem) <= 0) {
                 continue;
             }
 
@@ -710,7 +720,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             item.setCostPrice(BigDecimal.ZERO);
             item.setTax(BigDecimal.ZERO);
             item.setBarcode("");
-            item.setQuantity(Integer.parseInt(StrUtil.blankToDefault(lineItem.getStr("quantity"), "0")));
+            item.setQuantity(currentQuantity(lineItem));
 
             String skuCode = resolveSkuCode(lineItem, productMetafieldsMap);
             item.setSkuCode(skuCode);
@@ -741,6 +751,11 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             items.add(item);
         }
         return items;
+    }
+
+    private int currentQuantity(JSONObject lineItem) {
+        Integer quantity = lineItem.getInt("current_quantity");
+        return quantity != null ? quantity : lineItem.getInt("quantity", 0);
     }
 
     /**
@@ -811,7 +826,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         Set<String> productIds = new LinkedHashSet<>();
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem != null) {
+            if (lineItem != null && currentQuantity(lineItem) > 0) {
                 String pid = lineItem.getStr("product_id");
                 if (StrUtil.isNotBlank(pid)) {
                     productIds.add(pid);

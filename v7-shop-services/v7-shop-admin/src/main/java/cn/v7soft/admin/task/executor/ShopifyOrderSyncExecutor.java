@@ -2,6 +2,7 @@ package cn.v7soft.admin.task.executor;
 
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.service.IShopifyOrderSyncService;
+import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
@@ -32,6 +33,7 @@ public class ShopifyOrderSyncExecutor {
 
     private final IShopifyOrderSyncService shopifyOrderSyncService;
     private final ShopifyWebsiteStore websiteStore;
+    private final ICompanyService companyService;
     private final AtomicInteger threadCounter = new AtomicInteger(0);
     private final ExecutorService syncPool = Executors.newFixedThreadPool(MAX_CONCURRENCY,
             r -> {
@@ -72,7 +74,7 @@ public class ShopifyOrderSyncExecutor {
             for (ThirdPartyWebsite website : syncable) {
                 futures.add(syncPool.submit(() -> {
                     try {
-                        TenantContext.silent();
+                        TenantContext.setCurrentTenant(website.getCompanyId(), companyService.companyCached(website.getCompanyId()));
                         boolean synced = syncWebsite(website);
                         if (synced) {
                             hasNewOrders.set(true);
@@ -81,7 +83,7 @@ public class ShopifyOrderSyncExecutor {
                         log.error("Shopify auto sync website failed: websiteId={}, handle={}",
                                 website.getId(), website.getHandle(), e);
                     } finally {
-                        TenantContext.restore();
+                        TenantContext.clear();
                     }
                 }));
             }
@@ -117,7 +119,9 @@ public class ShopifyOrderSyncExecutor {
         request.setId(String.valueOf(website.getId()));
         LocalDateTime syncFrom = website.getLastSyncOrderTime() != null
                 ? website.getLastSyncOrderTime()
-                : (website.getLastSyncTime() != null ? website.getLastSyncTime() : website.getCreateTime());
+                // lastSyncTime records attempts, including empty pages and failed first orders.
+                // Until an order succeeds, keep the immutable website creation boundary.
+                : website.getCreateTime();
         request.setCreateAtMin(syncFrom);
 
         ThirdPartyWebsiteDto websiteDto = websiteStore.getDtoById(website.getId());

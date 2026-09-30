@@ -47,6 +47,12 @@ class ShopifyTokenServiceTest {
     }
 
     @Test
+    void shouldRejectUnsafeStoredHandleBeforeSendingCredentials() {
+        assertThrows(BaseException.class, () -> service.fetchToken("audit.example?", "client-id", "stored-secret"));
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
     @DisplayName("fetchToken 应以表单方式提交 client credentials 并解析过期时间")
     void shouldFetchTokenWithClientCredentials() {
         ArgumentCaptor<HttpEntity<MultiValueMap<String, String>>> captor = ArgumentCaptor.forClass(HttpEntity.class);

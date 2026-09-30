@@ -7,6 +7,7 @@ import cn.v7soft.admin.controller.req.EditShopifyWebsiteRequest;
 import cn.v7soft.admin.controller.resp.ThirdPartyWebsiteResponse;
 import cn.v7soft.admin.service.IShopifyOrderSyncService;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
+import cn.v7soft.admin.utils.ShopifyHost;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.CurrencyMode;
@@ -34,7 +35,6 @@ import java.time.LocalDateTime;
 @Tag(name = "第三方网站管理")
 public class ShopifyWebsiteController {
     private static final String PERMISSION_PREFIX = "third-party-website";
-    private static final String SHOPIFY_DOMAIN_SUFFIX = ".myshopify.com";
 
     private final IThirdPartyWebsiteService service;
     private final IShopifyOrderSyncService shopifyOrderSyncService;
@@ -52,7 +52,7 @@ public class ShopifyWebsiteController {
         }
         Long currentId = dbEntity != null ? dbEntity.getId() : null;
 
-        String handle = normalizeHandle(request.getHandle());
+        String handle = ShopifyHost.normalize(request.getHandle());
         ClientResponseEnum.PARAMETER_ILLEGAL.notBlank(handle, "店铺的唯一标识不能为空");
         service.getByHandle(handle).ifPresent(existing ->
                 ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(existing.getId().equals(currentId), "Handle已被占用: " + handle));
@@ -85,17 +85,4 @@ public class ShopifyWebsiteController {
         return response;
     }
 
-    /**
-     * 兼容用户直接粘贴店铺地址的情况，只保留 xxx.myshopify.com 中的 xxx
-     */
-    private String normalizeHandle(String handle) {
-        String value = StrUtil.trimToEmpty(handle).toLowerCase();
-        value = StrUtil.removePrefix(value, "https://");
-        value = StrUtil.removePrefix(value, "http://");
-        int slashIndex = value.indexOf('/');
-        if (slashIndex >= 0) {
-            value = value.substring(0, slashIndex);
-        }
-        return StrUtil.removeSuffix(value, SHOPIFY_DOMAIN_SUFFIX);
-    }
 }
