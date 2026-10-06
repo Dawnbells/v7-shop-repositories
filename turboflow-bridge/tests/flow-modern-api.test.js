@@ -60,6 +60,26 @@ test('decodes all canonical RPC failures with symbolic names and server messages
   }
 });
 
+test('RPC 8 retains explicit daily quota reasons even alongside a generic server message', () => {
+  for (const reason of ['DAILY_QUOTA_REACHED', 'PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED']) {
+    for (const message of [null, 'Resource exhausted']) {
+      const response = JSON.stringify([['wrb.fr', RPC_BATCH_GENERATE_IMAGES, null, null, null,
+        [8, message, [['type.googleapis.com/google.rpc.ErrorInfo', [reason]]]]]]);
+      assert.throws(() => parseBatchexecuteResponse(response, RPC_BATCH_GENERATE_IMAGES), error => {
+        assert.equal(error.code, 'DAILY_QUOTA_REACHED');
+        assert.equal(error.reason, reason);
+        assert.equal(error.rpcStatus, 8);
+        assert.ok(error.message.includes(reason));
+        if (message) assert.ok(error.message.includes(message));
+        return true;
+      });
+    }
+  }
+  const highTraffic = JSON.stringify([['er', RPC_BATCH_GENERATE_IMAGES, 8, 'PUBLIC_ERROR_HIGH_TRAFFIC']]);
+  assert.throws(() => parseBatchexecuteResponse(highTraffic, RPC_BATCH_GENERATE_IMAGES),
+    { code: 'FLOW_RESOURCE_EXHAUSTED' });
+});
+
 test('missing status is not treated as success or quota exhaustion', () => {
   assert.throws(() => parseBatchexecuteResponse('[]', RPC_UPLOAD_IMAGE), error => {
     assert.equal(error.rpcStatus, undefined);

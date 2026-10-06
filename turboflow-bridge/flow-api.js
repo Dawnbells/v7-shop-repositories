@@ -1195,7 +1195,7 @@ export async function resolveFlowImageUrl(tabId, generation, sourceUrl = flowTab
       const imageUrl = extractModernMediaUrl(data);
       if (imageUrl) return imageUrl;
     } catch (error) {
-      if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RESOURCE_EXHAUSTED'].includes(error.code)
+      if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RESOURCE_EXHAUSTED', 'DAILY_QUOTA_REACHED'].includes(error.code)
         || error.rpcStatus === 7) throw error;
       lastError = error;
     }

@@ -19,13 +19,17 @@ const RPC_STATUS_NAMES = Object.freeze([
   'INTERNAL', 'UNAVAILABLE', 'DATA_LOSS', 'UNAUTHENTICATED',
 ]);
 
-export function createFlowRpcError(rpcId, rawStatus, serverMessage = '') {
+export function createFlowRpcError(rpcId, rawStatus, serverMessage = '', serverReason = '') {
   const status = /^\d+$/.test(String(rawStatus)) ? Number(rawStatus) : undefined;
   const statusName = RPC_STATUS_NAMES[status] || 'UNRECOGNIZED_STATUS';
-  const message = typeof serverMessage === 'string' ? serverMessage.slice(0, 500) : '';
+  const reason = typeof serverReason === 'string' ? serverReason : '';
+  const details = [serverMessage, reason].filter(value => typeof value === 'string' && value);
+  const message = [...new Set(details)].map(value => value.slice(0, 500)).join(': ');
   const error = new Error(`Flow RPC ${rpcId} failed (RPC status ${status ?? 'unknown'}: ${statusName})${message ? ': ' + message : ''}`);
   error.code = status === 16 ? 'FLOW_AUTHENTICATION_FAILED'
-    : status === 8 ? 'FLOW_RESOURCE_EXHAUSTED' : 'FLOW_RPC_REJECTED';
+    : status === 8 ? (details.some(value => /daily_quota_reached/i.test(value))
+      ? 'DAILY_QUOTA_REACHED' : 'FLOW_RESOURCE_EXHAUSTED') : 'FLOW_RPC_REJECTED';
+  if (reason) error.reason = reason;
   error.rpcId = rpcId;
   error.rpcStatus = status;
   error.rpcStatusName = statusName;
@@ -184,7 +188,7 @@ export function parseBatchexecuteResponse(text, rpcId) {
       ? rpcError?.[5]?.[2]?.find?.((detail) => detail?.[0] === 'type.googleapis.com/google.rpc.ErrorInfo')
       : null;
     const reason = errorInfo?.[1]?.[0];
-    throw createFlowRpcError(rpcId, status, serverMessage || reason);
+    throw createFlowRpcError(rpcId, status, serverMessage, reason);
   }
   if (typeof rpcPayload !== 'string') return rpcPayload;
   try {

@@ -76,6 +76,21 @@ test('the third consecutive Flow disconnection waits for Run Now', () => {
   assert.equal(shouldPauseForRunNow('FLOW_DISCONNECTED', { consecutiveFlowDisconnects: 3 }), true);
 });
 
+test('explicit per-model daily quota takes priority over generic RPC 8 and restored error codes', () => {
+  const reason = 'PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED';
+  const message = `Flow RPC ogiZ0b failed (RPC status 8: RESOURCE_EXHAUSTED): ${reason}`;
+  for (const error of [
+    message,
+    { code: 'FLOW_RESOURCE_EXHAUSTED', rpcStatus: 8, message },
+    { code: 'FLOW_RPC_REJECTED', rpcStatus: '8', reason },
+    { code: 'DAILY_QUOTA_REACHED', rpcStatus: 8 },
+  ]) {
+    const code = classifyErrorCode(error);
+    assert.equal(code, 'DAILY_QUOTA_REACHED');
+    assert.equal(shouldPauseForRunNow(code, { consecutiveFailures: 1 }), true);
+  }
+});
+
 test('the fifth consecutive failure of any kind waits for Run Now', () => {
   assert.equal(CONSECUTIVE_FAILURE_PAUSE_THRESHOLD, 5);
   assert.equal(shouldPauseForRunNow('TIMEOUT', { consecutiveFailures: 4 }), false);

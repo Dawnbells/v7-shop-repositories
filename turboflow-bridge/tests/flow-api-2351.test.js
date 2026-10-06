@@ -187,6 +187,17 @@ test('2351 missing BOQ session rejects before network dispatch', async () => {
   assert.equal(calls.length, 0);
 });
 
+test('2351 per-model daily quota is not flattened into generic resource exhaustion', async () => {
+  const { api, calls } = harness({ respond: call => response([['wrb.fr', call.rpc, null, null, null,
+    [8, null, [['type.googleapis.com/google.rpc.ErrorInfo', ['PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED']]]]]]) });
+  await assert.rejects(api.generateWithReference(7, { pid: 'test', ...task, referenceMediaId: 'source' }), error => {
+    assert.equal(error.code, 'DAILY_QUOTA_REACHED');
+    assert.equal(classifyErrorCode(error), 'DAILY_QUOTA_REACHED');
+    return true;
+  });
+  assert.equal(calls.length, 1);
+});
+
 test('legacy upload policy errors retain the original-image fallback contract', async () => {
   const { api, conn } = harness({ modern: false, respond: call => call.url === '/fx/api/auth/session'
     ? response({ access_token: 'token' }) : { ok: false, status: 400, text: async () => JSON.stringify({ error: {
@@ -211,6 +222,7 @@ for (const [status, message, expected] of [
   [403, 'reCAPTCHA verification failed', 'RECAPTCHA_BLOCKED'],
   [403, 'permission denied', 'GOOGLE_BLOCKED'],
   [429, 'resource exhausted', 'FLOW_RESOURCE_EXHAUSTED'],
+  [429, 'PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED', 'DAILY_QUOTA_REACHED'],
 ]) {
   test(`legacy HTTP ${status} ${message} retains the bridge error classification`, async () => {
     const { api, calls } = harness({ modern: false, respond: call => call.url === '/fx/api/auth/session'

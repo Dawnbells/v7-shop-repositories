@@ -70,6 +70,19 @@ test('RPC rejection names the actual error and a later quota failure updates the
   assert.equal(context.lastStatus.message, context.pauseReason);
 });
 
+test('per-model daily quota persists the daily-limit stop reason on the first failure', () => {
+  const { context, saved } = backgroundStopHarness();
+  let error;
+  try {
+    parseBatchexecuteResponse(JSON.stringify([['wrb.fr', 'ogiZ0b', null, null, null,
+      [8, null, [['type.googleapis.com/google.rpc.ErrorInfo', ['PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED']]]]]]), 'ogiZ0b');
+  } catch (caught) { error = caught; }
+  context.applyFailureStreak('increment', { errorCode: policy.classifyErrorCode(error), errorMessage: error.message });
+  assert.equal(context.pollPaused, true);
+  assert.equal(saved.bridgeStopState.pauseReasonCode, 'DAILY_QUOTA_REACHED');
+  assert.match(context.pauseReason, /daily quota reached/);
+});
+
 function mockModernResponse(response) {
   let calls = 0;
   globalThis.window = {
@@ -109,6 +122,16 @@ test('media URL resolution propagates RPC 8 immediately without readiness retrie
   });
   await assert.rejects(resolveFlowImageUrl(1, { mediaId: 'media/test' }, 'https://flow.google.com/project/test'),
     { code: 'FLOW_RESOURCE_EXHAUSTED', rpcStatus: 8 });
+  assert.equal(calls(), 1);
+});
+
+test('media URL resolution also propagates explicit daily quota without readiness retries', async () => {
+  const calls = mockModernResponse({
+    ok: true, text: async () => JSON.stringify([['wrb.fr', 'uurnC', null, null, null,
+      [8, 'PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED']]]),
+  });
+  await assert.rejects(resolveFlowImageUrl(1, { mediaId: 'media/test' }, 'https://flow.google.com/project/test'),
+    { code: 'DAILY_QUOTA_REACHED', rpcStatus: 8 });
   assert.equal(calls(), 1);
 });
 

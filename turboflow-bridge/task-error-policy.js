@@ -30,6 +30,13 @@ export function classifyErrorCode(errorOrMessage) {
   // Flow 风控拒绝：现代接口是 RPC 7 + ErrorInfo PUBLIC_ERROR_UNUSUAL_ACTIVITY，
   // UI 方式是 Tile 文案 "unusual activity"。与旧接口 403 unusual_activity 一致，按 reCAPTCHA 风控处理。
   if (text.includes('unusual_activity') || text.includes('unusual activity')) return 'RECAPTCHA_BLOCKED';
+  // Explicit daily quota reasons are more specific than RPC 8 or a legacy
+  // FLOW_RESOURCE_EXHAUSTED code, including per-model daily limits.
+  if (structuredCode === 'DAILY_QUOTA_REACHED'
+    || text.includes('daily_quota_reached')
+    || String(errorOrMessage?.reason || '').toLowerCase().includes('daily_quota_reached')) {
+    return 'DAILY_QUOTA_REACHED';
+  }
   // Classify RPC status before the old generic FLOW_RPC_REJECTED code, also
   // supporting errors restored from logs where custom Error fields were lost.
   const rpcStatus = errorOrMessage?.rpcStatus
@@ -48,7 +55,6 @@ export function classifyErrorCode(errorOrMessage) {
     return 'FLOW_AUTHENTICATION_FAILED';
   }
   // 额度耗尽立即停止；删项目不能恢复账号额度。
-  if (text.includes('daily_quota_reached')) return 'DAILY_QUOTA_REACHED';
   if (text.includes('resource_exhausted')) return 'FLOW_RESOURCE_EXHAUSTED';
   // 下载结果图失败（fetchImageAsBase64 全部重试都失败）— 连续 3 张触发 L1 恢复
   if (text.includes('[download_failed]')) return 'DOWNLOAD_FAILED';

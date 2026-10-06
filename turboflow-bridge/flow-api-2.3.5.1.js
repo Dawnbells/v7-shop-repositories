@@ -126,7 +126,7 @@ export function createApi2351({ browser = globalThis.chrome, verification = crea
       if (rpcId && [403, 429].includes(result.status)) {
         throw Object.assign(createFlowRpcError(rpcId, result.status === 429 ? 8 : 7, message), { httpStatus: result.status });
       }
-      const code = result.status === 429 ? (reason === 'DAILY_QUOTA_REACHED' ? 'DAILY_QUOTA_REACHED' : 'FLOW_RESOURCE_EXHAUSTED')
+      const code = result.status === 429 ? (/daily_quota_reached/i.test(`${reason} ${message}`) ? 'DAILY_QUOTA_REACHED' : 'FLOW_RESOURCE_EXHAUSTED')
         : result.status === 403 ? (/recaptcha|captcha|unusual.activity/i.test(message) ? 'RECAPTCHA_BLOCKED' : 'GOOGLE_BLOCKED') : undefined;
       const prefix = code === 'RECAPTCHA_BLOCKED' ? 'reCAPTCHA blocked'
         : code === 'GOOGLE_BLOCKED' ? 'Blocked by Google (403)' : `HTTP ${result.status || 'network'}`;
