@@ -960,7 +960,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             AiAccountTranslateSubTask imageSubTask = AiAccountTranslateSubTask.image(taskId, imageId, request);
             if (sourceImage != null && isAnimatedImage(sourceImage.get())) {
                 imageSubTask.setSkipped(true);
-                imageSubTask.setSkipReason("animated image (gif / animated webp)");
+                imageSubTask.setSkipReason("animated image (gif / animated webp / apng)");
                 log.debug("[AiAccountTranslateTask] image subtask marked skipped (animated): taskId={}, imageId={}",
                         taskId, imageId);
             }
@@ -995,7 +995,7 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
 
     /**
      * 收集所有需要拆分子任务的图片 ID（不再做动图过滤）。
-     * 动图（gif / animated webp）也会被加入子任务列表，由 buildSubTasks 标记 skipped=true。
+     * 动图（gif / animated webp / apng）也会被加入子任务列表，由 buildSubTasks 标记 skipped=true。
      * 这样前端可以看到完整的 success/fail/total 计数，但实际不会调用 Provider 翻译。
      */
     private List<String> collectImageIds(Product product) {
@@ -1029,42 +1029,18 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
     }
 
     /**
-     * 判断给定图片是否为动图（gif / animated webp）。
+     * 按原始文件内容识别动图，不能依赖后缀（PNG 后缀也可能是 GIF、WebP 或 APNG）。
      * 用于 buildSubTasks 阶段标记子任务跳过翻译。失败时保守返回 false（按非动图处理）。
      */
     private boolean isAnimatedImage(MultimediaFile image) {
         try {
-            String suffix = image.getSuffix();
-            if ("gif".equalsIgnoreCase(suffix)) return true;
-            if ("webp".equalsIgnoreCase(suffix) && isAnimatedWebp(image)) return true;
-            return false;
+            // 保留已有的 GIF 全部跳过策略，同时检查其他后缀下的真实文件格式。
+            if ("gif".equalsIgnoreCase(image.getSuffix())) return true;
+            return AnimatedImageDetector.isAnimated(readImageBytes(image));
         } catch (Exception e) {
             log.warn("[AiAccountTranslateTask] check animated image failed: imageId={}", image.getId(), e);
             return false;
         }
-    }
-
-    private boolean isAnimatedWebp(MultimediaFile image) {
-        try {
-            byte[] data = readImageBytes(image);
-            return isAnimatedWebp(data);
-        } catch (Exception e) {
-            log.warn("[AiAccountTranslateTask] check animated webp failed: imageId={}", image.getId(), e);
-            return false;
-        }
-    }
-
-    private boolean isAnimatedWebp(byte[] data) {
-        if (data.length < 20) return false;
-        if (data[0] != 'R' || data[1] != 'I' || data[2] != 'F' || data[3] != 'F') return false;
-        if (data[8] != 'W' || data[9] != 'E' || data[10] != 'B' || data[11] != 'P') return false;
-        if (data.length > 20 && data[12] == 'V' && data[13] == 'P' && data[14] == '8' && data[15] == 'X') {
-            return (data[20] & 0x02) != 0;
-        }
-        for (int i = 12; i < data.length - 4; i++) {
-            if (data[i] == 'A' && data[i + 1] == 'N' && data[i + 2] == 'I' && data[i + 3] == 'M') return true;
-        }
-        return false;
     }
 
     // --- Cache check ---

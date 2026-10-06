@@ -1,6 +1,7 @@
 package cn.v7soft.admin.task;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
@@ -32,6 +33,8 @@ import cn.v7soft.dao.repositories.primary.ImageTranslationCacheRepository;
 import cn.v7soft.dao.repositories.primary.TextTranslationCacheRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -52,6 +55,42 @@ class AiAccountTranslateTaskImageCachePriorityTest {
     @Mock private TextTranslationCacheRepository textTranslationCacheRepository;
     @Mock private AiCreditsService aiCreditsService;
     @Mock private TransactionTemplate transactionTemplate;
+
+    @ParameterizedTest
+    @MethodSource("cn.v7soft.admin.task.AnimatedImageDetectorTest#animatedImages")
+    void animatedContentWithPngSuffixIsSkippedBeforeDispatch(byte[] content) {
+        AiAccountTranslateSubTask subTask = buildImageSubTask(content);
+
+        assertTrue(subTask.isSkipped());
+        assertTrue(subTask.getSkipReason().contains("animated image"));
+        verify(multimediaFileService).download("99", 0);
+    }
+
+    @ParameterizedTest
+    @MethodSource("cn.v7soft.admin.task.AnimatedImageDetectorTest#staticImages")
+    void staticContentStillEntersTranslation(byte[] content) {
+        assertFalse(buildImageSubTask(content).isSkipped());
+    }
+
+    private AiAccountTranslateSubTask buildImageSubTask(byte[] content) {
+        AiAccountTranslateTask task = new AiAccountTranslateTask(
+                asyncTaskRepository, productService, aiAccountService, companyService,
+                multimediaFileService, languageService, countryService, usageRecordRepository,
+                imageTranslationCacheRepository, imagePolicyCacheRepository,
+                textTranslationCacheRepository, aiCreditsService, transactionTemplate, List.of());
+        MultimediaFile source = MultimediaFile.builder().id(99L).suffix("png").build();
+        Product product = Product.builder().id(10L)
+                .introduction("<img src=\"/multimedia/99\">").build();
+        when(productService.getByIdWithSpecifications(10L)).thenReturn(product);
+        when(multimediaFileService.findById(99L)).thenReturn(Optional.of(source));
+        when(multimediaFileService.download("99", 0)).thenReturn(new ByteArrayInputStream(content));
+        TranslateByAIRequest request = new TranslateByAIRequest();
+        request.setProductId("10");
+        request.setAiAccountId("7");
+        return task.buildSubTasks(1L, request).stream()
+                .filter(subTask -> subTask.getType() == AiAccountTranslateSubTaskType.IMAGE)
+                .findFirst().orElseThrow();
+    }
 
     @Test
     void taskPipelineAppliesPolicyBeforeExactSkippedCacheWithoutBrowserPoll() {

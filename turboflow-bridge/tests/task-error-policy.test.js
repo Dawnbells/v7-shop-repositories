@@ -57,6 +57,7 @@ test('quota errors stop on the first failure, including old generic RPC errors a
     { code: 'FLOW_RPC_REJECTED', rpcStatus: '8' },
     'Flow RPC ogiZ0b failed (RPC status 8)',
     'Flow RPC maseQ failed (RPC status 8: RESOURCE_EXHAUSTED)',
+    'Flow RPC ogiZ0b failed (RPC status 8: RESOURCE_EXHAUSTED): PUBLIC_ERROR_HIGH_TRAFFIC',
     'HTTP 429: RESOURCE_EXHAUSTED',
   ]) {
     const code = classifyErrorCode(error);
