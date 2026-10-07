@@ -3,10 +3,20 @@ $ErrorActionPreference = 'Stop'
 $extensionRoot = Split-Path -Parent $PSScriptRoot
 $outputPath = Join-Path $extensionRoot 'sidepanel.zip'
 $temporaryPath = Join-Path $extensionRoot 'sidepanel.tmp.zip'
+$presetPath = Join-Path $extensionRoot 'private-service-preset.json'
+if (-not (Test-Path -LiteralPath $presetPath)) { throw 'Missing private service preset' }
+$preset = Get-Content -LiteralPath $presetPath -Raw | ConvertFrom-Json
+if ($preset.baseUrl -ne 'https://api.xyzdwd.com' -or [string]::IsNullOrWhiteSpace($preset.token)) {
+  throw 'Invalid private service preset'
+}
 
 # 显式列出运行时文件，避免把测试、开发文件或旧 ZIP 再嵌进安装包。
 $packageEntries = @(
   'background.js'
+  'bridge-defaults.js'
+  'flow-recovery-controller.js'
+  'flow-project-lifecycle.js'
+  'private-service-preset.json'
   'bridge-stats.js'
   'content-isolated.js'
   'content-main.js'
@@ -34,6 +44,10 @@ $packageEntries = @(
 )
 
 $requiredArchiveEntries = @(
+  'bridge-defaults.js'
+  'flow-recovery-controller.js'
+  'flow-project-lifecycle.js'
+  'private-service-preset.json'
   'flow-api-2.3.5.1.js'
   'flow-verification-session.js'
   'flow-generation-mode.js'

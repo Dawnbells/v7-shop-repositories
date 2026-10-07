@@ -17,13 +17,13 @@ function extractFunction(text, name) {
   throw new Error(`${name} is not balanced`);
 }
 
-test('concurrency is configurable from 1 to 10 and defaults to one translation at a time', () => {
-  assert.match(background, /const DEFAULT_FLOW_CONCURRENCY = 1;/);
+test('concurrency is configurable from 1 to 10 and defaults to four translations', () => {
+  assert.match(background, /const DEFAULT_FLOW_CONCURRENCY = 4;/);
   assert.match(background, /const MAX_FLOW_CONCURRENCY = 10;/);
   const normalize = new Function('DEFAULT_FLOW_CONCURRENCY', 'MAX_FLOW_CONCURRENCY',
-    `${extractFunction(background, 'normalizeFlowConcurrency')}; return normalizeFlowConcurrency;`)(1, 10);
-  assert.equal(normalize(undefined), 1);
-  assert.equal(normalize('abc'), 1);
+    `${extractFunction(background, 'normalizeFlowConcurrency')}; return normalizeFlowConcurrency;`)(4, 10);
+  assert.equal(normalize(undefined), 4);
+  assert.equal(normalize('abc'), 4);
   assert.equal(normalize(0), 1);
   assert.equal(normalize(2), 2);
   assert.equal(normalize('3'), 3);

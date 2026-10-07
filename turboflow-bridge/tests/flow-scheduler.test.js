@@ -15,6 +15,10 @@ function scheduler() {
   const pacer = new FlowSubmissionPacer({ now: () => now, random: () => 0.5 });
   const context = vm.createContext({
     flowTasks: registry, submissionPacer: pacer,
+    roundRecovery: { state: {}, save: async () => {} },
+    trackOperation: promise => promise, buildFlowHomeUrl: () => 'https://flow.google.com/',
+    chrome: { tabs: { get: async () => ({ windowId: 1 }) } },
+    flowWorkBlocked: () => context.pollPaused || !!context.openingFlowPromise || !!context.recoveryPromise,
     Date: { now: () => now }, PREFETCH_LIMIT: 1, POLL_INTERVAL_MS: 500,
     running: false, prefetchedTask: null, pollPaused: false,
     recoveryPromise: null, openingFlowPromise: null, flowTabAvailable: true, nextPollAt: 0, serviceCursor: 0,

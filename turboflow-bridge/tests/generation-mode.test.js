@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { normalizeGenerationMode, generationModeLabel } from '../generation-mode.js';
 import { translateImageForMode } from '../flow-generation-mode.js';
 
-test('three modes round-trip; absent or invalid settings retain the API default', async () => {
+test('three modes round-trip; absent or invalid settings use API-2.3.5.1', async () => {
   const source = readFileSync(new URL('../background.js', import.meta.url), 'utf8');
   const stored = {};
   let cleanup = 0;
@@ -28,9 +28,9 @@ test('three modes round-trip; absent or invalid settings retain the API default'
     assert.equal((await context.loadConfig()).generationMode, expected);
     assert.equal(stored.flowConcurrency, 3);
   }
-  assert.equal(cleanup, 4);
+  assert.equal(cleanup, 2);
   assert.equal(generationModeLabel('ui'), 'Flow UI');
-  assert.equal(generationModeLabel('api-2.3.5.1'), 'api-2.3.5.1');
+  assert.equal(generationModeLabel('api-2.3.5.1'), 'API-2.3.5.1');
 });
 
 test('shared mode dispatch retains the UI adapter and snapshots its selected mode', async () => {
@@ -50,10 +50,10 @@ test('shared mode dispatch retains the UI adapter and snapshots its selected mod
 
 test('test and automatic entrypoints both dispatch through the same mode selector', () => {
   const source = readFileSync(new URL('../background.js', import.meta.url), 'utf8');
-  const testAction = source.slice(source.indexOf("if (msg.type === 'TEST_TRANSLATE')"), source.indexOf("if (msg.type === 'TEST_TRANSLATE_DOM')"));
+  const testAction = source.slice(source.indexOf('async function executeTestTranslation('), source.indexOf('async function cleanupStatus('));
   const automatic = source.slice(source.indexOf('async function translateImage(task, conn)'), source.indexOf('async function runFlowDomTranslation'));
   for (const entry of [testAction, automatic]) {
-    assert.match(entry, /const mode = generationMode/);
+    assert.match(entry, /const mode = (?:uiOnly \? 'ui' : )?generationMode/);
     assert.match(entry, /translateImageForMode\(mode, conn,/);
   }
 });

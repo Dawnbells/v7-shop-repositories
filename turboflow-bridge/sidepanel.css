@@ -20,6 +20,9 @@
   --radius-sm: 6px;
 }
 
+.flow-operation-status { padding: 8px 12px; font-size: 12px; color: #d79a33; }
+.btn-icon:disabled { opacity: .35; cursor: not-allowed; }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ── SPA View Switching ── */

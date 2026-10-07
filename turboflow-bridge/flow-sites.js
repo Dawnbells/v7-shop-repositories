@@ -33,6 +33,30 @@ export function isModernFlowUrl(value) {
   return getFlowOrigin(value) === 'https://flow.google.com';
 }
 
+export function buildFlowHomeUrl(value = FLOW_HOME_URL) {
+  if (!isFlowUrl(value)) return null;
+  const url = new URL(value);
+  if (isModernFlowUrl(value)) {
+    const account = url.pathname.match(/^\/u\/\d+(?:\/|$)/)?.[0]?.replace(/\/$/, '') || '';
+    return url.origin + account + '/';
+  }
+  return url.origin + (url.pathname.match(/^\/fx(?:\/[a-z]{2}(?:-[a-z]{2})?)?\/tools\/flow/i)?.[0] || '/fx/tools/flow');
+}
+
+export function isFlowHomeUrl(value) {
+  const home = buildFlowHomeUrl(value);
+  if (!home) return false;
+  const url = new URL(value);
+  return !url.hash && url.origin + url.pathname.replace(/\/$/, '') === home.replace(/\/$/, '');
+}
+
+export function isFlowTabToClose(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && (url.hostname === 'flow.google.com' || isFlowUrl(value));
+  } catch { return false; }
+}
+
 export function getProjectIdFromFlowUrl(value) {
   if (!isFlowUrl(value)) return null;
   const url = new URL(value);
@@ -45,7 +69,7 @@ export function buildFlowProjectUrl(value, projectId) {
   if (!origin || !projectId) return null;
   const encodedProjectId = encodeURIComponent(projectId);
   if (origin === 'https://flow.google.com') {
-    return origin + '/project/' + encodedProjectId;
+    return buildFlowHomeUrl(value) + 'project/' + encodedProjectId;
   }
   return origin + '/fx/tools/flow/project/' + encodedProjectId;
 }

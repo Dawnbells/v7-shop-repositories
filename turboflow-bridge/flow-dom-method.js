@@ -411,6 +411,8 @@
       const image = images[i];
       const name = image.name || `reference_${i + 1}.png`;
       await openPicker(task);
+      const gate = await chrome.runtime.sendMessage({ type: 'FLOW_DOM_BEFORE_SUBMIT' });
+      if (!gate?.ok) throw new Error(gate?.error || 'New Flow submissions are paused');
       const mediaId = await injectUploadThroughPicker(image, name);
       if (mediaId) mediaIds.push(mediaId);
       await waitForUploadedAssetReady(name, task);

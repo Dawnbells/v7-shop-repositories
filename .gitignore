@@ -108,6 +108,7 @@ orders/
 hatch-row-staging/
 
 # ==================== 敏感文件 ====================
+/turboflow-bridge/private-service-preset.json
 
 # 后端配置文件 (包含密码、密钥等敏感信息)
 **/application.yml

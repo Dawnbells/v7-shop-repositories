@@ -4,8 +4,6 @@ import {
   clearTokenCache,
   clearProjectIdCache,
   setSessionToken,
-  runRecoveryChain,
-  deleteAllUserProjects,
   openFlowHome,
   armModernGenerateMonitor,
   waitModernGenerateSent,
@@ -15,6 +13,7 @@ import {
   FLOW_TAB_URL_PATTERNS,
   isFlowUrl,
   isModernFlowUrl,
+  buildFlowHomeUrl,
 } from './flow-sites.js';
 import {
   findImagePolicyFallback,
@@ -53,17 +52,20 @@ import {
   FAILURE_STREAK_RESET,
 } from './task-error-policy.js';
 import { FlowTaskRegistry } from './flow-task-registry.js';
+import { initializeDefaultConfig } from './bridge-defaults.js';
+import { FlowRecoveryController } from './flow-recovery-controller.js';
+import { restartFlowProject, getProjectCleanupTarget, deleteProjectsAtHome } from './flow-project-lifecycle.js';
 import { FlowSubmissionPacer } from './flow-submission-pacer.js';
 import { translateImageForMode } from './flow-generation-mode.js';
 import { releaseApi2351 } from './flow-api-2.3.5.1.js';
 import { normalizeGenerationMode, generationModeLabel } from './generation-mode.js';
 
-const VERSION = '1.5.4';
+const VERSION = '1.5.9';
 const POLL_INTERVAL_MS = 500;
 // 同时「翻译中」的上限，设置页可调（1–10，默认 1 = 单线程）。上传 / 挂图 / 写 prompt / 提交
 // 始终串行；译图下载到扩展后立即释放槽位，服务端回传与后续任务并行。
 const FLOW_CONCURRENCY_STORAGE_KEY = 'flowConcurrency';
-const DEFAULT_FLOW_CONCURRENCY = 1;
+const DEFAULT_FLOW_CONCURRENCY = 4;
 const MAX_FLOW_CONCURRENCY = 10;
 const PREFETCH_LIMIT = 1;
 const DOM_TRANSLATE_MESSAGE = 'RUN_DOM_TRANSLATE_V26';
@@ -73,7 +75,6 @@ const DOM_PORT_ACK_TIMEOUT_MS = 5000;
 const DOM_PORT_CONNECT_ATTEMPTS = 3;
 const STOP_STATE_STORAGE_KEY = 'bridgeStopState';
 const RECOVERY_STATE_STORAGE_KEY = 'bridgeRecoveryState';
-const RECOVERY_SUCCESS_THRESHOLD = 20;
 const RECOVERY_DOWNLOAD_FAIL_THRESHOLD = 3;
 const LEGACY_PAUSE_STATE_STORAGE_KEY = 'bridgePauseState';
 const STATS_STORAGE_KEY = 'bridgeStats';
@@ -108,7 +109,7 @@ function friendlyErrorMessage(errorCode, rawMessage) {
 }
 
 let bridgeId = null;
-let generationMode = 'api';
+let generationMode = 'api-2.3.5.1';
 let flowConcurrency = DEFAULT_FLOW_CONCURRENCY;
 let running = false;
 let currentTasks = [];
@@ -327,7 +328,7 @@ function pausePoll(reason, options = {}) {
   if (alreadyPaused && isQuotaErrorCode(pauseReasonCode)) return;
   const reasonChanged = pauseReason !== reason;
   pollPaused = true;
-  releaseApi2351().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
+  roundRecovery.halt();
   pauseReason = reason;
   pauseReasonCode = options.code || pauseReasonCode || null;
   // 停止态下预取任务永远启动不了，还给服务端重派。
@@ -376,147 +377,139 @@ function resumePoll(_force = false) {
  * 恢复链跑通后清账：换来的是全新环境（新 project、storage 已清、grecaptcha token 验过），
  * 旧环境攒下的失败连续性不该算到新环境头上。
  */
-function markRecoverySucceeded(level) {
-  recoveryState.lastRecoveryLevel = level;
-  recoveryState.successSinceLastRecovery = 0;
-  recoveryState.consecutiveDownloadFails = 0;
-  recoveryState.consecutiveFailures = 0;
-  recoveryState.consecutiveFlowDisconnects = 0;
-  persistRecoveryState();
-}
-
-/**
- * 决定下次 reCAPTCHA 应走 L1 还是 L2：
- *   首次（lastRecoveryLevel='NONE'）→ L1
- *   上次 L1 后连续生成 >= 20 张才再次踩到 → 仍按"L1 见效"评估，重新做 L1
- *   上次 L1 后不到 20 张就再踩到 → 升级 L2（多清 _GRECAPTCHA cookie）
- *   上次 L2 后仍 reCAPTCHA → 调用方应直接 stopAndDelete，不再调本函数
- */
-function decideRecoveryLevel() {
-  if (recoveryState.lastRecoveryLevel === 'NONE') return 'L1';
-  if (recoveryState.lastRecoveryLevel === 'L1') {
-    return recoveryState.successSinceLastRecovery >= RECOVERY_SUCCESS_THRESHOLD ? 'L1' : 'L2';
-  }
-  return 'L2';
-}
-
-/**
- * 触发一次恢复链。设置 recoveryPromise 门闩阻止 scheduleLoop 发起新 poll；
- * 成功 → 更新 lastRecoveryLevel + 计数归零 + 恢复 poll；
- * 失败 → 调 stopAndDelete 进入终态。
- * 并发安全：多个 in-flight task 同时抛 reCAPTCHA 时，第二个之后的调用 await 同一个 Promise，不会重复触发恢复链。
- */
-async function triggerRecovery(level, options = {}) {
-  if (pollPaused && isQuotaErrorCode(pauseReasonCode)) return false;
-  if (recoveryPromise) return recoveryPromise;
-  // 本次失败刚把 bridge 推进停止态时仍要跑恢复链（风控该清还是要清，否则用户点 Run Now
-  // 立刻又撞墙）；但跑完不自动恢复轮询。已停止态是历史遗留时照旧短路。
-  if (pollPaused && options.allowWhilePaused !== true) return false;
-  recoveryPromise = (async () => {
-    const conn = await checkConnection().catch(() => null);
-    const tabId = conn?.tabId;
-    if (!tabId) {
-      addLog('error', `⛔ Recovery ${level} failed: no Flow tab`);
-      await stopAndDelete(`Recovery ${level} failed: no Flow tab`, { code: 'RECOVERY_FAILED' });
-      return false;
-    }
-    addLog('warn', `🔄 Recovery ${level} starting — clearing storage${level === 'L2' ? ' + _GRECAPTCHA cookie' : ''}, reloading, creating new project`);
-    broadcast({ type: 'CONNECTION_CHANGED', connected: false, message: `Recovery ${level} in progress…`, projectId: null });
-    try {
-      const newProjectId = await runRecoveryChain(tabId, level);
-      markRecoverySucceeded(level);
-      addLog('info', `✅ Recovery ${level} succeeded — new project ${newProjectId}`);
-      return true;
-    } catch (e) {
-      addLog('error', `⛔ Recovery ${level} failed: ${e.message}`);
-      // L1 失败 → 升级 L2；L2 失败 → stopAndDelete（按方案 A 的兜底）
-      if (level === 'L1') {
-        recoveryState.lastRecoveryLevel = 'L1';
-        persistRecoveryState();
-        return await triggerRecoveryInner('L2');
-      }
-      await stopAndDelete(`Recovery L2 failed: ${e.message}`, { code: 'RECOVERY_FAILED' });
-      return false;
-    }
-  })();
-  try {
-    const ok = await recoveryPromise;
-    if (ok && !pollPaused) {
-      // 恢复成功 — 立即排一次 poll 拉新 task。停止态下不自动恢复，等用户点 Run Now。
-      scheduleLoop(100);
-    }
-    return ok;
-  } finally {
-    recoveryPromise = null;
-  }
-}
-
-/**
- * triggerRecovery 内部的升档实现：不再设置 recoveryPromise（外层已设），直接跑链。
- */
-async function triggerRecoveryInner(level) {
-  if (pollPaused && isQuotaErrorCode(pauseReasonCode)) return false;
-  const conn = await checkConnection().catch(() => null);
-  const tabId = conn?.tabId;
-  if (!tabId) {
-    await stopAndDelete(`Recovery ${level} failed: no Flow tab`, { code: 'RECOVERY_FAILED' });
-    return false;
-  }
-  addLog('warn', `🔄 Recovery ${level} starting (escalated)`);
-  try {
-    const newProjectId = await runRecoveryChain(tabId, level);
-    markRecoverySucceeded(level);
-    addLog('info', `✅ Recovery ${level} succeeded — new project ${newProjectId}`);
-    return true;
-  } catch (e) {
-    addLog('error', `⛔ Recovery ${level} failed: ${e.message}`);
-    await stopAndDelete(`Recovery ${level} failed: ${e.message}`, { code: 'RECOVERY_FAILED' });
-    return false;
-  }
-}
-
-/**
- * 终态停止：先 pausePoll 进入"已停止"，再列举并删除账号下所有 project（fire-and-forget）。
- * 删除进度通过 BRIDGE_LOG 上报到 sidepanel；不阻塞 stop 状态切换。
- * 幂等：多个 in-flight 任务并发触发终态时只删一轮 project。
- */
 let deletingProjects = false;
-async function stopAndDelete(reason, options = {}) {
-  const wasAlreadyPaused = pollPaused;
-  pausePoll(reason, options);
-  if (wasAlreadyPaused || deletingProjects) {
-    // 已经在停止态或正在删除中 — 不重复发起 deleteAllUserProjects
-    return;
+let cleanupProgress = null;
+const activeOperations = new Set();
+const ROUND_STATE_KEY = 'flowRecoveryRoundV1';
+const roundRecovery = new FlowRecoveryController({
+  persist: state => chrome.storage.local.set({ [ROUND_STATE_KEY]: state }),
+  drained: () => !running && !currentTasks.length && !flowTasks.inUse
+    && !activeOperations.size && !pendingPolicyFlushRunning,
+  restart: async (target, phase) => {
+    await releaseApi2351();
+    await restartFlowProject(target, phase);
+    flowTabAvailable = true;
+    resetRecoveryStateAll();
+  },
+  stop: (reason, code) => pausePoll(reason, { code }),
+  changed: state => broadcast({ type: 'FLOW_RECOVERY_CHANGED', recovery: state }),
+});
+
+function flowWorkBlocked() {
+  return pollPaused || roundRecovery.blocked || !!openingFlowPromise || deletingProjects;
+}
+
+function trackOperation(promise) {
+  activeOperations.add(promise);
+  promise.then(() => activeOperations.delete(promise), () => activeOperations.delete(promise));
+  return promise;
+}
+
+function beginFlowRecovery(conn, manual = false) {
+  if (roundRecovery.busy) return roundRecovery.pending;
+  if (deletingProjects || openingFlowPromise) return Promise.resolve(false);
+  if (!manual && (pollPaused || roundRecovery.blocked)) return Promise.resolve(false);
+  if (manual) resumePoll();
+  const target = conn?.flowUrl
+    ? { ...roundRecovery.state.target, homeUrl: buildFlowHomeUrl(conn.flowUrl), tabId: conn.tabId }
+    : roundRecovery.state.target;
+  const operation = roundRecovery.request(target, { manual });
+  recoveryPromise = operation;
+  if (timerId) clearTimeout(timerId);
+  timerId = null;
+  nextPollAt = 0;
+  releasePrefetchedTask('Flow recovery awaiting task completion');
+  addLog('warn', 'Flow recovery: waiting for all current tasks to finish');
+  broadcast({ type: 'COUNTDOWN_UPDATE', nextPollAt: 0 });
+  operation.finally(() => {
+    recoveryPromise = null;
+    if (!pollPaused && !roundRecovery.blocked) scheduleLoop(100);
+  });
+  return operation;
+}
+
+function isUnusualActivity(error) {
+  return /unusual[_ ]activity/i.test(`${error?.reason || ''} ${error?.message || error || ''}`);
+}
+
+function observeFlowError(error, conn) {
+  if (!isUnusualActivity(error)) return false;
+  beginFlowRecovery(conn);
+  return true;
+}
+
+async function executeTestTranslation(msg, uiOnly = false) {
+  let conn;
+  const roundId = roundRecovery.state.roundId;
+  const taskId = 'test:' + crypto.randomUUID();
+  try {
+    assertFlowSubmissionAllowed();
+    const mode = uiOnly ? 'ui' : generationMode;
+    conn = await checkConnection({ requireApiSession: mode === 'api' });
+    if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
+    const tab = await chrome.tabs.get(conn.tabId);
+    roundRecovery.state.target = { homeUrl: buildFlowHomeUrl(conn.flowUrl), windowId: tab.windowId, tabId: tab.id };
+    await roundRecovery.save();
+    assertFlowSubmissionAllowed();
+    const options = { ...msg, assignmentId: taskId,
+      fileName: buildDomUploadFileName(msg, 'test.png'),
+      prompt: msg.prompt || buildPrompt({ targetLanguage: msg.targetLanguage || 'Simplified Chinese' }),
+      aspectRatio: msg.aspectRatio === 'auto' ? aspectRatioFor(msg.width, msg.height) : msg.aspectRatio,
+      beforeSubmit: assertFlowSubmissionAllowed };
+    const result = await translateImageForMode(mode, conn, options, runFlowDomTranslation);
+    roundRecovery.success(roundId, taskId);
+    return { ok: true, ...result };
+  } catch (error) {
+    if (!observeFlowError(error, conn) && error.code !== 'FLOW_SUBMISSION_PAUSED') {
+      const code = classifyErrorCode(error);
+      if (isQuotaErrorCode(code) || ['FLOW_AUTHENTICATION_FAILED', 'FLOW_VERIFICATION_REQUIRED', 'FLOW_RPC_REJECTED'].includes(code)) {
+        pausePoll(error.message, { code });
+      }
+    }
+    return { ok: false, error: error.message };
+  }
+}
+
+async function cleanupStatus(windowId) {
+  if (flowTasks.inUse || currentTasks.length || activeOperations.size || running || pendingPolicyFlushRunning
+    || roundRecovery.busy || openingFlowPromise || deletingProjects || roundRecovery.state.phase === 'initializing') {
+    return { allowed: false, reason: '等待任务、恢复或删除完成', progress: cleanupProgress };
+  }
+  return getProjectCleanupTarget(windowId);
+}
+
+async function manuallyDeleteProjects(tabId, windowId) {
+  const status = await cleanupStatus(windowId);
+  if (!status.allowed || status.tabId !== tabId) return { ok: false, error: status.reason || 'Flow target changed' };
+  if (deletingProjects || running || activeOperations.size || flowTasks.inUse || roundRecovery.busy || openingFlowPromise) {
+    return { ok: false, error: 'Flow is busy' };
   }
   deletingProjects = true;
+  cleanupProgress = { phase: 'starting', deleted: 0, failed: 0 };
+  if (timerId) clearTimeout(timerId);
+  timerId = null;
+  nextPollAt = 0;
   try {
-    const conn = await checkConnection().catch(() => null);
-    const tabId = conn?.tabId;
-    if (!tabId) {
-      addLog('warn', '⚠️ 无可用 Flow tab — 跳过删除 project 步骤');
-      return;
-    }
-    addLog('info', '🧹 开始列举并删除账号下所有 project');
-    await deleteAllUserProjects(tabId, (progress) => {
-      if (progress.phase === 'list-failed') {
-        addLog('error', `🧹 列举 project 失败: ${progress.error}`);
-      } else if (progress.phase === 'start') {
-        addLog('info', `🧹 共 ${progress.total} 个 project 待删除`);
-      } else if (progress.phase === 'progress' && (progress.current % 10 === 0 || progress.current === progress.total)) {
-        addLog('info', `🧹 删除中: ${progress.current}/${progress.total}（成功 ${progress.deleted} / 失败 ${progress.failed}）`);
-      } else if (progress.phase === 'done') {
-        addLog('info', `🧹 删除完成: 成功 ${progress.deleted} / 失败 ${progress.failed} / 总计 ${progress.total}`);
-      }
+    const result = await deleteProjectsAtHome(status, progress => {
+      cleanupProgress = progress;
+      broadcast({ type: 'FLOW_CLEANUP_PROGRESS', ...progress });
     });
-  } catch (e) {
-    addLog('error', `🧹 删除 project 失败: ${e.message}`);
+    addLog(result.failed || result.remaining ? 'warn' : 'info',
+      `Flow projects: deleted ${result.deleted}, failed ${result.failed}, remaining ${result.remaining}`);
+    return { ok: true, ...result };
+  } catch (error) {
+    addLog('error', `Flow project cleanup stopped: ${error.message}`);
+    return { ok: false, error: error.message };
   } finally {
     deletingProjects = false;
+    cleanupProgress = null;
+    broadcast({ type: 'FLOW_CLEANUP_PROGRESS', phase: 'idle' });
   }
 }
 
 function openFlowForManualProject() {
   if (openingFlowPromise) return openingFlowPromise;
+  if (roundRecovery.busy || deletingProjects) return Promise.resolve({ ok: false, error: 'Flow is busy' });
   openingFlowPromise = (async () => {
     if (timerId) clearTimeout(timerId);
     timerId = null;
@@ -525,7 +518,7 @@ function openFlowForManualProject() {
     lastStatus = { connected: false, message: 'Opening Flow...' };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus, projectId: null });
     // Let existing work finish before changing the active Flow tab. New work is gated.
-    while (running || currentTasks.length || recoveryPromise || deletingProjects) {
+    while (running || currentTasks.length || flowTasks.inUse || activeOperations.size || recoveryPromise || deletingProjects) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     releasePrefetchedTask('Open Flow awaiting manual project selection');
@@ -584,12 +577,12 @@ startPendingPolicyReportRetry();
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'CHECK_CONNECTION') {
-    if (openingFlowPromise) {
+    if (openingFlowPromise || roundRecovery.busy) {
       sendResponse({ connected: false, reason: 'Opening Flow...' });
       return false;
     }
     checkConnection().then((state) => {
-      if (openingFlowPromise) {
+      if (openingFlowPromise || roundRecovery.busy) {
         sendResponse({ connected: false, reason: 'Opening Flow...' });
         return;
       }
@@ -628,6 +621,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'FLOW_TRUSTED_SUBMIT') {
+    try { assertFlowSubmissionAllowed(); }
+    catch (error) { sendResponse({ ok: false, error: error.message }); return false; }
     const tabId = _sender.tab?.id;
     if (!tabId || !isFlowUrl(_sender.tab.url || '')) {
       sendResponse({ ok: false, error: 'Trusted submit is only available to the Flow tab' });
@@ -650,7 +645,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_CONFIG') {
-    loadConfig().then(sendResponse);
+    loadPersistedState().then(loadConfig).then(sendResponse)
+      .catch(error => sendResponse({ error: error.message }));
     return true;
   }
 
@@ -681,6 +677,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       pauseUntilAt: 0,
       cooldownRemainingMs: 0,
       recoveryState,
+      recovery: roundRecovery.snapshot(),
+      recoveryBusy: roundRecovery.busy,
+      drainingCount: Math.max(currentTasks.length, flowTasks.inUse, activeOperations.size),
+      deletingProjects,
       reuseSummary,
       flowSlotOwner: flowTasks.submissionOwner,
       flowConcurrency: flowTasks.snapshot(),
@@ -690,11 +690,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'RUN_NOW') {
-    // 用户主动触发：终态停止下点击即恢复（已无冷却限制）；force 字段仍接受以兼容旧 sidepanel
-    resumePoll(msg.force === true);
-    scheduleLoop(100);
+    if (roundRecovery.busy || openingFlowPromise || deletingProjects) {
+      sendResponse({ ok: false, error: 'Flow is busy' });
+      return false;
+    }
+    beginFlowRecovery(null, true);
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (msg.type === 'GET_PROJECT_CLEANUP_STATUS') {
+    cleanupStatus(msg.windowId).then(sendResponse).catch(e => sendResponse({ allowed: false, reason: e.message }));
+    return true;
+  }
+  if (msg.type === 'DELETE_ALL_FLOW_PROJECTS') {
+    manuallyDeleteProjects(msg.tabId, msg.windowId).then(sendResponse).catch(e => sendResponse({ ok: false, error: e.message }));
+    return true;
   }
 
   if (msg.type === 'GET_TASK_HISTORY') {
@@ -957,59 +968,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'TEST_TRANSLATE') {
-    (async () => {
-      try {
-        const mode = generationMode;
-        const conn = await checkConnection({ requireApiSession: mode === 'api' });
-        if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
-        const prompt = msg.prompt || buildPrompt({
-          targetLanguage: msg.targetLanguage || 'Simplified Chinese',
-        });
-        const aspectRatio = msg.aspectRatio === 'auto'
-          ? aspectRatioFor(msg.width, msg.height)
-          : msg.aspectRatio;
-        const options = {
-          ...msg,
-          fileName: buildDomUploadFileName(msg, 'test.png'),
-          prompt,
-          aspectRatio,
-        };
-        const result = await translateImageForMode(mode, conn,
-          { ...options, beforeSubmit: assertFlowSubmissionAllowed }, runFlowDomTranslation);
-        sendResponse({ ok: true, ...result });
-      } catch (e) {
-        sendResponse({ ok: false, error: e.message });
-      }
-    })();
+    trackOperation(executeTestTranslation(msg)).then(sendResponse);
     return true;
   }
 
   if (msg.type === 'TEST_TRANSLATE_DOM') {
-    (async () => {
-      try {
-        const conn = await checkConnection();
-        if (!conn.connected) throw new Error(conn.reason || 'Flow is not connected');
-        const prompt = msg.prompt || buildPrompt({
-          targetLanguage: msg.targetLanguage || 'Simplified Chinese',
-        });
-        const aspectRatio = msg.aspectRatio === 'auto'
-          ? aspectRatioFor(msg.width, msg.height)
-          : msg.aspectRatio;
-
-        const result = await runFlowDomTranslation(conn, {
-          ...msg,
-          fileName: buildDomUploadFileName(msg, 'test.png'),
-          prompt,
-          aspectRatio,
-        });
-        if (msg.autoClearCache) {
-          await clearFlowPageCache(conn.tabId);
-        }
-        sendResponse({ ok: true, ...result });
-      } catch (e) {
-        sendResponse({ ok: false, error: e.message });
-      }
-    })();
+    trackOperation(executeTestTranslation(msg, true)).then(sendResponse);
     return true;
   }
 
@@ -1027,10 +991,20 @@ async function ensureBridgeId() {
   return bridgeId;
 }
 
-async function loadPersistedState() {
+let stateLoading;
+function loadPersistedState() {
+  return stateLoading ||= restorePersistedState();
+}
+async function restorePersistedState() {
+  await initializeDefaultConfig(chrome.storage.local, async () => {
+    const response = await fetch(chrome.runtime.getURL('private-service-preset.json'));
+    if (!response.ok) throw new Error('Private service preset is unavailable');
+    return response.json();
+  });
   const stored = await chrome.storage.local.get([
     'taskHistory',
     'logHistory',
+    ROUND_STATE_KEY,
     STATS_STORAGE_KEY,
     GENERATION_MODE_STORAGE_KEY,
     FLOW_CONCURRENCY_STORAGE_KEY,
@@ -1063,6 +1037,10 @@ async function loadPersistedState() {
     safeAction((action) => action.setBadgeBackgroundColor({ color: '#d32f2f' }));
   }
   await loadRecoveryState();
+  await roundRecovery.restore(stored[ROUND_STATE_KEY], pollPaused);
+  if (roundRecovery.state.phase === 'stopped' && !pollPaused) {
+    pausePoll('Flow stopped; click Run Now', { code: 'RECOVERY_INTERRUPTED' });
+  }
   if (pollPaused || generationMode !== 'api-2.3.5.1') {
     releaseApi2351().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
   }
@@ -1197,7 +1175,7 @@ function logDroppedTranslations(dropped) {
 
 function scheduleLoop(delayMs) {
   // 暂停态下不再触发任何 poll，必须等用户点 Run Now 显式恢复
-  if (pollPaused) {
+  if (flowWorkBlocked()) {
     return;
   }
   // reCAPTCHA 恢复链运行中（reload + 建 project + settle）— 不发起新 poll，避免撞上半残 Flow tab
@@ -1243,17 +1221,17 @@ function getPrefetchedTaskSummary() {
 }
 
 function reserveFlowSlotAndExecute(service, task, conn, { prefetched = false } = {}) {
-  if (pollPaused || openingFlowPromise) return false;
+  if (flowWorkBlocked()) return false;
   if (submissionPacer.remainingMs > 0 || !flowTasks.reserveSubmission(task.assignmentId)) return false;
   addLog('info', `${prefetched ? 'Starting prefetched task' : 'Task received'}: ${task.subTaskId} from ${service.baseUrl}`);
-  executeTask(service, task, conn)
+  trackOperation(executeTask(service, task, conn))
     .catch((e) => addLog('error', `Task runner error: ${e.message}`));
   return true;
 }
 
 function startPrefetchedTask() {
   if (!prefetchedTask || flowTasks.submissionOwner || !flowTasks.hasCapacity
-      || pollPaused || recoveryPromise || openingFlowPromise || !flowTabAvailable) {
+      || flowWorkBlocked() || recoveryPromise || !flowTabAvailable) {
     return false;
   }
   if (submissionPacer.remainingMs > 0) {
@@ -1280,14 +1258,14 @@ function releasePrefetchedTask(reason) {
   prefetchedTask = null;
   broadcastTasksChanged();
   addLog('warn', `Standby task released for another bridge: ${task.subTaskId} (${reason})`);
-  reportFailWithRetry(service, {
+  trackOperation(reportFailWithRetry(service, {
     bridgeId,
     assignmentId: task.assignmentId,
     errorCode: 'PREFETCH_RELEASED',
     message: `Prefetched task released before submission: ${reason}`,
     retryable: true,
     elapsedMs: Date.now() - preparedAt,
-  }).catch((e) => addLog('warn', `Standby release report failed: ${e.message}`));
+  })).catch((e) => addLog('warn', `Standby release report failed: ${e.message}`));
   return true;
 }
 
@@ -1302,7 +1280,7 @@ async function runLoop() {
   running = true;
   let scheduleNext = true;
   try {
-    if (pollPaused || recoveryPromise || openingFlowPromise || !flowTabAvailable) return;
+    if (flowWorkBlocked() || recoveryPromise || !flowTabAvailable) return;
     startPrefetchedTask();
     // Download one standby source image while the single Flow slot is busy.
     if ((prefetchedTask ? 1 : 0) >= PREFETCH_LIMIT) {
@@ -1319,13 +1297,17 @@ async function runLoop() {
     const config = await loadConfig();
     const services = config.services.filter((s) => s.enabled !== false && s.baseUrl && s.token);
     const conn = await checkConnection().catch((e) => ({ connected: false, reason: e.message }));
-    if (pollPaused || openingFlowPromise) return;
+    if (flowWorkBlocked()) return;
     lastStatus = { connected: conn.connected, message: conn.reason || 'Connected', projectId: conn.projectId };
     broadcast({ type: 'CONNECTION_CHANGED', ...lastStatus });
 
     if (!conn.connected) {
       return;
     }
+    const flowTab = await chrome.tabs.get(conn.tabId);
+    roundRecovery.state.target = { homeUrl: buildFlowHomeUrl(conn.flowUrl), windowId: flowTab.windowId, tabId: conn.tabId };
+    await roundRecovery.save();
+    if (flowWorkBlocked()) return;
     if (services.length === 0) {
       return;
     }
@@ -1333,7 +1315,7 @@ async function runLoop() {
     // 单次 tick 至多启动 1 个任务（对齐 nano-b lt 调度器每 tick 至多 g() 一次）
     const orderedServices = rotateServices(services);
     for (let i = 0; i < orderedServices.length; i++) {
-      if (pollPaused || openingFlowPromise) break;
+      if (flowWorkBlocked()) break;
       const service = orderedServices[i];
       const task = await pollTask(service, conn, flowTasks.inUse > 0 || !!prefetchedTask);
       if (task?.hasTask) {
@@ -1343,7 +1325,7 @@ async function runLoop() {
         prefetchedTask = prepared;
         broadcastTasksChanged();
         // poll 在途时 bridge 可能已经停止 / tab 已关：这张图跑不了，立刻还回去。
-        if (pollPaused || !flowTabAvailable) {
+        if (flowWorkBlocked() || !flowTabAvailable) {
           releasePrefetchedTask(pollPaused ? 'bridge stopped while polling' : 'Flow tab closed while polling');
           break;
         }
@@ -1363,7 +1345,7 @@ async function runLoop() {
 }
 
 async function pollTask(service, conn, busy) {
-  if (pollPaused) return null;
+  if (flowWorkBlocked()) return null;
   const pending = { service: service.baseUrl, startedAt: Date.now(), phase: 'downloading_source' };
   let pendingShown = false;
   return postJson(service, '/turboflow-bridge/tasks/poll', {
@@ -1389,6 +1371,7 @@ async function pollTask(service, conn, busy) {
 }
 
 async function executeTask(service, task, conn = null) {
+  const roundId = roundRecovery.state.roundId;
   const prompt = buildPrompt(task);
   const targetLang = task.targetLanguage || task.targetLanguageCode || 'Simplified Chinese';
   const sourceImage = ensureDataUrl(task.imageBase64);
@@ -1448,7 +1431,10 @@ async function executeTask(service, task, conn = null) {
     // 3. 真正翻译
     taskState.phase = 'submitting';
     broadcastTasksChanged();
-    translationPromise = translateImage(task, conn);
+    translationPromise = trackOperation(translateImage(task, conn).then(result => {
+      roundRecovery.success(roundId, task.assignmentId);
+      return result;
+    }));
     const result = await runWithTimeout(
       translationPromise,
       TRANSLATE_TIMEOUT_MS,
@@ -1506,7 +1492,7 @@ async function executeTask(service, task, conn = null) {
     scheduleLoop(POLL_INTERVAL_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
-    if (e.code === 'FLOW_SUBMISSION_PAUSED') {
+    if (e.code === 'FLOW_SUBMISSION_PAUSED' || /New Flow submissions.*paused/i.test(e.message || '')) {
       // This assignment never submitted generation. Return it for retry without
       // counting another Google failure or disturbing already-submitted tasks.
       await reportFailWithRetry(service, {
@@ -1530,6 +1516,7 @@ async function executeTask(service, task, conn = null) {
       }, policy);
       return;
     }
+    const unusual = observeFlowError(e, conn);
     const errorCode = classifyErrorCode(e);
     // 翻译失败说明本 bridge 当前状态不可靠：预取的那张图同步还给服务端，让别的 bridge 去跑。
     // 必须抢在下面任何 await 之前，否则别的任务释放槽位时会先把它启动起来。
@@ -1547,7 +1534,7 @@ async function executeTask(service, task, conn = null) {
     );
     // 先停 poll，再上报失败；即使 fail 上报需要退避重试，也不能继续领取新的翻译任务。
     // 全局连续失败计数在这里推进（tab 缺失的断连也算 —— 反复关 tab 本身就该停下来）。
-    const pauseForRunNow = applyFailureStreak(FAILURE_STREAK_INCREMENT, { errorCode, errorMessage: e.message });
+    if (!unusual) applyFailureStreak(FAILURE_STREAK_INCREMENT, { errorCode, errorMessage: e.message });
     await reportFailWithRetry(service, {
       bridgeId,
       assignmentId: task.assignmentId,
@@ -1584,24 +1571,16 @@ async function executeTask(service, task, conn = null) {
     // - 任意错误连续 5 次   → 兜底暂停（applyFailureStreak 已处理）
     // - GOOGLE_BLOCKED / TIMEOUT / 其它 → 500ms 后正常重试
     if (pollPaused && isQuotaErrorCode(pauseReasonCode)) return;
-    if (errorCode === 'RECAPTCHA_BLOCKED') {
-      if (recoveryState.lastRecoveryLevel === 'L2') {
-        // L2 后仍 reCAPTCHA → 终态停止 + 删 project（策略第 6 条）
-        stopAndDelete('reCAPTCHA blocked after L2 recovery — stopped and deleting all projects', { code: 'RECAPTCHA_BLOCKED_AFTER_L2' });
-      } else {
-        const level = decideRecoveryLevel();
-        triggerRecovery(level, { allowWhilePaused: pauseForRunNow });
-      }
-    } else if (errorCode === 'DOWNLOAD_FAILED') {
+    if (errorCode === 'DOWNLOAD_FAILED') {
       recoveryState.consecutiveDownloadFails++;
       persistRecoveryState();
       if (recoveryState.consecutiveDownloadFails >= RECOVERY_DOWNLOAD_FAIL_THRESHOLD) {
-        addLog('warn', `🔄 连续 ${recoveryState.consecutiveDownloadFails} 张下载失败 — 触发 L1 恢复`);
-        const level = decideRecoveryLevel();
-        triggerRecovery(level, { allowWhilePaused: pauseForRunNow });
+        pausePoll('连续下载失败，请点击 Run Now 恢复', { code: 'DOWNLOAD_FAILED' });
       } else {
         scheduleLoop(POLL_INTERVAL_MS);
       }
+    } else if (!unusual && errorCode === 'RECAPTCHA_BLOCKED') {
+      pausePoll(e.message, { code: 'FLOW_VERIFICATION_REQUIRED' });
     } else {
       // FLOW_DISCONNECTED / GOOGLE_BLOCKED / TIMEOUT / 其它：普通可重试失败。
       // 停止态下 scheduleLoop 自身会短路，不会领到新任务。
@@ -1972,7 +1951,7 @@ async function createThumbnail(base64OrDataUrl, maxSize) {
 }
 
 function assertFlowSubmissionAllowed() {
-  if (pollPaused) {
+  if (flowWorkBlocked()) {
     throw Object.assign(new Error('New Flow submissions paused; already-submitted translations continue'), {
       code: 'FLOW_SUBMISSION_PAUSED',
     });

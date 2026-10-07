@@ -121,6 +121,7 @@ test('polling stays hidden until a task response starts downloading', async () =
   let finish;
   const context = vm.createContext({
     pollPaused: false, bridgeId: 'bridge', VERSION: 'test', currentTasks: [],
+    flowWorkBlocked: () => false,
     broadcastTasksChanged() {}, addLog() {},
     postJson: (_service, _path, _body, options) => {
       onResponse = options.onResponse;

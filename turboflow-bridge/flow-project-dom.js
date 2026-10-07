@@ -35,8 +35,14 @@ export function clickModernFlowNewProject() {
   return { clicked: true };
 }
 
-export async function deleteModernFlowProject(projectId, timeoutMs = 30000, pollMs = 100) {
+export async function deleteModernFlowProject(projectId, timeoutMs = 30000, pollMs = 100, expectedHomeUrl = null) {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const validateHome = () => {
+    if (expectedHomeUrl && (location.hash || location.origin + location.pathname.replace(/\/$/, '') !== expectedHomeUrl.replace(/\/$/, ''))) {
+      throw new Error('Flow home changed before deletion');
+    }
+  };
+  validateHome();
   const readProjectId = (value) => {
     const match = String(value || '').match(/(?:^|\/)project\/([a-z0-9-]+)/i);
     return match?.[1] || null;
@@ -58,6 +64,7 @@ export async function deleteModernFlowProject(projectId, timeoutMs = 30000, poll
   const deadline = Date.now() + timeoutMs;
   let dialog = null;
   while (Date.now() < deadline) {
+    validateHome();
     dialog = document.querySelector('mat-dialog-container[role="dialog"]');
     if (dialog) break;
     await sleep(pollMs);
@@ -67,9 +74,11 @@ export async function deleteModernFlowProject(projectId, timeoutMs = 30000, poll
   const actionButtons = Array.from(dialog.querySelectorAll('mat-dialog-actions button'));
   const confirmButton = actionButtons.at(-1);
   if (!confirmButton) return { error: `Flow delete confirmation button not found: ${projectId}` };
+  validateHome();
   confirmButton.click();
 
   while (Date.now() < deadline) {
+    validateHome();
     if (!findCard()) return { deleted: true, projectId };
     await sleep(pollMs);
   }

@@ -36,6 +36,7 @@ test('concurrent Open Flow requests share one open and leave the bridge disconne
   const context = vm.createContext({
     openingFlowPromise: null, timerId: null, nextPollAt: 0, lastStatus: {},
     running: false, currentTasks: [], recoveryPromise: null, deletingProjects: false,
+    roundRecovery: { busy: false }, flowTasks: { inUse: 0 }, activeOperations: new Set(),
     prefetchedTask: { conn: { projectId: 'old-project' } }, flowTabAvailable: false,
     broadcast() {}, addLog() {}, clearTimeout, setTimeout,
     scheduleLoop() { scheduled++; },

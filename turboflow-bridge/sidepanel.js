@@ -7,6 +7,8 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
   const statusText = document.getElementById('status-text');
   const btnOpenFlow = document.getElementById('btn-open-flow');
   const btnRunNow = document.getElementById('btn-run-now');
+  const btnDeleteProjects = document.getElementById('btn-delete-projects');
+  const operationStatus = document.getElementById('flow-operation-status');
   const currentTaskEl = document.getElementById('current-task');
   const countdownEl = document.getElementById('countdown');
   const taskTbody = document.getElementById('task-tbody');
@@ -49,7 +51,12 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
   let countdownTimer = null;
   let nextPollAt = 0;
   let services = [];
-  let generationMode = 'api';
+  let generationMode = 'api-2.3.5.1';
+  let panelWindowId;
+  let cleanupTarget = null;
+  let cleanupBusy = false;
+  let recoveryBusy = false;
+  let statusRefreshing = false;
   let logsLoaded = false;
   let autoScrollLogs = true;
 
@@ -84,29 +91,37 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
     }
   });
 
-  // Google 风控触发后 pollPaused=true，需要用户显式 Run Now 才能恢复。
-  // 30 分钟冷却内点击会先弹 confirm 提示再次确认，避免反复触发加重风控。
   btnRunNow.addEventListener('click', async () => {
-    const response = await chrome.runtime.sendMessage({ type: 'RUN_NOW' });
-    if (response?.ok) {
+    btnRunNow.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'RUN_NOW' });
+      if (!response?.ok) throw new Error(response?.error || 'Could not resume');
       log('info', 'Run Now sent');
-      return;
-    }
-    if (response?.requireConfirm) {
-      const remainingMin = Math.ceil((response.remainingMs || 0) / 60000);
-      const ok = window.confirm(
-        `⚠️ Google 风控冷却中，建议再等约 ${remainingMin} 分钟。\n\n` +
-        `若现在强制恢复，可能加重风控甚至触发临时封禁。\n\n` +
-        `确定要强制恢复吗？`
-      );
-      if (ok) {
-        const forced = await chrome.runtime.sendMessage({ type: 'RUN_NOW', force: true });
-        if (forced?.ok) log('warn', 'Force-resumed by user (cooldown bypassed)');
-      }
-    }
+    } catch (error) { log('error', error.message); }
+    finally { await refreshOperationStatus(); }
+  });
+
+  btnDeleteProjects.addEventListener('click', async () => {
+    if (!cleanupTarget?.allowed || cleanupBusy || recoveryBusy) return;
+    cleanupBusy = true;
+    btnDeleteProjects.disabled = true;
+    try {
+      const result = await chrome.runtime.sendMessage({ type: 'DELETE_ALL_FLOW_PROJECTS',
+        tabId: cleanupTarget.tabId, windowId: panelWindowId });
+      if (!result?.ok) throw new Error(result?.error || '删除失败');
+      showToast(`已删除 ${result.deleted}，失败 ${result.failed}，剩余 ${result.remaining}`);
+    } catch (error) { showToast(error.message); log('error', error.message); }
+    finally { cleanupBusy = false; await refreshOperationStatus(); }
   });
 
   chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'FLOW_RECOVERY_CHANGED') renderRecovery(msg.recovery);
+    if (msg.type === 'FLOW_CLEANUP_PROGRESS') {
+      cleanupBusy = !['idle', 'done'].includes(msg.phase);
+      operationStatus.classList.toggle('hidden', msg.phase === 'idle');
+      operationStatus.textContent = `删除项目：成功 ${msg.deleted || 0}，失败 ${msg.failed || 0}`;
+      refreshOperationStatus();
+    }
     if (msg.type === 'CONNECTION_CHANGED') {
       setConnection(msg.connected, msg.message || (msg.connected ? 'Connected' : 'Disconnected'), msg.projectId);
     }
@@ -149,35 +164,48 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
     btnRunNow.classList.toggle('hidden', !paused);
     if (paused) {
       btnOpenFlow.classList.add('hidden');
-      refreshCooldownLabel();
+      btnRunNow.textContent = 'Run Now';
     } else {
       btnRunNow.textContent = 'Run Now';
     }
   }
 
-  /**
-   * 倒计时刷新：从 GET_STATUS 拿剩余冷却毫秒，更新按钮文本为 "Run Now (X 分钟)"。
-   * 每秒由 countdownTimer 触发。
-   */
-  async function refreshCooldownLabel() {
-    if (!paused) return;
+  function renderRecovery(state, count = 0) {
+    const labels = { initializing: '正在初始化', draining: `等待剩余任务收尾（${count}）`,
+      closing: '正在关闭 Flow 标签', opening: '正在重新打开 Flow 首页', creating: '正在创建项目' };
+    recoveryBusy = !!labels[state?.phase];
+    if (!cleanupBusy) {
+      operationStatus.textContent = labels[state?.phase] || '';
+      operationStatus.classList.toggle('hidden', !recoveryBusy);
+    }
+    btnRunNow.disabled = recoveryBusy || cleanupBusy;
+    btnRunNow.classList.toggle('hidden', !paused || recoveryBusy);
+    btnOpenFlow.disabled = recoveryBusy || cleanupBusy;
+    if (recoveryBusy || cleanupBusy) btnDeleteProjects.disabled = true;
+  }
+
+  async function refreshOperationStatus() {
+    if (statusRefreshing || !Number.isInteger(panelWindowId)) return;
+    statusRefreshing = true;
     try {
-      const status = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
-      if (!status?.paused) {
-        setPaused(false);
-        return;
+      const [status, cleanup] = await Promise.all([
+        chrome.runtime.sendMessage({ type: 'GET_STATUS' }),
+        chrome.runtime.sendMessage({ type: 'GET_PROJECT_CLEANUP_STATUS', windowId: panelWindowId }),
+      ]);
+      if (status) {
+        cleanupBusy = !!status.deletingProjects;
+        setPaused(status.paused);
+        renderRecovery(status.recovery, status.drainingCount);
+        if (status.paused) { statusText.textContent = status.pauseReason; statusDot.className = 'dot disconnected'; }
       }
-      const remaining = status.cooldownRemainingMs || 0;
-      if (remaining > 0) {
-        const min = Math.ceil(remaining / 60000);
-        btnRunNow.textContent = `Run Now (${min} min)`;
-      } else {
-        btnRunNow.textContent = 'Run Now';
-      }
-    } catch {}
+      cleanupTarget = cleanup;
+      btnDeleteProjects.disabled = !cleanup?.allowed || cleanupBusy || recoveryBusy;
+      btnDeleteProjects.title = cleanup?.allowed ? '删除当前账号全部 Flow 项目' : cleanup?.reason || '请先打开 Flow 项目首页';
+    } catch {} finally { statusRefreshing = false; }
   }
 
   async function init() {
+    panelWindowId = (await chrome.windows.getCurrent()).id;
     const config = await chrome.runtime.sendMessage({ type: 'GET_CONFIG' });
     bridgeIdEl.textContent = config.bridgeId || '-';
     generationMode = normalizeGenerationMode(config.generationMode);
@@ -197,6 +225,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
     }
 
     await doCheck();
+    await refreshOperationStatus();
     loadTaskHistory();
     loadStats();
     startCountdownTicker();
@@ -212,6 +241,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
   }
 
   function setConnection(isConnected, message, projectId) {
+    if (recoveryBusy || cleanupBusy || paused) return;
     connected = isConnected;
     statusDot.className = 'dot ' + (isConnected ? 'connected' : 'disconnected');
     statusText.textContent = isConnected && projectId
@@ -301,9 +331,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
         countdownEl.textContent = `next poll ${remaining}s`;
       }
       // 暂停态：每秒刷新 Run Now 按钮的冷却剩余时间
-      if (paused) {
-        refreshCooldownLabel();
-      }
+      refreshOperationStatus();
     }, 1000);
   }
 
@@ -412,7 +440,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
     services = config.services || [];
     generationMode = normalizeGenerationMode(config.generationMode);
     generationModeEl.value = generationMode;
-    flowConcurrencyEl.value = String(config.flowConcurrency || 1);
+    flowConcurrencyEl.value = String(config.flowConcurrency || 4);
     updateTestModeLabel();
     renderServices();
   }
@@ -454,7 +482,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
   async function saveConfig() {
     const response = await chrome.runtime.sendMessage({
       type: 'SAVE_CONFIG',
-      config: { services, generationMode: generationModeEl.value, flowConcurrency: Number(flowConcurrencyEl.value) || 1 },
+      config: { services, generationMode: generationModeEl.value, flowConcurrency: Number(flowConcurrencyEl.value) || 4 },
     });
     if (!response?.ok) throw new Error(response?.error || 'Could not save settings');
     generationMode = normalizeGenerationMode(generationModeEl.value);
