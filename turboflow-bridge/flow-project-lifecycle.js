@@ -1,10 +1,10 @@
 import { FLOW_TAB_URL_PATTERNS, FLOW_HOME_URL, buildFlowHomeUrl,
   isFlowHomeUrl, isFlowTabToClose } from './flow-sites.js';
-import { openFlowHome, ensureFlowProjectOpen, clearTokenCache, clearProjectIdCache,
+import { openFlowHome, waitForFlowHomeReady, ensureFlowProjectOpen, clearTokenCache, clearProjectIdCache,
   listAllUserProjects, deleteFlowProject } from './flow-api.js';
 
 export async function restartFlowProject(target, phase, browser = chrome,
-  api = { openFlowHome, ensureFlowProjectOpen, clearTokenCache, clearProjectIdCache }) {
+  api = { openFlowHome, waitForFlowHomeReady, ensureFlowProjectOpen, clearTokenCache, clearProjectIdCache }) {
   await phase('closing');
   const tabs = await browser.tabs.query({ url: FLOW_TAB_URL_PATTERNS });
   const ids = tabs.filter(tab => isFlowTabToClose(tab.pendingUrl || tab.url)).map(tab => tab.id);
@@ -19,6 +19,8 @@ export async function restartFlowProject(target, phase, browser = chrome,
   const url = buildFlowHomeUrl(target?.homeUrl || FLOW_HOME_URL);
   if (!url) throw new Error('Invalid Flow recovery home');
   const { tabId } = await api.openFlowHome({ url, windowId: target?.windowId });
+  // 首页文档加载完不等于应用可用：等到 "New project" 按钮可点击才进入建项目阶段。
+  await api.waitForFlowHomeReady(tabId);
   await phase('creating');
   const projectId = await api.ensureFlowProjectOpen(tabId);
   if (!projectId) throw new Error('Flow did not create a new project');

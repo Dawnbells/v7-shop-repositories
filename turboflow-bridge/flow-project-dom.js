@@ -35,6 +35,27 @@ export function clickModernFlowNewProject() {
   return { clicked: true };
 }
 
+// 项目页"加载完成"的判定：URL 已是项目页、提示词输入框和编辑器已渲染、BOQ 会话数据已就绪。
+// 页内路由切换不会改变 tab 状态，所以不能只看 tab.status === 'complete'。
+export function inspectModernFlowProjectEditor() {
+  const readProjectId = (value) => {
+    const match = String(value || '').match(/(?:^|\/)project\/([a-z0-9-]+)/i);
+    return match?.[1] || null;
+  };
+  const projectId = readProjectId(location.pathname + location.hash);
+  const hasPromptBox = !!document.querySelector('flow-base-prompt-box, .base-prompt-box');
+  const hasEditor = !!document.querySelector('.ProseMirror[contenteditable="true"], [data-slate-editor="true"]');
+  const wiz = window.WIZ_global_data || {};
+  const hasBoqSession = typeof wiz.SNlM0e === 'string' && wiz.SNlM0e.length > 0 && !!wiz.eptZe;
+  return {
+    projectId,
+    hasPromptBox,
+    hasEditor,
+    hasBoqSession,
+    ready: !!projectId && hasPromptBox && hasEditor && hasBoqSession,
+  };
+}
+
 export async function deleteModernFlowProject(projectId, timeoutMs = 30000, pollMs = 100, expectedHomeUrl = null) {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const validateHome = () => {

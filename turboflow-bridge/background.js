@@ -395,7 +395,16 @@ const roundRecovery = new FlowRecoveryController({
     && !activeOperations.size && !pendingPolicyFlushRunning,
   restart: async (target, phase) => {
     await releaseApi2351();
-    await restartFlowProject(target, phase);
+    const phaseLogs = {
+      closing: 'Flow recovery: closing Flow tabs',
+      opening: 'Flow recovery: opening Flow home and waiting for it to load',
+      creating: 'Flow recovery: creating a project and waiting for the editor to load',
+    };
+    await restartFlowProject(target, async (name) => {
+      if (phaseLogs[name]) addLog('info', phaseLogs[name]);
+      await phase(name);
+    });
+    addLog('info', 'Flow recovery: new project ready, resuming tasks');
     flowTabAvailable = true;
     resetRecoveryStateAll();
   },

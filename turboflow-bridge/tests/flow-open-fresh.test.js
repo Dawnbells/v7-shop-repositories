@@ -27,6 +27,17 @@ test('Open Flow only opens the home page and leaves projects for manual manageme
   assert.equal(listeners.size, 0);
 });
 
+test('Open Flow tolerates a redirect to the account-scoped home instead of timing out', async () => {
+  globalThis.chrome = {
+    tabs: {
+      create: async () => ({ id: 43, url: '', status: 'loading' }),
+      get: async () => ({ id: 43, url: 'https://flow.google.com/u/0/', status: 'complete' }),
+      onUpdated: { addListener() {}, removeListener() {} },
+    },
+  };
+  assert.deepEqual(await openFlowHome(), { tabId: 43 });
+});
+
 test('concurrent Open Flow requests share one open and leave the bridge disconnected', async () => {
   const source = readFileSync(new URL('../background.js', import.meta.url), 'utf8');
   let complete;

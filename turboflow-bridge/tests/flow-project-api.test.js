@@ -2,9 +2,39 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   inspectModernFlowProjectPage,
+  inspectModernFlowProjectEditor,
   clickModernFlowNewProject,
   deleteModernFlowProject,
 } from '../flow-project-dom.js';
+
+function editorHarness({ path = '/u/0/project/new-1', promptBox = true, editor = true,
+  wiz = { SNlM0e: 'xsrf', eptZe: '/_/AiSandboxAngularFrontend/' } } = {}) {
+  globalThis.location = { pathname: path, hash: '' };
+  globalThis.window = { WIZ_global_data: wiz };
+  globalThis.document = {
+    querySelector: selector => selector.startsWith('flow-base-prompt-box') ? (promptBox ? {} : null)
+      : selector.startsWith('.ProseMirror') ? (editor ? {} : null) : null,
+    querySelectorAll: () => [],
+  };
+}
+
+test('a project page is loaded once the prompt box, editor and BOQ session are present', () => {
+  editorHarness();
+  assert.deepEqual(inspectModernFlowProjectEditor(), {
+    projectId: 'new-1', hasPromptBox: true, hasEditor: true, hasBoqSession: true, ready: true,
+  });
+});
+
+test('a project page is not loaded while the editor, session or project URL is missing', () => {
+  editorHarness({ editor: false });
+  assert.equal(inspectModernFlowProjectEditor().ready, false);
+  editorHarness({ promptBox: false });
+  assert.equal(inspectModernFlowProjectEditor().ready, false);
+  editorHarness({ wiz: {} });
+  assert.equal(inspectModernFlowProjectEditor().ready, false);
+  editorHarness({ path: '/u/0/' });
+  assert.equal(inspectModernFlowProjectEditor().ready, false);
+});
 
 function pageHarness(projectIds = []) {
   const state = { projects: [...projectIds], pendingDelete: null, created: 0 };

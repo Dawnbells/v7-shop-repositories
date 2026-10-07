@@ -33,6 +33,7 @@ import {
 } from './flow-modern-api.js';
 import {
   inspectModernFlowProjectPage,
+  inspectModernFlowProjectEditor,
   clickModernFlowNewProject,
   deleteModernFlowProject,
 } from './flow-project-dom.js';
@@ -49,6 +50,8 @@ const RECAPTCHA_SETTLE_MS = 5 * 1000;
 const RECAPTCHA_POST_RELOAD_SETTLE_MS = 3 * 1000;
 const RECAPTCHA_POST_CREATE_SETTLE_MS = 5 * 1000;
 const PROJECT_UI_TIMEOUT_MS = 30 * 1000;
+// 项目页就绪后再沉降 2 秒，给页内 reCAPTCHA 等初始化留时间。
+const PROJECT_EDITOR_SETTLE_MS = 2 * 1000;
 
 let cachedToken = null;
 let tokenTimestamp = 0;
@@ -239,9 +242,11 @@ function waitForTabComplete(tabId, timeoutMs, expectedUrl = null) {
     const timer = setTimeout(() => {
       finish(new Error('Page load timed out'));
     }, timeoutMs);
+    // expectedUrl 可以是精确地址，也可以是 (url) => boolean 的判定函数（用于容忍重定向）。
+    const matches = (tab) => !expectedUrl
+      || (typeof expectedUrl === 'function' ? expectedUrl(tab?.url || '') : tab?.url === expectedUrl);
     function listener(updatedTabId, changeInfo, tab) {
-      if (updatedTabId === tabId && changeInfo.status === 'complete'
-          && (!expectedUrl || tab?.url === expectedUrl)) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete' && matches(tab)) {
         finish();
       }
     }
@@ -249,7 +254,7 @@ function waitForTabComplete(tabId, timeoutMs, expectedUrl = null) {
     // The load may finish before the listener is registered.
     if (expectedUrl) {
       chrome.tabs.get(tabId).then((tab) => {
-        if (tab.status === 'complete' && tab.url === expectedUrl) finish();
+        if (tab.status === 'complete' && matches(tab)) finish();
       }).catch(finish);
     }
   });
@@ -336,6 +341,9 @@ async function createFlowProjectAndNavigate(tabId) {
       const tab = await chrome.tabs.get(tabId);
       const pid = getProjectIdFromFlowUrl(tab?.url || '');
       if (pid && pid !== originalId && tab.status === 'complete') {
+        // 页内路由切换后 tab 一直是 complete，必须再等项目页的编辑器渲染完成。
+        await waitForModernProjectEditor(tabId, pid);
+        await sleep(PROJECT_EDITOR_SETTLE_MS);
         projectId = pid;
         return projectId;
       }
@@ -381,6 +389,7 @@ async function createFlowProjectAndNavigate(tabId) {
     args: [targetUrl],
   });
   await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS, targetUrl);
+  await sleep(PROJECT_EDITOR_SETTLE_MS);
   projectId = result.projectId;
   return projectId;
 }
@@ -397,8 +406,24 @@ export async function ensureFlowProjectOpen(tabId) {
 // Explicit Open Flow action: project selection and management stay in the page.
 export async function openFlowHome({ url = FLOW_HOME_URL, windowId } = {}) {
   const tab = await chrome.tabs.create({ url, ...(Number.isInteger(windowId) ? { windowId } : {}) });
-  await waitForTabComplete(tab.id, PAGE_LOAD_TIMEOUT_MS, url);
+  // Google 可能把首页重定向到 /u/<n>/，所以只要求在某个 Flow 地址上加载完成。
+  await waitForTabComplete(tab.id, PAGE_LOAD_TIMEOUT_MS, (loadedUrl) => isFlowUrl(loadedUrl));
   return { tabId: tab.id };
+}
+
+/**
+ * 等 Flow 首页真正可用：tab complete 只代表文档加载完，单页应用还要初始化并渲染
+ * "New project" 按钮。落到非 Flow 页面（例如登录页）直接报错，不再空等到超时。
+ */
+export async function waitForFlowHomeReady(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  if (!isFlowUrl(tab?.url)) {
+    let host = 'unknown';
+    try { host = new URL(tab?.url).hostname; } catch {}
+    throw new Error(`Flow home opened a non-Flow page (${host}); sign in to Google Flow, then click Run Now`);
+  }
+  if (!isModernFlowUrl(tab.url)) return { ready: true, legacy: true };
+  return ensureModernProjectHome(tabId);
 }
 
 /**
@@ -1341,6 +1366,27 @@ async function waitForModernProjectHome(tabId) {
     await sleep(100);
   }
   throw new Error('Flow project home did not become ready');
+}
+
+/** 轮询到项目页的提示词输入框、编辑器和 BOQ 会话数据都就绪，超时抛错并说明缺什么。 */
+async function waitForModernProjectEditor(tabId, expectedProjectId = null) {
+  const deadline = Date.now() + PROJECT_UI_TIMEOUT_MS;
+  let last = null;
+  while (Date.now() < deadline) {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: inspectModernFlowProjectEditor,
+    });
+    last = results?.[0]?.result || null;
+    if (last?.ready && (!expectedProjectId || last.projectId === expectedProjectId)) return last;
+    await sleep(100);
+  }
+  const missing = last
+    ? [!last.projectId && 'project URL', !last.hasPromptBox && 'prompt box',
+      !last.hasEditor && 'editor', !last.hasBoqSession && 'BOQ session'].filter(Boolean).join(', ')
+    : 'page state';
+  throw new Error(`Flow project editor did not become ready (${missing || 'project id mismatch'})`);
 }
 
 async function ensureModernProjectHome(tabId) {
