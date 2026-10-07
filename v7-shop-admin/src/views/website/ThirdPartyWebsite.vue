@@ -51,7 +51,14 @@
       <el-table-column align="center" label="授权状态" width="140">
         <template #default="{ row }">
           <el-tooltip
-            v-if="row.authStatus === 'ERROR'"
+            v-if="row.authStatus === 'FROZEN'"
+            content="店铺已被 Shopline 封号，系统已自动禁用该店铺"
+            placement="top"
+          >
+            <el-tag type="danger">店铺已封号</el-tag>
+          </el-tooltip>
+          <el-tooltip
+            v-else-if="row.authStatus === 'ERROR'"
             :content="row.authMessage || '连接异常'"
             placement="top"
           >
@@ -79,11 +86,13 @@
         <template #default="{ row }">
           <el-tooltip
             :content="
-              row.authStatus !== 'AUTHED'
-                ? '商城连接异常，请检查配置后重新编辑保存'
-                : row.lastManualSyncTime
-                  ? '上次手动同步: ' + row.lastManualSyncTime
-                  : '尚未手动同步过'
+              row.authStatus === 'FROZEN'
+                ? '店铺已封号，无法同步订单'
+                : row.authStatus !== 'AUTHED'
+                  ? '商城连接异常，请检查配置后重新编辑保存'
+                  : row.lastManualSyncTime
+                    ? '上次手动同步: ' + row.lastManualSyncTime
+                    : '尚未手动同步过'
             "
             placement="top"
           >

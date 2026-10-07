@@ -2,7 +2,9 @@ package cn.v7soft.admin.service.impl;
 
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
+import cn.v7soft.admin.controller.req.CountThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.EditTemporaryOrderRequest;
+import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.TemporaryOrderContextInfoRequest;
 import cn.v7soft.admin.service.*;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
@@ -13,7 +15,9 @@ import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.core.enums.ServiceResponseEnum;
 import cn.v7soft.core.enums.StatusEnum;
+import cn.v7soft.core.exception.BaseException;
 import cn.v7soft.dao.enums.*;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
@@ -37,6 +41,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -182,6 +187,27 @@ class ThirdPartyWebsiteServiceTest {
 
             assertEquals(ThirdPartyAuthStatusEnum.ERROR, website.getAuthStatus());
             assertEquals("Token无效或已过期", website.getAuthMessage());
+        }
+
+        @Test
+        @DisplayName("店铺已封号(402 Store is frozen)时应设置FROZEN并禁用店铺")
+        void shouldSetFrozenAndDisableWhenStoreFrozen() {
+            ThirdPartyWebsite website = ThirdPartyWebsite.builder()
+                    .handle("frozen-shop")
+                    .token("token")
+                    .websiteType(WebsiteTypeEnum.SHOPLINE)
+                    .authStatus(ThirdPartyAuthStatusEnum.AUTHED)
+                    .status(StatusEnum.VALID)
+                    .build();
+
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenThrow(storeFrozenException());
+
+            service.verifyAndUpdateAuthStatus(website);
+
+            assertEquals(ThirdPartyAuthStatusEnum.FROZEN, website.getAuthStatus());
+            assertEquals("店铺已封号", website.getAuthMessage());
+            assertEquals(StatusEnum.INVALID, website.getStatus());
         }
 
         @Test
@@ -664,7 +690,137 @@ class ThirdPartyWebsiteServiceTest {
         }
     }
 
+    // ==================== 店铺封号处理测试 ====================
+
+    @Nested
+    @DisplayName("店铺封号(Store is frozen)处理")
+    class StoreFrozen {
+
+        @Test
+        @DisplayName("markWebsiteFrozen 应标记 FROZEN、写入提示语并禁用店铺")
+        void shouldMarkFrozenAndDisableWebsite() {
+            ThirdPartyWebsite website = ThirdPartyWebsite.builder()
+                    .nickName("FrozenShop")
+                    .handle("frozen-shop")
+                    .token("token")
+                    .authStatus(ThirdPartyAuthStatusEnum.AUTHED)
+                    .websiteType(WebsiteTypeEnum.SHOPLINE)
+                    .status(StatusEnum.VALID)
+                    .build();
+            setId(website, 1L);
+            when(repository.findById(1L)).thenReturn(Optional.of(website));
+            when(repository.saveAndFlush(any(ThirdPartyWebsite.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            service.markWebsiteFrozen(1L);
+
+            ArgumentCaptor<ThirdPartyWebsite> captor = ArgumentCaptor.forClass(ThirdPartyWebsite.class);
+            // BaseDataRangeService.saveAndFlush 内部可能多次调用 repository.saveAndFlush，这里只关心最终落库的状态
+            verify(repository, atLeastOnce()).saveAndFlush(captor.capture());
+            ThirdPartyWebsite saved = captor.getValue();
+            assertEquals(ThirdPartyAuthStatusEnum.FROZEN, saved.getAuthStatus());
+            assertEquals("店铺已封号", saved.getAuthMessage());
+            assertEquals(StatusEnum.INVALID, saved.getStatus());
+        }
+
+        @Test
+        @DisplayName("loadOrders 遇到 402 Store is frozen 时应禁用店铺并抛出封号异常")
+        void shouldDisableWebsiteWhenLoadOrdersHitsFrozenStore() {
+            ThirdPartyWebsiteService self = installSelfSpy();
+            doReturn(buildWebsiteDto()).when(self).getThirdPartyWebsiteDtoById(1L);
+            doNothing().when(self).markWebsiteFrozen(1L);
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenThrow(storeFrozenException());
+
+            SyncThirdPartyOrdersRequest request = new SyncThirdPartyOrdersRequest();
+            request.setId("1");
+
+            BaseException ex = assertThrows(BaseException.class,
+                    () -> service.loadOrders(request, "", SyncMode.AUTO));
+
+            assertEquals(ServiceResponseEnum.ERR_STORE_FROZEN, ex.getResponseEnum());
+            assertTrue(ex.getMessage().contains("已封号"));
+            verify(self).markWebsiteFrozen(1L);
+            verify(self, never()).markWebsiteAuthError(anyLong(), anyString());
+            // 自动同步游标不应被推进
+            verify(repository, never()).updateSyncInfo(anyLong(), any(), anyBoolean(), any(), any());
+        }
+
+        @Test
+        @DisplayName("loadOrders 遇到 401 时仍按 Token 失效处理，不触发封号逻辑")
+        void shouldKeepAuthErrorHandlingWhenUnauthorized() {
+            ThirdPartyWebsiteService self = installSelfSpy();
+            doReturn(buildWebsiteDto()).when(self).getThirdPartyWebsiteDtoById(1L);
+            doNothing().when(self).markWebsiteAuthError(eq(1L), anyString());
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenThrow(HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized", HttpHeaders.EMPTY, new byte[0], null));
+
+            SyncThirdPartyOrdersRequest request = new SyncThirdPartyOrdersRequest();
+            request.setId("1");
+
+            assertThrows(HttpClientErrorException.class, () -> service.loadOrders(request, "", SyncMode.AUTO));
+
+            verify(self).markWebsiteAuthError(eq(1L), contains("401"));
+            verify(self, never()).markWebsiteFrozen(anyLong());
+        }
+
+        @Test
+        @DisplayName("countOrders 遇到 402 Store is frozen 时应禁用店铺并抛出封号异常")
+        void shouldDisableWebsiteWhenCountOrdersHitsFrozenStore() {
+            ThirdPartyWebsiteService self = installSelfSpy();
+            doNothing().when(self).markWebsiteFrozen(1L);
+            ThirdPartyWebsite website = ThirdPartyWebsite.builder()
+                    .handle("frozen-shop")
+                    .token("token")
+                    .authStatus(ThirdPartyAuthStatusEnum.AUTHED)
+                    .websiteType(WebsiteTypeEnum.SHOPLINE)
+                    .build();
+            setId(website, 1L);
+            when(repository.findById(1L)).thenReturn(Optional.of(website));
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenThrow(storeFrozenException());
+
+            CountThirdPartyOrdersRequest request = new CountThirdPartyOrdersRequest();
+            request.setId("1");
+
+            BaseException ex = assertThrows(BaseException.class, () -> service.countOrders(request));
+
+            assertEquals(ServiceResponseEnum.ERR_STORE_FROZEN, ex.getResponseEnum());
+            verify(self).markWebsiteFrozen(1L);
+        }
+
+        /**
+         * 用 spy 替代 @Lazy 注入的 self 代理，便于拦截事务方法
+         */
+        private ThirdPartyWebsiteService installSelfSpy() {
+            ThirdPartyWebsiteService self = spy(service);
+            setField(service, "self", self);
+            return self;
+        }
+    }
+
     // ==================== 辅助方法 ====================
+
+    private HttpClientErrorException storeFrozenException() {
+        byte[] body = "{\"errors\":\"Store is frozen!\"}".getBytes(StandardCharsets.UTF_8);
+        return HttpClientErrorException.create(HttpStatus.PAYMENT_REQUIRED, "Payment Required",
+                HttpHeaders.EMPTY, body, StandardCharsets.UTF_8);
+    }
+
+    private void setField(Object target, String fieldName, Object value) {
+        try {
+            Class<?> clazz = target.getClass();
+            while (clazz != null) {
+                try {
+                    var field = clazz.getDeclaredField(fieldName);
+                    field.setAccessible(true);
+                    field.set(target, value);
+                    return;
+                } catch (NoSuchFieldException e) {
+                    clazz = clazz.getSuperclass();
+                }
+            }
+        } catch (Exception ignored) {}
+    }
 
     private void invokeConvertAndSaveOrders(ThirdPartyWebsiteDto website, JSONArray orders) {
         try {

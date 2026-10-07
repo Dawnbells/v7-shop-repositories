@@ -81,6 +81,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     private static final String METAFIELD_KEY_SKU_CODE_HIGH = "sku_code_high";
     private static final Pattern LINK_PAGE_INFO_PATTERN = Pattern.compile("<[^>]*[?&]page_info=([^&>]+)[^>]*>;\\s*rel=\"next\"");
     private static final Pattern LOCALE_PATTERN = Pattern.compile("([a-z]{2})[_-]([A-Z]{2})");
+    private static final String STORE_FROZEN_MESSAGE = "店铺已封号";
     private static final DateTimeFormatter ISO_OFFSET = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
 
     private final RestTemplate restTemplate;
@@ -153,8 +154,19 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         }
         URI uri = builder.build().toUri();
 
-        ResponseEntity<String> response = callShoplineApi(website.getHandle(),
-                () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(website.getToken()), String.class));
+        ResponseEntity<String> response;
+        try {
+            response = callShoplineApi(website.getHandle(),
+                    () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(website.getToken()), String.class));
+        } catch (HttpClientErrorException e) {
+            if (isStoreFrozen(e)) {
+                log.warn("Shopline store is frozen, disabling website: websiteId={}, handle={}, status={}, body={}",
+                        website.getId(), website.getHandle(), e.getStatusCode().value(), e.getResponseBodyAsString());
+                self.markWebsiteFrozen(website.getId());
+                throw ServiceResponseEnum.ERR_STORE_FROZEN.newException(e, website.getHandle());
+            }
+            throw e;
+        }
 
         String errors = "status: " + response.getStatusCode();
         if (StrUtil.isNotBlank(response.getBody())) {
@@ -208,6 +220,13 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                     () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(websiteDto.getToken()), String.class));
         } catch (HttpClientErrorException e) {
             int statusCode = e.getStatusCode().value();
+            if (isStoreFrozen(e)) {
+                // 店铺已被 Shopline 封号：直接禁用该店铺，后续自动同步不再调度
+                log.warn("Shopline store is frozen, disabling website: websiteId={}, handle={}, syncMode={}, status={}, body={}",
+                        websiteDto.getId(), websiteDto.getHandle(), syncMode, statusCode, e.getResponseBodyAsString());
+                self.markWebsiteFrozen(request.getIdLongValue());
+                throw ServiceResponseEnum.ERR_STORE_FROZEN.newException(e, websiteDto.getHandle());
+            }
             if (statusCode == 401 || statusCode == 403) {
                 self.markWebsiteAuthError(request.getIdLongValue(), "Token无效或已过期 (HTTP " + statusCode + ")");
             }
@@ -277,6 +296,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
                 website.setAuthMessage("API响应异常: HTTP " + response.getStatusCode().value());
             }
         } catch (HttpClientErrorException e) {
+            if (isStoreFrozen(e)) {
+                applyFrozenStatus(website);
+                return;
+            }
             website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);
             int code = e.getStatusCode().value();
             if (code == 401 || code == 403) {
@@ -902,6 +925,32 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
         website.setAuthMessage(message);
         website.setStatus(StatusEnum.INVALID);
         saveAndFlush(website);
+    }
+
+    /**
+     * 店铺已被 Shopline 封号：标记 FROZEN 并直接禁用该店铺
+     */
+    @Transactional
+    public void markWebsiteFrozen(Long websiteId) {
+        ThirdPartyWebsite website = getById(websiteId);
+        applyFrozenStatus(website);
+        saveAndFlush(website);
+    }
+
+    /**
+     * Shopline 对已封号/冻结的店铺返回 402 {"errors":"Store is frozen!"}
+     */
+    private static boolean isStoreFrozen(HttpClientErrorException e) {
+        if (e.getStatusCode().value() == 402) {
+            return true;
+        }
+        return StrUtil.containsIgnoreCase(e.getResponseBodyAsString(), "frozen");
+    }
+
+    private static void applyFrozenStatus(ThirdPartyWebsite website) {
+        website.setAuthStatus(ThirdPartyAuthStatusEnum.FROZEN);
+        website.setAuthMessage(STORE_FROZEN_MESSAGE);
+        website.setStatus(StatusEnum.INVALID);
     }
 
     @Transactional

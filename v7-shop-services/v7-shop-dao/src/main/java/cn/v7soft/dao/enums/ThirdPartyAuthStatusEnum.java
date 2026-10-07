@@ -15,5 +15,9 @@ public enum ThirdPartyAuthStatusEnum {
     /**
      * 绑定失败
      */
-    ERROR
+    ERROR,
+    /**
+     * 店铺已封号（第三方平台返回 Store is frozen，店铺会被自动禁用）
+     */
+    FROZEN
 }
