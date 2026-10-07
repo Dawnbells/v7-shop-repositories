@@ -38,7 +38,7 @@ test('concurrency is configurable from 1 to 10 and defaults to four translations
   const sidepanel = readFileSync(new URL('../sidepanel.html', import.meta.url), 'utf8');
   const panelScript = readFileSync(new URL('../sidepanel.js', import.meta.url), 'utf8');
   assert.match(sidepanel, /<select id="flow-concurrency">[\s\S]*value="10"/);
-  assert.match(panelScript, /flowConcurrency: Number\(flowConcurrencyEl\.value\) \|\| 1/);
+  assert.match(panelScript, /flowConcurrency: Number\(flowConcurrencyEl\.value\) \|\| 4/);
 });
 
 test('a slot is released only after the translated image is downloaded, before reporting', () => {
