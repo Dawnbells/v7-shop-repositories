@@ -22,6 +22,17 @@
 - 两处沿用 30 秒超时；超时按原有方式以 RECOVERY_FAILED 停止并提示 Run Now，错误信息会说明缺少哪个就绪条件。日志按阶段输出，便于定位卡在哪一步。
 - 手动 Open Flow 后的自动建项目路径共用同一套等待。
 
+### 1.5.10 换轮前清空 flow.google.com 的 Local / Session storage
+
+出现 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 后仅换项目不足以脱离风控：Flow 把会话、项目列表与 UI 状态留在 `https://flow.google.com` 源的 Local storage 和当前标签页的 Session storage 里，新项目仍沿用这些状态。本版把换轮链改为：收尾 → 清 storage → 关标签 → 重开 Flow（等首页可用）→ 新建项目（等编辑器就绪）。
+
+- 清 storage 在关标签之前：对每个待关的 Flow 标签（`flow.google.com`，以及旧版 `labs.google/fx/tools/flow`）在页面主世界执行 `localStorage.clear()` 与 `sessionStorage.clear()`，即 DevTools → Application → Local storage / Session storage 下该源的全部条目。Session storage 按标签页隔离，所以必须逐个标签在关闭前清。
+- 单个标签清不了（已被 Chrome 丢弃、正在导航）只记 warn 日志，不中断换轮。若没有任何标签清成功（例如标签早已被关掉），则在重开的首页上清一次、关掉再重开一次，保证新项目一定建立在空 storage 上。
+- 不清 cookie，不登出 Google 账号；IndexedDB 与 Cache Storage 不在本次范围内。
+- 侧边栏在该阶段显示"正在清空 Flow 站点存储"；扩展重载时若停在该阶段，按原有方式视为换轮被打断，需点 Run Now。
+
+验证范围：换轮顺序（清 → 关 → 开 → 建）、单标签清空失败不中断、全部清空失败或无可清标签时的首页兜底均有模拟测试；没有对真实 Google 账号操作。
+
 ## 1.5.8 验证辅助页加载修正
 
 `api-2.3.5.1` 的 1.5.7 实现注册的 Trusted Types 默认规则只允许入口 `enterprise.js`，未允许 reCAPTCHA 后续从 `www.gstatic.com/recaptcha/` 加载的脚本。这是一个可导致初始化停在 `ready`、最终报 `Flow verification timed out` 的实现缺陷；仅凭该超时日志不能排除网络或 Google 侧验证延迟。

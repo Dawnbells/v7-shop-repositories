@@ -172,7 +172,8 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
 
   function renderRecovery(state, count = 0) {
     const labels = { initializing: '正在初始化', draining: `等待剩余任务收尾（${count}）`,
-      closing: '正在关闭 Flow 标签', opening: '正在重新打开 Flow 首页', creating: '正在创建项目' };
+      clearing: '正在清空 Flow 站点存储', closing: '正在关闭 Flow 标签',
+      opening: '正在重新打开 Flow 首页', creating: '正在创建项目' };
     recoveryBusy = !!labels[state?.phase];
     if (!cleanupBusy) {
       operationStatus.textContent = labels[state?.phase] || '';

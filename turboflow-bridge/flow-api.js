@@ -261,7 +261,8 @@ function waitForTabComplete(tabId, timeoutMs, expectedUrl = null) {
 }
 
 /**
- * 清 Flow tab 的 localStorage + sessionStorage（labs.google origin 内）。
+ * 清 Flow tab 的 localStorage + sessionStorage（当前 Flow 源内：flow.google.com 或旧版 labs.google）。
+ * 旧版 L1/L2 恢复链在 reload 前调用；风控换轮（flow-project-lifecycle.js）在关标签前对每个 Flow 标签调用。
  * 注意：reCAPTCHA Enterprise 的 iframe 跑在 google.com 域，这一步并不能清 reCAPTCHA 自身的客户端状态，
  * 真正撬动风控评分需要走 L2 清 _GRECAPTCHA cookie。这一步只清 Flow 自身的本地缓存（project 列表、UI 偏好等）。
  */

@@ -396,6 +396,7 @@ const roundRecovery = new FlowRecoveryController({
   restart: async (target, phase) => {
     await releaseApi2351();
     const phaseLogs = {
+      clearing: 'Flow recovery: clearing flow.google.com local/session storage in Flow tabs',
       closing: 'Flow recovery: closing Flow tabs',
       opening: 'Flow recovery: opening Flow home and waiting for it to load',
       creating: 'Flow recovery: creating a project and waiting for the editor to load',
@@ -403,7 +404,7 @@ const roundRecovery = new FlowRecoveryController({
     await restartFlowProject(target, async (name) => {
       if (phaseLogs[name]) addLog('info', phaseLogs[name]);
       await phase(name);
-    });
+    }, chrome, undefined, (level, message) => addLog(level, `Flow recovery: ${message}`));
     addLog('info', 'Flow recovery: new project ready, resuming tasks');
     flowTabAvailable = true;
     resetRecoveryStateAll();
