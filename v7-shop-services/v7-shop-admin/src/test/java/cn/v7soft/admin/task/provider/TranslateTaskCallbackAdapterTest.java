@@ -108,6 +108,30 @@ class TranslateTaskCallbackAdapterTest {
     }
 
     @Test
+    void cancelledSubTaskIsMarkedFailedWithTaskCancelledCodeAndNeverRetried() {
+        TranslateByAIRequest request = new TranslateByAIRequest();
+        request.setProductId("1");
+        request.setCountryId("1");
+        request.setLanguageId("1");
+        request.setAiAccountId("7");
+        AiAccountTranslateSubTask subTask = AiAccountTranslateSubTask.image(4L, "101", request);
+        subTask.dispatch("bridge", "assignment-1", LocalDateTime.now().plusMinutes(1));
+
+        when(taskContext.getOrCreateRuntimeState(7L)).thenReturn(new AiAccountRuntimeState(7L));
+        when(taskContext.getTaskStatus(4L)).thenReturn(status);
+
+        // 取消路径：retryable=false + TASK_CANCELLED，首次尝试就应终态，并把错误码写进 fail_reason
+        new TranslateTaskCallbackAdapter(taskContext).onSubTaskFailed(
+                subTask, "task cancelled", false, null, TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED);
+
+        assertEquals(AiAccountTranslateSubTaskState.FAILED, subTask.getState());
+        verify(status).failSubTask(subTask, "task cancelled");
+        verify(taskContext).markUsageRecordFailed(
+                subTask, TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED, "task cancelled");
+        verify(taskContext, never()).pushToFailedQueue(subTask);
+    }
+
+    @Test
     void uncodedProviderFailureStillStopsRetryingAfterThreeAttempts() {
         TranslateByAIRequest request = new TranslateByAIRequest();
         request.setProductId("1");

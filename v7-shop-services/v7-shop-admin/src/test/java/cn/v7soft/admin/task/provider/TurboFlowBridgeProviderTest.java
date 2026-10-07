@@ -626,6 +626,42 @@ class TurboFlowBridgeProviderTest {
         verify(multimediaFileService).saveTranslatedImage(any(byte[].class), anyString(), any());
     }
 
+    @Test
+    void cancellingParentTaskReportsTaskCancelledCodeForAssignedAndQueuedSubtasks() {
+        TurboFlowBridgeProvider provider = provider();
+        // 已派发给插件（assignments）的子任务
+        AiAccountTranslateSubTask assigned = dispatchImage(provider, 812L);
+        // 同一父任务下仍在内部队列、尚未被 poll 的子任务
+        AiAccountTranslateSubTask queued = imageSubTask(812L, "813");
+        provider.executeSubTask(queued);
+
+        provider.onTaskCancelling(812L);
+
+        // 取消不是 AI 失败：必须带 TASK_CANCELLED 且不可重试，前端据此显示"已取消"而不是"已失败"
+        verify(callback).onSubTaskFailed(eq(assigned), eq("task cancelled"), eq(false), eq(null),
+                eq(TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED));
+        verify(callback).onSubTaskFailed(eq(queued), eq("task cancelled"), eq(false), eq(null),
+                eq(TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED));
+    }
+
+    @Test
+    void pollingASubtaskWhoseParentIsGoneReportsTaskCancelledCode() {
+        TurboFlowBridgeProvider provider = provider();
+        when(aiAccountService.findAvailableAccountsByApiKey(AiProvider.TURBOFLOW_GEMINI, "token"))
+                .thenReturn(List.of(billedAccount()));
+        when(callback.isTaskActive(814L)).thenReturn(false);
+        AiAccountTranslateSubTask subTask = imageSubTask(814L, "814");
+        provider.executeSubTask(subTask);
+
+        TurboFlowBridgePollRequest poll = new TurboFlowBridgePollRequest();
+        poll.setBridgeId("bridge-a");
+        assertFalse(provider.pollTask("token", poll).isHasTask());
+
+        // 父任务已从内存移除（取消后被 syncTaskStatus 清理），残留在队列里的子任务同样按取消终态处理
+        verify(callback).onSubTaskFailed(eq(subTask), eq("parent task no longer active"), eq(false), eq(null),
+                eq(TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED));
+    }
+
     private AiAccountTranslateSubTask dispatchImage(TurboFlowBridgeProvider provider, Long id) {
         when(aiAccountService.findAvailableAccountsByApiKey(AiProvider.TURBOFLOW_GEMINI, "token"))
                 .thenReturn(List.of(billedAccount()));

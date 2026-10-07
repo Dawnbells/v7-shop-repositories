@@ -95,7 +95,7 @@ public class GeminiOfficialProvider implements TranslateProvider {
                 it.remove();
                 AiAccount acc = aiAccountService.getById(subTask.getAiAccountId());
                 callback.onSubTaskFailed(subTask, "task cancelled (Gemini in-flight)",
-                        false, buildEstimatedResult(subTask, acc), null);
+                        false, buildEstimatedResult(subTask, acc), TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED);
             }
         }
     }

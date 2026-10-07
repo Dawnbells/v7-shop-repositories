@@ -126,7 +126,8 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
             BatchEntry entry = pendingIt.next();
             if (taskId.equals(entry.subTask.getTaskId())) {
                 pendingIt.remove();
-                callback.onSubTaskFailed(entry.subTask, "task cancelled", false, null, null);
+                callback.onSubTaskFailed(entry.subTask, "task cancelled", false, null,
+                        TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED);
             }
         }
         // 2. activeBatches 中的 entries：已提交到 Gemini，可能已消耗 token，按预估计费
@@ -138,7 +139,7 @@ public class GeminiOfficialBatchProvider implements TranslateProvider {
                 if (taskId.equals(entry.subTask.getTaskId())) {
                     entryIt.remove();
                     callback.onSubTaskFailed(entry.subTask, "task cancelled (batch in-flight)",
-                            false, buildEstimatedResult(entry), null);
+                            false, buildEstimatedResult(entry), TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED);
                 }
             }
         }

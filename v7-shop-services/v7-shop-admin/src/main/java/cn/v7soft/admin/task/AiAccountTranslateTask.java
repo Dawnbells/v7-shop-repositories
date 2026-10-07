@@ -1328,6 +1328,10 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
      * <p>
      * 边界：tryFreeze 被 SQL 拒（极端竞争窗口）时 estimatedCredits=0，但子任务仍可能跑出 actualCredits，
      * 此时仍要把 actualCredits 入账，否则会"白嫖"。
+     * <p>
+     * frozenCredits 与 actualCredits 同为 0（不限量/管理员用户的任务被取消、或全部子任务失败且无消耗）时，
+     * 不需要动用户积分，但仍要写入结算标记和 0 值汇总并把 records 标为 settled；
+     * 否则任务已终态却永远显示"未结算"，与 AsyncTaskService.finalizeBilling 的行为不一致。
      */
     private void settleTask(AsyncTask task) {
         try {
@@ -1338,16 +1342,16 @@ public class AiAccountTranslateTask implements TranslateTaskContext {
             Integer estimated = task.getEstimatedCredits();
             int frozenCredits = (estimated == null || estimated < 0) ? 0 : estimated;
             int actualCredits = usageRecordRepository.sumUnsettledBusinessCreditsByTaskId(task.getId());
-            if (frozenCredits == 0 && actualCredits == 0) {
-                return;
-            }
+            boolean creditsChanged = frozenCredits > 0 || actualCredits > 0;
             long recordCount = usageRecordRepository.countByTaskId(task.getId());
             int totalPromptTokens = usageRecordRepository.sumBusinessPromptTokensByTaskId(task.getId());
             int totalCompletionTokens = usageRecordRepository.sumBusinessCompletionTokensByTaskId(task.getId());
             int totalThinkingTokens = usageRecordRepository.sumBusinessThinkingTokensByTaskId(task.getId());
 
             transactionTemplate.executeWithoutResult(txStatus -> {
-                aiCreditsService.settle(task.getOwner().getId(), frozenCredits, actualCredits);
+                if (creditsChanged) {
+                    aiCreditsService.settle(task.getOwner().getId(), frozenCredits, actualCredits);
+                }
                 usageRecordRepository.markSettledByTaskId(task.getId());
                 task.setEstimatedCredits(0);
                 task.setBillingRecordCount(recordCount);

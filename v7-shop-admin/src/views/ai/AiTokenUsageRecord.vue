@@ -147,7 +147,9 @@
                           placement="top"
                           :show-after="300"
                         >
-                          <span class="placeholder-box failed">{{ failLabel(r.failReason) }}</span>
+                          <span class="placeholder-box" :class="failClass(r.failReason)">
+                            {{ failLabel(r.failReason) }}
+                          </span>
                         </el-tooltip>
                         <span v-else class="placeholder-box translating">翻译中...</span>
                       </div>
@@ -185,7 +187,9 @@
                           placement="top"
                           :show-after="300"
                         >
-                          <span class="text-placeholder failed">{{ failLabel(r.failReason) }}</span>
+                          <span class="text-placeholder" :class="failClass(r.failReason)">
+                            {{ failLabel(r.failReason) }}
+                          </span>
                         </el-tooltip>
                         <span v-else-if="!r.skipped" class="text-placeholder translating">翻译中...</span>
                         <span v-else class="text-placeholder">-</span>
@@ -323,13 +327,20 @@ const FAIL_LABELS: Record<string, string> = {
   SOURCE_MEDIA_NOT_FOUND: '源图不存在',
   TURBOFLOW_TEXT_PERMANENT_FAILED: 'AI 拒绝处理',
   TURBOFLOW_QUEUE_INVARIANT: '任务类型异常',
+  TASK_CANCELLED: '已取消',
 }
+
+const failCode = (failReason: string | undefined | null): string =>
+  failReason?.split(':')[0]?.trim() ?? ''
 
 const failLabel = (failReason: string | undefined | null): string => {
   if (!failReason) return '已失败'
-  const code = failReason.split(':')[0]?.trim() ?? ''
-  return FAIL_LABELS[code] ?? '已失败'
+  return FAIL_LABELS[failCode(failReason)] ?? '已失败'
 }
+
+/** 任务取消不是真正的失败，用中性色区分，避免和 AI 处理失败混淆 */
+const failClass = (failReason: string | undefined | null): string =>
+  failCode(failReason) === 'TASK_CANCELLED' ? 'cancelled' : 'failed'
 
 /**
  * 加载某行的子任务详情。封装为独立函数以便 fetchData 后批量刷新已展开行。
@@ -502,6 +513,11 @@ onBeforeMount(() => {
       color: var(--el-color-danger);
       cursor: help;
     }
+
+    &.cancelled {
+      color: var(--el-text-color-secondary);
+      cursor: help;
+    }
   }
 
   .placeholder-box {
@@ -537,6 +553,13 @@ onBeforeMount(() => {
     &.failed {
       color: var(--el-color-danger);
       border-color: var(--el-color-danger-light-5);
+      cursor: help;
+    }
+
+    // 任务被取消：同样是终态，但不是 AI 失败，用中性色
+    &.cancelled {
+      color: var(--el-text-color-secondary);
+      border-color: var(--el-border-color);
       cursor: help;
     }
   }

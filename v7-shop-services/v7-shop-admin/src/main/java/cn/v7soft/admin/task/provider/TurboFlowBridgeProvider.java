@@ -327,7 +327,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
         if (!callback.isTaskActive(subTask.getTaskId())) {
             log.debug("[TurboFlowBridge] polled subtask parent is inactive: taskId={}, subTaskId={}",
                     subTask.getTaskId(), subTask.getSubTaskId());
-            callback.onSubTaskFailed(subTask, "parent task no longer active", false, null, null);
+            callback.onSubTaskFailed(subTask, "parent task no longer active", false, null,
+                    TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED);
             return TurboFlowBridgeTaskResponse.builder().hasTask(false).message("task missing").build();
         }
 
@@ -684,7 +685,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 synchronized (subTask) {
                     if (assignments.remove(entry.getKey(), subTask)) {
                         reportingFiles.remove(entry.getKey());
-                        callback.onSubTaskFailed(subTask, "task cancelled", false, null, null);
+                        callback.onSubTaskFailed(subTask, "task cancelled", false, null,
+                                TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED);
                     }
                 }
             }
@@ -755,7 +757,8 @@ public class TurboFlowBridgeProvider implements TranslateProvider {
                 AiAccountTranslateSubTask subTask = it.next();
                 if (taskId.equals(subTask.getTaskId())) {
                     it.remove();
-                    callback.onSubTaskFailed(subTask, "task cancelled", false, null, null);
+                    callback.onSubTaskFailed(subTask, "task cancelled", false, null,
+                            TranslateProviderCallback.ERROR_CODE_TASK_CANCELLED);
                 }
             }
         }

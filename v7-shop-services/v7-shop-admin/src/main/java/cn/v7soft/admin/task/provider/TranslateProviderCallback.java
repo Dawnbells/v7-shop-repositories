@@ -12,6 +12,13 @@ import cn.v7soft.admin.task.AiAccountTranslateSubTask;
  */
 public interface TranslateProviderCallback {
 
+    /**
+     * 父任务被取消时，各 Provider 上报子任务失败统一使用的错误码。
+     * 必须搭配 retryable=false：adapter 会直接标记失败并写入 fail_reason，
+     * 前端据此显示"已取消"而不是"已失败"。
+     */
+    String ERROR_CODE_TASK_CANCELLED = "TASK_CANCELLED";
+
     /** Provider 完成子任务后调用；result 中包含翻译产物和实际 token 用量 */
     void onSubTaskCompleted(AiAccountTranslateSubTask subTask, SubTaskResult result);
 
