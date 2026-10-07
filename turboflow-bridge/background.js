@@ -25,6 +25,14 @@ import {
 } from './policy-fallback-state.js';
 import { imageDigest } from './image-digest.js';
 import {
+  UPLOAD_REJECTION_FORGET_AFTER_TASKS,
+  UPLOAD_REJECTION_POLICY_THRESHOLD,
+  forgetUploadRejection,
+  observeTaskForUploadRejection,
+  rememberUploadRejection,
+  shouldFallBackToPolicy,
+} from './upload-rejection-state.js';
+import {
   emptyStats,
   normalizeStats,
   recordOutcome,
@@ -60,7 +68,7 @@ import { translateImageForMode } from './flow-generation-mode.js';
 import { releaseApi2351 } from './flow-api-2.3.5.1.js';
 import { normalizeGenerationMode, generationModeLabel } from './generation-mode.js';
 
-const VERSION = '1.5.9';
+const VERSION = '1.5.10';
 const POLL_INTERVAL_MS = 500;
 // 同时「翻译中」的上限，设置页可调（1–10，默认 1 = 单线程）。上传 / 挂图 / 写 prompt / 提交
 // 始终串行；译图下载到扩展后立即释放槽位，服务端回传与后续任务并行。
@@ -1397,8 +1405,10 @@ async function executeTask(service, task, conn = null) {
   const targetLanguageKey = task.targetLanguageCode || task.targetLanguage || targetLang;
   const context = { sourceThumb, sourceImage, targetLang, targetLanguageKey, startedAt };
   let translationPromise = null;
+  let imageHash = null;
+  let taskSequence = null;
   try {
-    const imageHash = await imageDigest(task.imageBase64);
+    imageHash = await imageDigest(task.imageBase64);
 
     // 1. 译图复用：上一轮已经翻译成功、只是没送到服务端的图，直接重投，不再调 Google。
     // 缓存为空时整段跳过 —— 那是绝大多数情况，而 consumeReuseWindow 要 storage.get(null)
@@ -1425,6 +1435,23 @@ async function executeTask(service, task, conn = null) {
     if (cachedPolicy) {
       addLog('warn', `Local policy cache hit [${cachedPolicy.reason}]: skipping upload for ${task.subTaskId}`);
       await completePolicyFallbackTask(service, task, context, cachedPolicy);
+      return;
+    }
+
+    // 2.5 上传拒绝计数：maseQ RPC 3 的图片已退回服务端重派。同一张图再派到本 bridge 时
+    // 不再上传，直接按记住的错误退回；收到次数达到阈值才按政策回退保留原图。
+    // 每个任务都推进序号，最后一次收到后连续 20 条其他任务没再出现就取消标记。
+    const observed = await observeTaskForUploadRejection(chrome.storage.local, imageHash);
+    taskSequence = observed.sequence;
+    for (const stale of observed.forgotten) {
+      addLog('info', `Upload rejection mark expired for image ${String(stale.imageHash).slice(0, 12)} after ${UPLOAD_REJECTION_FORGET_AFTER_TASKS} other tasks`);
+    }
+    if (observed.record) {
+      if (shouldFallBackToPolicy(observed.record)) {
+        await completeUploadRejectionAsPolicy(service, task, context, observed.record);
+      } else {
+        await failUploadRejectedTask(service, task, context, observed.record);
+      }
       return;
     }
 
@@ -1518,6 +1545,23 @@ async function executeTask(service, task, conn = null) {
     }
     const unusual = observeFlowError(e, conn);
     const errorCode = classifyErrorCode(e);
+    if (errorCode === 'FLOW_UPLOAD_REJECTED' && imageHash) {
+      // 首次 maseQ RPC 3：记住摘要和错误，任务沿下面的普通失败路径以可重试上报、由服务端重派。
+      // 全局连续失败照常计数：如果 Flow 改了上传协议导致所有图都返回 3，5 张后仍会兜底停下。
+      const record = await rememberUploadRejection(chrome.storage.local, imageHash, {
+        rpcId: e.rpcId || null,
+        rpcStatus: e.rpcStatus ?? 3,
+        apiStatus: 'INVALID_ARGUMENT',
+        reason: e.reason || null,
+        errorMessage: e.message,
+        sequence: taskSequence,
+      });
+      if (shouldFallBackToPolicy(record)) {
+        await completeUploadRejectionAsPolicy(service, task, context, record);
+        return;
+      }
+      addLog('warn', `Upload rejected by Flow (${record.receipts}/${UPLOAD_REJECTION_POLICY_THRESHOLD}) for ${task.subTaskId}; returning the task for reassignment`);
+    }
     // 翻译失败说明本 bridge 当前状态不可靠：预取的那张图同步还给服务端，让别的 bridge 去跑。
     // 必须抢在下面任何 await 之前，否则别的任务释放槽位时会先把它启动起来。
     releasePrefetchedTask(`task ${task.subTaskId} failed [${errorCode}]`);
@@ -1615,6 +1659,52 @@ function runWithTimeout(promise, timeoutMs, timeoutMessage) {
       (err) => { clearTimeout(timer); reject(err); }
     );
   });
+}
+
+/**
+ * 同一张图在标记期内再次派到本 bridge：不调 Google，直接用记住的错误退回服务端重派。
+ * 没有真的上传，所以对全局连续失败计数中立，也不碰断连计数和预取任务。
+ */
+async function failUploadRejectedTask(service, task, context, record) {
+  const elapsed = Date.now() - context.startedAt;
+  const message = `Upload previously rejected by Flow (${record.receipts}/${UPLOAD_REJECTION_POLICY_THRESHOLD}): ${record.errorMessage || record.reason || 'INVALID_ARGUMENT'}`;
+  await reportFailWithRetry(service, {
+    bridgeId,
+    assignmentId: task.assignmentId,
+    errorCode: 'FLOW_UPLOAD_REJECTED',
+    message,
+    retryable: true,
+    elapsedMs: elapsed,
+  });
+  addLog('warn', `Task returned without upload [FLOW_UPLOAD_REJECTED ${record.receipts}/${UPLOAD_REJECTION_POLICY_THRESHOLD}]: ${task.subTaskId}`);
+  recordStat(STAT_FAILED);
+  addTaskHistory({
+    taskId: task.taskId,
+    subTaskId: task.subTaskId,
+    service: service.baseUrl,
+    status: 'failed',
+    error: message,
+    elapsedMs: elapsed,
+    time: Date.now(),
+    sourceThumb: context.sourceThumb,
+    sourceImage: context.sourceImage,
+    targetLang: context.targetLang,
+  });
+  removeCurrentTask(task.assignmentId);
+  scheduleLoop(POLL_INTERVAL_MS);
+}
+
+/**
+ * 同一张图被派回达到阈值：按旧的政策回退链路保留原图，服务端写入政策缓存后不再下发。
+ */
+async function completeUploadRejectionAsPolicy(service, task, context, record) {
+  const policy = await rememberImagePolicyFallback(chrome.storage.local, task.imageBase64, {
+    apiStatus: record.apiStatus || 'INVALID_ARGUMENT',
+    reason: record.reason || record.apiStatus || 'INVALID_ARGUMENT',
+  });
+  await forgetUploadRejection(chrome.storage.local, record.imageHash);
+  addLog('warn', `Upload rejected ${record.receipts} times for ${task.subTaskId}; keeping the original image by policy fallback`);
+  await completePolicyFallbackTask(service, task, context, policy);
 }
 
 /**

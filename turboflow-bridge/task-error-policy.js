@@ -3,6 +3,7 @@
  * Prefer structured error codes from flow-api.js, while retaining message
  * matching for errors restored from logs or thrown by older call sites.
  */
+import { RPC_UPLOAD_IMAGE } from './flow-modern-api.js';
 
 /** 连续 N 次「Flow tab 明明在、却还是断连失败」后停下等 Run Now。 */
 export const FLOW_DISCONNECTED_PAUSE_THRESHOLD = 3;
@@ -39,12 +40,16 @@ export function classifyErrorCode(errorOrMessage) {
   }
   // Classify RPC status before the old generic FLOW_RPC_REJECTED code, also
   // supporting errors restored from logs where custom Error fields were lost.
-  const rpcStatus = errorOrMessage?.rpcStatus
-    ?? text.match(/flow rpc \S+ failed \(rpc status (\d+)\b/)?.[1];
+  const rpcMatch = text.match(/flow rpc (\S+) failed \(rpc status (\d+)\b/);
+  const rpcStatus = errorOrMessage?.rpcStatus ?? rpcMatch?.[2];
+  const rpcId = String(errorOrMessage?.rpcId ?? rpcMatch?.[1] ?? '').toLowerCase();
   if (Number(rpcStatus) === 8) return 'FLOW_RESOURCE_EXHAUSTED';
   if (Number(rpcStatus) === 16) return 'FLOW_AUTHENTICATION_FAILED';
+  // 上传 RPC 3（INVALID_ARGUMENT）：单次不能判定是内容政策还是参数问题，不进首次暂停名单。
+  // 任务退回服务端重派，由 background.js 按图片摘要计数，见 upload-rejection-state.js。
+  if (Number(rpcStatus) === 3 && rpcId === RPC_UPLOAD_IMAGE.toLowerCase()) return 'FLOW_UPLOAD_REJECTED';
   if (isQuotaErrorCode(structuredCode)) return structuredCode;
-  if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RPC_REJECTED', 'FLOW_VERIFICATION_REQUIRED'].includes(structuredCode)) return structuredCode;
+  if (['FLOW_AUTHENTICATION_FAILED', 'FLOW_RPC_REJECTED', 'FLOW_UPLOAD_REJECTED', 'FLOW_VERIFICATION_REQUIRED'].includes(structuredCode)) return structuredCode;
   if (rpcStatus != null) return 'FLOW_RPC_REJECTED';
 
   // 上传或生成接口返回 401/UNAUTHENTICATED 表示当前 Flow 凭据已失效。该错误必须暂停，

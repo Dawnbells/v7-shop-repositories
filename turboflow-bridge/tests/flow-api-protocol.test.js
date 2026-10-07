@@ -100,6 +100,6 @@ test('upload RPC rejection is preserved and is not retried', async t => {
   const { requests } = harness(t, rpc => ({
     ok: true, text: async () => JSON.stringify([['wrb.fr', rpc, null, null, null, [3]]]),
   }));
-  await assert.rejects(uploadImageToFlow(1, upload), { code: 'FLOW_RPC_REJECTED', rpcStatus: 3 });
+  await assert.rejects(uploadImageToFlow(1, upload), { code: 'FLOW_UPLOAD_REJECTED', rpcStatus: 3 });
   assert.equal(requests.length, 1);
 });

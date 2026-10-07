@@ -26,9 +26,13 @@ export function createFlowRpcError(rpcId, rawStatus, serverMessage = '', serverR
   const details = [serverMessage, reason].filter(value => typeof value === 'string' && value);
   const message = [...new Set(details)].map(value => value.slice(0, 500)).join(': ');
   const error = new Error(`Flow RPC ${rpcId} failed (RPC status ${status ?? 'unknown'}: ${statusName})${message ? ': ' + message : ''}`);
+  // Upload INVALID_ARGUMENT gets its own code: the bridge returns the task for
+  // reassignment and counts per image instead of stopping on the first failure.
   error.code = status === 16 ? 'FLOW_AUTHENTICATION_FAILED'
     : status === 8 ? (details.some(value => /daily_quota_reached/i.test(value))
-      ? 'DAILY_QUOTA_REACHED' : 'FLOW_RESOURCE_EXHAUSTED') : 'FLOW_RPC_REJECTED';
+      ? 'DAILY_QUOTA_REACHED' : 'FLOW_RESOURCE_EXHAUSTED')
+    : status === 3 && rpcId === RPC_UPLOAD_IMAGE ? 'FLOW_UPLOAD_REJECTED'
+    : 'FLOW_RPC_REJECTED';
   if (reason) error.reason = reason;
   error.rpcId = rpcId;
   error.rpcStatus = status;

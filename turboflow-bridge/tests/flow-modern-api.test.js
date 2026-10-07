@@ -50,7 +50,8 @@ test('decodes all canonical RPC failures with symbolic names and server messages
           assert.equal(error.rpcStatusName, name);
           assert.equal(error.rpcId, rpcId);
           assert.equal(error.code, status === 8 ? 'FLOW_RESOURCE_EXHAUSTED'
-            : status === 16 ? 'FLOW_AUTHENTICATION_FAILED' : 'FLOW_RPC_REJECTED');
+            : status === 16 ? 'FLOW_AUTHENTICATION_FAILED'
+            : status === 3 && rpcId === RPC_UPLOAD_IMAGE ? 'FLOW_UPLOAD_REJECTED' : 'FLOW_RPC_REJECTED');
           assert.ok(error.message.includes(name));
           assert.ok(error.message.includes('server explanation'));
           return true;

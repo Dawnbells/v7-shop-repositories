@@ -171,7 +171,7 @@ for (const operation of ['uploadImageToFlow', 'generateWithReference']) {
   });
 }
 
-for (const [status, expected] of [[8, 'FLOW_RESOURCE_EXHAUSTED'], [16, 'FLOW_AUTHENTICATION_FAILED'], [3, 'FLOW_RPC_REJECTED'], [7, 'RECAPTCHA_BLOCKED']]) {
+for (const [status, expected] of [[8, 'FLOW_RESOURCE_EXHAUSTED'], [16, 'FLOW_AUTHENTICATION_FAILED'], [3, 'FLOW_UPLOAD_REJECTED'], [7, 'RECAPTCHA_BLOCKED']]) {
   test(`2351 RPC ${status} preserves current error policy without retrying`, async () => {
     const { api, calls, conn } = harness({ respond: call => response([['wrb.fr', call.rpc, null, null, null,
       [status, null, [['type.googleapis.com/google.rpc.ErrorInfo', [status === 7 ? 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' : 'REJECTED']]]]]]) });

@@ -67,7 +67,32 @@ test('quota errors stop on the first failure, including old generic RPC errors a
   assert.equal(classifyErrorCode({ code: 'DAILY_QUOTA_REACHED' }), 'DAILY_QUOTA_REACHED');
   assert.equal(classifyErrorCode('DAILY_QUOTA_REACHED'), 'DAILY_QUOTA_REACHED');
   assert.equal(classifyErrorCode('Flow RPC ogiZ0b failed (RPC status 16)'), 'FLOW_AUTHENTICATION_FAILED');
-  assert.equal(classifyErrorCode('Flow RPC maseQ failed (RPC status 3)'), 'FLOW_RPC_REJECTED');
+  assert.equal(classifyErrorCode('Flow RPC ogiZ0b failed (RPC status 3)'), 'FLOW_RPC_REJECTED');
+});
+
+test('upload INVALID_ARGUMENT is returned for reassignment instead of stopping on the first failure', () => {
+  // maseQ RPC 3 单次不能判定是政策还是参数问题：不进首次暂停名单，由 background.js 按图片摘要计数
+  for (const error of [
+    'Flow RPC maseQ failed (RPC status 3: INVALID_ARGUMENT)',
+    { code: 'FLOW_UPLOAD_REJECTED' },
+    { code: 'FLOW_RPC_REJECTED', rpcId: 'maseQ', rpcStatus: 3 },
+    { code: 'FLOW_RPC_REJECTED', rpcId: 'maseQ', rpcStatus: '3' },
+  ]) {
+    const code = classifyErrorCode(error);
+    assert.equal(code, 'FLOW_UPLOAD_REJECTED');
+    assert.equal(shouldPauseForRunNow(code, { consecutiveFailures: 1 }), false);
+    assert.equal(shouldPauseForRunNow(code, { consecutiveFailures: CONSECUTIVE_FAILURE_PAUSE_THRESHOLD }), true);
+  }
+  // 生成 RPC 3 和其他 RPC 拒绝维持首次失败即暂停
+  for (const error of [
+    'Flow RPC ogiZ0b failed (RPC status 3: INVALID_ARGUMENT)',
+    { code: 'FLOW_RPC_REJECTED', rpcId: 'ogiZ0b', rpcStatus: 3 },
+    { code: 'FLOW_RPC_REJECTED', rpcStatus: 3 },
+  ]) {
+    const code = classifyErrorCode(error);
+    assert.equal(code, 'FLOW_RPC_REJECTED');
+    assert.equal(shouldPauseForRunNow(code, { consecutiveFailures: 1 }), true);
+  }
 });
 
 test('the third consecutive Flow disconnection waits for Run Now', () => {
