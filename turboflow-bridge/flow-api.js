@@ -7,6 +7,7 @@ import {
   FLOW_TAB_URL_PATTERNS,
   buildFlowMediaRedirectUrl,
   buildFlowProjectUrl,
+  buildFlowHomeUrl,
   getFlowOrigin,
   getProjectIdFromFlowUrl,
   isModernFlowUrl,
@@ -319,7 +320,8 @@ async function createFlowProjectAndNavigate(tabId) {
   projectId = null;
   let result;
   if (await usesModernFlow(tabId)) {
-    await waitForModernProjectHome(tabId);
+    const originalId = await readProjectIdFromTab(tabId);
+    await ensureModernProjectHome(tabId);
     const clicked = await chrome.scripting.executeScript({
       target: { tabId },
       world: 'MAIN',
@@ -333,7 +335,7 @@ async function createFlowProjectAndNavigate(tabId) {
     while (Date.now() < deadline) {
       const tab = await chrome.tabs.get(tabId);
       const pid = getProjectIdFromFlowUrl(tab?.url || '');
-      if (pid) {
+      if (pid && pid !== originalId && tab.status === 'complete') {
         projectId = pid;
         return projectId;
       }
@@ -393,9 +395,9 @@ export async function ensureFlowProjectOpen(tabId) {
 }
 
 // Explicit Open Flow action: project selection and management stay in the page.
-export async function openFlowHome() {
-  const tab = await chrome.tabs.create({ url: FLOW_HOME_URL });
-  await waitForTabComplete(tab.id, PAGE_LOAD_TIMEOUT_MS, FLOW_HOME_URL);
+export async function openFlowHome({ url = FLOW_HOME_URL, windowId } = {}) {
+  const tab = await chrome.tabs.create({ url, ...(Number.isInteger(windowId) ? { windowId } : {}) });
+  await waitForTabComplete(tab.id, PAGE_LOAD_TIMEOUT_MS, url);
   return { tabId: tab.id };
 }
 
@@ -1343,7 +1345,8 @@ async function waitForModernProjectHome(tabId) {
 
 async function ensureModernProjectHome(tabId) {
   const tab = await chrome.tabs.get(tabId);
-  const homeUrl = getFlowOrigin(tab?.url) + '/';
+  const homeUrl = buildFlowHomeUrl(tab?.url);
+  if (!homeUrl) throw new Error('Flow home URL is unavailable');
   if (tab?.url !== homeUrl) {
     await chrome.tabs.update(tabId, { url: homeUrl });
     await waitForTabComplete(tabId, PAGE_LOAD_TIMEOUT_MS, homeUrl);
@@ -1411,14 +1414,14 @@ export async function listAllUserProjects(tabId) {
   throw new Error('Flow project list exceeded the pagination limit');
 }
 
-export async function deleteFlowProject(tabId, projectIdToDelete) {
+export async function deleteFlowProject(tabId, projectIdToDelete, expectedHomeUrl = null) {
   if (await usesModernFlow(tabId)) {
-    await ensureModernProjectHome(tabId);
+    if (!expectedHomeUrl) await ensureModernProjectHome(tabId);
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       world: 'MAIN',
       func: deleteModernFlowProject,
-      args: [projectIdToDelete, PROJECT_UI_TIMEOUT_MS, 100],
+      args: [projectIdToDelete, PROJECT_UI_TIMEOUT_MS, 100, expectedHomeUrl],
     });
     const result = results?.[0]?.result;
     if (!result?.deleted) throw new Error(result?.error || 'Flow project UI deletion failed');
@@ -1427,8 +1430,11 @@ export async function deleteFlowProject(tabId, projectIdToDelete) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
-    func: async (pid) => {
+    func: async (pid, expectedHome) => {
       try {
+        if (expectedHome && location.origin + location.pathname.replace(/\/$/, '') !== expectedHome.replace(/\/$/, '')) {
+          return { error: 'Flow home changed before deletion' };
+        }
         const res = await fetch('/fx/api/trpc/project.deleteProject', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1441,7 +1447,7 @@ export async function deleteFlowProject(tabId, projectIdToDelete) {
         return { error: e.message };
       }
     },
-    args: [projectIdToDelete],
+    args: [projectIdToDelete, expectedHomeUrl],
   });
   const result = results?.[0]?.result;
   if (!result?.success) throw new Error(result?.error || 'deleteProject failed');
