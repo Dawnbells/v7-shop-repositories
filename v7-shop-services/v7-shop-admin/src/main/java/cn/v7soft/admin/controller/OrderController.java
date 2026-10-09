@@ -27,6 +27,7 @@ import cn.v7soft.admin.controller.req.QueryOrderRequest;
 import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderDepartmentRequest;
+import cn.v7soft.admin.controller.req.UpdateOrderLogisticsRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.controller.resp.OrderResponse;
 import cn.v7soft.admin.service.IOrderService;
@@ -162,6 +163,14 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
     public void updateOrderDepartment(@Valid @RequestBody UpdateOrderDepartmentRequest request) {
         StpUtil.checkPermission("order.audit");
         service.updateOrderDepartment(request);
+    }
+
+    @SaCheckLogin
+    @PostMapping("/updateOrderLogistics")
+    @Operation(summary = "批量修改订单渠道/仓库")
+    public void updateOrderLogistics(@Valid @RequestBody UpdateOrderLogisticsRequest request) {
+        StpUtil.checkPermission("order.audit");
+        service.updateOrderLogistics(request);
     }
 
     @SaCheckLogin

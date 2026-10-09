@@ -4,6 +4,7 @@ import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderDepartmentRequest;
+import cn.v7soft.admin.controller.req.UpdateOrderLogisticsRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.service.dto.OrderCheckInfoDto;
 import cn.v7soft.admin.service.dto.OrderDownloadDto;
@@ -53,6 +54,9 @@ public interface IOrderService extends IBaseDataRangeService<Order> {
 
     /** 仅修改部门显示名称，保留订单归属。 */
     void updateOrderDepartment(UpdateOrderDepartmentRequest request);
+
+    /** 批量修改渠道/仓库快照字段：留空不改，勾选清空则置空。 */
+    void updateOrderLogistics(UpdateOrderLogisticsRequest request);
 
     /**
      * 下载订单任务，返回任务ID

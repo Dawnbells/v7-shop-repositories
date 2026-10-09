@@ -295,6 +295,14 @@
           批量修改部门
         </el-button>
         <el-button
+          v-if="isAudit"
+          :icon="EditPen"
+          type="primary"
+          @click="emit('onBatchChangeOrderLogistics')"
+        >
+          批量修改渠道/仓库
+        </el-button>
+        <el-button
           v-if="isContact"
           :icon="CircleCheck"
           :loading="updatingOrderStatus"
@@ -631,6 +639,7 @@ const emit = defineEmits<{
   (event: 'onBatchChangeOrderStatus', status: string): void
   (event: 'onBatchChangeOrderRemark'): void
   (event: 'onBatchChangeOrderDepartment'): void
+  (event: 'onBatchChangeOrderLogistics'): void
   (event: 'onToggleSensitiveVisible'): void
   (event: 'onBatchContactStatus', contacted: boolean): void
   (event: 'onBatchContactRemark'): void

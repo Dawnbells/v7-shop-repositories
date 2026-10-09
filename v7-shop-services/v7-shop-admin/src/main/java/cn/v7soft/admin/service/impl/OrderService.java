@@ -27,6 +27,7 @@ import cn.v7soft.admin.controller.req.attributes.OrderAccessDataRangeAttribute;
 import cn.v7soft.admin.controller.req.UpdateContactStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderStatusRequest;
 import cn.v7soft.admin.controller.req.UpdateOrderDepartmentRequest;
+import cn.v7soft.admin.controller.req.UpdateOrderLogisticsRequest;
 import cn.v7soft.admin.controller.req.QueryOrderRequest;
 import cn.v7soft.admin.utils.OrderQueryHelper;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
@@ -46,6 +47,7 @@ import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Order;
+import cn.v7soft.dao.entities.primary.OrderLogisticsInfo;
 import cn.v7soft.dao.enums.AddressOrder;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
@@ -125,13 +127,7 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     @Override
     @Transactional
     public void updateOrderDepartment(UpdateOrderDepartmentRequest request) {
-        List<Long> ids = request.getIds().stream().distinct().toList();
-        QueryOrderRequest query = new QueryOrderRequest();
-        query.setPageSize(ids.size());
-        QueryPageRequest<Order> orderQuery = OrderQueryHelper.convertOrderQueryPageRequest(query, this)
-                .add(InAttribute.<Long>builder().name("id").value(ids).build());
-        List<Order> orders = findPaginated(orderQuery).getContent();
-        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(orders.size() == ids.size(), "部分订单不存在或无权操作");
+        List<Order> orders = findAccessibleOrders(request.getIds());
         for (Order order : orders) {
             ClientResponseEnum.PARAMETER_ILLEGAL.notNull(order.getContextInfo(), "订单缺少部门信息：" + order.getId());
         }
@@ -140,6 +136,48 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
             order.getContextInfo().setDepartment(request.getDepartment().trim());
         }
         repository.saveAll(orders);
+    }
+
+    @Override
+    @Transactional
+    public void updateOrderLogistics(UpdateOrderLogisticsRequest request) {
+        // 与 Excel 上传同一套三态：null=不动；""=清除；非空=trim 后覆盖。清空优先于填写的值
+        String deliveryChannel = request.isClearDeliveryChannel() ? "" : StrUtil.trimToNull(request.getDeliveryChannel());
+        String storehouse = request.isClearStorehouse() ? "" : StrUtil.trimToNull(request.getStorehouse());
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(deliveryChannel != null || storehouse != null, "请至少填写或清空一项");
+        List<Order> orders = findAccessibleOrders(request.getIds());
+        for (Order order : orders) {
+            OrderLogisticsInfo logisticsInfo = order.getLogisticsInfo();
+            if (logisticsInfo == null && (StrUtil.isNotEmpty(deliveryChannel) || StrUtil.isNotEmpty(storehouse))) {
+                logisticsInfo = OrderLogisticsInfo.builder().build();
+                order.setLogisticsInfo(logisticsInfo);
+            }
+            // 仅清空且订单本无物流信息时无需处理
+            if (logisticsInfo == null) {
+                continue;
+            }
+            if (deliveryChannel != null) {
+                logisticsInfo.setDeliveryChannel(StrUtil.emptyToNull(deliveryChannel));
+            }
+            if (storehouse != null) {
+                logisticsInfo.setStorehouse(StrUtil.emptyToNull(storehouse));
+            }
+        }
+        repository.saveAll(orders);
+    }
+
+    /**
+     * 按订单列表页的数据权限加载订单；任一订单不存在或无权操作则整批拒绝。
+     */
+    private List<Order> findAccessibleOrders(List<Long> requestIds) {
+        List<Long> ids = requestIds.stream().distinct().toList();
+        QueryOrderRequest query = new QueryOrderRequest();
+        query.setPageSize(ids.size());
+        QueryPageRequest<Order> orderQuery = OrderQueryHelper.convertOrderQueryPageRequest(query, this)
+                .add(InAttribute.<Long>builder().name("id").value(ids).build());
+        List<Order> orders = findPaginated(orderQuery).getContent();
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(orders.size() == ids.size(), "部分订单不存在或无权操作");
+        return orders;
     }
 
     @Override

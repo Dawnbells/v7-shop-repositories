@@ -14,6 +14,7 @@
       :sensitive-visible="sensitiveVisible"
       @on-toggle-sensitive-visible="sensitiveVisible = !sensitiveVisible"
       @on-batch-change-order-department="handleBatchChangeOrderDepartment"
+      @on-batch-change-order-logistics="handleBatchChangeOrderLogistics"
       @on-batch-change-order-remark="handleBatchChangeOrderRemark"
       @on-batch-change-order-status="handleBatchChangeOrderStatus"
       @on-batch-contact-remark="handleBatchContactRemark"
@@ -560,6 +561,7 @@
       @size-change="handleSizeChange"
     />
     <order-manager-edit ref="batchOrderManagerEdit" @fetch-data="fetchData" />
+    <order-logistics-batch-edit ref="orderLogisticsBatchEditRef" @fetch-data="fetchData" />
 
     <choose-order-template-dialog
       ref="chooseOrderTemplateDialogRef"
@@ -615,6 +617,7 @@ const $baseMessage = inject<any>('$baseMessage')
 const chooseOrderTemplateDialogRef = ref<any>()
 const orderQueryParamLayoutRef = ref<any>()
 const batchOrderManagerEdit = ref<any>()
+const orderLogisticsBatchEditRef = ref<any>()
 const tableRef = ref<any>(null)
 const remarkRef = ref<any>(null)
 const contactRemarkRef = ref<any>(null)
@@ -860,6 +863,15 @@ const handleBatchChangeOrderDepartment = async () => {
   } finally {
     updatingOrderDepartment.value = false
   }
+}
+
+const handleBatchChangeOrderLogistics = () => {
+  if (selectRows.value.length === 0) {
+    $baseMessage('您未选中任何行', 'warning', 'hey')
+    return
+  }
+  const ids = selectRows.value.map((item: { id: string }) => item.id)
+  orderLogisticsBatchEditRef.value.showEdit(ids)
 }
 
 const handleBatchChangeOrderStatus = (status: string) => {

@@ -66,6 +66,20 @@ export function updateOrderDepartment(ids: string[], department: string) {
   })
 }
 
+export function updateOrderLogistics(data: {
+  ids: string[]
+  deliveryChannel?: string
+  storehouse?: string
+  clearDeliveryChannel: boolean
+  clearStorehouse: boolean
+}) {
+  return request({
+    url: '/orders/updateOrderLogistics',
+    method: 'post',
+    data,
+  })
+}
+
 export function updateContactStatus(data: any) {
   return request({
     url: '/orders/updateContactStatus',
