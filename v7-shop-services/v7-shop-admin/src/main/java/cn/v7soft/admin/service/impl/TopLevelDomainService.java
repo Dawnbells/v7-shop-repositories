@@ -1,8 +1,13 @@
 package cn.v7soft.admin.service.impl;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -134,29 +139,102 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
     private void cleanupDomainResources(TopLevelDomain domain) {
         String domainName = domain.getName();
         String companyId = String.valueOf(domain.getCompanyId());
-
-        // 删除本地SSL证书文件
+        List<FrontServer> frontServers = frontServerService.listFrontServers();
+        Map<String, byte[]> nginxBackups = new LinkedHashMap<>();
         String certDir = CERT_CONFIG_DIR + companyId + "/" + domainName;
-        try {
-            if (FileUtil.exist(certDir)) {
-                FileUtil.del(certDir);
-                log.info("已删除域名 {} 的本地证书目录: {}", domainName, certDir);
-            }
-        } catch (Exception e) {
-            log.error("删除域名 {} 的证书目录失败: {}", domainName, certDir, e);
-        }
+        Map<String, byte[]> certBackups = snapshotFiles(Paths.get(certDir));
+        boolean changed = !certBackups.isEmpty() || FileUtil.exist(certDir);
 
-        // 删除所有前端服务器上的nginx配置并刷新
         try {
-            for (FrontServer frontServer : frontServerService.listFrontServers()) {
+            // 先备份并删除所有 nginx 配置，暂不提交。
+            for (FrontServer frontServer : frontServers) {
                 String serverName = frontServer.getName();
+                String configPath = NginxConfigWriter.nginxConfigPath(serverName, domainName);
+                Path path = Paths.get(configPath);
+                if (Files.isRegularFile(path)) {
+                    nginxBackups.put(configPath, Files.readAllBytes(path));
+                }
                 if (NginxConfigWriter.deleteNginxIfExists(serverName, domainName)) {
-                    frontServerService.pushAndRefresh(frontServer.getId());
+                    changed = true;
                     log.info("已删除域名 {} 在服务器 {} 上的nginx配置", domainName, serverName);
                 }
             }
+
+            // 强校验：任何一台服务器仍有配置时，禁止删除证书。
+            for (FrontServer frontServer : frontServers) {
+                if (NginxConfigWriter.existsNginxConfig(frontServer.getName(), domainName)) {
+                    throw new IllegalStateException("域名 nginx 配置未删除，禁止删除证书: "
+                            + frontServer.getName() + "/" + domainName);
+                }
+            }
+
+            // 配置确认全部删除后，再删除证书。
+            if (FileUtil.exist(certDir)) {
+                FileUtil.del(certDir);
+                if (FileUtil.exist(certDir)) {
+                    throw new IllegalStateException("域名证书目录删除失败: " + certDir);
+                }
+                log.info("已删除域名 {} 的本地证书目录: {}", domainName, certDir);
+            }
+
+            // 配置和证书全部准备完成后，只提交一次。
+            if (changed) {
+                frontServerService.pushAndRefreshAll();
+            }
         } catch (Exception e) {
-            log.error("清理域名 {} 的nginx配置失败", domainName, e);
+            // push 失败或中途异常时恢复本地工作区，避免下一次重试丢失删除前的文件。
+            // IOException 必须转换成运行时异常，才能让 delete() 的数据库事务一起回滚。
+            RuntimeException failure = e instanceof RuntimeException runtimeException
+                    ? runtimeException
+                    : new IllegalStateException("清理域名资源失败: " + domainName, e);
+            restoreFiles(nginxBackups, failure);
+            restoreFiles(certBackups, failure);
+            throw failure;
+        }
+    }
+
+    private Map<String, byte[]> snapshotFiles(Path root) {
+        Map<String, byte[]> backups = new LinkedHashMap<>();
+        if (!Files.isDirectory(root)) {
+            return backups;
+        }
+        try (var paths = Files.walk(root)) {
+            paths.filter(Files::isRegularFile).forEach(path -> {
+                try {
+                    backups.put(path.toString(), Files.readAllBytes(path));
+                } catch (IOException e) {
+                    throw new FileSnapshotException(e);
+                }
+            });
+        } catch (IOException e) {
+            throw new FileSnapshotException(e);
+        }
+        return backups;
+    }
+
+    private void restoreFiles(Map<String, byte[]> backups, Throwable failure) {
+        RuntimeException restoreFailure = null;
+        for (Map.Entry<String, byte[]> entry : backups.entrySet()) {
+            try {
+                Path path = Paths.get(entry.getKey());
+                Files.createDirectories(path.getParent());
+                Files.write(path, entry.getValue());
+            } catch (IOException | RuntimeException restoreError) {
+                if (restoreFailure == null) {
+                    restoreFailure = new IllegalStateException("恢复删除前文件失败: " + entry.getKey(), restoreError);
+                } else {
+                    restoreFailure.addSuppressed(restoreError);
+                }
+            }
+        }
+        if (restoreFailure != null) {
+            failure.addSuppressed(restoreFailure);
+        }
+    }
+
+    private static class FileSnapshotException extends RuntimeException {
+        private FileSnapshotException(IOException cause) {
+            super(cause);
         }
     }
 

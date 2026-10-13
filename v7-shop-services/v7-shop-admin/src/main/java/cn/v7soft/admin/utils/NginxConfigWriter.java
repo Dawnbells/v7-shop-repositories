@@ -26,6 +26,13 @@ public class NginxConfigWriter {
         return FileUtil.exist(buildPath(serverName, domain));
     }
 
+    /**
+     * 返回域名 nginx 配置在 Git 工作区中的路径，供删除前备份和失败恢复使用。
+     */
+    public static String nginxConfigPath(String serverName, String domain) {
+        return buildPath(serverName, domain);
+    }
+
     public static boolean writeNginx(String serverName, String domain, NginxConfigType nginxConfigType, String companyId) {
         String path = buildPath(serverName, domain);
         try {

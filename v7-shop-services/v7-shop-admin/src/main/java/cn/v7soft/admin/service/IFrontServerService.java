@@ -36,6 +36,14 @@ public interface IFrontServerService extends IBaseService<FrontServer> {
     void pushAndRefresh(Long id);
 
     /**
+     * 提交当前 Git 工作区的全部配置变更，并统一标记所有前端服务器需要更新。
+     *
+     * <p>该方法必须同步等待 push.sh 完成；脚本返回非 0 时直接抛出异常，
+     * 调用方不得把本次配置变更视为已成功发布。</p>
+     */
+    void pushAndRefreshAll();
+
+    /**
      * 获取所有前端服务器
       * @return 所有前端服务器
      */

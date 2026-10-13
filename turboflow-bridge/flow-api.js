@@ -406,7 +406,26 @@ export async function ensureFlowProjectOpen(tabId) {
 
 // Explicit Open Flow action: project selection and management stay in the page.
 export async function openFlowHome({ url = FLOW_HOME_URL, windowId } = {}) {
-  const tab = await chrome.tabs.create({ url, ...(Number.isInteger(windowId) ? { windowId } : {}) });
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url, ...(Number.isInteger(windowId) ? { windowId } : {}) });
+  } catch (error) {
+    // Recovery can close the window when it removes its last Flow tab.
+    // Retry creation only: load failures must not open duplicate tabs.
+    if (!/No window with id:|No current window/i.test(error.message)) throw error;
+    if (Number.isInteger(windowId)) {
+      try {
+        tab = await chrome.tabs.create({ url });
+      } catch (retryError) {
+        if (!/No window with id:|No current window/i.test(retryError.message)) throw retryError;
+      }
+    }
+    if (!tab) {
+      const window = await chrome.windows.create({ url });
+      tab = window.tabs?.[0];
+      if (!Number.isInteger(tab?.id)) throw new Error('Flow window opened without a usable tab');
+    }
+  }
   // Google 可能把首页重定向到 /u/<n>/，所以只要求在某个 Flow 地址上加载完成。
   await waitForTabComplete(tab.id, PAGE_LOAD_TIMEOUT_MS, (loadedUrl) => isFlowUrl(loadedUrl));
   return { tabId: tab.id };

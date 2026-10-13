@@ -1,9 +1,12 @@
 package cn.v7soft.admin.service.impl;
 
+import cn.hutool.core.io.FileUtil;
 import cn.v7soft.admin.dao.ITopLevelDomainDao;
 import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
+import cn.v7soft.admin.utils.NginxConfigWriter;
 import cn.v7soft.dao.dto.SystemUserDto;
+import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.entities.primary.Department;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
@@ -19,10 +22,13 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -77,6 +83,109 @@ class TopLevelDomainServiceTest {
     }
 
     @Test
+    @DisplayName("删除域名时 nginx 配置未全部删除，不得删除证书或提交")
+    void shouldKeepCertificateWhenNginxConfigRemains() {
+        TopLevelDomain domain = domainWithOwner(1L, 10L, 20L);
+        mockDomain(domain);
+        mockLoginUser(10L, 99L, SystemUserType.EMPLOYEE);
+        FrontServer frontServer = FrontServer.builder().id(1L).name("front-a").build();
+        when(frontServerService.listFrontServers()).thenReturn(List.of(frontServer));
+
+        try (MockedStatic<NginxConfigWriter> nginx = mockStatic(NginxConfigWriter.class);
+             MockedStatic<FileUtil> files = mockStatic(FileUtil.class)) {
+            nginx.when(() -> NginxConfigWriter.nginxConfigPath("front-a", "example.com"))
+                    .thenReturn("C:/test-nginx/front-a/example.com.conf");
+            nginx.when(() -> NginxConfigWriter.deleteNginxIfExists("front-a", "example.com"))
+                    .thenReturn(true);
+            nginx.when(() -> NginxConfigWriter.existsNginxConfig("front-a", "example.com"))
+                    .thenReturn(true);
+            files.when(() -> FileUtil.exist("/www/certs/1/example.com"))
+                    .thenReturn(true);
+
+            assertThrows(IllegalStateException.class, () -> service.delete(1L));
+
+            files.verify(() -> FileUtil.del("/www/certs/1/example.com"), never());
+            verify(frontServerService, never()).pushAndRefreshAll();
+            verify(repository, never()).save(any());
+        }
+    }
+
+    @Test
+    @DisplayName("多台前端服务器删除域名时，只提交一次且证书在配置删除后删除")
+    void shouldDeleteAllConfigsBeforeOnePush() {
+        TopLevelDomain domain = domainWithOwner(1L, 10L, 20L);
+        mockDomain(domain);
+        mockLoginUser(10L, 99L, SystemUserType.EMPLOYEE);
+        FrontServer frontA = FrontServer.builder().id(1L).name("front-a").build();
+        FrontServer frontB = FrontServer.builder().id(2L).name("front-b").build();
+        when(frontServerService.listFrontServers()).thenReturn(List.of(frontA, frontB));
+
+        List<String> events = new ArrayList<>();
+        try (MockedStatic<NginxConfigWriter> nginx = mockStatic(NginxConfigWriter.class);
+             MockedStatic<FileUtil> files = mockStatic(FileUtil.class)) {
+            nginx.when(() -> NginxConfigWriter.nginxConfigPath("front-a", "example.com"))
+                    .thenReturn("C:/test-nginx/front-a/example.com.conf");
+            nginx.when(() -> NginxConfigWriter.nginxConfigPath("front-b", "example.com"))
+                    .thenReturn("C:/test-nginx/front-b/example.com.conf");
+            nginx.when(() -> NginxConfigWriter.deleteNginxIfExists(anyString(), eq("example.com")))
+                    .thenAnswer(invocation -> {
+                        events.add("delete-config-" + invocation.getArgument(0));
+                        return true;
+                    });
+            nginx.when(() -> NginxConfigWriter.existsNginxConfig(anyString(), eq("example.com")))
+                    .thenReturn(false);
+            files.when(() -> FileUtil.exist("/www/certs/1/example.com"))
+                    .thenReturn(true, false);
+            files.when(() -> FileUtil.del("/www/certs/1/example.com"))
+                    .thenAnswer(invocation -> {
+                        events.add("delete-cert");
+                        return true;
+                    });
+            doAnswer(invocation -> {
+                events.add("push");
+                return null;
+            }).when(frontServerService).pushAndRefreshAll();
+
+            service.delete(1L);
+
+            verify(frontServerService, times(1)).pushAndRefreshAll();
+            assertTrue(events.indexOf("delete-config-front-a") < events.indexOf("delete-cert"));
+            assertTrue(events.indexOf("delete-config-front-b") < events.indexOf("delete-cert"));
+            assertTrue(events.indexOf("delete-cert") < events.indexOf("push"));
+            verify(repository).save(domain);
+        }
+    }
+
+    @Test
+    @DisplayName("push 失败时不应完成域名删除")
+    void shouldNotMarkDomainDeletedWhenPushFails() {
+        TopLevelDomain domain = domainWithOwner(1L, 10L, 20L);
+        mockDomain(domain);
+        mockLoginUser(10L, 99L, SystemUserType.EMPLOYEE);
+        FrontServer frontServer = FrontServer.builder().id(1L).name("front-a").build();
+        when(frontServerService.listFrontServers()).thenReturn(List.of(frontServer));
+
+        try (MockedStatic<NginxConfigWriter> nginx = mockStatic(NginxConfigWriter.class);
+             MockedStatic<FileUtil> files = mockStatic(FileUtil.class)) {
+            nginx.when(() -> NginxConfigWriter.nginxConfigPath("front-a", "example.com"))
+                    .thenReturn("C:/test-nginx/front-a/example.com.conf");
+            nginx.when(() -> NginxConfigWriter.deleteNginxIfExists("front-a", "example.com"))
+                    .thenReturn(true);
+            nginx.when(() -> NginxConfigWriter.existsNginxConfig("front-a", "example.com"))
+                    .thenReturn(false);
+            files.when(() -> FileUtil.exist("/www/certs/1/example.com"))
+                    .thenReturn(true, false);
+            files.when(() -> FileUtil.del("/www/certs/1/example.com"))
+                    .thenReturn(true);
+            doThrow(new IllegalStateException("push failed"))
+                    .when(frontServerService).pushAndRefreshAll();
+
+            assertThrows(IllegalStateException.class, () -> service.delete(1L));
+            verify(repository, never()).save(any());
+        }
+    }
+
+    @Test
     @DisplayName("无关员工不能删除他人的一级域名")
     void unrelatedEmployeeCannotDeleteTopLevelDomain() {
         TopLevelDomain domain = domainWithOwner(1L, 10L, 20L);
@@ -100,6 +209,7 @@ class TopLevelDomainServiceTest {
         return TopLevelDomain.builder()
                 .id(domainId)
                 .name("example.com")
+                .companyId(1L)
                 .owner(owner)
                 .subDomains(Collections.emptyList())
                 .build();
