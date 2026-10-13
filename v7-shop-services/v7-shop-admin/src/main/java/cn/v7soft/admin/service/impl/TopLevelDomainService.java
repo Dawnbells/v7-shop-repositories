@@ -1,13 +1,7 @@
 package cn.v7soft.admin.service.impl;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +11,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.v7soft.admin.controller.req.BindPixelsRequest;
 import cn.v7soft.admin.controller.req.BindProtocolRequest;
@@ -30,6 +23,9 @@ import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
 import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.admin.utils.NginxConfigWriter;
+import cn.v7soft.admin.utils.NginxWorkspace;
+import cn.v7soft.admin.utils.NginxPublisher;
+import cn.v7soft.admin.service.ssl.DomainResourceCleaner;
 import cn.v7soft.common.service.impl.BaseDataRangeService;
 import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.core.enums.ClientResponseEnum;
@@ -60,13 +56,15 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
     private final ITopLevelDomainDao topLevelDomainDao;
     private final IFrontServerService frontServerService;
     private final PlaceholderCertHolder placeholderCertHolder;
+    private final DomainResourceCleaner resourceCleaner;
 
     public TopLevelDomainService(TopLevelDomainRepository repository, ITopLevelDomainDao topLevelDomainDao,
-                                 IFrontServerService frontServerService, PlaceholderCertHolder placeholderCertHolder) {
+                                 IFrontServerService frontServerService, PlaceholderCertHolder placeholderCertHolder, DomainResourceCleaner resourceCleaner) {
         super(repository);
         this.topLevelDomainDao = topLevelDomainDao;
         this.frontServerService = frontServerService;
         this.placeholderCertHolder = placeholderCertHolder;
+        this.resourceCleaner = resourceCleaner;
     }
 
     @Lazy
@@ -112,13 +110,15 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
     @Override
     @Transactional
     public void delete(Long id) {
-        TopLevelDomain topLevelDomain = getById(id);
-        assertCanDelete(topLevelDomain);
-        List<SubDomain> subDomains = topLevelDomain.getSubDomains();
-        subDomainService.doDeleteAll(subDomains.stream().map(SubDomain::getId).toList());
-        cleanupDomainResources(topLevelDomain);
-        topLevelDomain.setStatus(StatusEnum.DELETED);
-        repository.save(topLevelDomain);
+        try (var ignored = NginxWorkspace.lock()) {
+            TopLevelDomain topLevelDomain = getById(id);
+            assertCanDelete(topLevelDomain);
+            List<SubDomain> subDomains = topLevelDomain.getSubDomains();
+            subDomainService.deleteChildrenForParent(subDomains);
+            resourceCleaner.deleteDomain(topLevelDomain, frontServerService::pushAndRefreshAll);
+            topLevelDomain.setStatus(StatusEnum.DELETED);
+            repository.save(topLevelDomain);
+        }
     }
 
     private void assertCanDelete(TopLevelDomain topLevelDomain) {
@@ -131,111 +131,6 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
         Long ownerDepartmentId = owner.getDepartment() == null ? null : owner.getDepartment().getId();
         boolean canDelete = loginUser.hasManagerPermission(owner.getId(), ownerDepartmentId);
         ClientResponseEnum.NO_PERMISSION.assertTrue(canDelete, "您无权限操作该域名");
-    }
-
-    /**
-     * 清理域名关联的本地证书文件和所有前端服务器上的nginx配置
-     */
-    private void cleanupDomainResources(TopLevelDomain domain) {
-        String domainName = domain.getName();
-        String companyId = String.valueOf(domain.getCompanyId());
-        List<FrontServer> frontServers = frontServerService.listFrontServers();
-        Map<String, byte[]> nginxBackups = new LinkedHashMap<>();
-        String certDir = CERT_CONFIG_DIR + companyId + "/" + domainName;
-        Map<String, byte[]> certBackups = snapshotFiles(Paths.get(certDir));
-        boolean changed = !certBackups.isEmpty() || FileUtil.exist(certDir);
-
-        try {
-            // 先备份并删除所有 nginx 配置，暂不提交。
-            for (FrontServer frontServer : frontServers) {
-                String serverName = frontServer.getName();
-                String configPath = NginxConfigWriter.nginxConfigPath(serverName, domainName);
-                Path path = Paths.get(configPath);
-                if (Files.isRegularFile(path)) {
-                    nginxBackups.put(configPath, Files.readAllBytes(path));
-                }
-                if (NginxConfigWriter.deleteNginxIfExists(serverName, domainName)) {
-                    changed = true;
-                    log.info("已删除域名 {} 在服务器 {} 上的nginx配置", domainName, serverName);
-                }
-            }
-
-            // 强校验：任何一台服务器仍有配置时，禁止删除证书。
-            for (FrontServer frontServer : frontServers) {
-                if (NginxConfigWriter.existsNginxConfig(frontServer.getName(), domainName)) {
-                    throw new IllegalStateException("域名 nginx 配置未删除，禁止删除证书: "
-                            + frontServer.getName() + "/" + domainName);
-                }
-            }
-
-            // 配置确认全部删除后，再删除证书。
-            if (FileUtil.exist(certDir)) {
-                FileUtil.del(certDir);
-                if (FileUtil.exist(certDir)) {
-                    throw new IllegalStateException("域名证书目录删除失败: " + certDir);
-                }
-                log.info("已删除域名 {} 的本地证书目录: {}", domainName, certDir);
-            }
-
-            // 配置和证书全部准备完成后，只提交一次。
-            if (changed) {
-                frontServerService.pushAndRefreshAll();
-            }
-        } catch (Exception e) {
-            // push 失败或中途异常时恢复本地工作区，避免下一次重试丢失删除前的文件。
-            // IOException 必须转换成运行时异常，才能让 delete() 的数据库事务一起回滚。
-            RuntimeException failure = e instanceof RuntimeException runtimeException
-                    ? runtimeException
-                    : new IllegalStateException("清理域名资源失败: " + domainName, e);
-            restoreFiles(nginxBackups, failure);
-            restoreFiles(certBackups, failure);
-            throw failure;
-        }
-    }
-
-    private Map<String, byte[]> snapshotFiles(Path root) {
-        Map<String, byte[]> backups = new LinkedHashMap<>();
-        if (!Files.isDirectory(root)) {
-            return backups;
-        }
-        try (var paths = Files.walk(root)) {
-            paths.filter(Files::isRegularFile).forEach(path -> {
-                try {
-                    backups.put(path.toString(), Files.readAllBytes(path));
-                } catch (IOException e) {
-                    throw new FileSnapshotException(e);
-                }
-            });
-        } catch (IOException e) {
-            throw new FileSnapshotException(e);
-        }
-        return backups;
-    }
-
-    private void restoreFiles(Map<String, byte[]> backups, Throwable failure) {
-        RuntimeException restoreFailure = null;
-        for (Map.Entry<String, byte[]> entry : backups.entrySet()) {
-            try {
-                Path path = Paths.get(entry.getKey());
-                Files.createDirectories(path.getParent());
-                Files.write(path, entry.getValue());
-            } catch (IOException | RuntimeException restoreError) {
-                if (restoreFailure == null) {
-                    restoreFailure = new IllegalStateException("恢复删除前文件失败: " + entry.getKey(), restoreError);
-                } else {
-                    restoreFailure.addSuppressed(restoreError);
-                }
-            }
-        }
-        if (restoreFailure != null) {
-            failure.addSuppressed(restoreFailure);
-        }
-    }
-
-    private static class FileSnapshotException extends RuntimeException {
-        private FileSnapshotException(IOException cause) {
-            super(cause);
-        }
     }
 
     @Override
@@ -273,26 +168,17 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
 
     @Override
     public GetCertificateResp updateCertificate(UpdateCertificateReq request) {
-        TopLevelDomain domain = getById(request.getIdLongValue());
-
-        // valid fullchain and privkey
-        SslCertificateUtil.valid(domain, request.getFullChain(), request.getPrivateKey());
-        LocalDateTime expiredDateTime = SslCertificateUtil.getExpiryDate(domain);
-
-        final String targetDir = CERT_CONFIG_DIR + domain.getCompanyId() + "/" + domain.getName() + "/";
-        String fullChainPemPath = targetDir + "fullchain.pem";
-        String privkeyPemPath = targetDir + "privkey.pem";
-        log.debug("fullChainPath = " + fullChainPemPath);
-        log.debug("privkeyPemPath = " + privkeyPemPath);
-        placeholderCertHolder.writePemPair(targetDir, request.getFullChain(), request.getPrivateKey());
-        SSLCertificate sslCertificate = domain.getSslCertificate();
-        if (sslCertificate == null) {
-            sslCertificate = SSLCertificate.builder().build();
-        }
-        Process process = null;
-        try {
-            process = Runtime.getRuntime().exec("sh /scripts/push.sh");
-            String sslPushMsg = IoUtil.read(process.getInputStream(), Charsets.UTF_8);
+        try (var ignored = NginxWorkspace.lock()) {
+            TopLevelDomain domain = getById(request.getIdLongValue());
+            SslCertificateUtil.valid(domain, request.getFullChain(), request.getPrivateKey());
+            String targetDir = CERT_CONFIG_DIR + domain.getCompanyId() + "/" + domain.getName() + "/";
+            placeholderCertHolder.writePemPair(targetDir, request.getFullChain(), request.getPrivateKey());
+            LocalDateTime expiredDateTime = SslCertificateUtil.getExpiryDate(domain);
+            SSLCertificate sslCertificate = domain.getSslCertificate();
+            if (sslCertificate == null) {
+                sslCertificate = SSLCertificate.builder().build();
+            }
+            String sslPushMsg = NginxPublisher.push();
             sslCertificate.setCertificateExpiryDate(expiredDateTime);
             sslCertificate.setError(false);
             sslCertificate.setResult("手动部署成功");
@@ -310,18 +196,7 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
                     .privateKey(request.getPrivateKey())
                     .expiredDateTime(expiredDateTime)
                     .build();
-        } catch (IOException e) {
-            log.error("更新证书失败", e);
-        } finally {
-            if (process != null && process.isAlive()) {
-                process.destroy();
-            }
         }
-        return GetCertificateResp.builder()
-                .fullChain(request.getFullChain())
-                .privateKey(request.getPrivateKey())
-                .expiredDateTime(null)
-                .build();
     }
 
     @Override
@@ -335,7 +210,7 @@ public class TopLevelDomainService extends BaseDataRangeService<TopLevelDomain, 
     @Override
     @Async("certificateRequestAsyncExecutor")
     public void refreshNginxConfig(Long id, NginxConfigType type) {
-        try {
+        try (var ignored = NginxWorkspace.lock()) {
             TopLevelDomain topLevelDomain = getById(id);
             String domain = topLevelDomain.getName();
             // 检查域名证书是否正常

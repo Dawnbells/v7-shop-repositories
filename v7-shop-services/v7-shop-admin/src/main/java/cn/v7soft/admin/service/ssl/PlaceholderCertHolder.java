@@ -2,6 +2,7 @@ package cn.v7soft.admin.service.ssl;
 
 import cn.hutool.core.io.FileUtil;
 import cn.v7soft.common.utils.SslCertificateUtil;
+import cn.v7soft.admin.utils.NginxWorkspace;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
@@ -65,19 +66,21 @@ public class PlaceholderCertHolder {
     }
 
     public void ensureWritten(TopLevelDomain domain) {
-        if (domain == null) {
-            return;
-        }
-        final String targetDir = ISslCertificateRequester.CERT_CONFIG_DIR + domain.getCompanyId() + "/" + domain.getName() + "/";
-        String fullchainPath = targetDir + FULLCHAIN_FILE;
-        String privkeyPath = targetDir + PRIVKEY_FILE;
-        try {
-            String currentFullchain = FileUtil.readString(fullchainPath, StandardCharsets.UTF_8);
-            String currentPrivkey = FileUtil.readString(privkeyPath, StandardCharsets.UTF_8);
-            SslCertificateUtil.valid(currentFullchain, currentPrivkey);
-        } catch (Exception e) {
-            log.info("writing placeholder ssl certificate for domain {}", domain.getName());
-            writePemPair(targetDir, fullchain, privkey);
+        try (var ignored = NginxWorkspace.lock()) {
+            if (domain == null) {
+                return;
+            }
+            final String targetDir = ISslCertificateRequester.CERT_CONFIG_DIR + domain.getCompanyId() + "/" + domain.getName() + "/";
+            String fullchainPath = targetDir + FULLCHAIN_FILE;
+            String privkeyPath = targetDir + PRIVKEY_FILE;
+            try {
+                String currentFullchain = FileUtil.readString(fullchainPath, StandardCharsets.UTF_8);
+                String currentPrivkey = FileUtil.readString(privkeyPath, StandardCharsets.UTF_8);
+                SslCertificateUtil.valid(currentFullchain, currentPrivkey);
+            } catch (Exception e) {
+                log.info("writing placeholder ssl certificate for domain {}", domain.getName());
+                writePemPair(targetDir, fullchain, privkey);
+            }
         }
     }
 
@@ -90,7 +93,7 @@ public class PlaceholderCertHolder {
     }
 
     public void writePemPair(String targetDir, String fullchainContent, String privkeyContent) {
-        try {
+        try (var ignored = NginxWorkspace.lock()) {
             Path dir = Path.of(targetDir);
             java.nio.file.Files.createDirectories(dir);
             atomicWrite(dir.resolve(FULLCHAIN_FILE), fullchainContent);

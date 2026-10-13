@@ -21,6 +21,7 @@ import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.IFrontServerService;
 import cn.v7soft.admin.service.INoticeService;
 import cn.v7soft.admin.service.ITopLevelDomainService;
+import cn.v7soft.admin.service.ssl.DomainResourceCleaner;
 import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.SSLCertificate;
@@ -43,6 +44,7 @@ class DomainExpiryCheckTaskTest {
     @Mock private IFrontServerService frontServerService;
     @Mock private INoticeService noticeService;
     @Mock private ICompanyService companyService;
+    @Mock private DomainResourceCleaner resourceCleaner;
 
     @InjectMocks
     private DomainExpiryCheckTask task;
@@ -118,6 +120,22 @@ class DomainExpiryCheckTaskTest {
     }
 
     // --- 测试用例 ---
+
+    @Test
+    void orphanCleanupQueriesFreshDomainsInsteadOfReusingScanSnapshot() {
+        TopLevelDomain newlyCreated = buildDomain("new.example.com", 1L, null, null);
+        when(topLevelDomainRepository.findAllValidDomains()).thenReturn(List.of(), List.of(newlyCreated));
+        doAnswer(call -> {
+            java.util.function.Supplier<List<TopLevelDomain>> supplier = call.getArgument(0);
+            assertEquals(List.of(newlyCreated), supplier.get());
+            call.getArgument(1, Runnable.class).run();
+            return null;
+        }).when(resourceCleaner).cleanOrphans(any(), any());
+        task.checkDomainExpiry();
+        verify(topLevelDomainRepository, times(2)).findAllValidDomains();
+        verify(frontServerService).pushAndRefreshAll();
+        verify(frontServerService, never()).pushAndRefresh(any());
+    }
 
     @Test
     @DisplayName("开发环境应跳过巡检")

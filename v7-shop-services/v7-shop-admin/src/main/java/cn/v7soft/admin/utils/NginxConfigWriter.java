@@ -9,17 +9,19 @@ import lombok.extern.slf4j.Slf4j;
 public class NginxConfigWriter {
 
     public static void deleteNginx(String serverName, String domain) {
-        String path = buildPath(serverName, domain);
-        FileUtil.del(path);
+        deleteNginxIfExists(serverName, domain);
     }
 
     public static boolean deleteNginxIfExists(String serverName, String domain) {
-        String path = buildPath(serverName, domain);
-        if (!FileUtil.exist(path)) {
-            return false;
+        try (var ignored = NginxWorkspace.lock()) {
+            String path = buildPath(serverName, domain);
+            if (!FileUtil.exist(path)) {
+                return false;
+            }
+            FileUtil.del(path);
+            if (FileUtil.exist(path)) throw new IllegalStateException("nginx 配置删除失败: " + path);
+            return true;
         }
-        FileUtil.del(path);
-        return true;
     }
 
     public static boolean existsNginxConfig(String serverName, String domain) {
@@ -35,7 +37,11 @@ public class NginxConfigWriter {
 
     public static boolean writeNginx(String serverName, String domain, NginxConfigType nginxConfigType, String companyId) {
         String path = buildPath(serverName, domain);
-        try {
+        try (var ignored = NginxWorkspace.lock()) {
+            String certDir = "/www/certs/" + companyId + "/" + domain + "/";
+            if (!FileUtil.exist(certDir + "fullchain.pem") || !FileUtil.exist(certDir + "privkey.pem")) {
+                throw new IllegalStateException("证书文件缺失，禁止写入 nginx 配置: " + domain);
+            }
             nginxConfigType = nginxConfigType == null ? NginxConfigType.THYMELEAF : nginxConfigType;
             String template = nginxConfigType == NginxConfigType.NUXT_MALL ? NGINX_CONFIG_NUXT_TEMPLATE : NGINX_CONFIG_TEMPLATE;
             String nginxConfig = String.format(template, domain, companyId, nginxConfigType.getUpstream());

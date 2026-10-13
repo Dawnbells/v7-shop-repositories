@@ -15,6 +15,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -34,6 +35,8 @@ class NginxConfigWriterTest {
     void setUp() {
         fileUtilMock = mockStatic(FileUtil.class);
         virtualFs = new LinkedHashMap<>();
+        fileUtilMock.when(() -> FileUtil.exist("/www/certs/1/example.com/fullchain.pem")).thenReturn(true);
+        fileUtilMock.when(() -> FileUtil.exist("/www/certs/1/example.com/privkey.pem")).thenReturn(true);
 
         fileUtilMock.when(() -> FileUtil.exist(eq(EXPECTED_PATH)))
                 .thenAnswer(inv -> virtualFs.containsKey(EXPECTED_PATH));
@@ -64,6 +67,22 @@ class NginxConfigWriterTest {
         assertTrue(changed);
         assertTrue(virtualFs.containsKey(EXPECTED_PATH));
         fileUtilMock.verify(() -> FileUtil.writeUtf8String(org.mockito.ArgumentMatchers.anyString(), eq(EXPECTED_PATH)), times(1));
+    }
+
+    @Test
+    void refusesToRecreateConfigAfterCertificateDeletion() {
+        fileUtilMock.when(() -> FileUtil.exist("/www/certs/1/example.com/privkey.pem")).thenReturn(false);
+        assertThrows(RuntimeException.class, () -> NginxConfigWriter.writeNginx(
+                SERVER_NAME, DOMAIN, NginxConfigType.THYMELEAF, COMPANY_ID));
+        assertFalse(virtualFs.containsKey(EXPECTED_PATH));
+    }
+
+    @Test
+    void failedDeleteIsNotReportedAsSuccess() {
+        fileUtilMock.when(() -> FileUtil.del(EXPECTED_PATH)).thenReturn(false);
+        virtualFs.put(EXPECTED_PATH, "config");
+        assertThrows(IllegalStateException.class, () -> NginxConfigWriter.deleteNginxIfExists(SERVER_NAME, DOMAIN));
+        assertTrue(virtualFs.containsKey(EXPECTED_PATH));
     }
 
     @Test

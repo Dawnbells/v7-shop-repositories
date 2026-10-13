@@ -32,6 +32,7 @@ import cn.v7soft.admin.service.dto.SubDomainDto;
 import cn.v7soft.admin.service.ssl.ISslCertificateRequester;
 import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.admin.utils.NginxConfigWriter;
+import cn.v7soft.admin.utils.NginxWorkspace;
 import cn.v7soft.core.controller.request.attributes.QueryAttribute;
 import cn.v7soft.common.utils.SslCertificateUtil;
 import cn.v7soft.core.enums.ClientResponseEnum;
@@ -175,87 +176,91 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
 
     @Override
     public void doCreate(Long id) {
-        SubDomain subDomain = getById(id);
-        logWebsiteDomainOperation("prepareBindWebsiteDomain", subDomain);
-        assertCanAccessParentDomain(subDomain);
+        try (var ignored = NginxWorkspace.lock()) {
+            SubDomain subDomain = getById(id);
+            logWebsiteDomainOperation("prepareBindWebsiteDomain", subDomain);
+            assertCanAccessParentDomain(subDomain);
 
-        String websiteId = subDomain.getWebsite() == null ? "" : subDomain.getWebsite().getId().toString();
-        ClientResponseEnum.PARAMETER_ILLEGAL.isNull(subDomain.getWebsite(), "该域名已绑定其他商城: " + websiteId);
-        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(subDomain.getType() == DomainType.WEBSITE, "域名用途不正确: " + subDomain.getType());
-        TopLevelDomain topLevelDomain = subDomain.getParentDomain();
+            String websiteId = subDomain.getWebsite() == null ? "" : subDomain.getWebsite().getId().toString();
+            ClientResponseEnum.PARAMETER_ILLEGAL.isNull(subDomain.getWebsite(), "该域名已绑定其他商城: " + websiteId);
+            ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(subDomain.getType() == DomainType.WEBSITE, "域名用途不正确: " + subDomain.getType());
+            TopLevelDomain topLevelDomain = subDomain.getParentDomain();
 
-        // 检查域名证书是否正常
-        placeholderCertHolder.ensureWritten(topLevelDomain);
-        SslCertificateUtil.valid(topLevelDomain);
-        LocalDateTime expiryDate = SslCertificateUtil.getExpiryDate(topLevelDomain);
-        ServiceResponseEnum.ERR_NO_SSL.assertTrue(expiryDate != null && expiryDate.isAfter(LocalDateTime.now()));
+            // 检查域名证书是否正常
+            placeholderCertHolder.ensureWritten(topLevelDomain);
+            SslCertificateUtil.valid(topLevelDomain);
+            LocalDateTime expiryDate = SslCertificateUtil.getExpiryDate(topLevelDomain);
+            ServiceResponseEnum.ERR_NO_SSL.assertTrue(expiryDate != null && expiryDate.isAfter(LocalDateTime.now()));
 
-        Long currentWebsiteId = WebsiteContext.getCurrentWebsiteId();
-        Website website = websiteService.getById(currentWebsiteId);
-        FrontServer frontServer = website.getCountry().getFrontServer();
-        subDomain.setFrontServer(frontServer);
-        subDomain.setWebsite(website);
-        log.info("bindWebsiteDomainResolved: subDomainId={}, fullName={}, currentWebsiteId={}, websiteName={}, frontServer={}, contextDomain={}, websiteAdmin={}, origin={}, referer={}",
-                subDomain.getId(), subDomain.getFullName(), currentWebsiteId, website.getName(),
-                frontServer == null ? null : frontServer.getName(),
-                WebsiteContext.getDomain(), WebsiteContext.isWebsiteAdmin(), getRequestHeader("Origin"), getRequestHeader("Referer"));
+            Long currentWebsiteId = WebsiteContext.getCurrentWebsiteId();
+            Website website = websiteService.getById(currentWebsiteId);
+            FrontServer frontServer = website.getCountry().getFrontServer();
+            subDomain.setFrontServer(frontServer);
+            subDomain.setWebsite(website);
+            log.info("bindWebsiteDomainResolved: subDomainId={}, fullName={}, currentWebsiteId={}, websiteName={}, frontServer={}, contextDomain={}, websiteAdmin={}, origin={}, referer={}",
+                    subDomain.getId(), subDomain.getFullName(), currentWebsiteId, website.getName(),
+                    frontServer == null ? null : frontServer.getName(),
+                    WebsiteContext.getDomain(), WebsiteContext.isWebsiteAdmin(), getRequestHeader("Origin"), getRequestHeader("Referer"));
 
-        String name = frontServer.getName();
+            String name = frontServer.getName();
 
-        // 添加解析
-        CloudPlatformAccount cloudPlatformAccount = topLevelDomain.getCloudPlatformAccount();
-        if (cloudPlatformAccount != null) {
-            ISslCertificateRequester certificateRequester = cloudPlatformAccountService.getCertificateRequester(cloudPlatformAccount);
-            boolean analyzeDomain = certificateRequester.analyzeDomain(topLevelDomain, subDomain.getName(), frontServer.getCnameRecord());
-            subDomain.setAnalyzeSuccess(analyzeDomain);
+            // 添加解析
+            CloudPlatformAccount cloudPlatformAccount = topLevelDomain.getCloudPlatformAccount();
+            if (cloudPlatformAccount != null) {
+                ISslCertificateRequester certificateRequester = cloudPlatformAccountService.getCertificateRequester(cloudPlatformAccount);
+                boolean analyzeDomain = certificateRequester.analyzeDomain(topLevelDomain, subDomain.getName(), frontServer.getCnameRecord());
+                subDomain.setAnalyzeSuccess(analyzeDomain);
 
-            // 统计计数
-            frontServer.setResolutionCount(frontServer.getResolutionCount() + 1);
-            frontServer.setActiveResolutionCount(frontServer.getActiveResolutionCount() + 1);
-            frontServerService.save(frontServer);
-        } else {
-            subDomain.setAnalyzeSuccess(false);
+                // 统计计数
+                frontServer.setResolutionCount(frontServer.getResolutionCount() + 1);
+                frontServer.setActiveResolutionCount(frontServer.getActiveResolutionCount() + 1);
+                frontServerService.save(frontServer);
+            } else {
+                subDomain.setAnalyzeSuccess(false);
+            }
+            // 写入域名nginx配置
+            boolean writeNginx = NginxConfigWriter.writeNginx(name, topLevelDomain.getName(), topLevelDomain.getNginxConfigType(), String.valueOf(topLevelDomain.getCompanyId()));
+            if (writeNginx) {
+                frontServerService.pushAndRefresh(frontServer.getId());
+            }
+            subDomainService.save(subDomain);
         }
-        // 写入域名nginx配置
-        boolean writeNginx = NginxConfigWriter.writeNginx(name, topLevelDomain.getName(), topLevelDomain.getNginxConfigType(), String.valueOf(topLevelDomain.getCompanyId()));
-        if (writeNginx) {
-            frontServerService.pushAndRefresh(frontServer.getId());
-        }
-        subDomainService.save(subDomain);
     }
 
     @Override
     @Transactional
     public void setupNginxForNuxtMall(SubDomain subDomain) {
-        TopLevelDomain topLevelDomain = subDomain.getParentDomain();
-        Country country = subDomain.getCountry();
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(country, "子域名未绑定国家");
-        FrontServer frontServer = country.getFrontServer();
-        ClientResponseEnum.PARAMETER_ILLEGAL.notNull(frontServer, "该国家未配置前端服务器");
+        try (var ignored = NginxWorkspace.lock()) {
+            TopLevelDomain topLevelDomain = subDomain.getParentDomain();
+            Country country = subDomain.getCountry();
+            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(country, "子域名未绑定国家");
+            FrontServer frontServer = country.getFrontServer();
+            ClientResponseEnum.PARAMETER_ILLEGAL.notNull(frontServer, "该国家未配置前端服务器");
 
-        subDomain.setFrontServer(frontServer);
+            subDomain.setFrontServer(frontServer);
 
-        CloudPlatformAccount cloudPlatformAccount = topLevelDomain.getCloudPlatformAccount();
-        if (cloudPlatformAccount != null) {
-            ISslCertificateRequester certificateRequester = cloudPlatformAccountService.getCertificateRequester(cloudPlatformAccount);
-            boolean analyzeDomain = certificateRequester.analyzeDomain(topLevelDomain, subDomain.getName(), frontServer.getCnameRecord());
-            subDomain.setAnalyzeSuccess(analyzeDomain);
+            CloudPlatformAccount cloudPlatformAccount = topLevelDomain.getCloudPlatformAccount();
+            if (cloudPlatformAccount != null) {
+                ISslCertificateRequester certificateRequester = cloudPlatformAccountService.getCertificateRequester(cloudPlatformAccount);
+                boolean analyzeDomain = certificateRequester.analyzeDomain(topLevelDomain, subDomain.getName(), frontServer.getCnameRecord());
+                subDomain.setAnalyzeSuccess(analyzeDomain);
 
-            frontServer.setResolutionCount(frontServer.getResolutionCount() + 1);
-            frontServer.setActiveResolutionCount(frontServer.getActiveResolutionCount() + 1);
-            frontServerService.save(frontServer);
-        } else {
-            subDomain.setAnalyzeSuccess(false);
+                frontServer.setResolutionCount(frontServer.getResolutionCount() + 1);
+                frontServer.setActiveResolutionCount(frontServer.getActiveResolutionCount() + 1);
+                frontServerService.save(frontServer);
+            } else {
+                subDomain.setAnalyzeSuccess(false);
+            }
+
+            placeholderCertHolder.ensureWritten(topLevelDomain);
+            boolean writeNginx = NginxConfigWriter.writeNginx(
+                    frontServer.getName(), topLevelDomain.getName(),
+                    topLevelDomain.getNginxConfigType(), String.valueOf(topLevelDomain.getCompanyId()));
+            if (writeNginx) {
+                frontServerService.pushAndRefresh(frontServer.getId());
+            }
+            subDomainService.save(subDomain);
         }
-
-        placeholderCertHolder.ensureWritten(topLevelDomain);
-        boolean writeNginx = NginxConfigWriter.writeNginx(
-                frontServer.getName(), topLevelDomain.getName(),
-                topLevelDomain.getNginxConfigType(), String.valueOf(topLevelDomain.getCompanyId()));
-        if (writeNginx) {
-            frontServerService.pushAndRefresh(frontServer.getId());
-        }
-        subDomainService.save(subDomain);
     }
 
     @Override
@@ -346,6 +351,18 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
 
     @Transactional
     public void doDelete(SubDomain subDomain) {
+        try (var ignored = NginxWorkspace.lock()) {
+            doDelete(subDomain, true);
+        }
+    }
+
+    /** Parent deletion owns filesystem cleanup and publication for all children. */
+    @Transactional
+    public void deleteChildrenForParent(List<SubDomain> subDomains) {
+        for (SubDomain subDomain : subDomains) doDelete(subDomain, false);
+    }
+
+    private void doDelete(SubDomain subDomain, boolean cleanupNginx) {
         TopLevelDomain parentDomain = subDomain.getParentDomain();
         FrontServer frontServer;
         try {
@@ -363,7 +380,7 @@ public class SubDomainService extends BaseService<SubDomain, SubDomainRepository
         subDomain.setStatus(StatusEnum.DELETED);
         repository.saveAndFlush(subDomain);
 
-        if (frontServer != null) {
+        if (cleanupNginx && frontServer != null) {
             int count = repository.countTopLevelDomainInSameServer(parentDomain.getId(), frontServer.getId());
             log.info("删除子域名后检查nginx: subDomainId={}, parentDomain={}, frontServer={}, remainingCount={}",
                     subDomain.getId(), parentDomain.getName(), frontServer.getName(), count);

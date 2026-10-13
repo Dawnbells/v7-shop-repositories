@@ -1,6 +1,5 @@
 package cn.v7soft.admin.events.listener;
 
-import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.events.event.CertificateRequestEvent;
@@ -13,11 +12,11 @@ import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
 import cn.v7soft.admin.service.ssl.SslResult;
 import cn.v7soft.admin.service.ssl.UnsupportedSslCertificateRequester;
 import cn.v7soft.common.utils.SslCertificateUtil;
+import cn.v7soft.admin.utils.NginxPublisher;
 import cn.v7soft.dao.entities.primary.CloudPlatformAccount;
 import cn.v7soft.dao.entities.primary.SSLCertificate;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import cn.v7soft.dao.enums.CertificateRequestStatus;
-import kotlin.text.Charsets;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -112,7 +111,6 @@ public class CertificateRequestListener {
     }
 
     protected String executePushScript() throws IOException {
-        Process process = Runtime.getRuntime().exec("sh /scripts/push.sh");
-        return IoUtil.read(process.getInputStream(), Charsets.UTF_8);
+        return NginxPublisher.push();
     }
 }

@@ -6,6 +6,8 @@ import cn.v7soft.admin.service.ISpuService;
 import cn.v7soft.admin.service.IThemeCustomService;
 import cn.v7soft.admin.service.IWebsiteService;
 import cn.v7soft.admin.service.ssl.PlaceholderCertHolder;
+import cn.v7soft.admin.utils.NginxConfigWriter;
+import cn.v7soft.dao.entities.primary.FrontServer;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Department;
 import cn.v7soft.dao.entities.primary.SubDomain;
@@ -78,6 +80,21 @@ class SubDomainServiceTest {
     void tearDown() {
         WebsiteContext.clear();
         saSessionUtilMock.close();
+    }
+
+    @Test
+    void parentDeletionDoesNotRemoveOrPublishChildConfigsEarly() {
+        SubDomain subDomain = subDomainWithParentOwner(1L, 10L, 20L, null);
+        FrontServer front = FrontServer.builder().id(5L).name("front-a").activeResolutionCount(1).build();
+        subDomain.setFrontServer(front);
+        try (MockedStatic<NginxConfigWriter> nginx = mockStatic(NginxConfigWriter.class)) {
+            service.deleteChildrenForParent(List.of(subDomain));
+            verify(repository).saveAndFlush(subDomain);
+            verify(frontServerService).save(front);
+            verify(frontServerService, never()).pushAndRefresh(any());
+            verify(frontServerService, never()).pushAndRefreshAll();
+            nginx.verifyNoInteractions();
+        }
     }
 
     @Test

@@ -46,4 +46,5 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    systemProperty("v7.nginx.workspaceLock", layout.buildDirectory.file("test-workspace/nginx.lock").get().asFile.absolutePath)
 }

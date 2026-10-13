@@ -16,6 +16,7 @@ import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.RuntimeUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.v7soft.common.utils.SslCertificateUtil;
+import cn.v7soft.admin.utils.NginxWorkspace;
 import cn.v7soft.dao.entities.primary.CloudPlatformAccount;
 import cn.v7soft.dao.entities.primary.TopLevelDomain;
 import kotlin.text.Charsets;
@@ -121,10 +122,12 @@ public abstract class BaseSslCertificateRequester implements ISslCertificateRequ
     protected abstract String getIniContent(CloudPlatformAccount cloudPlatformAccount);
 
     private void writePemPair(String targetDir, String fullChain, String privateKey) throws Exception {
-        Path dir = Path.of(targetDir);
-        Files.createDirectories(dir);
-        atomicWrite(dir.resolve("fullchain.pem"), fullChain);
-        atomicWrite(dir.resolve("privkey.pem"), privateKey);
+        try (var ignored = NginxWorkspace.lock()) {
+            Path dir = Path.of(targetDir);
+            Files.createDirectories(dir);
+            atomicWrite(dir.resolve("fullchain.pem"), fullChain);
+            atomicWrite(dir.resolve("privkey.pem"), privateKey);
+        }
     }
 
     private void atomicWrite(Path target, String content) throws Exception {
