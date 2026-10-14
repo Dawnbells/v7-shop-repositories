@@ -341,6 +341,16 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         for (int i = 0; i < orders.size(); i++) {
             JSONObject order = orders.getJSONObject(i);
             String originOrderId = order.getStr("id");
+            if (log.isTraceEnabled()) {
+                log.trace("Shopify order sync raw order\n"
+                                + "==================== Shopify Order BEGIN ====================\n"
+                                + "websiteId: {} | handle: {} | syncMode: {} | orderIndex: {}/{}\n"
+                                + "orderId: {} | orderName: {}\n"
+                                + "{}\n"
+                                + "===================== Shopify Order END =====================",
+                        website.getId(), website.getHandle(), syncMode, i + 1, orders.size(),
+                        originOrderId, order.getStr("name"), JSONUtil.toJsonPrettyStr(order));
+            }
             try {
                 if (!updateExisting && StrUtil.isNotBlank(originOrderId)
                         && temporaryOrderService.findByOriginOrderId(originOrderId).isPresent()) {
@@ -411,7 +421,10 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         request.setFinancialInfo(buildFinancialInfo(order, moneyKey));
         request.setPaymentInfo(buildPaymentInfo(order));
         request.setContextInfo(buildContextInfo(website, owner, order, moneyKey));
-        request.setRiskInfo(buildRiskInfo(order));
+        TemporaryOrderRiskRecordInfoRequest riskInfo = buildRiskInfo(order);
+        log.trace("Shopify order IP fields: websiteId={}, handle={}, orderId={}, resolvedRemoteIp={}",
+                website.getId(), website.getHandle(), order.getStr("id"), riskInfo.getRemoteIp());
+        request.setRiskInfo(riskInfo);
         request.setItemInfos(buildItemInfos(order, moneyKey, owner, productMetafieldsMap));
 
         // 归属人优先级：归属人账号(telephone) > 归属人(name) > 第三方商城归属(website owner)
@@ -604,6 +617,22 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         if (clientDetails != null) {
             ua = StrUtil.blankToDefault(clientDetails.getStr("user_agent"), "");
             browserIp = StrUtil.blankToDefault(clientDetails.getStr("browser_ip"), browserIp);
+        }
+        // EasySell 等表单应用会把客户 IP 放在订单的附加详情中。
+        if (StrUtil.isBlank(browserIp)) {
+            JSONArray noteAttributes = order.getJSONArray("note_attributes");
+            if (noteAttributes != null) {
+                for (int i = 0; i < noteAttributes.size(); i++) {
+                    JSONObject attribute = noteAttributes.getJSONObject(i);
+                    if (attribute != null && "IP Address".equalsIgnoreCase(StrUtil.trim(attribute.getStr("name")))) {
+                        String attributeIp = StrUtil.trim(attribute.getStr("value"));
+                        if (StrUtil.isNotBlank(attributeIp)) {
+                            browserIp = attributeIp;
+                            break;
+                        }
+                    }
+                }
+            }
         }
         info.setRemoteIp(StrUtil.blankToDefault(browserIp, ""));
         info.setUa(ua);

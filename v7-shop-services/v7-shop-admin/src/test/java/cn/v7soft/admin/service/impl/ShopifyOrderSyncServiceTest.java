@@ -340,6 +340,77 @@ class ShopifyOrderSyncServiceTest {
     @DisplayName("订单转换")
     class ConvertOrder {
 
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        @DisplayName("Shopify 浏览器 IP 缺失时使用 EasySell 附加详情的 IP")
+        void shouldFallBackToNoteAttributeIp(boolean hasClientDetails) {
+            JSONObject order = buildShopifyOrder();
+            order.set("browser_ip", " ");
+            if (hasClientDetails) {
+                order.getJSONObject("client_details").set("browser_ip", "");
+            } else {
+                order.remove("client_details");
+            }
+            JSONArray attributes = new JSONArray();
+            attributes.add(new JSONObject().set("name", "IP Address").set("value", "179.255.146.65"));
+            order.set("note_attributes", attributes);
+
+            assertEquals("179.255.146.65", loadAndCapture(buildWebsiteDto(null), order).getRiskInfo().getRemoteIp());
+        }
+
+        @Test
+        @DisplayName("附加详情的 IP 不覆盖 Shopify 浏览器 IP")
+        void shouldPreferClientBrowserIpOverTopLevelAndNoteAttribute() {
+            JSONObject order = buildShopifyOrder();
+            order.set("browser_ip", "8.8.8.8");
+            JSONArray attributes = new JSONArray();
+            attributes.add(new JSONObject().set("name", "IP Address").set("value", "179.255.146.65"));
+            order.set("note_attributes", attributes);
+
+            assertEquals("192.168.1.1", loadAndCapture(buildWebsiteDto(null), order).getRiskInfo().getRemoteIp());
+        }
+
+        @Test
+        @DisplayName("client_details IP 为空时优先使用顶层 IP")
+        void shouldPreferTopLevelBrowserIpOverNoteAttribute() {
+            JSONObject order = buildShopifyOrder();
+            order.set("browser_ip", "8.8.8.8");
+            order.getJSONObject("client_details").set("browser_ip", " ");
+            JSONArray attributes = new JSONArray();
+            attributes.add(new JSONObject().set("name", "IP Address").set("value", "179.255.146.65"));
+            order.set("note_attributes", attributes);
+
+            assertEquals("8.8.8.8", loadAndCapture(buildWebsiteDto(null), order).getRiskInfo().getRemoteIp());
+        }
+
+        @Test
+        @DisplayName("附加详情跳过空值，兼容字段名大小写和首尾空格")
+        void shouldSkipBlankIpAttributesAndTrimFallbackIp() {
+            JSONObject order = buildShopifyOrder();
+            order.remove("client_details");
+            JSONArray attributes = new JSONArray();
+            attributes.add(new JSONObject().set("name", "Other field").set("value", "8.8.8.8"));
+            attributes.add(new JSONObject().set("name", "IP Address").set("value", " "));
+            attributes.add(new JSONObject().set("name", " ip address ").set("value", " 179.255.146.65 "));
+            order.set("note_attributes", attributes);
+
+            assertEquals("179.255.146.65", loadAndCapture(buildWebsiteDto(null), order).getRiskInfo().getRemoteIp());
+        }
+
+        @Test
+        @DisplayName("没有可用 IP 属性时仍留空")
+        void shouldKeepIpEmptyWhenNoMatchingAttributeHasValue() {
+            JSONObject order = buildShopifyOrder();
+            order.remove("client_details");
+            JSONArray attributes = new JSONArray();
+            attributes.add(new JSONObject().set("name", "Other field").set("value", "8.8.8.8"));
+            attributes.add(new JSONObject().set("name", "IP Address").set("value", ""));
+            attributes.add(new JSONObject().set("name", "IP Address"));
+            order.set("note_attributes", attributes);
+
+            assertEquals("", loadAndCapture(buildWebsiteDto(null), order).getRiskInfo().getRemoteIp());
+        }
+
         @Test
         void shouldPreferShippingCountryOverLocale() {
             JSONObject order = buildShopifyOrder();
