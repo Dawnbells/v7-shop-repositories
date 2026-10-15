@@ -422,8 +422,8 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         request.setPaymentInfo(buildPaymentInfo(order));
         request.setContextInfo(buildContextInfo(website, owner, order, moneyKey));
         TemporaryOrderRiskRecordInfoRequest riskInfo = buildRiskInfo(order);
-        log.trace("Shopify order IP fields: websiteId={}, handle={}, orderId={}, resolvedRemoteIp={}",
-                website.getId(), website.getHandle(), order.getStr("id"), riskInfo.getRemoteIp());
+        log.info("Shopify order IP/UA: websiteId={}, handle={}, orderId={}, resolvedRemoteIp={}, ua={}",
+                website.getId(), website.getHandle(), order.getStr("id"), riskInfo.getRemoteIp(), riskInfo.getUa());
         request.setRiskInfo(riskInfo);
         request.setItemInfos(buildItemInfos(order, moneyKey, owner, productMetafieldsMap));
 
@@ -439,7 +439,10 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
 
         JSONObject customer = order.getJSONObject("customer");
         JSONObject addr = order.getJSONObject("shipping_address");
-        if (addr != null) {
+        if (addr == null || addr.isEmpty()) {
+            addr = order.getJSONObject("billing_address");
+        }
+        if (addr != null && !addr.isEmpty()) {
             info.setFirstName(StrUtil.blankToDefault(addr.getStr("first_name"), ""));
             info.setLastName(StrUtil.blankToDefault(addr.getStr("last_name"), ""));
             info.setPhone(StrUtil.blankToDefault(addr.getStr("phone"), ""));

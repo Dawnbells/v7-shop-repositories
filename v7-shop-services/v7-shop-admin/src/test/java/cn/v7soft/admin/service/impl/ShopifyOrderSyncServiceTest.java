@@ -450,6 +450,74 @@ class ShopifyOrderSyncServiceTest {
             assertEquals("CA", loadAndCapture(buildWebsiteDto(null), order).getContextInfo().getCountryCode());
         }
 
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        @DisplayName("配送地址缺失或为空对象时，使用账单地址同步客户和地址信息")
+        void shouldFallBackToBillingAddress(boolean emptyShippingAddress) {
+            JSONObject order = buildShopifyOrder();
+            JSONObject billingAddress = order.getJSONObject("shipping_address");
+            billingAddress.set("first_name", "Billing");
+            billingAddress.set("last_name", "Recipient");
+            billingAddress.set("phone", "+18885551234");
+            order.set("billing_address", billingAddress);
+            if (emptyShippingAddress) {
+                order.set("shipping_address", new JSONObject());
+            } else {
+                order.remove("shipping_address");
+            }
+            order.set("customer", new JSONObject().set("first_name", "Customer").set("phone", "OTHER"));
+
+            var deliveryInfo = loadAndCapture(buildWebsiteDto(null), order).getDeliveryInfo();
+
+            assertEquals("Billing", deliveryInfo.getFirstName());
+            assertEquals("Recipient", deliveryInfo.getLastName());
+            assertEquals("+18885551234", deliveryInfo.getPhone());
+            assertEquals("California", deliveryInfo.getProvince());
+            assertEquals("Los Angeles", deliveryInfo.getCity());
+            assertEquals("90001", deliveryInfo.getPostalCode());
+            assertEquals("123 Main St /Apt 4B", deliveryInfo.getAddress());
+        }
+
+        @Test
+        @DisplayName("配送地址和账单地址同时存在时，使用配送地址")
+        void shouldPreferShippingAddressOverBillingAddress() {
+            JSONObject order = buildShopifyOrder();
+            order.set("billing_address", new JSONObject()
+                    .set("first_name", "Billing")
+                    .set("last_name", "Recipient")
+                    .set("phone", "OTHER")
+                    .set("address1", "Different billing address"));
+
+            var deliveryInfo = loadAndCapture(buildWebsiteDto(null), order).getDeliveryInfo();
+
+            assertEquals("John", deliveryInfo.getFirstName());
+            assertEquals("Doe", deliveryInfo.getLastName());
+            assertEquals("+1234567890", deliveryInfo.getPhone());
+            assertEquals("123 Main St /Apt 4B", deliveryInfo.getAddress());
+        }
+
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        @DisplayName("配送地址和账单地址都不可用时，仍从 customer 获取基本信息")
+        void shouldFallBackToCustomerWhenBothAddressesAreUnavailable(boolean emptyBillingAddress) {
+            JSONObject order = buildShopifyOrder();
+            order.remove("shipping_address");
+            if (emptyBillingAddress) {
+                order.set("billing_address", new JSONObject());
+            }
+            order.set("customer", new JSONObject()
+                    .set("first_name", "Customer")
+                    .set("last_name", "Name")
+                    .set("phone", "+18885551234"));
+
+            var deliveryInfo = loadAndCapture(buildWebsiteDto(null), order).getDeliveryInfo();
+
+            assertEquals("Customer", deliveryInfo.getFirstName());
+            assertEquals("Name", deliveryInfo.getLastName());
+            assertEquals("+18885551234", deliveryInfo.getPhone());
+            assertNull(deliveryInfo.getAddress());
+        }
+
         @Test
         void shouldUseCurrentQuantityAndExcludeRemovedProducts() {
             JSONObject order = buildShopifyOrder();
