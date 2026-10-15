@@ -41,7 +41,7 @@ public class OrderRiskRecordInfo extends BaseTenantEntity {
     /**
      * 远程IP地址
      */
-    @Column(name = "remote_ip", length = 32)
+    @Column(name = "remote_ip", length = 64)
     private String remoteIp;
     /**
      * 远程IP地址信息

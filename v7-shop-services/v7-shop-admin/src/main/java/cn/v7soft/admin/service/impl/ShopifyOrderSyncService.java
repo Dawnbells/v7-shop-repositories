@@ -27,6 +27,7 @@ import cn.v7soft.admin.utils.OrderQueryHelper;
 import cn.v7soft.admin.utils.ShopifyHost;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.core.enums.ServiceResponseEnum;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.primary.Currency;
@@ -143,8 +144,17 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         URI uri = builder.build().toUri();
 
         ThirdPartyWebsiteDto websiteDto = websiteStore.getDtoById(website.getId());
-        ApiSession session = new ApiSession(website.getId(), website.getHandle(), tokenService.getAccessToken(websiteDto));
-        ResponseEntity<String> response = get(session, uri);
+        ResponseEntity<String> response;
+        try {
+            ApiSession session = new ApiSession(website.getId(), website.getHandle(), tokenService.getAccessToken(websiteDto));
+            response = get(session, uri);
+        } catch (HttpClientErrorException e) {
+            String unavailableMessage = shopUnavailableMessage(e.getStatusCode().value());
+            if (unavailableMessage != null) {
+                websiteStore.markWebsiteAuthError(website.getId(), unavailableMessage);
+            }
+            throw e;
+        }
 
         String errors = "status: " + response.getStatusCode();
         if (StrUtil.isNotBlank(response.getBody())) {
@@ -195,7 +205,10 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             response = get(session, uri);
         } catch (HttpClientErrorException e) {
             int statusCode = e.getStatusCode().value();
-            if (statusCode == 401 || statusCode == 403) {
+            String unavailableMessage = shopUnavailableMessage(statusCode);
+            if (unavailableMessage != null) {
+                websiteStore.markWebsiteAuthError(websiteId, unavailableMessage);
+            } else if (statusCode == 401 || statusCode == 403) {
                 websiteStore.markWebsiteAuthError(websiteId, "Client ID/Secret无效或应用权限不足 (HTTP " + statusCode + ")");
             }
             log.error("Shopify order sync page request failed: websiteId={}, handle={}, syncMode={}, status={}, uri={}",
@@ -230,6 +243,10 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         try {
             token = tokenService.fetchToken(website.getHandle(), website.getClientId(), website.getClientSecret());
         } catch (HttpClientErrorException e) {
+            String unavailableMessage = shopUnavailableMessage(e.getStatusCode().value());
+            if (unavailableMessage != null) {
+                throw ClientResponseEnum.PARAMETER_ILLEGAL.newException(unavailableMessage);
+            }
             throw ClientResponseEnum.PARAMETER_ILLEGAL.newException(
                     "无法获取Shopify访问令牌，请检查Handle、Client ID、Client Secret是否正确，以及应用是否已安装到该店铺 (HTTP "
                             + e.getStatusCode().value() + ")");
@@ -256,7 +273,11 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         } catch (HttpClientErrorException e) {
             website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);
             int code = e.getStatusCode().value();
-            if (code == 401) {
+            String unavailableMessage = shopUnavailableMessage(code);
+            if (unavailableMessage != null) {
+                website.setAuthMessage(unavailableMessage);
+                website.setStatus(StatusEnum.INVALID);
+            } else if (code == 401) {
                 website.setAuthMessage("Token无效或已过期");
             } else if (code == 403) {
                 website.setAuthMessage("应用缺少订单读取权限(read_orders)");
@@ -273,6 +294,14 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     }
 
     // ==================== 内部方法 ====================
+
+    private String shopUnavailableMessage(int statusCode) {
+        return switch (statusCode) {
+            case 402 -> "Shopify店铺已冻结或不可用，请登录Shopify后台检查店铺状态及账单 (HTTP 402)";
+            case 423 -> "Shopify店铺已锁定，请联系Shopify支持检查店铺状态 (HTTP 423)";
+            default -> null;
+        };
+    }
 
     private String buildHost(String handle) {
         return ShopifyHost.host(handle);
@@ -341,8 +370,8 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         for (int i = 0; i < orders.size(); i++) {
             JSONObject order = orders.getJSONObject(i);
             String originOrderId = order.getStr("id");
-            if (log.isTraceEnabled()) {
-                log.trace("Shopify order sync raw order\n"
+            if (log.isDebugEnabled()) {
+                log.debug("Shopify order sync raw order\n"
                                 + "==================== Shopify Order BEGIN ====================\n"
                                 + "websiteId: {} | handle: {} | syncMode: {} | orderIndex: {}/{}\n"
                                 + "orderId: {} | orderName: {}\n"

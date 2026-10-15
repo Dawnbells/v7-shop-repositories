@@ -2,12 +2,14 @@ package cn.v7soft.admin.service.impl;
 
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
+import cn.v7soft.admin.controller.req.CountThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.EditTemporaryOrderRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.service.*;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.core.exception.BaseException;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.Country;
@@ -35,6 +37,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -232,6 +235,74 @@ class ShopifyOrderSyncServiceTest {
 
     private HttpClientErrorException unauthorized() {
         return HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized", HttpHeaders.EMPTY, new byte[0], null);
+    }
+
+    private HttpClientErrorException unavailableShop(int statusCode) {
+        return HttpClientErrorException.create(HttpStatus.valueOf(statusCode), "Shop unavailable", HttpHeaders.EMPTY,
+                "{\"errors\":\"Unavailable Shop\"}".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+    }
+
+    @Nested
+    @DisplayName("店铺冻结或锁定")
+    class UnavailableShop {
+        @ParameterizedTest
+        @ValueSource(ints = {402, 423})
+        void shouldDisableUnavailableShopWithoutRetryOrCursorUpdate(int statusCode) {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            HttpClientErrorException error = unavailableShop(statusCode);
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenThrow(error);
+
+            assertSame(error, assertThrows(HttpClientErrorException.class,
+                    () -> service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.AUTO)));
+
+            verify(websiteStore).markWebsiteAuthError(eq(1L), contains("HTTP " + statusCode));
+            verify(websiteStore, never()).updateLastSyncInfo(any(), any());
+            verify(tokenService, never()).forceRefresh(any(), any());
+            verify(restTemplate).exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {402, 423})
+        void shouldDisableShopWhenTokenAcquisitionFails(int statusCode) {
+            when(tokenService.getAccessToken(any())).thenThrow(unavailableShop(statusCode));
+
+            assertThrows(HttpClientErrorException.class,
+                    () -> service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.MANUAL));
+
+            verify(websiteStore).markWebsiteAuthError(eq(1L), contains("HTTP " + statusCode));
+            verify(websiteStore, never()).updateLastSyncInfo(any(), any());
+            verifyNoInteractions(restTemplate);
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {402, 423})
+        void shouldDisableShopWhenCountingOrders(int statusCode) {
+            ThirdPartyWebsite website = ThirdPartyWebsite.builder().id(1L).handle("test-shop").build();
+            when(websiteStore.getDtoById(1L)).thenReturn(buildWebsiteDto(null));
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenThrow(unavailableShop(statusCode));
+
+            assertThrows(HttpClientErrorException.class,
+                    () -> service.countOrders(website, new CountThirdPartyOrdersRequest()));
+
+            verify(websiteStore).markWebsiteAuthError(eq(1L), contains("HTTP " + statusCode));
+            verify(tokenService, never()).forceRefresh(any(), any());
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {400, 404, 422})
+        void shouldNotDisableShopForUnrelatedClientErrors(int statusCode) {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenThrow(new HttpClientErrorException(HttpStatus.valueOf(statusCode)));
+
+            assertThrows(HttpClientErrorException.class,
+                    () -> service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.AUTO));
+
+            verify(websiteStore, never()).markWebsiteAuthError(any(), any());
+        }
     }
 
     // ==================== 请求参数测试 ====================
@@ -767,6 +838,37 @@ class ShopifyOrderSyncServiceTest {
     @Nested
     @DisplayName("verifyAndUpdateAuthStatus")
     class VerifyAuthStatus {
+
+        @ParameterizedTest
+        @ValueSource(ints = {402, 423})
+        void shouldMarkUnavailableShopWhenVerifyingOrdersApi(int statusCode) {
+            when(tokenService.fetchToken(anyString(), anyString(), anyString()))
+                    .thenReturn(new ShopifyTokenService.ShopifyToken("new-token", LocalDateTime.now().plusHours(24)));
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenThrow(unavailableShop(statusCode));
+            ThirdPartyWebsite website = buildWebsite();
+
+            service.verifyAndUpdateAuthStatus(website);
+
+            assertEquals(ThirdPartyAuthStatusEnum.ERROR, website.getAuthStatus());
+            assertEquals(StatusEnum.INVALID, website.getStatus());
+            assertTrue(website.getAuthMessage().contains("HTTP " + statusCode));
+            assertTrue(website.getAuthMessage().contains(statusCode == 402 ? "冻结" : "锁定"));
+        }
+
+        @ParameterizedTest
+        @ValueSource(ints = {402, 423})
+        void shouldReportUnavailableShopWhenFetchingToken(int statusCode) {
+            when(tokenService.fetchToken(anyString(), anyString(), anyString()))
+                    .thenThrow(unavailableShop(statusCode));
+
+            BaseException error = assertThrows(BaseException.class,
+                    () -> service.verifyAndUpdateAuthStatus(buildWebsite()));
+
+            assertTrue(error.getMessage().contains("HTTP " + statusCode));
+            assertTrue(error.getMessage().contains(statusCode == 402 ? "冻结" : "锁定"));
+            verifyNoInteractions(restTemplate);
+        }
 
         private ThirdPartyWebsite buildWebsite() {
             return ThirdPartyWebsite.builder()
