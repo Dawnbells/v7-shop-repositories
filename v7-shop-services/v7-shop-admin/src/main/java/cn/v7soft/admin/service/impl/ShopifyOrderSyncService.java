@@ -500,9 +500,9 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
 
     private TemporaryOrderFinancialInfoRequest buildFinancialInfo(JSONObject order, String moneyKey) {
         TemporaryOrderFinancialInfoRequest info = new TemporaryOrderFinancialInfoRequest();
-        info.setTotalAmount(extractMoneyAmount(order, "current_total_price_set", moneyKey, "current_total_price"));
-        info.setDiscountAmount(extractMoneyAmount(order, "current_total_discounts_set", moneyKey, "current_total_discounts"));
-        info.setTaxAmount(extractMoneyAmount(order, "current_total_tax_set", moneyKey, "current_total_tax"));
+        info.setTotalAmount(extractMoneyAmount(order, "total_price_set", moneyKey, "total_price"));
+        info.setDiscountAmount(extractMoneyAmount(order, "total_discounts_set", moneyKey, "total_discounts"));
+        info.setTaxAmount(extractMoneyAmount(order, "total_tax_set", moneyKey, "total_tax"));
 
         BigDecimal shippingFee = BigDecimal.ZERO;
         JSONArray shippingLines = order.getJSONArray("shipping_lines");
@@ -690,7 +690,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         Map<String, String> firstMetafields = null;
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem == null || currentQuantity(lineItem) <= 0) {
+            if (lineItem == null) {
                 continue;
             }
             String pid = lineItem.getStr("product_id");
@@ -736,7 +736,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         List<String> skuCodes = new ArrayList<>();
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem != null && currentQuantity(lineItem) > 0) {
+            if (lineItem != null) {
                 String code = resolveSkuCode(lineItem, productMetafieldsMap);
                 if (StrUtil.isNotBlank(code)) {
                     skuCodes.add(code.trim());
@@ -758,7 +758,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         List<TemporaryOrderItemInfoRequest> items = new ArrayList<>(lineItems.size());
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem == null || currentQuantity(lineItem) <= 0) {
+            if (lineItem == null) {
                 continue;
             }
 
@@ -781,7 +781,8 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             item.setCostPrice(BigDecimal.ZERO);
             item.setTax(BigDecimal.ZERO);
             item.setBarcode("");
-            item.setQuantity(currentQuantity(lineItem));
+            // 按下单时的数量原样接入，不使用订单编辑/退款后的 current_quantity
+            item.setQuantity(lineItem.getInt("quantity", 0));
 
             String skuCode = resolveSkuCode(lineItem, productMetafieldsMap);
             item.setSkuCode(skuCode);
@@ -812,11 +813,6 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             items.add(item);
         }
         return items;
-    }
-
-    private int currentQuantity(JSONObject lineItem) {
-        Integer quantity = lineItem.getInt("current_quantity");
-        return quantity != null ? quantity : lineItem.getInt("quantity", 0);
     }
 
     /**
@@ -887,7 +883,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         Set<String> productIds = new LinkedHashSet<>();
         for (int i = 0; i < lineItems.size(); i++) {
             JSONObject lineItem = lineItems.getJSONObject(i);
-            if (lineItem != null && currentQuantity(lineItem) > 0) {
+            if (lineItem != null) {
                 String pid = lineItem.getStr("product_id");
                 if (StrUtil.isNotBlank(pid)) {
                     productIds.add(pid);
@@ -976,7 +972,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
      * 根据 moneyKey 提取币种，店铺结算币种 fallback 到 currency，订单展示币种 fallback 到 presentment_currency
      */
     private String extractCurrencyCode(JSONObject order, String moneyKey) {
-        JSONObject totalPriceSet = order.getJSONObject("current_total_price_set");
+        JSONObject totalPriceSet = order.getJSONObject("total_price_set");
         if (totalPriceSet != null) {
             JSONObject money = totalPriceSet.getJSONObject(moneyKey);
             if (money != null) {

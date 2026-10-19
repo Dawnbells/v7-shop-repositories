@@ -154,9 +154,9 @@ class ShopifyOrderSyncServiceTest {
         order.set("financial_status", "paid");
         order.set("note", "请尽快发货");
         order.set("email", "order@example.com");
-        order.set("current_total_price_set", moneySet("99.99", "89.99"));
-        order.set("current_total_discounts_set", moneySet("10.00", "9.00"));
-        order.set("current_total_tax_set", moneySet("5.00", "4.50"));
+        order.set("total_price_set", moneySet("99.99", "89.99"));
+        order.set("total_discounts_set", moneySet("10.00", "9.00"));
+        order.set("total_tax_set", moneySet("5.00", "4.50"));
 
         JSONObject shippingAddress = new JSONObject();
         shippingAddress.set("first_name", "John");
@@ -590,28 +590,33 @@ class ShopifyOrderSyncServiceTest {
         }
 
         @Test
-        void shouldUseCurrentQuantityAndExcludeRemovedProducts() {
+        void shouldUseOrderedQuantityAndKeepRemovedProducts() {
             JSONObject order = buildShopifyOrder();
             JSONArray items = order.getJSONArray("line_items");
             items.getJSONObject(0).set("quantity", 3).set("current_quantity", 1);
-            items.add(new JSONObject().set("quantity", 2).set("current_quantity", 0)
-                    .set("sku", "REMOVED").set("product_id", "removed-product"));
+            items.add(new JSONObject().set("quantity", 2).set("current_quantity", 0).set("sku", "REMOVED"));
 
             EditTemporaryOrderRequest request = loadAndCapture(buildWebsiteDto(null), order);
 
-            assertEquals(1, request.getItemInfos().size());
-            assertEquals(1, request.getItemInfos().get(0).getQuantity());
-            verify(productSKUService).listBySkuCodes(eq(List.of("SKU-001")), anyLong());
-            verify(restTemplate, times(1)).exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
-            verifyNoInteractions(systemUserRepository);
+            assertEquals(2, request.getItemInfos().size());
+            assertEquals(3, request.getItemInfos().get(0).getQuantity());
+            assertEquals(2, request.getItemInfos().get(1).getQuantity());
+            assertEquals("REMOVED", request.getItemInfos().get(1).getSkuCode());
+            verify(productSKUService).listBySkuCodes(eq(List.of("SKU-001", "REMOVED")), anyLong());
         }
 
         @Test
-        void shouldAllowAllItemsToBeRemoved() {
+        void shouldUseOriginalAmountsInsteadOfCurrentAmounts() {
             JSONObject order = buildShopifyOrder();
-            order.getJSONArray("line_items").getJSONObject(0).set("current_quantity", 0);
-            assertTrue(loadAndCapture(buildWebsiteDto(null), order).getItemInfos().isEmpty());
-            verifyNoInteractions(productSKUService);
+            order.set("current_total_price_set", moneySet("0.00", "0.00"));
+            order.set("current_total_discounts_set", moneySet("0.00", "0.00"));
+            order.set("current_total_tax_set", moneySet("0.00", "0.00"));
+
+            EditTemporaryOrderRequest request = loadAndCapture(buildWebsiteDto(null), order);
+
+            assertEquals(0, new BigDecimal("99.99").compareTo(request.getFinancialInfo().getTotalAmount()));
+            assertEquals(0, new BigDecimal("10.00").compareTo(request.getFinancialInfo().getDiscountAmount()));
+            assertEquals(0, new BigDecimal("5.00").compareTo(request.getFinancialInfo().getTaxAmount()));
         }
 
         private EditTemporaryOrderRequest loadAndCapture(ThirdPartyWebsiteDto website, JSONObject order) {
