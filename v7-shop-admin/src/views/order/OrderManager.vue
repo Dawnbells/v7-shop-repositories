@@ -53,7 +53,7 @@
       <el-table-column align="center" label="产品信息" min-width="150">
         <template #default="{ row }">
           <div v-if="sensitiveVisible" class="text-left">
-            <el-tooltip :content="row.items[0].title" placement="top">
+            <el-tooltip :content="row.items?.[0]?.title" placement="top">
               <el-button
                 style="
                   height: auto;
@@ -68,7 +68,7 @@
                 underline="never"
                 @click.stop="generateProductUrl(row.fromUrl, row.platform)"
               >
-                <span style="font-weight: normal">产品名称: {{ row.items[0].merchandise }}</span>
+                <span style="font-weight: normal">产品名称: {{ row.items?.[0]?.merchandise }}</span>
               </el-button>
             </el-tooltip>
           </div>
@@ -89,7 +89,7 @@
             <span>SKU代码: {{ row.skuCodes }}</span>
           </div>
           <div v-if="sensitiveVisible" class="text-left">
-            <span>面单品名: {{ row.items[0].waybillProductName }}</span>
+            <span>面单品名: {{ row.items?.[0]?.waybillProductName }}</span>
           </div>
         </template>
       </el-table-column>
@@ -406,7 +406,7 @@
                   @click.stop="searchForWebsiteUrl(row.contextInfo?.websiteUrl)"
                 >
                   {{
-                    row.contextInfo?.websiteUrl.replaceAll('https://', '').replaceAll('http://', '')
+                    row.contextInfo?.websiteUrl?.replaceAll('https://', '').replaceAll('http://', '')
                   }}
                 </el-button>
               </span>
