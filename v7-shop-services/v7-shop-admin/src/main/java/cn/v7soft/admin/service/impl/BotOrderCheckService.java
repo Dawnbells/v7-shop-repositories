@@ -37,6 +37,7 @@ import cn.v7soft.dao.entities.primary.OrderItemInfo;
 import cn.v7soft.dao.entities.primary.OrderRiskRecordInfo;
 import cn.v7soft.dao.entities.primary.ProxyDetectInfo;
 import cn.v7soft.dao.enums.CheckStatus;
+import cn.v7soft.dao.enums.OrderStatus;
 import cn.v7soft.dao.repositories.address.RemoteAreaRepository;
 import cn.v7soft.dao.repositories.primary.OrderRepository;
 import cn.v7soft.dao.repositories.primary.ProxyDetectInfoRepository;
@@ -235,6 +236,10 @@ public class BotOrderCheckService implements IBotOrderCheckService {
         orderInfo.setQuantity(orderInfo.getItemInfos().stream().mapToLong(OrderItemInfo::getQuantity).sum());
         Order savedOrder = orderService.saveAndMarkReviewed(orderInfo, temporaryOrderDto.getLongId());
 
+        // 客户已取消的订单不发送确认邮件
+        if (savedOrder.getOrderStatus() == OrderStatus.CUSTOMER_CANCELLED) {
+            return;
+        }
         // 在事务内提取邮件所需数据为 DTO，避免 @Async 线程中触发 LAZY 加载
         OrderEmailDto emailDto = OrderEmailDto.from(savedOrder);
         emailService.sendOrderConfirmationEmail(emailDto);

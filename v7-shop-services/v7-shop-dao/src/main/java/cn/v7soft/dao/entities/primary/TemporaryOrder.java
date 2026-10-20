@@ -131,5 +131,12 @@ public class TemporaryOrder extends BaseAutoIdDataRangeEntity {
      */
     @Column(name = "review_time")
     private LocalDateTime reviewTime;
+
+    /**
+     * 来源平台上客户已取消（整单取消或全部商品被移除）
+     */
+    @Column(name = "is_customer_cancelled")
+    @Builder.Default
+    private Boolean customerCancelled = false;
 }
 

@@ -60,6 +60,9 @@ public class EditTemporaryOrderRequest extends IdRequest {
     @Schema(description = "风险记录信息")
     private TemporaryOrderRiskRecordInfoRequest riskInfo;
 
+    @Schema(description = "来源平台上客户已取消")
+    private Boolean customerCancelled;
+
     public OrderPaymentInfo toPaymentInfo() {
         OrderPaymentInfo orderPaymentInfo = new OrderPaymentInfo();
         BeanUtil.copyProperties(this.paymentInfo, orderPaymentInfo);

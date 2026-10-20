@@ -6,12 +6,14 @@ import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
+import cn.v7soft.admin.service.dto.ShopifyCancelCheckResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.admin.service.impl.ShopifyWebsiteStore;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +44,12 @@ class ShopifyOrderSyncExecutorTest {
 
     @InjectMocks
     private ShopifyOrderSyncExecutor executor;
+
+    @BeforeEach
+    void mockEmptyCancelCheck() {
+        lenient().when(shopifyOrderSyncService.checkCancelledOrders(any(), any(), any()))
+                .thenAnswer(invocation -> new ShopifyCancelCheckResult(invocation.getArgument(1), null));
+    }
 
     @AfterEach
     void tearDown() {
@@ -175,6 +183,111 @@ class ShopifyOrderSyncExecutorTest {
 
         assertDoesNotThrow(() -> executor.syncNext());
         verify(shopifyOrderSyncService, times(2)).loadOrders(any(), any(), any(), eq(SyncMode.AUTO));
+    }
+
+    @Test
+    @DisplayName("首次取消检查从商城创建时间开始，并保存处理到的更新时间")
+    void shouldCheckCancelledOrdersFromCreateTimeAndPersistCursor() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
+        LocalDateTime cursor = LocalDateTime.now().minusMinutes(1);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.loadOrders(any(), any(), any(), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
+        when(shopifyOrderSyncService.checkCancelledOrders(any(), any(), isNull()))
+                .thenReturn(new ShopifyCancelCheckResult(cursor, null));
+
+        executor.syncNext();
+
+        verify(shopifyOrderSyncService).checkCancelledOrders(any(), eq(website.getCreateTime()), isNull());
+        verify(websiteStore).updateCancelCheckProgress(1L, cursor, null);
+    }
+
+    @Test
+    @DisplayName("首次取消检查最多回看7天，且5分钟内不重复检查")
+    void shouldLimitInitialLookbackAndThrottleCancelCheck() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), true);
+        setField(website, "createTime", LocalDateTime.now().minusDays(30));
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.loadOrders(any(), any(), any(), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
+
+        LocalDateTime before = LocalDateTime.now().minusDays(7);
+        executor.syncNext();
+        executor.syncNext();
+        LocalDateTime after = LocalDateTime.now().minusDays(7);
+
+        ArgumentCaptor<LocalDateTime> updatedAtMin = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(shopifyOrderSyncService, times(2)).loadOrders(any(), any(), any(), eq(SyncMode.AUTO));
+        verify(shopifyOrderSyncService, times(1)).checkCancelledOrders(any(), updatedAtMin.capture(), isNull());
+        assertFalse(updatedAtMin.getValue().isBefore(before));
+        assertFalse(updatedAtMin.getValue().isAfter(after));
+        // 没有订单更新时保存本次起点，避免下次回看窗口继续滑动
+        verify(websiteStore).updateCancelCheckProgress(1L, updatedAtMin.getValue(), null);
+    }
+
+    @Test
+    @DisplayName("沿用已保存的取消检查游标，无更新时不重复写库")
+    void shouldReuseSavedCancelCheckCursor() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
+        LocalDateTime saved = LocalDateTime.now().minusHours(2);
+        website.setLastCancelCheckTime(saved);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.loadOrders(any(), any(), any(), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
+
+        executor.syncNext();
+
+        verify(shopifyOrderSyncService).checkCancelledOrders(any(), eq(saved), isNull());
+        verify(websiteStore, never()).updateCancelCheckProgress(anyLong(), any(), any());
+    }
+
+    @Test
+    @DisplayName("取消检查失败不影响新订单同步结果")
+    void shouldIgnoreCancelCheckFailure() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.loadOrders(any(), any(), any(), eq(SyncMode.AUTO))).thenReturn(loadResult("page2", 0));
+        website.setCancelCheckPageInfo("saved-page");
+        when(shopifyOrderSyncService.checkCancelledOrders(any(), any(), any())).thenThrow(new RuntimeException("模拟失败"));
+
+        assertEquals(10_000, executor.syncNext());
+        verify(websiteStore, never()).updateCancelCheckProgress(anyLong(), any(), any());
+        assertEquals("saved-page", website.getCancelCheckPageInfo());
+    }
+
+    @Test
+    void shouldPersistContinuationEvenWhenTimestampDoesNotChange() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
+        LocalDateTime saved = LocalDateTime.now().minusHours(2);
+        website.setLastCancelCheckTime(saved);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.loadOrders(any(), any(), any(), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
+        when(shopifyOrderSyncService.checkCancelledOrders(any(), eq(saved), isNull()))
+                .thenReturn(new ShopifyCancelCheckResult(saved, "page-11"));
+
+        executor.syncNext();
+
+        verify(websiteStore).updateCancelCheckProgress(1L, saved, "page-11");
+    }
+
+    @Test
+    void shouldResumePersistedPageAfterRestartAndClearItOnCompletion() {
+        ThirdPartyWebsite website = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
+        LocalDateTime saved = LocalDateTime.now().minusHours(2);
+        website.setLastCancelCheckTime(saved);
+        website.setCancelCheckPageInfo("page-11");
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.loadOrders(any(), any(), any(), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
+        when(shopifyOrderSyncService.checkCancelledOrders(any(), eq(saved), eq("page-11")))
+                .thenReturn(new ShopifyCancelCheckResult(saved, null));
+
+        executor.syncNext();
+
+        verify(shopifyOrderSyncService).checkCancelledOrders(any(), eq(saved), eq("page-11"));
+        verify(websiteStore).updateCancelCheckProgress(1L, saved, null);
     }
 
     private ShoplineOrderLoadResult loadResult(String nextPageInfo, int createdCount) {

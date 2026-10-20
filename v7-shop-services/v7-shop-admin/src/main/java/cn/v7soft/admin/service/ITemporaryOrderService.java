@@ -19,4 +19,10 @@ public interface ITemporaryOrderService extends IBaseDataRangeService<TemporaryO
     boolean synchronizeOrderFromExternalSystem(EditTemporaryOrderRequest request);
 
     boolean synchronizeOrderFromExternalSystem(EditTemporaryOrderRequest request, boolean updateExisting);
+
+    /**
+     * 将已同步的订单标记为客户取消，已生成的正式订单按状态规则同步更新
+     * @return 订单已同步且本次新标记为取消时返回 true
+     */
+    boolean markCustomerCancelled(String originOrderId);
 }

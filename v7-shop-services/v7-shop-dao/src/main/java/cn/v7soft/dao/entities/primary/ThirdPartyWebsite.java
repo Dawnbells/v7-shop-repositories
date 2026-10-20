@@ -96,6 +96,16 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
     private LocalDateTime lastManualSyncTime;
 
     /**
+     * 上次检查已同步订单取消状态时处理到的订单更新时间，用于 updated_at_min
+     */
+    @Column(name = "last_cancel_check_time")
+    private LocalDateTime lastCancelCheckTime;
+
+    /** 取消检查达到单轮页数上限时保留 Shopify page_info，重启后也可续查。 */
+    @Column(name = "cancel_check_page_info", columnDefinition = "TEXT")
+    private String cancelCheckPageInfo;
+
+    /**
      * Shopify 应用的 Client ID（仅 SHOPIFY 类型使用）
      */
     @Column(name = "client_id")

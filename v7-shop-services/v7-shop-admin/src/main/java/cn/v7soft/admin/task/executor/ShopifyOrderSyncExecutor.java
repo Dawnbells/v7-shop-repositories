@@ -5,6 +5,7 @@ import cn.v7soft.admin.service.IShopifyOrderSyncService;
 import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
+import cn.v7soft.admin.service.dto.ShopifyCancelCheckResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.admin.service.impl.ShopifyWebsiteStore;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
@@ -18,6 +19,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,11 +32,16 @@ public class ShopifyOrderSyncExecutor {
     private static final int MAX_CONCURRENCY = 5;
     private static final long TIMEOUT_PER_WEBSITE_SECONDS = 300;
     private static final long MIN_SYNC_INTERVAL_SECONDS = 60;
+    private static final long CANCEL_CHECK_INTERVAL_SECONDS = 300;
+    // 首次检查取消状态时最多回看的天数，更早的订单通过手动同步处理
+    private static final long CANCEL_CHECK_INITIAL_LOOKBACK_DAYS = 7;
 
     private final IShopifyOrderSyncService shopifyOrderSyncService;
     private final ShopifyWebsiteStore websiteStore;
     private final ICompanyService companyService;
     private final AtomicInteger threadCounter = new AtomicInteger(0);
+    // 各商城上次执行取消检查的服务器时间，仅用于控制频率，重启后会立即检查一次
+    private final ConcurrentHashMap<Long, LocalDateTime> lastCancelCheckAt = new ConcurrentHashMap<>();
     private final ExecutorService syncPool = Executors.newFixedThreadPool(MAX_CONCURRENCY,
             r -> {
                 Thread t = new Thread(r, "shopify-sync-" + threadCounter.incrementAndGet());
@@ -81,6 +88,12 @@ public class ShopifyOrderSyncExecutor {
                         }
                     } catch (Exception e) {
                         log.error("Shopify auto sync website failed: websiteId={}, handle={}",
+                                website.getId(), website.getHandle(), e);
+                    }
+                    try {
+                        checkCancelledOrders(website);
+                    } catch (Exception e) {
+                        log.error("Shopify cancelled order check failed: websiteId={}, handle={}",
                                 website.getId(), website.getHandle(), e);
                     } finally {
                         TenantContext.clear();
@@ -131,5 +144,32 @@ public class ShopifyOrderSyncExecutor {
             return true;
         }
         return result.getCreatedCount() > 0 || websiteStore.lastSyncHasNewOrders(website.getId());
+    }
+
+    /**
+     * 自动同步只按 since_id 拉新订单，已同步订单后续被取消需按 updated_at 另行检查。
+     * 每个商城至少间隔 5 分钟检查一次，游标为已处理到的 Shopify 订单更新时间。
+     */
+    private void checkCancelledOrders(ThirdPartyWebsite website) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime lastCheckAt = lastCancelCheckAt.get(website.getId());
+        if (lastCheckAt != null && Duration.between(lastCheckAt, now).getSeconds() < CANCEL_CHECK_INTERVAL_SECONDS) {
+            return;
+        }
+        lastCancelCheckAt.put(website.getId(), now);
+
+        LocalDateTime updatedAtMin = website.getLastCancelCheckTime();
+        if (updatedAtMin == null) {
+            LocalDateTime lookback = now.minusDays(CANCEL_CHECK_INITIAL_LOOKBACK_DAYS);
+            updatedAtMin = website.getCreateTime() != null && website.getCreateTime().isAfter(lookback)
+                    ? website.getCreateTime() : lookback;
+        }
+        ThirdPartyWebsiteDto websiteDto = websiteStore.getDtoById(website.getId());
+        ShopifyCancelCheckResult result = shopifyOrderSyncService.checkCancelledOrders(
+                websiteDto, updatedAtMin, website.getCancelCheckPageInfo());
+        if (!Objects.equals(result.cursor(), website.getLastCancelCheckTime())
+                || !Objects.equals(result.nextPageInfo(), website.getCancelCheckPageInfo())) {
+            websiteStore.updateCancelCheckProgress(website.getId(), result.cursor(), result.nextPageInfo());
+        }
     }
 }

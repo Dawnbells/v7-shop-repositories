@@ -48,7 +48,9 @@ import cn.v7soft.dao.dto.SystemUserDto;
 import cn.v7soft.dao.entities.primary.AsyncTask;
 import cn.v7soft.dao.entities.primary.Order;
 import cn.v7soft.dao.entities.primary.OrderLogisticsInfo;
+import cn.v7soft.dao.entities.primary.TemporaryOrder;
 import cn.v7soft.dao.enums.AddressOrder;
+import cn.v7soft.dao.enums.OrderStatus;
 import cn.v7soft.dao.enums.TaskState;
 import cn.v7soft.dao.enums.TaskType;
 import cn.v7soft.dao.enums.ViewMode;
@@ -333,6 +335,12 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
     @Override
     @Transactional
     public Order saveAndMarkReviewed(Order order, Long temporaryOrderId) {
+        // 机审 DTO 可能在取消检查前已读取；加锁后以数据库的最新状态为准。
+        TemporaryOrder temporaryOrder = temporaryOrderRepository.findByIdForUpdate(temporaryOrderId)
+                .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("临时订单不存在：" + temporaryOrderId));
+        if (Boolean.TRUE.equals(temporaryOrder.getCustomerCancelled())) {
+            order.setOrderStatus(OrderStatus.CUSTOMER_CANCELLED);
+        }
         Order savedOrder = this.saveAndFlush(order);
         temporaryOrderRepository.markAsReviewed(temporaryOrderId);
         return savedOrder;

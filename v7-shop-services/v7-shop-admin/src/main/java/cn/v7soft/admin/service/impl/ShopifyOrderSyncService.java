@@ -22,6 +22,7 @@ import cn.v7soft.admin.service.IShopifyOrderSyncService;
 import cn.v7soft.admin.service.ITemporaryOrderService;
 import cn.v7soft.admin.service.SyncMode;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
+import cn.v7soft.admin.service.dto.ShopifyCancelCheckResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.admin.utils.OrderQueryHelper;
 import cn.v7soft.admin.utils.ShopifyHost;
@@ -91,6 +92,10 @@ import java.util.regex.Pattern;
 public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     private static final String API_VERSION = "2026-07";
     private static final String PAGE_LIMIT = "100";
+    // 取消检查只需判断取消状态，限定返回字段并放大每页数量；单轮最多翻页数，剩余的下一轮继续
+    private static final String CANCEL_CHECK_FIELDS = "id,cancelled_at,updated_at,line_items";
+    private static final String CANCEL_CHECK_PAGE_LIMIT = "250";
+    private static final int CANCEL_CHECK_MAX_PAGES = 10;
     private static final String METAFIELD_NAMESPACE = "xyz";
     private static final String METAFIELD_KEY_CN_PRODUCT_NAME = "cn_product_name";
     private static final String METAFIELD_KEY_WAYBILL_PRODUCT_NAME = "waybill_product_name";
@@ -235,6 +240,57 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             websiteStore.updateLastSyncInfo(websiteId, pageResult);
         }
         return pageResult;
+    }
+
+    @Override
+    public ShopifyCancelCheckResult checkCancelledOrders(ThirdPartyWebsiteDto website, LocalDateTime updatedAtMin, String pageInfo) {
+        ApiSession session = new ApiSession(website.getLongId(), website.getHandle(), tokenService.getAccessToken(website));
+        LocalDateTime cursor = updatedAtMin;
+        int pages = 0;
+        int cancelledCount = 0;
+        do {
+            UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(buildApiUrl(website.getHandle(), "orders.json"));
+            if (pageInfo != null) {
+                builder.queryParam("page_info", pageInfo);
+            } else {
+                builder.queryParam("status", "any")
+                        .queryParam("updated_at_min", formatUtc(updatedAtMin))
+                        .queryParam("order", "updated_at asc");
+            }
+            builder.queryParam("fields", CANCEL_CHECK_FIELDS);
+            builder.queryParam("limit", CANCEL_CHECK_PAGE_LIMIT);
+            ResponseEntity<String> response = get(session, builder.build().toUri());
+            if (StrUtil.isBlank(response.getBody())) {
+                throw new IllegalStateException("Shopify cancelled order check returned an empty response");
+            }
+            JSONObject body = JSONUtil.parseObj(response.getBody());
+            if (body.containsKey("errors")) {
+                throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getLongId(), body.getStr("errors"));
+            }
+            JSONArray orders = body.getJSONArray("orders");
+            if (orders == null) {
+                throw new IllegalStateException("Shopify cancelled order check response is missing orders");
+            }
+            for (int i = 0; i < orders.size(); i++) {
+                JSONObject order = orders.getJSONObject(i);
+                String originOrderId = order.getStr("id");
+                if (StrUtil.isNotBlank(originOrderId) && isCustomerCancelled(order)
+                        && temporaryOrderService.markCustomerCancelled(originOrderId)) {
+                    cancelledCount++;
+                }
+                LocalDateTime updatedAt = parseShopifyDateTime(order.getStr("updated_at"));
+                if (updatedAt != null && (cursor == null || updatedAt.isAfter(cursor))) {
+                    cursor = updatedAt;
+                }
+            }
+            pageInfo = extractNextPageInfo(response.getHeaders());
+        } while (pageInfo != null && ++pages < CANCEL_CHECK_MAX_PAGES);
+
+        if (cancelledCount > 0) {
+            log.info("Shopify cancelled orders marked: websiteId={}, handle={}, count={}, updatedAtMin={}, cursor={}",
+                    website.getId(), website.getHandle(), cancelledCount, updatedAtMin, cursor);
+        }
+        return new ShopifyCancelCheckResult(cursor, pageInfo);
     }
 
     @Override
@@ -455,6 +511,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                 website.getId(), website.getHandle(), order.getStr("id"), riskInfo.getRemoteIp(), riskInfo.getUa());
         request.setRiskInfo(riskInfo);
         request.setItemInfos(buildItemInfos(order, moneyKey, owner, productMetafieldsMap));
+        request.setCustomerCancelled(isCustomerCancelled(order));
 
         // 归属人优先级：归属人账号(telephone) > 归属人(name) > 第三方商城归属(website owner)
         applyOwnerFromMetafields(request.getContextInfo(), order, productMetafieldsMap, owner.getCompanyId());
@@ -813,6 +870,34 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             items.add(item);
         }
         return items;
+    }
+
+    /**
+     * 客户取消：整单已取消（cancelled_at 有值），或全部商品行都被编辑删除/退款（current_quantity 均为 0）。
+     * 部分商品被移除不算取消。
+     */
+    private boolean isCustomerCancelled(JSONObject order) {
+        Object cancelledAt = order.get("cancelled_at");
+        if (!JSONUtil.isNull(cancelledAt) && StrUtil.isNotBlank(String.valueOf(cancelledAt))) {
+            return true;
+        }
+        JSONArray lineItems = order.getJSONArray("line_items");
+        if (lineItems == null || lineItems.isEmpty()) {
+            return false;
+        }
+        boolean hasLineItem = false;
+        for (int i = 0; i < lineItems.size(); i++) {
+            JSONObject lineItem = lineItems.getJSONObject(i);
+            if (lineItem == null) {
+                continue;
+            }
+            hasLineItem = true;
+            Integer currentQuantity = lineItem.getInt("current_quantity");
+            if (currentQuantity == null || currentQuantity > 0) {
+                return false;
+            }
+        }
+        return hasLineItem;
     }
 
     /**

@@ -53,6 +53,11 @@ public class ShopifyWebsiteStore {
     }
 
     @Transactional
+    public void updateCancelCheckProgress(Long websiteId, LocalDateTime checkTime, String pageInfo) {
+        repository.updateCancelCheckProgress(websiteId, checkTime, pageInfo);
+    }
+
+    @Transactional
     public void markWebsiteAuthError(Long websiteId, String message) {
         ThirdPartyWebsite website = getById(websiteId);
         website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);

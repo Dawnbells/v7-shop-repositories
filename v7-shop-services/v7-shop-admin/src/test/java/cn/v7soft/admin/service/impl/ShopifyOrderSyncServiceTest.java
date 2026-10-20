@@ -7,6 +7,7 @@ import cn.v7soft.admin.controller.req.EditTemporaryOrderRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.service.*;
 import cn.v7soft.admin.service.dto.ShoplineOrderLoadResult;
+import cn.v7soft.admin.service.dto.ShopifyCancelCheckResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.core.exception.BaseException;
 import cn.v7soft.core.enums.StatusEnum;
@@ -619,6 +620,33 @@ class ShopifyOrderSyncServiceTest {
             assertEquals(0, new BigDecimal("5.00").compareTo(request.getFinancialInfo().getTaxAmount()));
         }
 
+        @Test
+        void shouldMarkCustomerCancelledWhenOrderCancelled() {
+            JSONObject order = buildShopifyOrder();
+            order.set("cancelled_at", "2026-06-02T10:00:00-04:00");
+            assertEquals(Boolean.TRUE, loadAndCapture(buildWebsiteDto(null), order).getCustomerCancelled());
+        }
+
+        @Test
+        void shouldMarkCustomerCancelledWhenAllItemsRemoved() {
+            JSONObject order = buildShopifyOrder();
+            order.getJSONArray("line_items").getJSONObject(0).set("current_quantity", 0);
+
+            EditTemporaryOrderRequest request = loadAndCapture(buildWebsiteDto(null), order);
+
+            assertEquals(Boolean.TRUE, request.getCustomerCancelled());
+            assertEquals(1, request.getItemInfos().size());
+        }
+
+        @Test
+        void shouldNotMarkCustomerCancelledWhenSomeItemsRemain() {
+            JSONObject order = buildShopifyOrder();
+            JSONArray items = order.getJSONArray("line_items");
+            items.getJSONObject(0).set("current_quantity", 1);
+            items.add(new JSONObject().set("quantity", 2).set("current_quantity", 0).set("sku", "REMOVED"));
+            assertEquals(Boolean.FALSE, loadAndCapture(buildWebsiteDto(null), order).getCustomerCancelled());
+        }
+
         private EditTemporaryOrderRequest loadAndCapture(ThirdPartyWebsiteDto website, JSONObject order) {
             JSONArray orders = new JSONArray();
             orders.add(order);
@@ -835,6 +863,129 @@ class ShopifyOrderSyncServiceTest {
             assertEquals(1, result.getCreatedCount());
             assertEquals(1, result.getFailedCount());
             verify(temporaryOrderService, times(2)).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+        }
+    }
+
+    // ==================== 取消状态检查测试 ====================
+
+    @Nested
+    @DisplayName("checkCancelledOrders")
+    class CancelCheck {
+
+        private JSONObject cancelCheckOrder(String id, String updatedAt) {
+            JSONArray lineItems = new JSONArray();
+            lineItems.add(new JSONObject().set("quantity", 1).set("current_quantity", 1));
+            return new JSONObject().set("id", id).set("updated_at", updatedAt).set("line_items", lineItems);
+        }
+
+        @Test
+        void shouldMarkOnlyCancelledOrdersAndReturnLatestUpdatedAt() {
+            JSONArray orders = new JSONArray();
+            orders.add(cancelCheckOrder("1001", "2026-10-18T10:00:00+08:00").set("cancelled_at", "2026-10-18T10:00:00+08:00"));
+            orders.add(cancelCheckOrder("1002", "2026-10-18T11:00:00+08:00"));
+            JSONObject removed = cancelCheckOrder("1003", "2026-10-18T09:00:00+08:00");
+            removed.getJSONArray("line_items").getJSONObject(0).set("current_quantity", 0);
+            orders.add(removed);
+
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
+            when(restTemplate.exchange(uriCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ordersResponse(orders, null));
+            when(temporaryOrderService.markCustomerCancelled(anyString())).thenReturn(true);
+
+            LocalDateTime cursor = service.checkCancelledOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0), null).cursor();
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 11, 0), cursor);
+            verify(temporaryOrderService).markCustomerCancelled("1001");
+            verify(temporaryOrderService).markCustomerCancelled("1003");
+            verify(temporaryOrderService, never()).markCustomerCancelled("1002");
+            String uri = uriCaptor.getValue().toString();
+            assertTrue(uri.contains("updated_at_min=2026-10-18T00:00:00Z"));
+            assertTrue(uri.contains("status=any"));
+            assertTrue(uri.contains("fields=id,cancelled_at,updated_at,line_items"));
+            verifyNoInteractions(productSKUService);
+        }
+
+        @Test
+        void shouldFollowNextPage() {
+            JSONArray firstPage = new JSONArray();
+            firstPage.add(cancelCheckOrder("1001", "2026-10-18T10:00:00+08:00"));
+            JSONArray secondPage = new JSONArray();
+            secondPage.add(cancelCheckOrder("1002", "2026-10-18T12:00:00+08:00"));
+
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
+            when(restTemplate.exchange(uriCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ordersResponse(firstPage,
+                            "<https://test-shop.myshopify.com/admin/api/2026-07/orders.json?limit=250&page_info=next-page>; rel=\"next\""))
+                    .thenReturn(ordersResponse(secondPage, null));
+
+            LocalDateTime cursor = service.checkCancelledOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0), null).cursor();
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 12, 0), cursor);
+            List<URI> uris = uriCaptor.getAllValues();
+            assertEquals(2, uris.size());
+            assertTrue(uris.get(1).toString().contains("page_info=next-page"));
+            assertFalse(uris.get(1).toString().contains("updated_at_min"));
+            verify(temporaryOrderService, never()).markCustomerCancelled(anyString());
+        }
+
+        @Test
+        void shouldKeepBoundaryWhenNoOrdersUpdated() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ordersResponse(new JSONArray(), null));
+
+            LocalDateTime start = LocalDateTime.of(2026, 10, 18, 8, 0);
+            assertEquals(new ShopifyCancelCheckResult(start, null), service.checkCancelledOrders(buildWebsiteDto(null), start, null));
+        }
+
+        @Test
+        void shouldResumeBeyondPageLimitWhenAllOrdersShareTimestamp() {
+            LocalDateTime updatedAt = LocalDateTime.of(2026, 10, 18, 10, 0);
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenAnswer(invocation -> {
+                        URI uri = invocation.getArgument(0);
+                        String query = uri.getQuery();
+                        int page = query.contains("page_info=")
+                                ? Integer.parseInt(query.split("page_info=")[1].split("&")[0]) : 0;
+                        if (page > 0) {
+                            assertFalse(query.contains("updated_at_min"));
+                            assertFalse(query.contains("status="));
+                        }
+                        JSONArray orders = new JSONArray();
+                        for (int i = page * 250; i < Math.min((page + 1) * 250, 2501); i++) {
+                            orders.add(cancelCheckOrder(String.valueOf(i), "2026-10-18T10:00:00+08:00")
+                                    .set("cancelled_at", "2026-10-18T10:00:00+08:00"));
+                        }
+                        String next = page < 10
+                                ? "<https://test-shop.myshopify.com/admin/api/2026-07/orders.json?page_info=" + (page + 1) + ">; rel=\"next\""
+                                : null;
+                        return ordersResponse(orders, next);
+                    });
+
+            ShopifyCancelCheckResult first = service.checkCancelledOrders(buildWebsiteDto(null), updatedAt.minusHours(1), null);
+            assertEquals(new ShopifyCancelCheckResult(updatedAt, "10"), first);
+            verify(temporaryOrderService, times(2500)).markCustomerCancelled(anyString());
+            verify(temporaryOrderService, never()).markCustomerCancelled("2500");
+
+            ShopifyCancelCheckResult second = service.checkCancelledOrders(buildWebsiteDto(null), first.cursor(), first.nextPageInfo());
+            assertEquals(new ShopifyCancelCheckResult(updatedAt, null), second);
+            verify(temporaryOrderService).markCustomerCancelled("2500");
+            verify(temporaryOrderService, times(2501)).markCustomerCancelled(anyString());
+        }
+
+        @Test
+        void shouldFailWithoutReturningProgressWhenContinuationPageFails() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ordersResponse(new JSONArray(),
+                            "<https://test-shop.myshopify.com/admin/api/2026-07/orders.json?page_info=next>; rel=\"next\""))
+                    .thenReturn(ResponseEntity.ok(""));
+
+            assertThrows(IllegalStateException.class, () -> service.checkCancelledOrders(
+                    buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0), "saved-page"));
         }
     }
 

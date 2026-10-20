@@ -36,6 +36,11 @@ public interface ThirdPartyWebsiteRepository extends BaseRepository<ThirdPartyWe
     @Query("UPDATE ThirdPartyWebsite w SET w.lastManualSyncTime = :syncTime WHERE w.id = :id")
     void updateLastManualSyncTime(@Param("id") Long id, @Param("syncTime") LocalDateTime syncTime);
 
+    @Modifying
+    @Query("UPDATE ThirdPartyWebsite w SET w.lastCancelCheckTime = :checkTime, w.cancelCheckPageInfo = :pageInfo WHERE w.id = :id")
+    void updateCancelCheckProgress(@Param("id") Long id, @Param("checkTime") LocalDateTime checkTime,
+                                   @Param("pageInfo") String pageInfo);
+
     List<ThirdPartyWebsite> findByStatusAndAuthStatusAndWebsiteType(StatusEnum status, ThirdPartyAuthStatusEnum authStatus, WebsiteTypeEnum websiteType);
 
     @Modifying

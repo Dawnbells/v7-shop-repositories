@@ -88,6 +88,10 @@ public class TemporaryOrderDto extends IdDto {
      * 访问风险记录
      */
     private TemporaryRiskRecordInfoDto riskInfo;
+    /**
+     * 来源平台上客户已取消
+     */
+    private Boolean customerCancelled;
 
     public static TemporaryOrderDto convert(TemporaryOrder temporaryOrder) {
         TemporaryOrderContextInfoDto contextInfoDto = TemporaryOrderContextInfoDto.convert(temporaryOrder.getContextInfo());
@@ -111,6 +115,7 @@ public class TemporaryOrderDto extends IdDto {
                 .itemInfos(temporaryOrder.getItemInfos().stream().map(TemporaryOrderItemInfoDto::convert).toList())
                 .contextInfo(TemporaryOrderContextInfoDto.convert(temporaryOrder.getContextInfo()))
                 .riskInfo(TemporaryRiskRecordInfoDto.convert(temporaryOrder.getRiskInfo()))
+                .customerCancelled(Boolean.TRUE.equals(temporaryOrder.getCustomerCancelled()))
                 .build();
     }
 
@@ -130,7 +135,7 @@ public class TemporaryOrderDto extends IdDto {
                 .originOrderId(originOrderId)
                 .orderTime(orderTime)
                 .itemCount(itemInfos.size())
-                .orderStatus(OrderStatus.PENDING)
+                .orderStatus(Boolean.TRUE.equals(customerCancelled) ? OrderStatus.CUSTOMER_CANCELLED : OrderStatus.PENDING)
                 .orderCheckRemark("")
                 .botOrderStatus(CheckStatus.PENDING)
                 .importTime(LocalDateTimeUtil.of(0))

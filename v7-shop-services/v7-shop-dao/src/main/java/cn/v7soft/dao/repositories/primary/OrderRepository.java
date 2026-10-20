@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -79,6 +81,10 @@ public interface OrderRepository extends BaseRepository<Order> {
 
     @Query("SELECT o FROM Order o WHERE o.originOrderId = :orderId")
     Optional<Order> findByOriginOrderId(@Param("orderId") String orderId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM Order o WHERE o.originOrderId = :orderId")
+    Optional<Order> findByOriginOrderIdForUpdate(@Param("orderId") String orderId);
 
     @Query(value = """
             select o.* from t_orders o
