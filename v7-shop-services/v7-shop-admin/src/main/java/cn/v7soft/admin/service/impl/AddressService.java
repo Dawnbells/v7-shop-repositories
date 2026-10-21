@@ -191,6 +191,41 @@ public class AddressService extends BaseService<Address, AddressRepository> impl
     }
 
     @Override
+    public Optional<String> resolveProvince(String countryCode, String city, String postalCode) {
+        if (countryCode == null || city == null || city.isBlank()) {
+            return Optional.empty();
+        }
+        String cc = countryCode.toLowerCase().trim();
+        if (!cc.matches("^[a-z]{2,3}$")) {
+            return Optional.empty();
+        }
+        String tableName = "t_addresses_" + cc;
+        if (addressJdbcTemplate.queryForList("SHOW TABLES LIKE ?", tableName).isEmpty()) {
+            return Optional.empty();
+        }
+
+        String cityValue = city.trim();
+        String baseSql = "SELECT DISTINCT province FROM `" + tableName + "` " +
+                         "WHERE status = 'VALID' AND province <> '' AND city = ?";
+        if (postalCode != null && !postalCode.isBlank()) {
+            List<String> byPostal = addressJdbcTemplate.queryForList(
+                    baseSql + " AND postal_code = ?", String.class, cityValue, postalCode.trim());
+            if (byPostal.size() == 1) {
+                return Optional.of(byPostal.get(0));
+            }
+        }
+        List<String> byCity = addressJdbcTemplate.queryForList(baseSql, String.class, cityValue);
+        if (byCity.size() == 1) {
+            return Optional.of(byCity.get(0));
+        }
+        if (byCity.size() > 1) {
+            log.info("地址库按城市反查省份不唯一，跳过补全: country={}, city={}, postalCode={}, provinces={}",
+                    cc, cityValue, postalCode, byCity);
+        }
+        return Optional.empty();
+    }
+
+    @Override
     @Transactional(transactionManager = "addressTransactionManager")
     public Map<String, Object> importAddresses(String countryCode, MultipartFile file) {
         List<String[]> excelRows = parseExcel(file);

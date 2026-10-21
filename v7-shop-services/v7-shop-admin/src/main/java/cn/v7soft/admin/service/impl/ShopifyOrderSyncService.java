@@ -14,6 +14,7 @@ import cn.v7soft.admin.controller.req.TemporaryOrderItemInfoRequest;
 import cn.v7soft.admin.controller.req.TemporaryOrderPaymentInfoRequest;
 import cn.v7soft.admin.controller.req.TemporaryOrderRiskRecordInfoRequest;
 import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
+import cn.v7soft.admin.service.IAddressService;
 import cn.v7soft.admin.service.ICountryService;
 import cn.v7soft.admin.service.ICurrencyService;
 import cn.v7soft.admin.service.ILanguageService;
@@ -115,6 +116,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     private final ICurrencyService currencyService;
     private final ILanguageService languageService;
     private final ICountryService countryService;
+    private final IAddressService addressService;
     private final ITemporaryOrderService temporaryOrderService;
     private final IProductSKUService productSKUService;
     private final SystemUserRepository systemUserRepository;
@@ -502,7 +504,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         LocalDateTime orderTime = parseShopifyDateTime(order.getStr("created_at"));
         request.setOrderTime(orderTime != null ? orderTime : LocalDateTime.now());
 
-        request.setDeliveryInfo(buildDeliveryInfo(order));
+        request.setDeliveryInfo(buildDeliveryInfo(website, order));
         request.setFinancialInfo(buildFinancialInfo(order, moneyKey));
         request.setPaymentInfo(buildPaymentInfo(order));
         request.setContextInfo(buildContextInfo(website, owner, order, moneyKey));
@@ -519,7 +521,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         return temporaryOrderService.synchronizeOrderFromExternalSystem(request, updateExisting);
     }
 
-    private TemporaryOrderDeliveryInfoRequest buildDeliveryInfo(JSONObject order) {
+    private TemporaryOrderDeliveryInfoRequest buildDeliveryInfo(ThirdPartyWebsiteDto website, JSONObject order) {
         TemporaryOrderDeliveryInfoRequest info = new TemporaryOrderDeliveryInfoRequest();
         info.setRemark(StrUtil.blankToDefault(order.getStr("note"), ""));
 
@@ -539,6 +541,9 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             String address2 = StrUtil.blankToDefault(addr.getStr("address2"), "");
             String address1 = StrUtil.blankToDefault(addr.getStr("address1"), "");
             info.setAddress(address1 + (StrUtil.isNotBlank(address2) ? " /" + address2 : ""));
+            if (StrUtil.isBlank(info.getProvince())) {
+                fillProvinceFromAddressLibrary(website, order, info, addr.getStr("country_code"));
+            }
         } else if (customer != null) {
             info.setFirstName(StrUtil.blankToDefault(customer.getStr("first_name"), ""));
             info.setLastName(StrUtil.blankToDefault(customer.getStr("last_name"), ""));
@@ -553,6 +558,27 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         info.setReceiveUpdates(false);
         info.setRemoteArea(false);
         return info;
+    }
+
+    /**
+     * Shopify 地址只有城市没有省份时，到对应国家的地址库反查省份（优先城市+邮编，其次只按城市），唯一匹配才补全。
+     * 地址库查询失败不影响订单同步。
+     */
+    private void fillProvinceFromAddressLibrary(ThirdPartyWebsiteDto website, JSONObject order,
+                                                TemporaryOrderDeliveryInfoRequest info, String countryCode) {
+        if (StrUtil.isBlank(info.getCity()) || StrUtil.isBlank(countryCode)) {
+            return;
+        }
+        try {
+            addressService.resolveProvince(countryCode, info.getCity(), info.getPostalCode()).ifPresent(province -> {
+                info.setProvince(province);
+                log.info("Shopify order province filled from address library: websiteId={}, handle={}, orderId={}, country={}, city={}, postalCode={}, province={}",
+                        website.getId(), website.getHandle(), order.getStr("id"), countryCode, info.getCity(), info.getPostalCode(), province);
+            });
+        } catch (Exception e) {
+            log.warn("Shopify order province lookup failed: websiteId={}, handle={}, orderId={}, country={}, city={}",
+                    website.getId(), website.getHandle(), order.getStr("id"), countryCode, info.getCity(), e);
+        }
     }
 
     private TemporaryOrderFinancialInfoRequest buildFinancialInfo(JSONObject order, String moneyKey) {
