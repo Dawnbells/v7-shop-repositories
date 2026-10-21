@@ -1,5 +1,18 @@
 # Flow RPC 错误排查
 
+## 1.5.11 翻译链路同步 TurboFlow 2.3.8
+
+参考本机 Edge 安装目录 `Default/Extensions/bnfjjfgjpdagdiiiifdkjbjnadgdjaoe/2.3.8_0` 的 manifest、`mx-a3f8b2c1.js`、`qw-4d5e6f7a.js` 和 `rc-lib.js`。设置中的 `API-2.3.5.1` 改为 `API-2.3.8`；启动时迁移旧存储值，读取/保存配置时也兼容旧值。
+
+- 2.3.8 的默认验证路线为 `swap`：在当前项目标签页初始化打包的 reCAPTCHA Enterprise 库。新增 `flow-verification-bootstrap.js` 在 MAIN/document_start 保持验证属性可替换；`flow-verification-swap.js` 在项目页替换旧实例，复用已加载的新库，每次上传和生成分别获取新的 `IMAGE_GENERATION` token。令牌请求串行，生成响应仍可并发。
+- `rc-lib.js` 与已安装 2.3.8 的文件 SHA-256 一致：`33823908221153c04fe9a023f66967372402016c5c6c9bb0d2e2339ce66f26f4`。文件保留来源与许可证注释，Google 库版本为 `4EDjxXf4knsT8wRTp1lOoMFE`，通过仅面向 `flow.google.com` 的 web_accessible_resources 加载。
+- 对照原扩展函数 `yr`（上传）、`pr`（图片生成）、`gr`（媒体 URL）和 `ur`（BOQ 请求），上传/生成数组字段与原有适配器相同：上传 `maseQ` → 生成 `ogiZ0b` → 必要时用本次生成媒体 ID 查询 `uurnC`。继续使用大写 UUID、项目上下文、账号路径和独立令牌；媒体 URL 解析先判断字段有效性再选择回退字段。
+- 旧版 `labs.google` 的 REST 上传/生成和五分钟会话缓存继续兼容。Bridge 的图片翻译 prompt、调度、下载、上报、配额停止及换轮恢复继续由仓库现有逻辑管理；不叠加原扩展的内部生成重试，以免与 Bridge 恢复流程重复提交。
+- 原扩展可通过其服务端配置切到 `about` 路线；本次同步本地代码的默认 `swap` 路线，不引入原扩展的会员、远程配置、批次授权或统计服务。旧辅助页模块仅用于清理升级前由 Bridge 记录的辅助标签，用户项目页和用户自建 about 页不会被清理。
+- 安装包包含新增验证脚本和本地库，并补齐现有 background 引用的 `upload-rejection-state.js`。
+
+验证：完整 Node 模拟回归通过；覆盖新旧协议、提交前暂停、并发结果隔离、项目页验证替换、令牌队列、失败/超时、旧配置迁移和辅助页清理。未对真实 Google 账号发起生成。升级后需重载 Bridge 扩展并刷新 Flow 项目页，让 document_start 脚本生效，再使用设置中的 `API-2.3.8` 测试入口验收。
+
 ## 1.5.10 上传 RPC 3 退回重派并按图片计数
 
 新版 Flow 的 `maseQ` 返回 RPC 3（INVALID_ARGUMENT）时，单次无法判定是内容政策、图片格式还是请求字段问题。旧版 `/flow/uploadImage` 的 INVALID_ARGUMENT 一律走政策回退；而 `maseQ` 的 3 此前走通用 `FLOW_RPC_REJECTED`，首次失败就暂停整个 bridge，任务退回服务端后又会派回同一张图，形成反复 Run Now 的循环。本版改为：

@@ -51,7 +51,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
   let countdownTimer = null;
   let nextPollAt = 0;
   let services = [];
-  let generationMode = 'api-2.3.5.1';
+  let generationMode = 'api-2.3.8';
   let panelWindowId;
   let cleanupTarget = null;
   let cleanupBusy = false;

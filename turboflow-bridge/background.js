@@ -65,10 +65,10 @@ import { FlowRecoveryController } from './flow-recovery-controller.js';
 import { restartFlowProject, getProjectCleanupTarget, deleteProjectsAtHome } from './flow-project-lifecycle.js';
 import { FlowSubmissionPacer } from './flow-submission-pacer.js';
 import { translateImageForMode } from './flow-generation-mode.js';
-import { releaseApi2351 } from './flow-api-2.3.5.1.js';
+import { releaseApi238 } from './flow-api-2.3.8.js';
 import { normalizeGenerationMode, generationModeLabel } from './generation-mode.js';
 
-const VERSION = '1.5.10';
+const VERSION = '1.5.11';
 const POLL_INTERVAL_MS = 500;
 // 同时「翻译中」的上限，设置页可调（1–10，默认 1 = 单线程）。上传 / 挂图 / 写 prompt / 提交
 // 始终串行；译图下载到扩展后立即释放槽位，服务端回传与后续任务并行。
@@ -117,7 +117,7 @@ function friendlyErrorMessage(errorCode, rawMessage) {
 }
 
 let bridgeId = null;
-let generationMode = 'api-2.3.5.1';
+let generationMode = 'api-2.3.8';
 let flowConcurrency = DEFAULT_FLOW_CONCURRENCY;
 let running = false;
 let currentTasks = [];
@@ -394,7 +394,7 @@ const roundRecovery = new FlowRecoveryController({
   drained: () => !running && !currentTasks.length && !flowTasks.inUse
     && !activeOperations.size && !pendingPolicyFlushRunning,
   restart: async (target, phase) => {
-    await releaseApi2351();
+    await releaseApi238();
     const phaseLogs = {
       clearing: 'Flow recovery: clearing flow.google.com local/session storage in Flow tabs',
       closing: 'Flow recovery: closing Flow tabs',
@@ -1059,8 +1059,8 @@ async function restorePersistedState() {
   if (roundRecovery.state.phase === 'stopped' && !pollPaused) {
     pausePoll('Flow stopped; click Run Now', { code: 'RECOVERY_INTERRUPTED' });
   }
-  if (pollPaused || generationMode !== 'api-2.3.5.1') {
-    releaseApi2351().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
+  if (pollPaused || generationMode !== 'api-2.3.8') {
+    releaseApi238().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
   }
   await refreshReuseSummary();
 }
@@ -1131,8 +1131,8 @@ async function saveConfig(config) {
     [FLOW_CONCURRENCY_STORAGE_KEY]: nextConcurrency,
   });
   generationMode = nextGenerationMode;
-  if (generationMode !== 'api-2.3.5.1') {
-    releaseApi2351().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
+  if (generationMode !== 'api-2.3.8') {
+    releaseApi238().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
   }
   flowConcurrency = nextConcurrency;
   flowTasks.setLimit(nextConcurrency);

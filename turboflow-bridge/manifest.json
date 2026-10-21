@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TurboFlow Bridge",
-  "version": "1.5.10",
+  "version": "1.5.11",
   "description": "Image translation through Google Flow page automation using Nano Banana models",
   "permissions": [
     "sidePanel",
@@ -26,7 +26,7 @@
         "https://labs.google/fx/*",
         "https://flow.google.com/*"
       ],
-      "js": ["content-main.js"],
+      "js": ["flow-verification-bootstrap.js", "content-main.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
@@ -40,6 +40,10 @@
       "world": "ISOLATED"
     }
   ],
+  "web_accessible_resources": [{
+    "resources": ["rc-lib.js"],
+    "matches": ["https://flow.google.com/*"]
+  }],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

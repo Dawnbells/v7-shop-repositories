@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { createApi2351 } from '../flow-api-2.3.5.1.js';
+import { createApi238 } from '../flow-api-2.3.8.js';
 import { translateImageViaApi } from '../flow-image-translation.js';
 import { classifyErrorCode } from '../task-error-policy.js';
 
@@ -48,8 +48,11 @@ function harness({ modern = true, respond, verification, legacyVerification, now
       return [{ result: await callable(...args) }];
     } },
   };
-  const api = createApi2351({ browser, now, download: download || (async (_tab, url) => ({ dataUrl: 'download:' + url })),
-    verification: verification || { getToken: async () => 'fresh-' + ++tokenCount, withLease: run => run(), release: async () => {} },
+  const api = createApi238({ browser, now, download: download || (async (_tab, url) => ({ dataUrl: 'download:' + url })),
+    verification: verification || { getToken: async tabId => {
+      assert.equal(tabId, 7, 'verification must use the same project tab as the request');
+      return 'fresh-' + ++tokenCount;
+    }, withLease: run => run(), release: async () => {} },
     legacyVerification: legacyVerification || (async (_tab, action) => { assert.equal(action, 'IMAGE_GENERATION'); return 'legacy-fresh'; }) });
   return { api, calls, page, tab, listeners,
     conn: { connected: true, tabId: 7, projectId: 'test', flowUrl: pageUrl, transport: modern ? 'boq' : 'legacy-rest' } };
@@ -58,7 +61,7 @@ function harness({ modern = true, respond, verification, legacyVerification, now
 const task = { imageBase64: 'data:image/jpeg;base64,YWJj', fileName: 'source.jpg', prompt: 'Translate',
   model: 'GEM_PIX_2', aspectRatio: 'IMAGE_ASPECT_RATIO_SQUARE' };
 
-test('2351 modern translation uses upload/generate only, account path, fresh tokens and uppercase seeds', async () => {
+test('238 modern translation uses upload/generate only, account path, fresh tokens and uppercase seeds', async () => {
   const { api, calls, conn } = harness();
   const result = await translateImageViaApi(conn, task, api);
   assert.deepEqual(calls.map(call => call.rpc), ['maseQ', 'ogiZ0b']);
@@ -90,13 +93,23 @@ test('2351 modern translation uses upload/generate only, account path, fresh tok
   for (const id of [generate[1][0][12], generate[1][0][13], generate[4][0]]) assert.match(id, /^[A-F0-9-]{36}$/);
 });
 
-test('2351 media lookup sends the exact generation id, without a latest-project fallback', async () => {
+test('238 media lookup sends the exact generation id, without a latest-project fallback', async () => {
   const { api, calls } = harness();
   assert.equal(await api.resolveFlowImageUrl(7, { mediaId: 'raw-id' }), 'https://flow-content.google/raw-id');
   assert.deepEqual(calls.map(call => [call.rpc, call.payload]), [['uurnC', ['raw-id']]]);
 });
 
-test('2351 legacy translates with REST context and verifies only generation', async () => {
+test('238 media lookup skips a non-URL metadata field and uses the generated image URL', async () => {
+  const { api } = harness({ respond: call => {
+    const result = media('result', 'https://flow-content.google/result');
+    result[5] = [];
+    result[5][10] = 'not-a-url';
+    return rpcResponse(call.rpc, result);
+  } });
+  assert.equal(await api.resolveFlowImageUrl(7, { mediaId: 'result' }), 'https://flow-content.google/result');
+});
+
+test('238 legacy translates with REST context and verifies only generation', async () => {
   const { api, calls, conn } = harness({ modern: false });
   const result = await translateImageViaApi(conn, task, api);
   assert.equal(result.referenceMediaId, 'source');
@@ -135,7 +148,7 @@ test('legacy session expires in five minutes and invalidates on URL changes and 
 });
 
 for (const modern of [true, false]) {
-  test(`2351 ${modern ? 'RPC' : 'REST'} signals submission before response and preserves interleaved results`, async () => {
+  test(`238 ${modern ? 'RPC' : 'REST'} signals submission before response and preserves interleaved results`, async () => {
     const pending = [];
     const submitted = [];
     const { api, page } = harness({ modern, respond: call => {
@@ -147,7 +160,7 @@ for (const modern of [true, false]) {
     await tick();
     assert.equal(submitted.length, 3);
     assert.equal(pending.length, 3);
-    assert.equal(page.window.__turboFlow2351Requests.size, 3);
+    assert.equal(page.window.__turboFlow238Requests.size, 3);
     for (const i of [2, 0, 1]) {
       const { call, resolve } = pending[i];
       resolve(modern ? rpcResponse(call.rpc, [[media('result-' + i, 'https://flow-content.google/' + i)]])
@@ -156,7 +169,7 @@ for (const modern of [true, false]) {
     const results = await Promise.all(requests);
     assert.deepEqual(results.map(result => result.mediaId), ['result-0', 'result-1', 'result-2']);
     assert.equal(submitted.length, 3);
-    assert.equal(page.window.__turboFlow2351Requests.size, 0);
+    assert.equal(page.window.__turboFlow238Requests.size, 0);
   });
 }
 
@@ -172,7 +185,7 @@ for (const operation of ['uploadImageToFlow', 'generateWithReference']) {
 }
 
 for (const [status, expected] of [[8, 'FLOW_RESOURCE_EXHAUSTED'], [16, 'FLOW_AUTHENTICATION_FAILED'], [3, 'FLOW_UPLOAD_REJECTED'], [7, 'RECAPTCHA_BLOCKED']]) {
-  test(`2351 RPC ${status} preserves current error policy without retrying`, async () => {
+  test(`238 RPC ${status} preserves current error policy without retrying`, async () => {
     const { api, calls, conn } = harness({ respond: call => response([['wrb.fr', call.rpc, null, null, null,
       [status, null, [['type.googleapis.com/google.rpc.ErrorInfo', [status === 7 ? 'PUBLIC_ERROR_UNUSUAL_ACTIVITY' : 'REJECTED']]]]]]) });
     await assert.rejects(translateImageViaApi(conn, task, api), error => classifyErrorCode(error) === expected);
@@ -180,14 +193,14 @@ for (const [status, expected] of [[8, 'FLOW_RESOURCE_EXHAUSTED'], [16, 'FLOW_AUT
   });
 }
 
-test('2351 missing BOQ session rejects before network dispatch', async () => {
+test('238 missing BOQ session rejects before network dispatch', async () => {
   const { api, calls, page } = harness();
   delete page.window.WIZ_global_data.cfb2h;
   await assert.rejects(api.generateWithReference(7, { pid: 'test', ...task }), { code: 'FLOW_AUTHENTICATION_FAILED' });
   assert.equal(calls.length, 0);
 });
 
-test('2351 per-model daily quota is not flattened into generic resource exhaustion', async () => {
+test('238 per-model daily quota is not flattened into generic resource exhaustion', async () => {
   const { api, calls } = harness({ respond: call => response([['wrb.fr', call.rpc, null, null, null,
     [8, null, [['type.googleapis.com/google.rpc.ErrorInfo', ['PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED']]]]]]) });
   await assert.rejects(api.generateWithReference(7, { pid: 'test', ...task, referenceMediaId: 'source' }), error => {

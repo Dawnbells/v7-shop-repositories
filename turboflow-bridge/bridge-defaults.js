@@ -1,4 +1,4 @@
-import { API_2351 } from './generation-mode.js';
+import { API_238 } from './generation-mode.js';
 
 // The private preset is packaged for this installation but never committed.
 export async function initializeDefaultConfig(storage, readPreset) {
@@ -11,7 +11,9 @@ export async function initializeDefaultConfig(storage, readPreset) {
     }
     defaults.services = [{ baseUrl: preset.baseUrl, token: preset.token.trim(), enabled: true }];
   }
-  if (!Object.hasOwn(stored, 'generationMode')) defaults.generationMode = API_2351;
+  if (!Object.hasOwn(stored, 'generationMode') || stored.generationMode === 'api-2.3.5.1') {
+    defaults.generationMode = API_238;
+  }
   if (!Object.hasOwn(stored, 'flowConcurrency')) defaults.flowConcurrency = 4;
   if (Object.keys(defaults).length) await storage.set(defaults);
   return { ...stored, ...defaults };

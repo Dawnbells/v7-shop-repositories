@@ -1,4 +1,4 @@
-// Image wire flow from TurboFlow 2.3.5.1, using local protocol constants only.
+// Image wire flow from TurboFlow 2.3.8, using local protocol constants only.
 import { fetchImageAsBase64, getRecaptchaToken } from './flow-api.js';
 import { buildFlowMediaRedirectUrl, isModernFlowUrl } from './flow-sites.js';
 import {
@@ -6,12 +6,12 @@ import {
   buildModernUploadRequest, buildModernGenerateRequest, buildBatchexecuteRequest,
   parseBatchexecuteResponse, createFlowRpcError,
 } from './flow-modern-api.js';
-import { createVerificationSession } from './flow-verification-session.js';
+import { createSwapVerificationSession } from './flow-verification-swap.js';
 
 const API_BASE = 'https://aisandbox-pa.googleapis.com/v1';
 const uuid = () => crypto.randomUUID().toUpperCase();
 
-export function createApi2351({ browser = globalThis.chrome, verification = createVerificationSession(browser),
+export function createApi238({ browser = globalThis.chrome, verification = createSwapVerificationSession(browser),
   legacyVerification = getRecaptchaToken, download = fetchImageAsBase64, now = Date.now } = {}) {
   const tokens = new Map();
   let lastSessionContext = null;
@@ -76,8 +76,8 @@ export function createApi2351({ browser = globalThis.chrome, verification = crea
           })).catch(error => ({ error: error.message }));
           if (!track) return await completion;
           const requestKey = crypto.randomUUID();
-          window.__turboFlow2351Requests ||= new Map();
-          window.__turboFlow2351Requests.set(requestKey, completion);
+          window.__turboFlow238Requests ||= new Map();
+          window.__turboFlow238Requests.set(requestKey, completion);
           return { requestKey, submittedAt };
         } catch (error) { return { error: error.message }; }
       },
@@ -91,7 +91,7 @@ export function createApi2351({ browser = globalThis.chrome, verification = crea
       const completed = await browser.scripting.executeScript({
         target: { tabId }, world: 'MAIN',
         func: async key => {
-          const pending = window.__turboFlow2351Requests;
+          const pending = window.__turboFlow238Requests;
           if (!pending?.has(key)) return { error: 'Flow request was lost after page navigation' };
           try { return await pending.get(key); }
           finally { pending.delete(key); }
@@ -138,7 +138,7 @@ export function createApi2351({ browser = globalThis.chrome, verification = crea
   async function uploadImageToFlow(tabId, options) {
     options.beforeSubmit?.();
     if (await modern(tabId)) {
-      const recaptchaToken = await verification.getToken();
+      const recaptchaToken = await verification.getToken(tabId);
       const payload = buildModernUploadRequest({ base64: options.base64, fileName: options.fileName,
         mimeType: options.mimeType, projectId: options.pid, recaptchaToken,
         workflowIdSeed: uuid(), mediaIdSeed: uuid() });
@@ -161,7 +161,7 @@ export function createApi2351({ browser = globalThis.chrome, verification = crea
     const seed = Math.floor(Math.random() * 300000);
     const batchId = uuid();
     if (await modern(tabId)) {
-      const recaptchaToken = await verification.getToken();
+      const recaptchaToken = await verification.getToken(tabId);
       const payload = buildModernGenerateRequest({ ...options, projectId: options.pid,
         recaptchaToken, seed, batchId, requestId: uuid(), clientMediaId: uuid() });
       const data = await request(tabId, { rpcId: RPC_BATCH_GENERATE_IMAGES, payload,
@@ -193,8 +193,8 @@ export function createApi2351({ browser = globalThis.chrome, verification = crea
     if (generation.fifeUrl) return generation.fifeUrl;
     if (!await modern(tabId)) return buildFlowMediaRedirectUrl(flowUrl, generation.mediaId);
     const media = await request(tabId, { rpcId: RPC_GET_MEDIA_URL, payload: [generation.mediaId] });
-    const url = media?.[5]?.[10] || media?.[6]?.[0]?.[13];
-    return typeof url === 'string' && url.startsWith('https://') ? url : null;
+    return [media?.[5]?.[10], media?.[6]?.[0]?.[13]]
+      .find(url => typeof url === 'string' && url.startsWith('https://')) || null;
   }
 
   return { getSessionToken, uploadImageToFlow, generateWithReference, resolveFlowImageUrl,
@@ -202,5 +202,5 @@ export function createApi2351({ browser = globalThis.chrome, verification = crea
 }
 
 let adapter;
-export function getApi2351() { return adapter ||= createApi2351(); }
-export function releaseApi2351() { return getApi2351().release(); }
+export function getApi238() { return adapter ||= createApi238(); }
+export function releaseApi238() { return getApi238().release(); }

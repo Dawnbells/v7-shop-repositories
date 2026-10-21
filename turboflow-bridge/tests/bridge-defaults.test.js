@@ -9,11 +9,19 @@ function harness(initial = {}) {
     set: async patch => { writes.push(patch); Object.assign(data, patch); } } };
 }
 const preset = async () => ({ baseUrl: 'https://api.xyzdwd.com', token: 'fake-test-token' });
+
+test('upgrade migrates the old API mode once while retaining services and concurrency', async () => {
+  const h = harness({ services: [], generationMode: 'api-2.3.5.1', flowConcurrency: 7 });
+  await initializeDefaultConfig(h.storage, () => assert.fail('must not read preset'));
+  assert.deepEqual(h.data, { services: [], generationMode: 'api-2.3.8', flowConcurrency: 7 });
+  await initializeDefaultConfig(h.storage, () => assert.fail('must not read preset'));
+  assert.deepEqual(h.writes, [{ generationMode: 'api-2.3.8' }]);
+});
 test('fresh install seeds exactly one enabled service and defaults; restart does not reseed', async () => {
   const h = harness();
   await initializeDefaultConfig(h.storage, preset);
   assert.deepEqual(h.data, { services: [{ baseUrl: 'https://api.xyzdwd.com', token: 'fake-test-token', enabled: true }],
-    generationMode: 'api-2.3.5.1', flowConcurrency: 4 });
+    generationMode: 'api-2.3.8', flowConcurrency: 4 });
   await initializeDefaultConfig(h.storage, () => assert.fail('must not re-read preset'));
   assert.equal(h.writes.length, 1);
 });
