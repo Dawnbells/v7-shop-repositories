@@ -252,6 +252,41 @@ ARCH.md §3.4、§5.4（`record`）、§6.7。只记录 `platform == SHOPIFY` �
 
 ---
 
-## 交付记录
+## 交付记录（2026-10-22）
 
-（派发后由主代理填写：分支、提交、测试结果、风险与阻塞。）
+基线：main `3f01b44e`（文档）→ `125b1f16`（bindTicket 改名）。第二批分支均已合入 T1 分支。所有 worktree 在 `.claude/worktrees/agent-<id>/`，未合并主分支、未清理。
+
+| 任务 | 分支 | 末次提交 | 验证结果 | 状态 |
+| --- | --- | --- | --- | --- |
+| T1 基础层 | `worktree-agent-a8743e5cc99251fb9` | `f63fe37e` | 四模块编译通过；Shopify 相关 151 个测试通过；全量 admin 测试通过 | done |
+| T2 OAuth 安装与绑定 | `worktree-agent-a2e2eeeebf4d1c0ab` | `54303ff1` | 编译通过；Shopify 相关 178 个测试通过（T2 新增 50） | done |
+| T3 GraphQL 同步 | `worktree-agent-a4d5acf8e19bdc0aa` | `dfe0bfcd` | 编译通过；全量 admin 测试 606 个通过；`admin/api/` 只剩 graphql.json | done |
+| T4 webhook/合规/脱敏 | `worktree-agent-abb90c2b12723b6a6` | `8c6ef969` | 编译通过；全量 admin 测试通过（T4 新增 63）；14 个文件全为新建 | done |
+| T5 后台前端 | `worktree-agent-a09780d546b815bcc` | `bad959d2` | vue-tsc 基线 83 错未新增；eslint 基线即无法运行；prettier 通过 | done |
+| T6 文档站/TOML/上架清单 | `worktree-agent-aa9e93c2cb2349bf7` | `fdf5ac73` | 中英文 `pnpm build` 通过；tsc 通过 | done |
+| T7 访问日志 | `worktree-agent-a80a3ad8c66e285e8` | `bea1d2ae` | 编译通过；全量 admin 测试 594 个通过 | done |
+
+### 与契约的出入（已接受，QA 按此验收）
+- **T1**：`ShopifyInstallTicket.TicketType` 嵌套枚举；`ShopifyWebhookEvent.State`/`ShopifyComplianceRecord.State` 嵌套枚举；GraphQL 客户端内含限流与 429 重试；DISCONNECTED 店铺不刷新 token；`clearCredentials`/`markDisconnected` 同时清 `refreshTokenExpiresAt`；多一个 `ShopifyWebsiteStoreTest`。
+- **T2**：`resolve` 自行解析顶级域名（`DomainUtils` 只接受 request）；webhook 注册字段用 `uri`（2025-04 起替代 `callbackUrl`）；`EditShopifyWebsiteRequest.handle` 也去掉 `@NotBlank`；`bind` 占用失败不删票据；回调意外异常统一 `INVALID_STATE`。
+- **T3**：因 GraphQL 单次成本上限 1000 点，订单每页 8 单、行项目首屏 5 个、元字段按 6 个 key 查；取消检查每页 50 单；浏览器 UA 在 GraphQL 无对应字段（webhook 路径仍有）；客户邮箱/电话、落地页/来源页改用未废弃字段；凭证模式验证直接 POST graphql.json（新建店铺无 id）；对账游标取 max(返回值, since)；多一个 `TemporaryOrderServiceRedactedSyncTest`。
+- **T4**：脱敏改原生 SQL（JPQL 会自动带 `status <> 'DELETED'`，软删除订单会漏脱敏）；备注写在 `error` 列；风险记录同时清 `real_ip` 及归属地；email 匹配忽略大小写；缺 `X-Shopify-Webhook-Id` 时用正文哈希去重；落库异常返回 500 让 Shopify 重投。
+- **T5**：URL 参数 `bindTicket`（`ticket` 会被后台 SSO 票据登录拦截并登出）；商城类型挪到表单首行；同步对话框多一条起始时间校验。
+- **T6**：文档站页面都在 `/docs` 前缀下，`/en/privacy-policy` 由构建期插件生成跳转页指向 `/en/docs/privacy-policy`（开发服务器下不生效）；上架清单的 App details/Features 顺手改为与事实一致。
+- **T7**：临时订单分页响应无 platform，改按实体筛选；`record` 多一个带 totalCount 的重载；导出日志记提交时刻的订单集合；同步写入不用 `@Async`（异步线程丢租户与登录人）。
+
+### 风险与待办（QA 与上线前）
+1. **未对真实 Shopify 店铺跑过**：GraphQL 字段均按 shopify.dev 文档核对，任一字段在配置版本不存在整条查询即失败；QA 需用凭证模式店铺实测一次自动同步、手动同步、取消检查。
+2. **凭证模式吞吐下降**：每轮 8 单，有下一页 10 秒后再跑，约 48 单/分钟（原 REST 每页 100）。可在 QA 后按实测成本调大 `orders(first:)`。
+3. **webhook 处理器无分布式锁**：多实例部署时合规记录与站内通知可能重复；导入与脱敏幂等。
+4. **首轮保留期任务**可能一次脱敏大量旧订单，预发先评估耗时。
+5. **App Store 安装时序**：TOML 默认 Shopify 托管安装，非嵌入式应用「先授权还是先打开 App URL」官方未明确；落地页两种时序都支持，联调实测。
+6. **后台请求查不到其他租户店铺**（open-in-view 带租户过滤）：跨租户 handle 占用靠唯一键冲突兜底转 `HANDLE_TAKEN`；软删除的同 handle 店铺会挡住重新安装（现有行为）。
+7. **暂停期间订单补齐**依赖对账游标不推进，QA 验证「暂停 → 下单 → 恢复 → 15 分钟内出现」。
+8. **前端工具链**：`vue-tsc` 基线 83 错、`lint:eslint` 基线无法运行（lockfile 的 eslint-config 要求 eslint 9），与本功能无关。
+9. **文档站构建**：本机需 `npx pnpm@8`，worktree 内需 hoisted 安装（Windows 路径长度）。
+10. **环境事故**：本次会话中 `~/.claude/scripts/feature-status.py` 与 `feature-developer` 代理定义被清理，STATUS.md 未记录 tasks 确认、派发与 stage=dev；`/qa-merge` 前需恢复脚本并补录。
+11. 待决事项仍为 PRD §11（中立域名、邮箱、Level 2 基础设施事实、法务审阅、测试账号）。
+
+### 建议合并顺序
+T1 → T3 → T2 → T4 → T7 → T5 → T6（T2/T3/T4/T7 均含 T1 的合并提交；T5、T6 无后端依赖，可任意时机合入）。
