@@ -138,5 +138,11 @@ public class TemporaryOrder extends BaseAutoIdDataRangeEntity {
     @Column(name = "is_customer_cancelled")
     @Builder.Default
     private Boolean customerCancelled = false;
+
+    /**
+     * 收货人等个人信息被脱敏的时间（Shopify 合规 redact 或保留期到期），null 表示未脱敏
+     */
+    @Column(name = "pii_redacted_at")
+    private LocalDateTime piiRedactedAt;
 }
 

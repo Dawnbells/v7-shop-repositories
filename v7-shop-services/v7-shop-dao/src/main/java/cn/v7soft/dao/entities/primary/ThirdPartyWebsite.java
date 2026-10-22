@@ -2,6 +2,7 @@ package cn.v7soft.dao.entities.primary;
 
 import cn.v7soft.dao.entities.base.BaseDataRangeEntity;
 import cn.v7soft.dao.enums.CurrencyMode;
+import cn.v7soft.dao.enums.ShopifyAccessMode;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import jakarta.persistence.*;
@@ -122,4 +123,54 @@ public class ThirdPartyWebsite extends BaseDataRangeEntity {
      */
     @Column(name = "token_expires_at")
     private LocalDateTime tokenExpiresAt;
+
+    /**
+     * Shopify 接入方式（仅 SHOPIFY 类型使用），null 视为 CREDENTIALS（存量记录）
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "access_mode", length = 30)
+    private ShopifyAccessMode accessMode;
+
+    /**
+     * 公开应用的 refresh token（轮换，每次刷新后更新）
+     */
+    @Column(name = "refresh_token", length = 1024)
+    private String refreshToken;
+
+    /**
+     * refresh token 过期时间
+     */
+    @Column(name = "refresh_token_expires_at")
+    private LocalDateTime refreshTokenExpiresAt;
+
+    /**
+     * OAuth 回调或刷新返回的 scope 原文
+     */
+    @Column(name = "granted_scopes", length = 512)
+    private String grantedScopes;
+
+    /**
+     * 是否已获得 read_all_orders 权限（否则只能读取最近 60 天订单），null 视为 false
+     */
+    @Column(name = "has_all_orders_scope")
+    @Builder.Default
+    private Boolean hasAllOrdersScope = false;
+
+    /**
+     * 最近一次公开应用授权成功时间
+     */
+    @Column(name = "installed_at")
+    private LocalDateTime installedAt;
+
+    /**
+     * 最近一次收到 app/uninstalled 的时间
+     */
+    @Column(name = "uninstalled_at")
+    private LocalDateTime uninstalledAt;
+
+    /**
+     * 公开应用对账游标：已处理到的 Shopify 订单 updated_at（东八区，与 lastCancelCheckTime 同约定）
+     */
+    @Column(name = "last_reconcile_time")
+    private LocalDateTime lastReconcileTime;
 }
