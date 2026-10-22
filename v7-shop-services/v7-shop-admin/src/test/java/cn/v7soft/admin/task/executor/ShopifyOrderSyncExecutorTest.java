@@ -1,5 +1,6 @@
 package cn.v7soft.admin.task.executor;
 
+import cn.v7soft.admin.config.ShopifyAppProperties;
 import cn.v7soft.admin.service.IShopifyOrderSyncService;
 import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
@@ -10,6 +11,7 @@ import cn.v7soft.admin.service.dto.ShopifyCancelCheckResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.admin.service.impl.ShopifyWebsiteStore;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.ShopifyAccessMode;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -41,6 +44,8 @@ class ShopifyOrderSyncExecutorTest {
     private ShopifyWebsiteStore websiteStore;
     @Mock
     private ICompanyService companyService;
+    @Spy
+    private ShopifyAppProperties appProperties = new ShopifyAppProperties();
 
     @InjectMocks
     private ShopifyOrderSyncExecutor executor;
@@ -288,6 +293,139 @@ class ShopifyOrderSyncExecutorTest {
 
         verify(shopifyOrderSyncService).checkCancelledOrders(any(), eq(saved), eq("page-11"));
         verify(websiteStore).updateCancelCheckProgress(1L, saved, null);
+    }
+
+    // ==================== 公开应用对账 ====================
+
+    private ThirdPartyWebsite buildPublicAppWebsite(Long id) {
+        ThirdPartyWebsite website = buildWebsite(id, LocalDateTime.now().minusMinutes(5), true);
+        website.setAccessMode(ShopifyAccessMode.PUBLIC_APP);
+        return website;
+    }
+
+    @Test
+    @DisplayName("公开应用：首次从 installedAt − lookback 对账，推进 lastReconcileTime，不轮询、不单独检查取消")
+    void shouldReconcilePublicAppFromInstalledAt() {
+        ThirdPartyWebsite website = buildPublicAppWebsite(1L);
+        LocalDateTime installedAt = LocalDateTime.now().minusHours(3);
+        website.setInstalledAt(installedAt);
+        LocalDateTime cursor = installedAt.plusHours(1);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.reconcileOrders(any(), any())).thenReturn(cursor);
+
+        assertEquals(60_000, executor.syncNext());
+
+        verify(shopifyOrderSyncService).reconcileOrders(any(), eq(installedAt.minusMinutes(30)));
+        verify(websiteStore).updateReconcileTime(1L, cursor);
+        verify(shopifyOrderSyncService, never()).loadOrders(any(), any(), any(), any());
+        verify(shopifyOrderSyncService, never()).checkCancelledOrders(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("公开应用：沿用 lastReconcileTime，间隔未到不重复对账，配置的间隔与回看生效")
+    void shouldRespectReconcileIntervalAndLookback() {
+        appProperties.setReconcileIntervalMinutes(15);
+        appProperties.setReconcileLookbackMinutes(10);
+        ThirdPartyWebsite website = buildPublicAppWebsite(1L);
+        LocalDateTime saved = LocalDateTime.now().minusMinutes(20);
+        website.setLastReconcileTime(saved);
+        website.setInstalledAt(LocalDateTime.now().minusDays(3));
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        // 无订单时服务返回传入的起点（since − lookback），游标不能因此倒退
+        when(shopifyOrderSyncService.reconcileOrders(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+
+        executor.syncNext();
+        executor.syncNext();
+
+        verify(shopifyOrderSyncService, times(1)).reconcileOrders(any(), eq(saved.minusMinutes(10)));
+        verify(websiteStore, never()).updateReconcileTime(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("公开应用：从未对账也未记录安装时间时从创建时间开始，并保存起点")
+    void shouldFallBackToCreateTimeAndPersistStart() {
+        ThirdPartyWebsite website = buildPublicAppWebsite(1L);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.reconcileOrders(any(), any())).thenAnswer(invocation -> invocation.getArgument(1));
+
+        executor.syncNext();
+
+        verify(shopifyOrderSyncService).reconcileOrders(any(), eq(website.getCreateTime().minusMinutes(30)));
+        verify(websiteStore).updateReconcileTime(1L, website.getCreateTime());
+    }
+
+    @Test
+    @DisplayName("两种接入方式并存：凭证模式照常轮询与取消检查，公开应用只对账；对账失败不影响其他店铺")
+    void shouldDispatchByAccessMode() {
+        ThirdPartyWebsite credentials = buildWebsite(1L, LocalDateTime.now().minusMinutes(5), false);
+        credentials.setAccessMode(ShopifyAccessMode.CREDENTIALS);
+        ThirdPartyWebsite legacy = buildWebsite(2L, LocalDateTime.now().minusMinutes(5), false);
+        ThirdPartyWebsite publicApp = buildPublicAppWebsite(3L);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(credentials, legacy, publicApp));
+        mockWebsiteDto();
+        when(shopifyOrderSyncService.loadOrders(any(), any(), any(), eq(SyncMode.AUTO))).thenReturn(loadResult(null, 0));
+        when(shopifyOrderSyncService.reconcileOrders(any(), any())).thenThrow(new RuntimeException("模拟失败"));
+
+        assertDoesNotThrow(() -> executor.syncNext());
+
+        ArgumentCaptor<ThirdPartyWebsiteDto> loaded = ArgumentCaptor.forClass(ThirdPartyWebsiteDto.class);
+        verify(shopifyOrderSyncService, times(2)).loadOrders(loaded.capture(), any(), any(), eq(SyncMode.AUTO));
+        assertEquals(java.util.Set.of(1L, 2L), loaded.getAllValues().stream().map(ThirdPartyWebsiteDto::getLongId)
+                .collect(java.util.stream.Collectors.toSet()));
+        verify(shopifyOrderSyncService, times(2)).checkCancelledOrders(any(), any(), any());
+        ArgumentCaptor<ThirdPartyWebsiteDto> reconciled = ArgumentCaptor.forClass(ThirdPartyWebsiteDto.class);
+        verify(shopifyOrderSyncService).reconcileOrders(reconciled.capture(), any());
+        assertEquals(3L, reconciled.getValue().getLongId());
+        verify(websiteStore, never()).updateReconcileTime(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("公开应用：上一轮截断在回看窗口内时，下一轮从返回的游标继续而不是重扫窗口")
+    void shouldResumeFromPreviousCursorInsteadOfRescanningWindow() {
+        appProperties.setReconcileIntervalMinutes(0);
+        ThirdPartyWebsite website = buildPublicAppWebsite(1L);
+        LocalDateTime saved = LocalDateTime.of(2026, 10, 18, 10, 0);
+        website.setLastReconcileTime(saved);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        LocalDateTime truncatedAt = LocalDateTime.of(2026, 10, 18, 9, 45);
+        when(shopifyOrderSyncService.reconcileOrders(any(), any()))
+                .thenReturn(truncatedAt)
+                .thenReturn(LocalDateTime.of(2026, 10, 18, 11, 0));
+
+        executor.syncNext();
+        executor.syncNext();
+
+        ArgumentCaptor<LocalDateTime> from = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(shopifyOrderSyncService, times(2)).reconcileOrders(any(), from.capture());
+        assertEquals(List.of(saved.minusMinutes(30), truncatedAt), from.getAllValues());
+        verify(websiteStore, never()).updateReconcileTime(1L, truncatedAt);
+        verify(websiteStore).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 11, 0));
+    }
+
+    @Test
+    @DisplayName("公开应用：回看起点不早于上一轮已确认处理到的游标")
+    void shouldNotLookBackBeforePreviousCursor() {
+        appProperties.setReconcileIntervalMinutes(0);
+        ThirdPartyWebsite website = buildPublicAppWebsite(1L);
+        website.setLastReconcileTime(LocalDateTime.of(2026, 10, 18, 10, 0));
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        LocalDateTime firstCursor = LocalDateTime.of(2026, 10, 18, 10, 50);
+        when(shopifyOrderSyncService.reconcileOrders(any(), any())).thenReturn(firstCursor);
+
+        executor.syncNext();
+        // 服务端按页落库后，下一轮读到的 lastReconcileTime 已推进
+        website.setLastReconcileTime(firstCursor);
+        executor.syncNext();
+
+        ArgumentCaptor<LocalDateTime> from = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(shopifyOrderSyncService, times(2)).reconcileOrders(any(), from.capture());
+        assertEquals(LocalDateTime.of(2026, 10, 18, 9, 30), from.getAllValues().get(0));
+        assertEquals(firstCursor, from.getAllValues().get(1));
     }
 
     private ShoplineOrderLoadResult loadResult(String nextPageInfo, int createdCount) {

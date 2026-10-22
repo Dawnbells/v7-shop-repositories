@@ -186,9 +186,15 @@ public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, 
         temporaryOrder.setOrderTime(request.getOrderTime());
         temporaryOrder.setPaymentInfo(request.toPaymentInfo());
         temporaryOrder.setFinancialInfo(request.toFinancialInfo());
-        temporaryOrder.setDeliveryInfo(request.toDeliveryInfo());
+        // 已脱敏（Shopify 合规删除/保留期到期）的订单再次同步时不回填收货人与风控 IP
+        boolean piiRedacted = temporaryOrder.getPiiRedactedAt() != null;
+        if (!piiRedacted) {
+            temporaryOrder.setDeliveryInfo(request.toDeliveryInfo());
+        }
         temporaryOrder.setContextInfo(request.toContextInfo(owner));
-        temporaryOrder.setRiskInfo(request.toRiskInfo());
+        if (!piiRedacted) {
+            temporaryOrder.setRiskInfo(request.toRiskInfo());
+        }
         temporaryOrder.setOwner(owner);
         temporaryOrder.setCustomerCancelled(Boolean.TRUE.equals(request.getCustomerCancelled()));
 

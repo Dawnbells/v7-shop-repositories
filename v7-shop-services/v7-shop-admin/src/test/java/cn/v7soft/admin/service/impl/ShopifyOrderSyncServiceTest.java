@@ -2,6 +2,7 @@ package cn.v7soft.admin.service.impl;
 
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
+import cn.v7soft.admin.config.ShopifyAppProperties;
 import cn.v7soft.admin.controller.req.CountThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.EditTemporaryOrderRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
@@ -20,27 +21,27 @@ import cn.v7soft.dao.entities.primary.TemporaryOrder;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.*;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
+import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -53,18 +54,35 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ShopifyOrderSyncServiceTest {
 
+    private static final String GRAPHQL_URL = "https://test-shop.myshopify.com/admin/api/2026-07/graphql.json";
+
     @Mock private RestTemplate restTemplate;
     @Mock private ShopifyTokenService tokenService;
     @Mock private ShopifyWebsiteStore websiteStore;
     @Mock private ICurrencyService currencyService;
     @Mock private ILanguageService languageService;
     @Mock private ICountryService countryService;
+    @Mock private IAddressService addressService;
     @Mock private ITemporaryOrderService temporaryOrderService;
     @Mock private IProductSKUService productSKUService;
     @Mock private SystemUserRepository systemUserRepository;
+    @Mock private ThirdPartyWebsiteRepository thirdPartyWebsiteRepository;
 
-    @InjectMocks
     private ShopifyOrderSyncService service;
+
+    @BeforeEach
+    void setUp() {
+        ShopifyAppProperties appProperties = new ShopifyAppProperties();
+        // 真实客户端 + mock RestTemplate：401 刷新、402/423 停用、限流退避都走客户端逻辑
+        ShopifyGraphqlClient graphqlClient = new ShopifyGraphqlClient(restTemplate, tokenService, websiteStore, appProperties) {
+            @Override
+            protected void sleep(long millis) {
+            }
+        };
+        service = new ShopifyOrderSyncService(graphqlClient, restTemplate, appProperties, tokenService, websiteStore,
+                currencyService, languageService, countryService, addressService, temporaryOrderService,
+                productSKUService, systemUserRepository, thirdPartyWebsiteRepository);
+    }
 
     @Test
     void shouldRejectUnsafeStoredHandleBeforeSendingToken() {
@@ -75,21 +93,14 @@ class ShopifyOrderSyncServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {0, 1, 2})
+    @org.junit.jupiter.params.provider.ValueSource(ints = {0, 1, 2})
     void shouldResolveMetafieldOwnerWithinWebsiteCompany(int matchType) {
         boolean telephoneMatches = matchType == 1;
-        JSONObject order = buildShopifyOrder();
-        order.getJSONArray("line_items").getJSONObject(0).set("product_id", "9001");
-        JSONArray orders = new JSONArray();
-        orders.add(order);
+        JSONObject node = bareNode("5500000000001", "2026-06-01T10:30:00-04:00");
+        node.set("lineItems", lineItemsConnection(lineItemNode("9001",
+                metafield("owner_telephone", "123"), metafield("owner_name", "同名用户"))));
         when(tokenService.getAccessToken(any())).thenReturn("old-token");
-        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                .thenAnswer(invocation -> {
-                    URI uri = invocation.getArgument(0);
-                    return uri.getPath().endsWith("metafields.json")
-                            ? ResponseEntity.ok("{\"metafields\":[{\"key\":\"owner_telephone\",\"value\":\"123\"},{\"key\":\"owner_name\",\"value\":\"同名用户\"}]}")
-                            : ordersResponse(orders, null);
-                });
+        stubPost(ordersResponse(nodes(node), null));
         SystemUser localOwner = SystemUser.builder().id(88L).companyId(100L).name("本公司用户").build();
         when(systemUserRepository.findByTelephoneAndCompanyIdWithDepartment(eq("123"), eq(100L), any(Pageable.class)))
                 .thenReturn(telephoneMatches ? List.of(localOwner) : List.of());
@@ -106,6 +117,8 @@ class ShopifyOrderSyncServiceTest {
         assertEquals(matchType > 0 ? 88L : 1L, captor.getValue().getContextInfo().getSalesUid());
         verify(systemUserRepository, never()).findByTelephoneWithDepartment(anyString(), any());
         verify(systemUserRepository, never()).findByUserNameWithDepartment(anyString(), any());
+        // 元字段随订单查询内联返回，只有一次请求
+        verify(restTemplate, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
     }
 
     private ThirdPartyWebsiteDto buildWebsiteDto(String lastSyncOrderId) {
@@ -144,6 +157,9 @@ class ShopifyOrderSyncServiceTest {
         return set;
     }
 
+    /**
+     * REST 形状订单（与 webhook payload 同形），转换器测试通过 importWebhookOrder 输入
+     */
     private JSONObject buildShopifyOrder() {
         JSONObject order = new JSONObject();
         order.set("id", "5500000000001");
@@ -194,21 +210,82 @@ class ShopifyOrderSyncServiceTest {
         return order;
     }
 
-    private JSONObject buildBareOrder(String id, String createdAt) {
-        JSONObject order = new JSONObject();
-        order.set("id", id);
-        order.set("created_at", createdAt);
-        return order;
+    // ==================== GraphQL 响应构造 ====================
+
+    private JSONObject bareNode(String id, String createdAt) {
+        return new JSONObject()
+                .set("id", "gid://shopify/Order/" + id)
+                .set("legacyResourceId", id)
+                .set("createdAt", createdAt);
     }
 
-    private ResponseEntity<String> ordersResponse(JSONArray orders, String linkHeader) {
-        JSONObject body = new JSONObject();
-        body.set("orders", orders);
-        HttpHeaders headers = new HttpHeaders();
-        if (linkHeader != null) {
-            headers.add("link", linkHeader);
+    private JSONObject metafield(String key, String value) {
+        return new JSONObject().set("namespace", "xyz").set("key", key).set("value", value);
+    }
+
+    private JSONObject lineItemNode(String productId, JSONObject... metafields) {
+        JSONArray metafieldNodes = new JSONArray();
+        for (JSONObject metafield : metafields) {
+            metafieldNodes.add(metafield);
         }
-        return new ResponseEntity<>(body.toString(), headers, HttpStatus.OK);
+        return new JSONObject()
+                .set("id", "gid://shopify/LineItem/1" + productId)
+                .set("title", "Test Product")
+                .set("sku", "SKU-001")
+                .set("quantity", 1)
+                .set("currentQuantity", 1)
+                .set("product", new JSONObject().set("legacyResourceId", productId)
+                        .set("metafields", new JSONObject().set("nodes", metafieldNodes)));
+    }
+
+    private JSONObject lineItemsConnection(JSONObject... items) {
+        return lineItemsConnection(null, items);
+    }
+
+    private JSONObject lineItemsConnection(String endCursor, JSONObject... items) {
+        JSONArray array = new JSONArray();
+        for (JSONObject item : items) {
+            array.add(item);
+        }
+        return new JSONObject()
+                .set("pageInfo", new JSONObject().set("hasNextPage", endCursor != null).set("endCursor", endCursor))
+                .set("nodes", array);
+    }
+
+    private JSONArray nodes(JSONObject... orders) {
+        JSONArray array = new JSONArray();
+        for (JSONObject order : orders) {
+            array.add(order);
+        }
+        return array;
+    }
+
+    /**
+     * orders 连接响应，endCursor 非空表示还有下一页
+     */
+    private ResponseEntity<String> ordersResponse(JSONArray orders, String endCursor) {
+        JSONObject connection = new JSONObject()
+                .set("pageInfo", new JSONObject().set("hasNextPage", endCursor != null).set("endCursor", endCursor))
+                .set("nodes", orders);
+        return ResponseEntity.ok(new JSONObject().set("data", new JSONObject().set("orders", connection)).toString());
+    }
+
+    @SafeVarargs
+    private void stubPost(ResponseEntity<String> first, ResponseEntity<String>... rest) {
+        when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class))).thenReturn(first, rest);
+    }
+
+    private ArgumentCaptor<HttpEntity<Map<String, Object>>> entityCaptor() {
+        return ArgumentCaptor.forClass(HttpEntity.class);
+    }
+
+    private static String query(HttpEntity<Map<String, Object>> entity) {
+        return (String) entity.getBody().get("query");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> variables(HttpEntity<Map<String, Object>> entity) {
+        return (Map<String, Object>) entity.getBody().get("variables");
     }
 
     private SyncThirdPartyOrdersRequest buildRequest(LocalDateTime createAtMin) {
@@ -251,8 +328,7 @@ class ShopifyOrderSyncServiceTest {
         void shouldDisableUnavailableShopWithoutRetryOrCursorUpdate(int statusCode) {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
             HttpClientErrorException error = unavailableShop(statusCode);
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenThrow(error);
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class))).thenThrow(error);
 
             assertSame(error, assertThrows(HttpClientErrorException.class,
                     () -> service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.AUTO)));
@@ -260,7 +336,7 @@ class ShopifyOrderSyncServiceTest {
             verify(websiteStore).markWebsiteAuthError(eq(1L), contains("HTTP " + statusCode));
             verify(websiteStore, never()).updateLastSyncInfo(any(), any());
             verify(tokenService, never()).forceRefresh(any(), any());
-            verify(restTemplate).exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+            verify(restTemplate).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
         }
 
         @ParameterizedTest
@@ -282,7 +358,7 @@ class ShopifyOrderSyncServiceTest {
             ThirdPartyWebsite website = ThirdPartyWebsite.builder().id(1L).handle("test-shop").build();
             when(websiteStore.getDtoById(1L)).thenReturn(buildWebsiteDto(null));
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                     .thenThrow(unavailableShop(statusCode));
 
             assertThrows(HttpClientErrorException.class,
@@ -296,7 +372,7 @@ class ShopifyOrderSyncServiceTest {
         @ValueSource(ints = {400, 404, 422})
         void shouldNotDisableShopForUnrelatedClientErrors(int statusCode) {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                     .thenThrow(new HttpClientErrorException(HttpStatus.valueOf(statusCode)));
 
             assertThrows(HttpClientErrorException.class,
@@ -306,6 +382,28 @@ class ShopifyOrderSyncServiceTest {
         }
     }
 
+    // ==================== 计数 ====================
+
+    @Test
+    @DisplayName("计数：ordersCount 携带 UTC 的 created_at 范围且不设上限")
+    void shouldCountOrdersWithCreatedAtRange() {
+        ThirdPartyWebsite website = ThirdPartyWebsite.builder().id(1L).handle("test-shop").build();
+        when(websiteStore.getDtoById(1L)).thenReturn(buildWebsiteDto(null));
+        when(tokenService.getAccessToken(any())).thenReturn("old-token");
+        ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+        when(restTemplate.postForEntity(eq(GRAPHQL_URL), entities.capture(), eq(String.class)))
+                .thenReturn(ResponseEntity.ok("{\"data\":{\"ordersCount\":{\"count\":12,\"precision\":\"EXACT\"}}}"));
+        CountThirdPartyOrdersRequest request = new CountThirdPartyOrdersRequest();
+        request.setCreateAtMin(LocalDateTime.of(2026, 1, 1, 8, 0));
+        request.setCreateAtMax(LocalDateTime.of(2026, 1, 31, 8, 0));
+
+        assertEquals(12, service.countOrders(website, request).getCount());
+
+        assertTrue(query(entities.getValue()).contains("ordersCount(query: $q, limit: null)"));
+        assertEquals("created_at:>='2026-01-01T00:00:00Z' created_at:<='2026-01-31T00:00:00Z'",
+                variables(entities.getValue()).get("q"));
+    }
+
     // ==================== 请求参数测试 ====================
 
     @Nested
@@ -313,58 +411,99 @@ class ShopifyOrderSyncServiceTest {
     class LoadOrdersRequest {
 
         @Test
-        @DisplayName("自动同步且有游标：携带 status=any、since_id 和 UTC 时间，不带 order")
+        @DisplayName("自动同步：按 created_at 游标升序查询 GraphQL，lastSyncOrderId 不作查询条件")
         void shouldUseSinceIdWhenAutoSyncWithCursor() {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
-            ArgumentCaptor<HttpEntity<String>> entityCaptor = ArgumentCaptor.forClass(HttpEntity.class);
-            when(restTemplate.exchange(uriCaptor.capture(), eq(HttpMethod.GET), entityCaptor.capture(), eq(String.class)))
+            ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(urlCaptor.capture(), entities.capture(), eq(String.class)))
                     .thenReturn(ordersResponse(new JSONArray(), null));
 
             service.loadOrders(buildWebsiteDto("5500000000000"), buildRequest(LocalDateTime.of(2026, 6, 1, 8, 0)), "", SyncMode.AUTO);
 
-            String uri = uriCaptor.getValue().toString();
-            assertTrue(uri.startsWith("https://test-shop.myshopify.com/admin/api/2026-07/orders.json"));
-            assertTrue(uri.contains("status=any"));
-            assertTrue(uri.contains("since_id=5500000000000"));
-            assertTrue(uri.contains("created_at_min=2026-06-01T00:00:00Z"));
-            assertTrue(uri.contains("limit=100"));
-            assertFalse(uri.contains("order="));
-            assertEquals("old-token", entityCaptor.getValue().getHeaders().getFirst("X-Shopify-Access-Token"));
+            assertEquals(GRAPHQL_URL, urlCaptor.getValue());
+            String query = query(entities.getValue());
+            Map<String, Object> variables = variables(entities.getValue());
+            assertTrue(query.contains("sortKey: CREATED_AT, reverse: false"));
+            assertEquals("created_at:>='2026-06-01T00:00:00Z'", variables.get("q"));
+            assertFalse(String.valueOf(variables.get("q")).contains("5500000000000"));
+            assertEquals(ShopifyOrderSyncService.ORDER_PAGE_SIZE, variables.get("first"));
+            assertNull(variables.get("cursor"));
+            assertEquals("old-token", entities.getValue().getHeaders().getFirst("X-Shopify-Access-Token"));
             verify(websiteStore).updateLastSyncInfo(eq(1L), any());
         }
 
         @Test
-        @DisplayName("手动同步：按 created_at 升序，不带 since_id，不更新自动同步游标")
+        @DisplayName("手动同步：按 created_at 升序，不更新自动同步游标")
         void shouldOrderByCreatedAtWhenManualSync() {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
-            when(restTemplate.exchange(uriCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
                     .thenReturn(ordersResponse(new JSONArray(), null));
 
             service.loadOrders(buildWebsiteDto("5500000000000"), buildRequest(null), "", SyncMode.MANUAL);
 
-            String uri = uriCaptor.getValue().toString();
-            assertTrue(uri.contains("order=created_at%20asc"));
-            assertFalse(uri.contains("since_id"));
+            assertTrue(query(entities.getValue()).contains("sortKey: CREATED_AT, reverse: false"));
+            assertNull(variables(entities.getValue()).get("q"));
             verify(websiteStore, never()).updateLastSyncInfo(any(), any());
         }
 
         @Test
-        @DisplayName("翻页：只携带 page_info 和 limit，并解析下一页")
+        @DisplayName("翻页：携带 after 游标与相同过滤条件，返回 endCursor 作为下一页")
         void shouldOnlySendPageInfoWhenPaging() {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
-            when(restTemplate.exchange(uriCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(ordersResponse(new JSONArray(),
-                            "<https://test-shop.myshopify.com/admin/api/2026-07/orders.json?limit=100&page_info=prev1>; rel=\"previous\", "
-                                    + "<https://test-shop.myshopify.com/admin/api/2026-07/orders.json?limit=100&page_info=next2>; rel=\"next\""));
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
+                    .thenReturn(ordersResponse(new JSONArray(), "next2"))
+                    .thenReturn(ordersResponse(new JSONArray(), null));
 
             ShoplineOrderLoadResult result = service.loadOrders(buildWebsiteDto(null),
                     buildRequest(LocalDateTime.of(2026, 6, 1, 8, 0)), "page1", SyncMode.MANUAL);
 
-            assertEquals("page_info=page1&limit=100", uriCaptor.getValue().getQuery());
+            assertEquals("page1", variables(entities.getValue()).get("cursor"));
+            assertEquals("created_at:>='2026-06-01T00:00:00Z'", variables(entities.getValue()).get("q"));
             assertEquals("next2", result.getNextPageInfo());
+            assertNull(service.loadOrders(buildWebsiteDto(null), buildRequest(null), "next2", SyncMode.MANUAL).getNextPageInfo());
+        }
+
+        @Test
+        @DisplayName("行项目超过首屏数量时按游标补查并合并")
+        void shouldFetchRemainingLineItems() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            JSONObject node = bareNode("5500000000001", "2026-06-01T10:30:00-04:00");
+            node.set("lineItems", lineItemsConnection("li-cursor", lineItemNode("9001")));
+            JSONObject remaining = lineItemsConnection(lineItemNode("9002"));
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
+                    .thenReturn(ordersResponse(nodes(node), null))
+                    .thenReturn(ResponseEntity.ok(new JSONObject().set("data", new JSONObject()
+                            .set("order", new JSONObject().set("lineItems", remaining))).toString()));
+            ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), eq(true))).thenReturn(true);
+
+            service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.MANUAL);
+
+            assertEquals(2, captor.getValue().getItemInfos().size());
+            HttpEntity<Map<String, Object>> followUp = entities.getAllValues().get(1);
+            assertTrue(query(followUp).contains("order(id: $id)"));
+            assertEquals("gid://shopify/Order/5500000000001", variables(followUp).get("id"));
+            assertEquals("li-cursor", variables(followUp).get("cursor"));
+        }
+
+        @Test
+        @DisplayName("THROTTLED 时经客户端退避后成功")
+        void shouldRetryAfterThrottled() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            stubPost(ResponseEntity.ok("{\"errors\":[{\"message\":\"Throttled\",\"extensions\":{\"code\":\"THROTTLED\"}}],"
+                            + "\"extensions\":{\"cost\":{\"requestedQueryCost\":900,\"throttleStatus\":{\"maximumAvailable\":2000,"
+                            + "\"currentlyAvailable\":100,\"restoreRate\":100}}}}"),
+                    ordersResponse(nodes(bareNode("10", "2026-01-01T10:00:00+08:00")), null));
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            ShoplineOrderLoadResult result = service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.AUTO);
+
+            assertEquals(1, result.getCreatedCount());
+            verify(restTemplate, times(2)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
         }
     }
 
@@ -379,14 +518,14 @@ class ShopifyOrderSyncServiceTest {
         void shouldRefreshTokenAndRetryWhenUnauthorized() {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
             when(tokenService.forceRefresh(1L, "old-token")).thenReturn("new-token");
-            ArgumentCaptor<HttpEntity<String>> entityCaptor = ArgumentCaptor.forClass(HttpEntity.class);
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), entityCaptor.capture(), eq(String.class)))
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
                     .thenThrow(unauthorized())
                     .thenReturn(ordersResponse(new JSONArray(), null));
 
             assertDoesNotThrow(() -> service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.AUTO));
 
-            assertEquals("new-token", entityCaptor.getAllValues().get(1).getHeaders().getFirst("X-Shopify-Access-Token"));
+            assertEquals("new-token", entities.getAllValues().get(1).getHeaders().getFirst("X-Shopify-Access-Token"));
             verify(websiteStore, never()).markWebsiteAuthError(any(), any());
         }
 
@@ -395,7 +534,7 @@ class ShopifyOrderSyncServiceTest {
         void shouldMarkAuthErrorWhenStillUnauthorized() {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
             when(tokenService.forceRefresh(1L, "old-token")).thenReturn("new-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                     .thenThrow(unauthorized());
 
             assertThrows(HttpClientErrorException.class,
@@ -647,16 +786,14 @@ class ShopifyOrderSyncServiceTest {
             assertEquals(Boolean.FALSE, loadAndCapture(buildWebsiteDto(null), order).getCustomerCancelled());
         }
 
+        /**
+         * REST 形状订单经 webhook 导入路径（updateExisting=true，与手动同步一致）转换
+         */
         private EditTemporaryOrderRequest loadAndCapture(ThirdPartyWebsiteDto website, JSONObject order) {
-            JSONArray orders = new JSONArray();
-            orders.add(order);
-            when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(ordersResponse(orders, null));
             ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
             when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), anyBoolean())).thenReturn(true);
 
-            service.loadOrders(website, buildRequest(null), "", SyncMode.MANUAL);
+            service.importWebhookOrder(website, order, true);
             return captor.getValue();
         }
 
@@ -738,39 +875,314 @@ class ShopifyOrderSyncServiceTest {
         }
 
         @Test
-        @DisplayName("同一页内相同商品的 metafields 只请求一次，并用于补全 SKU 与品名")
+        @DisplayName("同一页内相同商品的元字段随订单内联返回，不逐商品请求，并用于补全 SKU 与品名")
         void shouldFetchMetafieldsOncePerProduct() {
             lenient().when(currencyService.getByCode(anyString())).thenReturn(Optional.empty());
             lenient().when(countryService.getByCode(anyString())).thenReturn(Optional.empty());
-            JSONObject order1 = buildShopifyOrder();
-            order1.getJSONArray("line_items").getJSONObject(0).set("product_id", "9001");
-            JSONObject order2 = buildShopifyOrder();
-            order2.set("id", "5500000000002");
-            order2.getJSONArray("line_items").getJSONObject(0).set("product_id", "9001");
-            JSONArray orders = new JSONArray();
-            orders.add(order1);
-            orders.add(order2);
-
-            String metafields = "{\"metafields\":[{\"key\":\"sku_code_high\",\"value\":\"SKU-HIGH\"},{\"key\":\"cn_product_name\",\"value\":\"测试商品\"}]}";
+            JSONObject order1 = bareNode("5500000000001", "2026-06-01T10:30:00-04:00");
+            order1.set("lineItems", lineItemsConnection(lineItemNode("9001",
+                    metafield("sku_code_high", "SKU-HIGH"), metafield("cn_product_name", "测试商品"))));
+            JSONObject order2 = bareNode("5500000000002", "2026-06-01T10:31:00-04:00");
+            order2.set("lineItems", lineItemsConnection(lineItemNode("9001",
+                    metafield("sku_code_high", "SKU-HIGH"), metafield("cn_product_name", "测试商品"))));
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenAnswer(invocation -> {
-                        URI uri = invocation.getArgument(0);
-                        if (uri.getPath().endsWith("/products/9001/metafields.json")) {
-                            return new ResponseEntity<>(metafields, HttpStatus.OK);
-                        }
-                        return ordersResponse(orders, null);
-                    });
+            stubPost(ordersResponse(nodes(order1, order2), null));
             ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
             when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), anyBoolean())).thenReturn(true);
 
             service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.MANUAL);
 
-            // 1 次订单列表 + 1 次 metafields
-            verify(restTemplate, times(2)).exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class));
+            // 只有 1 次订单列表请求
+            verify(restTemplate, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
             assertEquals(2, captor.getAllValues().size());
             assertEquals("SKU-HIGH", captor.getAllValues().get(1).getItemInfos().get(0).getSkuCode());
             assertEquals("测试商品", captor.getAllValues().get(1).getItemInfos().get(0).getMerchandise());
+        }
+
+        @Test
+        @DisplayName("webhook 订单的元字段缓存未命中时用 nodes 批量查询")
+        void shouldBatchFetchMetafieldsForWebhookOrder() {
+            JSONObject order = buildShopifyOrder();
+            JSONArray items = order.getJSONArray("line_items");
+            items.getJSONObject(0).set("product_id", 9001L);
+            items.add(new JSONObject().set("quantity", 1).set("sku", "").set("product_id", 9002L));
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
+                    .thenReturn(ResponseEntity.ok("{\"data\":{\"nodes\":["
+                            + "{\"id\":\"gid://shopify/Product/9001\",\"legacyResourceId\":\"9001\",\"metafields\":{\"nodes\":["
+                            + "{\"namespace\":\"xyz\",\"key\":\"sku_code_high\",\"value\":\"SKU-HIGH\"}]}},"
+                            + "{\"id\":\"gid://shopify/Product/9002\",\"legacyResourceId\":\"9002\",\"metafields\":{\"nodes\":["
+                            + "{\"namespace\":\"xyz\",\"key\":\"sku_code\",\"value\":\"SKU-FALLBACK\"}]}}]}}"));
+            EditTemporaryOrderRequest request = loadAndCapture(buildWebsiteDto(null), order);
+
+            assertEquals("SKU-HIGH", request.getItemInfos().get(0).getSkuCode());
+            assertEquals("SKU-FALLBACK", request.getItemInfos().get(1).getSkuCode());
+            verify(restTemplate, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
+            assertTrue(query(entities.getValue()).contains("nodes(ids: $ids)"));
+            assertEquals(List.of("gid://shopify/Product/9001", "gid://shopify/Product/9002"), variables(entities.getValue()).get("ids"));
+        }
+
+        @Test
+        @DisplayName("元字段查询失败时降级为空，订单照常导入")
+        void shouldIgnoreMetafieldFailure() {
+            JSONObject order = buildShopifyOrder();
+            order.getJSONArray("line_items").getJSONObject(0).set("product_id", 9001L);
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ResponseEntity.ok("{\"errors\":[{\"message\":\"boom\"}]}"));
+
+            assertEquals("SKU-001", loadAndCapture(buildWebsiteDto(null), order).getItemInfos().get(0).getSkuCode());
+        }
+    }
+
+    // ==================== webhook 订单导入 ====================
+
+    @Nested
+    @DisplayName("importWebhookOrder")
+    class ImportWebhookOrder {
+
+        @Test
+        @DisplayName("updateExisting=false 且订单已存在：返回 false 且不改库")
+        void shouldSkipExistingWhenNotUpdating() {
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+
+            assertFalse(service.importWebhookOrder(buildWebsiteDto(null), buildShopifyOrder(), false));
+
+            verify(temporaryOrderService, never()).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+        }
+
+        @Test
+        @DisplayName("updateExisting=false 且订单不存在：新建")
+        void shouldCreateWhenMissing() {
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            assertTrue(service.importWebhookOrder(buildWebsiteDto(null), buildShopifyOrder(), false));
+        }
+
+        @Test
+        @DisplayName("updateExisting=true：覆盖已存在订单，不存在则创建，返回是否新建")
+        void shouldUpsertWhenUpdating() {
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(true))).thenReturn(false);
+
+            assertFalse(service.importWebhookOrder(buildWebsiteDto(null), buildShopifyOrder(), true));
+
+            verify(temporaryOrderService, never()).findByOriginOrderId(anyString());
+            verify(temporaryOrderService).synchronizeOrderFromExternalSystem(any(), eq(true));
+        }
+    }
+
+    private ThirdPartyWebsiteDto publicAppWebsite() {
+        ThirdPartyWebsiteDto website = buildWebsiteDto(null);
+        website.setAccessMode(ShopifyAccessMode.PUBLIC_APP);
+        ThirdPartyWebsite entity = ThirdPartyWebsite.builder().id(1L)
+                .lastSyncOrderTime(LocalDateTime.of(2026, 10, 18, 9, 0)).build();
+        when(thirdPartyWebsiteRepository.findById(1L)).thenReturn(Optional.of(entity));
+        return website;
+    }
+
+    @Nested
+    @DisplayName("importWebhookOrder 绑定边界")
+    class ImportWebhookOrderBindingBoundary {
+
+        private JSONObject order(String createdAt) {
+            return buildShopifyOrder().set("created_at", createdAt);
+        }
+
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        @DisplayName("公开应用：绑定前创建且未导入的订单不新建")
+        void shouldSkipMissingOrderCreatedBeforeBinding(boolean updateExisting) {
+            ThirdPartyWebsiteDto website = publicAppWebsite();
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.empty());
+
+            assertFalse(service.importWebhookOrder(website, order("2026-10-18T08:59:00+08:00"), updateExisting));
+
+            verify(temporaryOrderService, never()).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+        }
+
+        @Test
+        @DisplayName("公开应用：绑定前创建但已存在的订单照常更新")
+        void shouldUpdateExistingOrderCreatedBeforeBinding() {
+            ThirdPartyWebsiteDto website = buildWebsiteDto(null);
+            website.setAccessMode(ShopifyAccessMode.PUBLIC_APP);
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(true))).thenReturn(false);
+
+            assertFalse(service.importWebhookOrder(website, order("2026-10-18T08:00:00+08:00"), true));
+
+            verify(temporaryOrderService).synchronizeOrderFromExternalSystem(any(), eq(true));
+            verifyNoInteractions(thirdPartyWebsiteRepository);
+        }
+
+        @Test
+        @DisplayName("公开应用：绑定后创建的订单新建")
+        void shouldCreateOrderCreatedAfterBinding() {
+            ThirdPartyWebsiteDto website = publicAppWebsite();
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            assertTrue(service.importWebhookOrder(website, order("2026-10-18T09:00:00+08:00"), false));
+        }
+
+        @Test
+        @DisplayName("凭证模式不受绑定边界影响")
+        void shouldIgnoreBoundaryForCredentialsMode() {
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            assertTrue(service.importWebhookOrder(buildWebsiteDto(null), order("2020-01-01T00:00:00+08:00"), false));
+            verifyNoInteractions(thirdPartyWebsiteRepository);
+        }
+    }
+
+    // ==================== 对账 ====================
+
+    @Nested
+    @DisplayName("reconcileOrders")
+    class Reconcile {
+
+        private JSONObject updatedNode(String id, String updatedAt) {
+            return bareNode(id, "2026-10-18T08:00:00+08:00").set("updatedAt", updatedAt);
+        }
+
+        @Test
+        @DisplayName("新订单创建、已存在且已取消的标记取消、其余跳过，返回最大 updated_at")
+        void shouldCreateMarkCancelledAndSkip() {
+            JSONObject created = updatedNode("1001", "2026-10-18T10:00:00+08:00");
+            JSONObject cancelled = updatedNode("1002", "2026-10-18T12:00:00+08:00").set("cancelledAt", "2026-10-18T12:00:00+08:00");
+            JSONObject unchanged = updatedNode("1003", "2026-10-18T11:00:00+08:00");
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
+                    .thenReturn(ordersResponse(nodes(created, cancelled), "page-2"))
+                    .thenReturn(ordersResponse(nodes(unchanged), null));
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.findByOriginOrderId("1002")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+            when(temporaryOrderService.findByOriginOrderId("1003")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+            ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), eq(false))).thenReturn(true);
+            when(temporaryOrderService.markCustomerCancelled("1002")).thenReturn(true);
+
+            LocalDateTime cursor = service.reconcileOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0));
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 12, 0), cursor);
+            assertEquals("1001", captor.getValue().getOriginOrderId());
+            verify(temporaryOrderService, times(1)).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+            verify(temporaryOrderService).markCustomerCancelled("1002");
+            verify(temporaryOrderService, never()).markCustomerCancelled("1003");
+            HttpEntity<Map<String, Object>> first = entities.getAllValues().get(0);
+            assertTrue(query(first).contains("sortKey: UPDATED_AT"));
+            assertEquals("updated_at:>='2026-10-18T00:00:00Z'", variables(first).get("q"));
+            assertEquals("page-2", variables(entities.getAllValues().get(1)).get("cursor"));
+            assertEquals("updated_at:>='2026-10-18T00:00:00Z'", variables(entities.getAllValues().get(1)).get("q"));
+            // 每页落库一次且只前进：第一页推进到 12:00，第二页最大 11:00 不再写
+            verify(websiteStore, times(1)).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 12, 0));
+            verify(websiteStore, times(1)).updateReconcileTime(anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("无订单时返回 since")
+        void shouldReturnSinceWhenNoOrders() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            stubPost(ordersResponse(new JSONArray(), null));
+
+            LocalDateTime since = LocalDateTime.of(2026, 10, 18, 8, 0);
+            assertEquals(since, service.reconcileOrders(buildWebsiteDto(null), since));
+        }
+
+        @Test
+        @DisplayName("处理失败时停在失败单之前的游标")
+        void shouldStopAtFailure() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            stubPost(ordersResponse(nodes(updatedNode("1001", "2026-10-18T10:00:00+08:00"),
+                    updatedNode("1002", "2026-10-18T11:00:00+08:00"),
+                    updatedNode("1003", "2026-10-18T12:00:00+08:00")), "more"));
+            when(temporaryOrderService.findByOriginOrderId(anyString())).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false)))
+                    .thenReturn(true).thenThrow(new RuntimeException("save failed"));
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 10, 0),
+                    service.reconcileOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0)));
+            verify(temporaryOrderService, times(2)).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+            verify(restTemplate, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
+            verify(websiteStore).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 10, 0));
+        }
+
+        @Test
+        @DisplayName("翻页请求异常时不抛出，返回并保留已推进的游标")
+        void shouldKeepProgressWhenPageFails() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ordersResponse(nodes(updatedNode("1001", "2026-10-18T10:00:00+08:00")), "page-2"))
+                    .thenThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST));
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            LocalDateTime cursor = assertDoesNotThrow(() ->
+                    service.reconcileOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0)));
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 10, 0), cursor);
+            verify(websiteStore).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 10, 0));
+            verify(restTemplate, times(2)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
+        }
+
+        @Test
+        @DisplayName("到达时间预算时停止翻页，返回当前游标")
+        void shouldStopAtTimeBudget() {
+            long[] now = {0};
+            service.setMillisClock(() -> now[0]);
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class))).thenAnswer(invocation -> {
+                now[0] += ShopifyOrderSyncService.RECONCILE_TIME_BUDGET_MILLIS;
+                return ordersResponse(nodes(updatedNode("1001", "2026-10-18T10:00:00+08:00")), "page-2");
+            });
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 10, 0),
+                    service.reconcileOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0)));
+
+            verify(restTemplate, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
+            verify(websiteStore).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 10, 0));
+        }
+
+        @Test
+        @DisplayName("回看窗口内的订单不让已落库的游标倒退")
+        void shouldNotPersistCursorBehindLastReconcileTime() {
+            ThirdPartyWebsiteDto website = buildWebsiteDto(null);
+            website.setLastReconcileTime(LocalDateTime.of(2026, 10, 18, 13, 0));
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            stubPost(ordersResponse(nodes(updatedNode("1001", "2026-10-18T12:30:00+08:00")), null));
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 12, 30),
+                    service.reconcileOrders(website, LocalDateTime.of(2026, 10, 18, 12, 30)));
+            verify(websiteStore, never()).updateReconcileTime(anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("公开应用：绑定前创建且未导入的订单不新建，已存在的照常标记取消，绑定后的新建")
+        void shouldSkipOrdersCreatedBeforeBinding() {
+            ThirdPartyWebsiteDto website = publicAppWebsite();
+            JSONObject beforeBinding = bareNode("1001", "2026-10-18T08:00:00+08:00").set("updatedAt", "2026-10-18T10:00:00+08:00");
+            JSONObject existingCancelled = bareNode("1002", "2026-10-18T08:00:00+08:00").set("updatedAt", "2026-10-18T10:30:00+08:00")
+                    .set("cancelledAt", "2026-10-18T10:30:00+08:00");
+            JSONObject afterBinding = bareNode("1003", "2026-10-18T09:30:00+08:00").set("updatedAt", "2026-10-18T11:00:00+08:00");
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            stubPost(ordersResponse(nodes(beforeBinding, existingCancelled, afterBinding), null));
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.findByOriginOrderId("1002")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+            when(temporaryOrderService.findByOriginOrderId("1003")).thenReturn(Optional.empty());
+            ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), eq(false))).thenReturn(true);
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 11, 0),
+                    service.reconcileOrders(website, LocalDateTime.of(2026, 10, 18, 8, 0)));
+
+            assertEquals(List.of("1003"), captor.getAllValues().stream().map(EditTemporaryOrderRequest::getOriginOrderId).toList());
+            verify(temporaryOrderService).markCustomerCancelled("1002");
+            verify(thirdPartyWebsiteRepository, times(1)).findById(1L);
         }
     }
 
@@ -784,11 +1196,10 @@ class ShopifyOrderSyncServiceTest {
         void shouldContinueManualPageAfterFailureAndPreserveNextPage() {
             JSONArray orders = new JSONArray();
             for (String id : List.of("10", "20", "30")) {
-                orders.add(buildBareOrder(id, "2026-01-01T10:00:00+08:00"));
+                orders.add(bareNode(id, "2026-01-01T10:00:00+08:00"));
             }
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(ordersResponse(orders, "<https://test-shop.myshopify.com/orders.json?page_info=next>; rel=\"next\""));
+            stubPost(ordersResponse(orders, "next"));
             when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(true)))
                     .thenReturn(true).thenThrow(new RuntimeException("save failed")).thenReturn(true);
 
@@ -807,8 +1218,8 @@ class ShopifyOrderSyncServiceTest {
         @Test
         void shouldKeepCursorEmptyWhenFirstAutomaticOrderFails() {
             JSONArray orders = new JSONArray();
-            orders.add(buildBareOrder("10", "2026-01-01T10:00:00+08:00"));
-            orders.add(buildBareOrder("20", "2026-01-01T11:00:00+08:00"));
+            orders.add(bareNode("10", "2026-01-01T10:00:00+08:00"));
+            orders.add(bareNode("20", "2026-01-01T11:00:00+08:00"));
             when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false)))
                     .thenThrow(new RuntimeException("save failed"));
 
@@ -822,8 +1233,7 @@ class ShopifyOrderSyncServiceTest {
 
         private ShoplineOrderLoadResult loadAuto(JSONArray orders) {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(ordersResponse(orders, null));
+            stubPost(ordersResponse(orders, null));
             return service.loadOrders(buildWebsiteDto(null), buildRequest(null), "", SyncMode.AUTO);
         }
 
@@ -831,8 +1241,8 @@ class ShopifyOrderSyncServiceTest {
         @DisplayName("已存在的订单跳过，游标仍推进")
         void shouldSkipExistingOrders() {
             JSONArray orders = new JSONArray();
-            orders.add(buildBareOrder("10", "2026-01-01T10:00:00+08:00"));
-            orders.add(buildBareOrder("30", "2026-01-01T12:00:00+08:00"));
+            orders.add(bareNode("10", "2026-01-01T10:00:00+08:00"));
+            orders.add(bareNode("30", "2026-01-01T12:00:00+08:00"));
             when(temporaryOrderService.findByOriginOrderId(anyString()))
                     .thenReturn(Optional.of(TemporaryOrder.builder().build()));
 
@@ -845,12 +1255,39 @@ class ShopifyOrderSyncServiceTest {
         }
 
         @Test
+        @DisplayName("自动同步整页都已存在且有下一页时继续翻页，游标越过边界")
+        void shouldPageThroughFullySkippedAutoPage() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
+                    .thenReturn(ordersResponse(nodes(bareNode("10", "2026-01-01T10:00:00+08:00"),
+                            bareNode("20", "2026-01-01T10:00:00+08:00")), "page-2"))
+                    .thenReturn(ordersResponse(nodes(bareNode("30", "2026-01-01T11:00:00+08:00")), null));
+            when(temporaryOrderService.findByOriginOrderId("10")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+            when(temporaryOrderService.findByOriginOrderId("20")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+            when(temporaryOrderService.findByOriginOrderId("30")).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            ShoplineOrderLoadResult result = service.loadOrders(buildWebsiteDto(null),
+                    buildRequest(LocalDateTime.of(2026, 1, 1, 10, 0)), "", SyncMode.AUTO);
+
+            assertEquals(3, result.getFetchedCount());
+            assertEquals(2, result.getSkippedCount());
+            assertEquals(1, result.getCreatedCount());
+            assertEquals("30", result.getCursorOrderId());
+            assertEquals(LocalDateTime.of(2026, 1, 1, 11, 0), result.getCursorOrderTime());
+            assertNull(result.getNextPageInfo());
+            assertEquals("page-2", variables(entities.getAllValues().get(1)).get("cursor"));
+            verify(websiteStore, times(1)).updateLastSyncInfo(eq(1L), same(result));
+        }
+
+        @Test
         @DisplayName("中间出现失败单：立即终止本页，游标停在失败单前")
         void shouldStopAtFailure() {
             JSONArray orders = new JSONArray();
-            orders.add(buildBareOrder("10", "2026-01-01T10:00:00+08:00"));
-            orders.add(buildBareOrder("20", "2026-01-01T11:00:00+08:00"));
-            orders.add(buildBareOrder("30", "2026-01-01T12:00:00+08:00"));
+            orders.add(bareNode("10", "2026-01-01T10:00:00+08:00"));
+            orders.add(bareNode("20", "2026-01-01T11:00:00+08:00"));
+            orders.add(bareNode("30", "2026-01-01T12:00:00+08:00"));
             when(temporaryOrderService.findByOriginOrderId(anyString())).thenReturn(Optional.empty());
             when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), anyBoolean()))
                     .thenReturn(true)
@@ -874,22 +1311,23 @@ class ShopifyOrderSyncServiceTest {
 
         private JSONObject cancelCheckOrder(String id, String updatedAt) {
             JSONArray lineItems = new JSONArray();
-            lineItems.add(new JSONObject().set("quantity", 1).set("current_quantity", 1));
-            return new JSONObject().set("id", id).set("updated_at", updatedAt).set("line_items", lineItems);
+            lineItems.add(new JSONObject().set("currentQuantity", 1));
+            return new JSONObject().set("id", "gid://shopify/Order/" + id).set("legacyResourceId", id).set("updatedAt", updatedAt)
+                    .set("lineItems", new JSONObject().set("pageInfo", new JSONObject().set("hasNextPage", false)).set("nodes", lineItems));
         }
 
         @Test
         void shouldMarkOnlyCancelledOrdersAndReturnLatestUpdatedAt() {
             JSONArray orders = new JSONArray();
-            orders.add(cancelCheckOrder("1001", "2026-10-18T10:00:00+08:00").set("cancelled_at", "2026-10-18T10:00:00+08:00"));
+            orders.add(cancelCheckOrder("1001", "2026-10-18T10:00:00+08:00").set("cancelledAt", "2026-10-18T10:00:00+08:00"));
             orders.add(cancelCheckOrder("1002", "2026-10-18T11:00:00+08:00"));
             JSONObject removed = cancelCheckOrder("1003", "2026-10-18T09:00:00+08:00");
-            removed.getJSONArray("line_items").getJSONObject(0).set("current_quantity", 0);
+            removed.getJSONObject("lineItems").getJSONArray("nodes").getJSONObject(0).set("currentQuantity", 0);
             orders.add(removed);
 
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
-            when(restTemplate.exchange(uriCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
                     .thenReturn(ordersResponse(orders, null));
             when(temporaryOrderService.markCustomerCancelled(anyString())).thenReturn(true);
 
@@ -899,10 +1337,13 @@ class ShopifyOrderSyncServiceTest {
             verify(temporaryOrderService).markCustomerCancelled("1001");
             verify(temporaryOrderService).markCustomerCancelled("1003");
             verify(temporaryOrderService, never()).markCustomerCancelled("1002");
-            String uri = uriCaptor.getValue().toString();
-            assertTrue(uri.contains("updated_at_min=2026-10-18T00:00:00Z"));
-            assertTrue(uri.contains("status=any"));
-            assertTrue(uri.contains("fields=id,cancelled_at,updated_at,line_items"));
+            String query = query(entities.getValue());
+            Map<String, Object> variables = variables(entities.getValue());
+            assertEquals("updated_at:>='2026-10-18T00:00:00Z'", variables.get("q"));
+            assertTrue(query.contains("sortKey: UPDATED_AT"));
+            assertTrue(query.contains("cancelledAt updatedAt"));
+            assertFalse(query.contains("metafields"));
+            assertEquals(ShopifyOrderSyncService.CANCEL_CHECK_PAGE_SIZE, variables.get("first"));
             verifyNoInteractions(productSKUService);
         }
 
@@ -914,27 +1355,25 @@ class ShopifyOrderSyncServiceTest {
             secondPage.add(cancelCheckOrder("1002", "2026-10-18T12:00:00+08:00"));
 
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
-            when(restTemplate.exchange(uriCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(ordersResponse(firstPage,
-                            "<https://test-shop.myshopify.com/admin/api/2026-07/orders.json?limit=250&page_info=next-page>; rel=\"next\""))
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(anyString(), entities.capture(), eq(String.class)))
+                    .thenReturn(ordersResponse(firstPage, "next-page"))
                     .thenReturn(ordersResponse(secondPage, null));
 
             LocalDateTime cursor = service.checkCancelledOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0), null).cursor();
 
             assertEquals(LocalDateTime.of(2026, 10, 18, 12, 0), cursor);
-            List<URI> uris = uriCaptor.getAllValues();
-            assertEquals(2, uris.size());
-            assertTrue(uris.get(1).toString().contains("page_info=next-page"));
-            assertFalse(uris.get(1).toString().contains("updated_at_min"));
+            List<HttpEntity<Map<String, Object>>> requests = entities.getAllValues();
+            assertEquals(2, requests.size());
+            assertNull(variables(requests.get(0)).get("cursor"));
+            assertEquals("next-page", variables(requests.get(1)).get("cursor"));
             verify(temporaryOrderService, never()).markCustomerCancelled(anyString());
         }
 
         @Test
         void shouldKeepBoundaryWhenNoOrdersUpdated() {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(ordersResponse(new JSONArray(), null));
+            stubPost(ordersResponse(new JSONArray(), null));
 
             LocalDateTime start = LocalDateTime.of(2026, 10, 18, 8, 0);
             assertEquals(new ShopifyCancelCheckResult(start, null), service.checkCancelledOrders(buildWebsiteDto(null), start, null));
@@ -942,50 +1381,59 @@ class ShopifyOrderSyncServiceTest {
 
         @Test
         void shouldResumeBeyondPageLimitWhenAllOrdersShareTimestamp() {
+            int pageSize = ShopifyOrderSyncService.CANCEL_CHECK_PAGE_SIZE;
+            int maxPages = ShopifyOrderSyncService.CANCEL_CHECK_MAX_PAGES;
+            int total = pageSize * maxPages + 1;
             LocalDateTime updatedAt = LocalDateTime.of(2026, 10, 18, 10, 0);
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                     .thenAnswer(invocation -> {
-                        URI uri = invocation.getArgument(0);
-                        String query = uri.getQuery();
-                        int page = query.contains("page_info=")
-                                ? Integer.parseInt(query.split("page_info=")[1].split("&")[0]) : 0;
-                        if (page > 0) {
-                            assertFalse(query.contains("updated_at_min"));
-                            assertFalse(query.contains("status="));
-                        }
+                        HttpEntity<Map<String, Object>> entity = invocation.getArgument(1);
+                        Object cursor = variables(entity).get("cursor");
+                        int page = cursor == null ? 0 : Integer.parseInt(String.valueOf(cursor));
                         JSONArray orders = new JSONArray();
-                        for (int i = page * 250; i < Math.min((page + 1) * 250, 2501); i++) {
+                        for (int i = page * pageSize; i < Math.min((page + 1) * pageSize, total); i++) {
                             orders.add(cancelCheckOrder(String.valueOf(i), "2026-10-18T10:00:00+08:00")
-                                    .set("cancelled_at", "2026-10-18T10:00:00+08:00"));
+                                    .set("cancelledAt", "2026-10-18T10:00:00+08:00"));
                         }
-                        String next = page < 10
-                                ? "<https://test-shop.myshopify.com/admin/api/2026-07/orders.json?page_info=" + (page + 1) + ">; rel=\"next\""
-                                : null;
-                        return ordersResponse(orders, next);
+                        return ordersResponse(orders, page < maxPages ? String.valueOf(page + 1) : null);
                     });
 
             ShopifyCancelCheckResult first = service.checkCancelledOrders(buildWebsiteDto(null), updatedAt.minusHours(1), null);
-            assertEquals(new ShopifyCancelCheckResult(updatedAt, "10"), first);
-            verify(temporaryOrderService, times(2500)).markCustomerCancelled(anyString());
-            verify(temporaryOrderService, never()).markCustomerCancelled("2500");
+            assertEquals(new ShopifyCancelCheckResult(updatedAt, String.valueOf(maxPages)), first);
+            verify(temporaryOrderService, times(total - 1)).markCustomerCancelled(anyString());
+            verify(temporaryOrderService, never()).markCustomerCancelled(String.valueOf(total - 1));
 
             ShopifyCancelCheckResult second = service.checkCancelledOrders(buildWebsiteDto(null), first.cursor(), first.nextPageInfo());
             assertEquals(new ShopifyCancelCheckResult(updatedAt, null), second);
-            verify(temporaryOrderService).markCustomerCancelled("2500");
-            verify(temporaryOrderService, times(2501)).markCustomerCancelled(anyString());
+            verify(temporaryOrderService).markCustomerCancelled(String.valueOf(total - 1));
+            verify(temporaryOrderService, times(total)).markCustomerCancelled(anyString());
         }
 
         @Test
         void shouldFailWithoutReturningProgressWhenContinuationPageFails() {
             when(tokenService.getAccessToken(any())).thenReturn("old-token");
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(ordersResponse(new JSONArray(),
-                            "<https://test-shop.myshopify.com/admin/api/2026-07/orders.json?page_info=next>; rel=\"next\""))
-                    .thenReturn(ResponseEntity.ok(""));
+            stubPost(ordersResponse(new JSONArray(), "next"), ResponseEntity.ok("{\"data\":{\"orders\":null}}"));
 
             assertThrows(IllegalStateException.class, () -> service.checkCancelledOrders(
                     buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0), "saved-page"));
+        }
+
+        @Test
+        @DisplayName("首屏行项目剩余数量全为 0 且还有更多行项目时补查后再判断")
+        void shouldFetchRemainingLineItemsBeforeJudgingRemoval() {
+            JSONObject order = cancelCheckOrder("1001", "2026-10-18T10:00:00+08:00");
+            order.getJSONObject("lineItems").set("pageInfo", new JSONObject().set("hasNextPage", true).set("endCursor", "li"));
+            order.getJSONObject("lineItems").getJSONArray("nodes").getJSONObject(0).set("currentQuantity", 0);
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            stubPost(ordersResponse(nodes(order), null),
+                    ResponseEntity.ok("{\"data\":{\"order\":{\"lineItems\":{\"pageInfo\":{\"hasNextPage\":false},"
+                            + "\"nodes\":[{\"currentQuantity\":1}]}}}}"));
+
+            service.checkCancelledOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0), null);
+
+            verify(temporaryOrderService, never()).markCustomerCancelled(anyString());
+            verify(restTemplate, times(2)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
         }
     }
 
@@ -1000,7 +1448,7 @@ class ShopifyOrderSyncServiceTest {
         void shouldMarkUnavailableShopWhenVerifyingOrdersApi(int statusCode) {
             when(tokenService.fetchToken(anyString(), anyString(), anyString()))
                     .thenReturn(new ShopifyTokenService.ShopifyToken("new-token", LocalDateTime.now().plusHours(24)));
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                     .thenThrow(unavailableShop(statusCode));
             ThirdPartyWebsite website = buildWebsite();
 
@@ -1036,13 +1484,14 @@ class ShopifyOrderSyncServiceTest {
         }
 
         @Test
-        @DisplayName("换取 token 成功且接口可用时应设置 AUTHED 并写入 token")
+        @DisplayName("换取 token 成功且 GraphQL ordersCount 可用时应设置 AUTHED 并写入 token")
         void shouldSetAuthedWhenCredentialsValid() {
             LocalDateTime expiresAt = LocalDateTime.now().plusHours(24);
             when(tokenService.fetchToken("test-shop", "client-id", "client-secret"))
                     .thenReturn(new ShopifyTokenService.ShopifyToken("new-token", expiresAt));
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
-                    .thenReturn(new ResponseEntity<>("{\"count\": 5}", HttpStatus.OK));
+            ArgumentCaptor<HttpEntity<Map<String, Object>>> entities = entityCaptor();
+            when(restTemplate.postForEntity(eq(GRAPHQL_URL), entities.capture(), eq(String.class)))
+                    .thenReturn(ResponseEntity.ok("{\"data\":{\"ordersCount\":{\"count\":5,\"precision\":\"EXACT\"}}}"));
             ThirdPartyWebsite website = buildWebsite();
 
             service.verifyAndUpdateAuthStatus(website);
@@ -1050,6 +1499,8 @@ class ShopifyOrderSyncServiceTest {
             assertEquals(ThirdPartyAuthStatusEnum.AUTHED, website.getAuthStatus());
             assertEquals("new-token", website.getToken());
             assertEquals(expiresAt, website.getTokenExpiresAt());
+            assertTrue(query(entities.getValue()).contains("ordersCount"));
+            assertEquals("new-token", entities.getValue().getHeaders().getFirst("X-Shopify-Access-Token"));
         }
 
         @Test
@@ -1066,8 +1517,24 @@ class ShopifyOrderSyncServiceTest {
         void shouldSetErrorWhenForbidden() {
             when(tokenService.fetchToken(anyString(), anyString(), anyString()))
                     .thenReturn(new ShopifyTokenService.ShopifyToken("new-token", LocalDateTime.now().plusHours(24)));
-            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(HttpEntity.class), eq(String.class)))
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                     .thenThrow(HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", HttpHeaders.EMPTY, new byte[0], null));
+            ThirdPartyWebsite website = buildWebsite();
+
+            service.verifyAndUpdateAuthStatus(website);
+
+            assertEquals(ThirdPartyAuthStatusEnum.ERROR, website.getAuthStatus());
+            assertTrue(website.getAuthMessage().contains("read_orders"));
+        }
+
+        @Test
+        @DisplayName("GraphQL 返回 ACCESS_DENIED 时应设置 ERROR 并提示缺少 read_orders")
+        void shouldSetErrorWhenAccessDenied() {
+            when(tokenService.fetchToken(anyString(), anyString(), anyString()))
+                    .thenReturn(new ShopifyTokenService.ShopifyToken("new-token", LocalDateTime.now().plusHours(24)));
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ResponseEntity.ok("{\"errors\":[{\"message\":\"Access denied for ordersCount field.\","
+                            + "\"extensions\":{\"code\":\"ACCESS_DENIED\"}}]}"));
             ThirdPartyWebsite website = buildWebsite();
 
             service.verifyAndUpdateAuthStatus(website);

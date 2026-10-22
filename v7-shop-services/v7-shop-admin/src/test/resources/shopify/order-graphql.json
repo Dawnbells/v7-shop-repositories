@@ -1,0 +1,151 @@
+{
+  "id": "gid://shopify/Order/5500000000001",
+  "legacyResourceId": "5500000000001",
+  "name": "#1001",
+  "createdAt": "2026-06-01T14:30:00Z",
+  "updatedAt": "2026-06-01T15:00:00Z",
+  "cancelledAt": null,
+  "cancelReason": null,
+  "closedAt": null,
+  "displayFinancialStatus": "PARTIALLY_PAID",
+  "displayFulfillmentStatus": "PARTIALLY_FULFILLED",
+  "currencyCode": "USD",
+  "presentmentCurrencyCode": "EUR",
+  "totalPriceSet": {
+    "shopMoney": { "amount": "99.99", "currencyCode": "USD" },
+    "presentmentMoney": { "amount": "89.99", "currencyCode": "EUR" }
+  },
+  "subtotalPriceSet": {
+    "shopMoney": { "amount": "98.98", "currencyCode": "USD" },
+    "presentmentMoney": { "amount": "88.98", "currencyCode": "EUR" }
+  },
+  "totalShippingPriceSet": {
+    "shopMoney": { "amount": "5.99", "currencyCode": "USD" },
+    "presentmentMoney": { "amount": "5.49", "currencyCode": "EUR" }
+  },
+  "totalTaxSet": {
+    "shopMoney": { "amount": "5.00", "currencyCode": "USD" },
+    "presentmentMoney": { "amount": "4.50", "currencyCode": "EUR" }
+  },
+  "totalDiscountsSet": {
+    "shopMoney": { "amount": "10.00", "currencyCode": "USD" },
+    "presentmentMoney": { "amount": "9.00", "currencyCode": "EUR" }
+  },
+  "email": "order@example.com",
+  "phone": "+15550002222",
+  "customerLocale": "en-US",
+  "note": "请尽快发货",
+  "tags": ["COD", "VIP"],
+  "sourceName": "web",
+  "clientIp": "192.168.1.1",
+  "customerJourneySummary": {
+    "firstVisit": { "landingPage": "https://test-shop.myshopify.com/products/first", "referrerUrl": null },
+    "lastVisit": { "landingPage": "https://test-shop.myshopify.com/products/test", "referrerUrl": "https://www.google.com/" }
+  },
+  "customAttributes": [
+    { "key": "IP Address", "value": "179.255.146.65" },
+    { "key": "Gift message", "value": "Happy birthday" }
+  ],
+  "customer": {
+    "legacyResourceId": "7700000000001",
+    "firstName": "Jane",
+    "lastName": "Buyer",
+    "defaultEmailAddress": { "emailAddress": "jane@example.com" },
+    "defaultPhoneNumber": { "phoneNumber": "+15550001111" }
+  },
+  "shippingAddress": {
+    "firstName": "John",
+    "lastName": "Doe",
+    "name": "John Doe",
+    "company": "ACME",
+    "phone": "+1234567890",
+    "address1": "123 Main St",
+    "address2": "Apt 4B",
+    "city": "Los Angeles",
+    "province": "California",
+    "provinceCode": "CA",
+    "zip": "90001",
+    "country": "United States",
+    "countryCodeV2": "US"
+  },
+  "billingAddress": {
+    "firstName": "Billing",
+    "lastName": "Recipient",
+    "name": "Billing Recipient",
+    "company": null,
+    "phone": "+18885551234",
+    "address1": "1 Billing Rd",
+    "address2": null,
+    "city": "Toronto",
+    "province": "Ontario",
+    "provinceCode": "ON",
+    "zip": "M5V 2T6",
+    "country": "Canada",
+    "countryCodeV2": "CA"
+  },
+  "paymentGatewayNames": ["Cash on Delivery (COD)"],
+  "shippingLines": {
+    "nodes": [
+      {
+        "title": "Standard",
+        "code": "STD",
+        "originalPriceSet": {
+          "shopMoney": { "amount": "5.99", "currencyCode": "USD" },
+          "presentmentMoney": { "amount": "5.49", "currencyCode": "EUR" }
+        }
+      }
+    ]
+  },
+  "lineItems": {
+    "pageInfo": { "hasNextPage": false, "endCursor": "li-2" },
+    "nodes": [
+      {
+        "id": "gid://shopify/LineItem/13000000000001",
+        "name": "Test Product - Red / L",
+        "title": "Test Product",
+        "variantTitle": "Red / L",
+        "sku": "SKU-001",
+        "quantity": 2,
+        "currentQuantity": 2,
+        "originalUnitPriceSet": {
+          "shopMoney": { "amount": "49.99", "currencyCode": "USD" },
+          "presentmentMoney": { "amount": "44.99", "currencyCode": "EUR" }
+        },
+        "variant": { "legacyResourceId": "4400000000001", "sku": "SKU-001" },
+        "product": {
+          "legacyResourceId": "9001",
+          "metafields": {
+            "nodes": [
+              { "namespace": "xyz", "key": "cn_product_name", "value": "测试商品" },
+              { "namespace": "xyz", "key": "waybill_product_name", "value": "运单品名" },
+              { "namespace": "xyz", "key": "xyz.sku_code_high", "value": "SKU-HIGH" },
+              { "namespace": "xyz", "key": "owner_name", "value": "归属人" }
+            ]
+          }
+        }
+      },
+      {
+        "id": "gid://shopify/LineItem/13000000000002",
+        "name": "Gift",
+        "title": "Gift",
+        "variantTitle": null,
+        "sku": "",
+        "quantity": 1,
+        "currentQuantity": 0,
+        "originalUnitPriceSet": {
+          "shopMoney": { "amount": "0.00", "currencyCode": "USD" },
+          "presentmentMoney": { "amount": "0.00", "currencyCode": "EUR" }
+        },
+        "variant": null,
+        "product": {
+          "legacyResourceId": "9002",
+          "metafields": {
+            "nodes": [
+              { "namespace": "xyz", "key": "sku_code", "value": "SKU-GIFT" }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
