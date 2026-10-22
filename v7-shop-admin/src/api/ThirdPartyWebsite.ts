@@ -55,3 +55,26 @@ export function switchValidity(data: any) {
     data,
   })
 }
+
+// Shopify 公开应用：获取授权跳转地址（新增或重新连接）
+export function shopifyInstallUrl(data: {
+  id?: string
+  nickName: string
+  handle: string
+  currencyMode: 'SHOP_MONEY' | 'PRESENTMENT_MONEY'
+}) {
+  return request({
+    url: '/third-party-website/shopify/install-url',
+    method: 'post',
+    data,
+  })
+}
+
+// Shopify 公开应用：用安装票据把店铺绑定到当前账号
+export function shopifyBind(data: { ticket: string; nickName?: string; currencyMode?: string }) {
+  return request({
+    url: '/third-party-website/shopify/bind',
+    method: 'post',
+    data,
+  })
+}
