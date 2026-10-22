@@ -4,6 +4,7 @@ import cn.v7soft.core.controller.response.IdResponse;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.CurrencyMode;
+import cn.v7soft.dao.enums.ShopifyAccessMode;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -55,6 +56,15 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
     @Schema(title = "Shopify Client ID")
     private String clientId;
 
+    @Schema(title = "Shopify 接入方式：CREDENTIALS 凭证模式 / PUBLIC_APP 公开应用（非 Shopify 店铺为空）")
+    private ShopifyAccessMode accessMode;
+
+    @Schema(title = "是否已获得全部订单权限（否则只能同步最近 60 天）")
+    private Boolean hasAllOrdersScope;
+
+    @Schema(title = "最近一次公开应用授权成功时间")
+    private LocalDateTime installedAt;
+
     public static ThirdPartyWebsiteResponse convertEntity(ThirdPartyWebsite entity) {
         SystemUser owner = entity.getOwner();
         String ownerName = "";
@@ -80,6 +90,19 @@ public class ThirdPartyWebsiteResponse extends IdResponse {
                 .lastSyncTime(entity.getLastSyncTime())
                 .lastManualSyncTime(entity.getLastManualSyncTime())
                 .currencyMode(entity.getCurrencyMode())
+                .accessMode(resolveAccessMode(entity))
+                .hasAllOrdersScope(Boolean.TRUE.equals(entity.getHasAllOrdersScope()))
+                .installedAt(entity.getInstalledAt())
                 .build();
+    }
+
+    /**
+     * Shopify 存量记录 accessMode 为 null，按凭证模式下发
+     */
+    private static ShopifyAccessMode resolveAccessMode(ThirdPartyWebsite entity) {
+        if (entity.getWebsiteType() != WebsiteTypeEnum.SHOPIFY) {
+            return entity.getAccessMode();
+        }
+        return entity.getAccessMode() == null ? ShopifyAccessMode.CREDENTIALS : entity.getAccessMode();
     }
 }
