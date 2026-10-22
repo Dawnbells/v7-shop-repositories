@@ -47,6 +47,8 @@ public class ShopifyOrderSyncExecutor {
     private final ConcurrentHashMap<Long, LocalDateTime> lastCancelCheckAt = new ConcurrentHashMap<>();
     // 公开应用店铺上次对账的服务器时间，仅用于控制频率，重启后会立即对账一次
     private final ConcurrentHashMap<Long, LocalDateTime> lastReconcileAt = new ConcurrentHashMap<>();
+    // 公开应用店铺上一轮对账返回的游标（已确认处理完的最大 updated_at），下一轮回看起点不早于它
+    private final ConcurrentHashMap<Long, LocalDateTime> lastReconcileCursor = new ConcurrentHashMap<>();
     private final ExecutorService syncPool = Executors.newFixedThreadPool(MAX_CONCURRENCY,
             r -> {
                 Thread t = new Thread(r, "shopify-sync-" + threadCounter.incrementAndGet());
@@ -153,7 +155,7 @@ public class ShopifyOrderSyncExecutor {
      */
     private List<ThirdPartyWebsite> filterReconcileDueWebsites(List<ThirdPartyWebsite> websites) {
         LocalDateTime now = LocalDateTime.now();
-        long intervalSeconds = Math.max(reconcileIntervalMinutes(), 1) * 60L;
+        long intervalSeconds = Math.max(reconcileIntervalMinutes(), 0) * 60L;
         List<ThirdPartyWebsite> due = new ArrayList<>(websites.size());
         for (ThirdPartyWebsite website : websites) {
             LocalDateTime last = lastReconcileAt.get(website.getId());
@@ -166,8 +168,14 @@ public class ShopifyOrderSyncExecutor {
     }
 
     /**
-     * 对账：since = lastReconcileTime ?: installedAt ?: createTime，从 since − lookback 拉取更新过的订单，
-     * 游标推进到返回的最大 updated_at（不早于 since，避免无订单时回看窗口让游标倒退）
+     * 对账。游标语义：lastReconcileTime 与 reconcileOrders 的返回值都是「已确认处理完的最大 updated_at」（东八区）。
+     * <ul>
+     *     <li>since = lastReconcileTime ?: installedAt ?: createTime</li>
+     *     <li>本轮起点 from = max(since − lookback, 上一轮返回的游标)：回看用于补齐边界附近的订单；
+     *     上一轮被时间预算截断或中途失败时，返回的游标可能还在回看窗口内，从它继续，避免每轮都从同一窗口起点重扫而原地打转。
+     *     上一轮游标只存内存，重启后首轮按完整回看</li>
+     *     <li>服务端每处理完一页就推进 lastReconcileTime；这里再写一次 max(返回值, since)，保证首轮也落下起点、无订单时不倒退</li>
+     * </ul>
      */
     private void reconcileWebsite(ThirdPartyWebsite website) {
         LocalDateTime since = website.getLastReconcileTime() != null ? website.getLastReconcileTime()
@@ -176,8 +184,16 @@ public class ShopifyOrderSyncExecutor {
         if (since == null) {
             since = LocalDateTime.now();
         }
+        LocalDateTime from = since.minusMinutes(reconcileLookbackMinutes());
+        LocalDateTime previousCursor = lastReconcileCursor.get(website.getId());
+        if (previousCursor != null && previousCursor.isAfter(from)) {
+            from = previousCursor;
+        }
         ThirdPartyWebsiteDto websiteDto = websiteStore.getDtoById(website.getId());
-        LocalDateTime cursor = shopifyOrderSyncService.reconcileOrders(websiteDto, since.minusMinutes(reconcileLookbackMinutes()));
+        LocalDateTime cursor = shopifyOrderSyncService.reconcileOrders(websiteDto, from);
+        if (cursor != null && !cursor.isBefore(from)) {
+            lastReconcileCursor.put(website.getId(), cursor);
+        }
         LocalDateTime next = cursor != null && cursor.isAfter(since) ? cursor : since;
         if (!Objects.equals(next, website.getLastReconcileTime())) {
             websiteStore.updateReconcileTime(website.getId(), next);

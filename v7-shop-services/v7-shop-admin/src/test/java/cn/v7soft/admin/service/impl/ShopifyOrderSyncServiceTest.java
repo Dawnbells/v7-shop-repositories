@@ -21,6 +21,7 @@ import cn.v7soft.dao.entities.primary.TemporaryOrder;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.*;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
+import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -65,6 +66,7 @@ class ShopifyOrderSyncServiceTest {
     @Mock private ITemporaryOrderService temporaryOrderService;
     @Mock private IProductSKUService productSKUService;
     @Mock private SystemUserRepository systemUserRepository;
+    @Mock private ThirdPartyWebsiteRepository thirdPartyWebsiteRepository;
 
     private ShopifyOrderSyncService service;
 
@@ -79,7 +81,7 @@ class ShopifyOrderSyncServiceTest {
         };
         service = new ShopifyOrderSyncService(graphqlClient, restTemplate, appProperties, tokenService, websiteStore,
                 currencyService, languageService, countryService, addressService, temporaryOrderService,
-                productSKUService, systemUserRepository);
+                productSKUService, systemUserRepository, thirdPartyWebsiteRepository);
     }
 
     @Test
@@ -971,6 +973,70 @@ class ShopifyOrderSyncServiceTest {
         }
     }
 
+    private ThirdPartyWebsiteDto publicAppWebsite() {
+        ThirdPartyWebsiteDto website = buildWebsiteDto(null);
+        website.setAccessMode(ShopifyAccessMode.PUBLIC_APP);
+        ThirdPartyWebsite entity = ThirdPartyWebsite.builder().id(1L)
+                .lastSyncOrderTime(LocalDateTime.of(2026, 10, 18, 9, 0)).build();
+        when(thirdPartyWebsiteRepository.findById(1L)).thenReturn(Optional.of(entity));
+        return website;
+    }
+
+    @Nested
+    @DisplayName("importWebhookOrder 绑定边界")
+    class ImportWebhookOrderBindingBoundary {
+
+        private JSONObject order(String createdAt) {
+            return buildShopifyOrder().set("created_at", createdAt);
+        }
+
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        @DisplayName("公开应用：绑定前创建且未导入的订单不新建")
+        void shouldSkipMissingOrderCreatedBeforeBinding(boolean updateExisting) {
+            ThirdPartyWebsiteDto website = publicAppWebsite();
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.empty());
+
+            assertFalse(service.importWebhookOrder(website, order("2026-10-18T08:59:00+08:00"), updateExisting));
+
+            verify(temporaryOrderService, never()).synchronizeOrderFromExternalSystem(any(), anyBoolean());
+        }
+
+        @Test
+        @DisplayName("公开应用：绑定前创建但已存在的订单照常更新")
+        void shouldUpdateExistingOrderCreatedBeforeBinding() {
+            ThirdPartyWebsiteDto website = buildWebsiteDto(null);
+            website.setAccessMode(ShopifyAccessMode.PUBLIC_APP);
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(true))).thenReturn(false);
+
+            assertFalse(service.importWebhookOrder(website, order("2026-10-18T08:00:00+08:00"), true));
+
+            verify(temporaryOrderService).synchronizeOrderFromExternalSystem(any(), eq(true));
+            verifyNoInteractions(thirdPartyWebsiteRepository);
+        }
+
+        @Test
+        @DisplayName("公开应用：绑定后创建的订单新建")
+        void shouldCreateOrderCreatedAfterBinding() {
+            ThirdPartyWebsiteDto website = publicAppWebsite();
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            assertTrue(service.importWebhookOrder(website, order("2026-10-18T09:00:00+08:00"), false));
+        }
+
+        @Test
+        @DisplayName("凭证模式不受绑定边界影响")
+        void shouldIgnoreBoundaryForCredentialsMode() {
+            when(temporaryOrderService.findByOriginOrderId("5500000000001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            assertTrue(service.importWebhookOrder(buildWebsiteDto(null), order("2020-01-01T00:00:00+08:00"), false));
+            verifyNoInteractions(thirdPartyWebsiteRepository);
+        }
+    }
+
     // ==================== 对账 ====================
 
     @Nested
@@ -1011,6 +1077,9 @@ class ShopifyOrderSyncServiceTest {
             assertEquals("updated_at:>='2026-10-18T00:00:00Z'", variables(first).get("q"));
             assertEquals("page-2", variables(entities.getAllValues().get(1)).get("cursor"));
             assertEquals("updated_at:>='2026-10-18T00:00:00Z'", variables(entities.getAllValues().get(1)).get("q"));
+            // 每页落库一次且只前进：第一页推进到 12:00，第二页最大 11:00 不再写
+            verify(websiteStore, times(1)).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 12, 0));
+            verify(websiteStore, times(1)).updateReconcileTime(anyLong(), any());
         }
 
         @Test
@@ -1038,6 +1107,82 @@ class ShopifyOrderSyncServiceTest {
                     service.reconcileOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0)));
             verify(temporaryOrderService, times(2)).synchronizeOrderFromExternalSystem(any(), anyBoolean());
             verify(restTemplate, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
+            verify(websiteStore).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 10, 0));
+        }
+
+        @Test
+        @DisplayName("翻页请求异常时不抛出，返回并保留已推进的游标")
+        void shouldKeepProgressWhenPageFails() {
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
+                    .thenReturn(ordersResponse(nodes(updatedNode("1001", "2026-10-18T10:00:00+08:00")), "page-2"))
+                    .thenThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST));
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(any(), eq(false))).thenReturn(true);
+
+            LocalDateTime cursor = assertDoesNotThrow(() ->
+                    service.reconcileOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0)));
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 10, 0), cursor);
+            verify(websiteStore).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 10, 0));
+            verify(restTemplate, times(2)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
+        }
+
+        @Test
+        @DisplayName("到达时间预算时停止翻页，返回当前游标")
+        void shouldStopAtTimeBudget() {
+            long[] now = {0};
+            service.setMillisClock(() -> now[0]);
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class))).thenAnswer(invocation -> {
+                now[0] += ShopifyOrderSyncService.RECONCILE_TIME_BUDGET_MILLIS;
+                return ordersResponse(nodes(updatedNode("1001", "2026-10-18T10:00:00+08:00")), "page-2");
+            });
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 10, 0),
+                    service.reconcileOrders(buildWebsiteDto(null), LocalDateTime.of(2026, 10, 18, 8, 0)));
+
+            verify(restTemplate, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
+            verify(websiteStore).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 10, 0));
+        }
+
+        @Test
+        @DisplayName("回看窗口内的订单不让已落库的游标倒退")
+        void shouldNotPersistCursorBehindLastReconcileTime() {
+            ThirdPartyWebsiteDto website = buildWebsiteDto(null);
+            website.setLastReconcileTime(LocalDateTime.of(2026, 10, 18, 13, 0));
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            stubPost(ordersResponse(nodes(updatedNode("1001", "2026-10-18T12:30:00+08:00")), null));
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 12, 30),
+                    service.reconcileOrders(website, LocalDateTime.of(2026, 10, 18, 12, 30)));
+            verify(websiteStore, never()).updateReconcileTime(anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("公开应用：绑定前创建且未导入的订单不新建，已存在的照常标记取消，绑定后的新建")
+        void shouldSkipOrdersCreatedBeforeBinding() {
+            ThirdPartyWebsiteDto website = publicAppWebsite();
+            JSONObject beforeBinding = bareNode("1001", "2026-10-18T08:00:00+08:00").set("updatedAt", "2026-10-18T10:00:00+08:00");
+            JSONObject existingCancelled = bareNode("1002", "2026-10-18T08:00:00+08:00").set("updatedAt", "2026-10-18T10:30:00+08:00")
+                    .set("cancelledAt", "2026-10-18T10:30:00+08:00");
+            JSONObject afterBinding = bareNode("1003", "2026-10-18T09:30:00+08:00").set("updatedAt", "2026-10-18T11:00:00+08:00");
+            when(tokenService.getAccessToken(any())).thenReturn("old-token");
+            stubPost(ordersResponse(nodes(beforeBinding, existingCancelled, afterBinding), null));
+            when(temporaryOrderService.findByOriginOrderId("1001")).thenReturn(Optional.empty());
+            when(temporaryOrderService.findByOriginOrderId("1002")).thenReturn(Optional.of(TemporaryOrder.builder().build()));
+            when(temporaryOrderService.findByOriginOrderId("1003")).thenReturn(Optional.empty());
+            ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), eq(false))).thenReturn(true);
+
+            assertEquals(LocalDateTime.of(2026, 10, 18, 11, 0),
+                    service.reconcileOrders(website, LocalDateTime.of(2026, 10, 18, 8, 0)));
+
+            assertEquals(List.of("1003"), captor.getAllValues().stream().map(EditTemporaryOrderRequest::getOriginOrderId).toList());
+            verify(temporaryOrderService).markCustomerCancelled("1002");
+            verify(thirdPartyWebsiteRepository, times(1)).findById(1L);
         }
     }
 

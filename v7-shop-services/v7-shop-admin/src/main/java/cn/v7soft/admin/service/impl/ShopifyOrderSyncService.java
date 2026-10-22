@@ -45,6 +45,7 @@ import cn.v7soft.dao.enums.PaymentStatus;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
+import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -72,6 +73,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -100,8 +102,8 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     static final int CANCEL_CHECK_LINE_ITEM_PAGE_SIZE = 10;
     // 单轮最多翻页数，剩余的下一轮继续
     static final int CANCEL_CHECK_MAX_PAGES = 50;
-    // 对账单轮最多翻页数（8 单/页），剩余的下一轮从返回的游标继续
-    static final int RECONCILE_MAX_PAGES = 200;
+    // 对账单轮时间预算，明显小于执行器每店铺 300 秒超时；到点停止翻页，下一轮从返回的游标继续
+    static final long RECONCILE_TIME_BUDGET_MILLIS = 240_000;
     // 自动同步整页都是已存在订单时，本轮最多继续翻的页数（同一秒创建的订单超过一页时避免游标原地踏步）
     static final int AUTO_SKIP_MAX_PAGES = 20;
     // nodes 批量查商品元字段：每个商品 ≈ 1 + 2 + 6 = 9 点
@@ -170,6 +172,13 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     private final ITemporaryOrderService temporaryOrderService;
     private final IProductSKUService productSKUService;
     private final SystemUserRepository systemUserRepository;
+    private final ThirdPartyWebsiteRepository thirdPartyWebsiteRepository;
+    /** 毫秒时钟，测试中可替换以验证对账时间预算 */
+    private LongSupplier millisClock = System::currentTimeMillis;
+
+    void setMillisClock(LongSupplier millisClock) {
+        this.millisClock = millisClock;
+    }
 
     static String ordersQuery(String sortKey, String selection) {
         return "query ShopifyOrders($first: Int!, $cursor: String, $q: String) { orders(first: $first, after: $cursor, query: $q, sortKey: "
@@ -294,59 +303,121 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     @Override
     public boolean importWebhookOrder(ThirdPartyWebsiteDto website, JSONObject orderPayload, boolean updateExisting) {
         String originOrderId = orderPayload.getStr("id");
-        if (!updateExisting && StrUtil.isNotBlank(originOrderId)
-                && temporaryOrderService.findByOriginOrderId(originOrderId).isPresent()) {
+        boolean checkExisting = !updateExisting || website.isPublicApp();
+        boolean exists = checkExisting && StrUtil.isNotBlank(originOrderId)
+                && temporaryOrderService.findByOriginOrderId(originOrderId).isPresent();
+        if (exists && !updateExisting) {
+            return false;
+        }
+        if (!exists && website.isPublicApp() && createdBeforeBinding(orderPayload, bindingBoundary(website))) {
+            // 公开应用只自动导入绑定之后创建的订单，绑定前的订单走手动同步（PRD §6）
+            log.info("Shopify webhook order skipped, created before binding: websiteId={}, orderId={}", website.getId(), originOrderId);
             return false;
         }
         return convertShopifyOrderToTemporary(website, website.getOwner(), orderPayload, updateExisting, new HashMap<>());
     }
 
+    /**
+     * 对账（公开应用）。按 updated_at 升序拉取 updated_at >= since 的订单：
+     * 不存在的新建（公开应用跳过绑定前创建的订单），已存在且客户取消的标记取消，其余跳过。
+     * <p>
+     * 游标语义：返回值与落库的 lastReconcileTime 都是「已确认处理完的最大 updated_at」（东八区），
+     * updated_at 不晚于它的订单本轮都已处理。每处理完一页落库一次（只前进不后退，起点为 website.lastReconcileTime）；
+     * 中途异常或到达时间预算时停止翻页并返回已推进到的游标，不抛出；单个订单失败时游标停在该订单之前，下一轮重试。
+     * 无订单时返回 since。
+     */
     @Override
     public LocalDateTime reconcileOrders(ThirdPartyWebsiteDto website, LocalDateTime since) {
         prepareAccess(website);
+        long startedAt = millisClock.getAsLong();
         String filter = "updated_at:>='" + formatUtc(since) + "'";
         Map<String, Map<String, String>> metafieldsCache = new HashMap<>();
+        LocalDateTime boundary = website.isPublicApp() ? bindingBoundary(website) : null;
         LocalDateTime cursor = since;
+        LocalDateTime persisted = website.getLastReconcileTime();
         String pageCursor = null;
         int pages = 0;
         int created = 0;
         int cancelled = 0;
         int skipped = 0;
-        boolean aborted = false;
-        do {
-            OrderPage page = fetchOrderPage(website, SORT_UPDATED_AT, filter, pageCursor, metafieldsCache);
-            for (JSONObject order : page.orders()) {
-                String originOrderId = order.getStr("id");
-                try {
-                    if (StrUtil.isBlank(originOrderId) || temporaryOrderService.findByOriginOrderId(originOrderId).isEmpty()) {
-                        if (convertShopifyOrderToTemporary(website, website.getOwner(), order, false, metafieldsCache)) {
-                            created++;
-                        }
-                    } else if (isCustomerCancelled(order)) {
-                        if (temporaryOrderService.markCustomerCancelled(originOrderId)) {
-                            cancelled++;
-                        }
-                    } else {
-                        skipped++;
-                    }
-                } catch (Exception e) {
-                    // 按 updated_at 升序处理，失败即停在此前的游标，下一轮重试
-                    log.error("Shopify reconcile order failed: websiteId={}, handle={}, orderId={}, orderName={}, updatedAt={}",
-                            website.getId(), website.getHandle(), originOrderId, order.getStr("name"), order.getStr("updated_at"), e);
-                    aborted = true;
+        int beforeBinding = 0;
+        String stopReason = null;
+        try {
+            do {
+                if (pages > 0 && millisClock.getAsLong() - startedAt >= RECONCILE_TIME_BUDGET_MILLIS) {
+                    stopReason = "time-budget";
                     break;
                 }
-                LocalDateTime updatedAt = parseShopifyDateTime(order.getStr("updated_at"));
-                if (updatedAt != null && (cursor == null || updatedAt.isAfter(cursor))) {
-                    cursor = updatedAt;
+                OrderPage page = fetchOrderPage(website, SORT_UPDATED_AT, filter, pageCursor, metafieldsCache);
+                pages++;
+                for (JSONObject order : page.orders()) {
+                    String originOrderId = order.getStr("id");
+                    try {
+                        if (StrUtil.isBlank(originOrderId) || temporaryOrderService.findByOriginOrderId(originOrderId).isEmpty()) {
+                            if (createdBeforeBinding(order, boundary)) {
+                                beforeBinding++;
+                            } else if (convertShopifyOrderToTemporary(website, website.getOwner(), order, false, metafieldsCache)) {
+                                created++;
+                            }
+                        } else if (isCustomerCancelled(order)) {
+                            if (temporaryOrderService.markCustomerCancelled(originOrderId)) {
+                                cancelled++;
+                            }
+                        } else {
+                            skipped++;
+                        }
+                    } catch (Exception e) {
+                        // 按 updated_at 升序处理，失败即停在此前的游标，下一轮重试
+                        log.error("Shopify reconcile order failed: websiteId={}, handle={}, orderId={}, orderName={}, updatedAt={}",
+                                website.getId(), website.getHandle(), originOrderId, order.getStr("name"), order.getStr("updated_at"), e);
+                        stopReason = "order-failed";
+                        break;
+                    }
+                    LocalDateTime updatedAt = parseShopifyDateTime(order.getStr("updated_at"));
+                    if (updatedAt != null && (cursor == null || updatedAt.isAfter(cursor))) {
+                        cursor = updatedAt;
+                    }
                 }
-            }
-            pageCursor = page.nextCursor();
-        } while (!aborted && pageCursor != null && ++pages < RECONCILE_MAX_PAGES);
+                persisted = persistReconcileCursor(website, cursor, persisted);
+                pageCursor = page.nextCursor();
+            } while (stopReason == null && pageCursor != null);
+        } catch (Exception e) {
+            log.error("Shopify reconcile page failed, keeping progress: websiteId={}, handle={}, since={}, cursor={}",
+                    website.getId(), website.getHandle(), since, cursor, e);
+            stopReason = "page-failed";
+        }
 
-        log.info("Shopify reconcile finished: websiteId={}, handle={}, since={}, cursor={}, created={}, cancelled={}, skipped={}, aborted={}, morePages={}",
-                website.getId(), website.getHandle(), since, cursor, created, cancelled, skipped, aborted, !aborted && pageCursor != null);
+        log.info("Shopify reconcile finished: websiteId={}, handle={}, since={}, cursor={}, pages={}, created={}, cancelled={}, skipped={}, beforeBinding={}, stopReason={}",
+                website.getId(), website.getHandle(), since, cursor, pages, created, cancelled, skipped, beforeBinding, stopReason);
         return cursor;
+    }
+
+    /**
+     * 游标比已落库的值新时落库，返回新的已落库值（只前进不后退）
+     */
+    private LocalDateTime persistReconcileCursor(ThirdPartyWebsiteDto website, LocalDateTime cursor, LocalDateTime persisted) {
+        if (cursor == null || (persisted != null && !cursor.isAfter(persisted))) {
+            return persisted;
+        }
+        websiteStore.updateReconcileTime(website.getLongId(), cursor);
+        return cursor;
+    }
+
+    /**
+     * 绑定边界：公开应用首次绑定时 lastSyncOrderTime = 绑定时间（恢复时保留），公开应用不跑自动同步，之后不会被推进
+     */
+    private LocalDateTime bindingBoundary(ThirdPartyWebsiteDto website) {
+        return thirdPartyWebsiteRepository.findById(website.getLongId())
+                .map(ThirdPartyWebsite::getLastSyncOrderTime)
+                .orElse(null);
+    }
+
+    private boolean createdBeforeBinding(JSONObject order, LocalDateTime boundary) {
+        if (boundary == null) {
+            return false;
+        }
+        LocalDateTime createdAt = parseShopifyDateTime(order.getStr("created_at"));
+        return createdAt != null && createdAt.isBefore(boundary);
     }
 
     @Override
@@ -719,7 +790,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         request.setPaymentInfo(buildPaymentInfo(order));
         request.setContextInfo(buildContextInfo(website, owner, order, moneyKey));
         TemporaryOrderRiskRecordInfoRequest riskInfo = buildRiskInfo(order);
-        log.info("Shopify order IP/UA: websiteId={}, handle={}, orderId={}, resolvedRemoteIp={}, ua={}",
+        log.debug("Shopify order IP/UA: websiteId={}, handle={}, orderId={}, resolvedRemoteIp={}, ua={}",
                 website.getId(), website.getHandle(), order.getStr("id"), riskInfo.getRemoteIp(), riskInfo.getUa());
         request.setRiskInfo(riskInfo);
         request.setItemInfos(buildItemInfos(order, moneyKey, owner, productMetafieldsMap));

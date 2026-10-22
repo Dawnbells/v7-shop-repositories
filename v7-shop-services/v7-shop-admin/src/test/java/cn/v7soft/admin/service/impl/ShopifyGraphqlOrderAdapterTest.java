@@ -22,6 +22,7 @@ import cn.v7soft.dao.enums.CurrencyMode;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
+import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -73,6 +74,7 @@ class ShopifyGraphqlOrderAdapterTest {
     @Mock private ITemporaryOrderService temporaryOrderService;
     @Mock private IProductSKUService productSKUService;
     @Mock private SystemUserRepository systemUserRepository;
+    @Mock private ThirdPartyWebsiteRepository thirdPartyWebsiteRepository;
 
     private ShopifyOrderSyncService service;
 
@@ -86,7 +88,7 @@ class ShopifyGraphqlOrderAdapterTest {
         };
         service = new ShopifyOrderSyncService(graphqlClient, restTemplate, appProperties, tokenService, websiteStore,
                 currencyService, languageService, countryService, addressService, temporaryOrderService,
-                productSKUService, systemUserRepository);
+                productSKUService, systemUserRepository, thirdPartyWebsiteRepository);
     }
 
     private static JSONObject resource(String name) {

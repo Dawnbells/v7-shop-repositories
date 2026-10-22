@@ -382,6 +382,52 @@ class ShopifyOrderSyncExecutorTest {
         verify(websiteStore, never()).updateReconcileTime(anyLong(), any());
     }
 
+    @Test
+    @DisplayName("公开应用：上一轮截断在回看窗口内时，下一轮从返回的游标继续而不是重扫窗口")
+    void shouldResumeFromPreviousCursorInsteadOfRescanningWindow() {
+        appProperties.setReconcileIntervalMinutes(0);
+        ThirdPartyWebsite website = buildPublicAppWebsite(1L);
+        LocalDateTime saved = LocalDateTime.of(2026, 10, 18, 10, 0);
+        website.setLastReconcileTime(saved);
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        LocalDateTime truncatedAt = LocalDateTime.of(2026, 10, 18, 9, 45);
+        when(shopifyOrderSyncService.reconcileOrders(any(), any()))
+                .thenReturn(truncatedAt)
+                .thenReturn(LocalDateTime.of(2026, 10, 18, 11, 0));
+
+        executor.syncNext();
+        executor.syncNext();
+
+        ArgumentCaptor<LocalDateTime> from = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(shopifyOrderSyncService, times(2)).reconcileOrders(any(), from.capture());
+        assertEquals(List.of(saved.minusMinutes(30), truncatedAt), from.getAllValues());
+        verify(websiteStore, never()).updateReconcileTime(1L, truncatedAt);
+        verify(websiteStore).updateReconcileTime(1L, LocalDateTime.of(2026, 10, 18, 11, 0));
+    }
+
+    @Test
+    @DisplayName("公开应用：回看起点不早于上一轮已确认处理到的游标")
+    void shouldNotLookBackBeforePreviousCursor() {
+        appProperties.setReconcileIntervalMinutes(0);
+        ThirdPartyWebsite website = buildPublicAppWebsite(1L);
+        website.setLastReconcileTime(LocalDateTime.of(2026, 10, 18, 10, 0));
+        when(websiteStore.findActiveWebsites()).thenReturn(List.of(website));
+        mockWebsiteDto();
+        LocalDateTime firstCursor = LocalDateTime.of(2026, 10, 18, 10, 50);
+        when(shopifyOrderSyncService.reconcileOrders(any(), any())).thenReturn(firstCursor);
+
+        executor.syncNext();
+        // 服务端按页落库后，下一轮读到的 lastReconcileTime 已推进
+        website.setLastReconcileTime(firstCursor);
+        executor.syncNext();
+
+        ArgumentCaptor<LocalDateTime> from = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(shopifyOrderSyncService, times(2)).reconcileOrders(any(), from.capture());
+        assertEquals(LocalDateTime.of(2026, 10, 18, 9, 30), from.getAllValues().get(0));
+        assertEquals(firstCursor, from.getAllValues().get(1));
+    }
+
     private ShoplineOrderLoadResult loadResult(String nextPageInfo, int createdCount) {
         return ShoplineOrderLoadResult.builder()
                 .nextPageInfo(nextPageInfo)
