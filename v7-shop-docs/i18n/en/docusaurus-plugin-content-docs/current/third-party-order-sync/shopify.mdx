@@ -1,0 +1,259 @@
+---
+sidebar_position: 7
+title: Shopify Order Sync
+description: Install VantaSite Order Sync and sync Shopify orders into VantaSite
+---
+
+# Shopify Order Sync
+
+The Shopify app **VantaSite Order Sync** syncs orders from your Shopify store into the VantaSite order review list. The app is free. It only reads order and product data and does not change anything in your store.
+
+Once connected, new orders reach the order review list in near real time. Sync rules (product metafields, SKU matching, order owner and payment status) are the same as for Shopline stores.
+
+:::note About the VantaSite back office
+The VantaSite back office is in Chinese. In this guide, menu names and labels are shown in bold with the Chinese text in parentheses, for example **Third-party stores** (第三方商城).
+:::
+
+## Before you start
+
+- You need permission to install apps in the Shopify store (the store owner or a staff member who can manage apps).
+- You need permission to add records under **Third-party stores** (第三方商城) in the VantaSite back office.
+- After the store is connected, **the VantaSite user who completed the connection becomes the owner of the store**. Orders without an owner metafield are assigned to this user.
+
+Access scopes requested by the app:
+
+| Scope | Purpose |
+| --- | --- |
+| `read_orders` | Read orders |
+| `read_products` | Read product metafields to fill in product names, SKU codes and order owners |
+
+The app does not request `read_all_orders` yet, so a manual historical sync **can only cover the last 60 days**.
+
+Recipient names, addresses, phone numbers and email addresses are Shopify protected customer data. We use them only for order review, fulfillment, shipping labels and risk control. See the [Privacy Policy](../privacy-policy.mdx) for details.
+
+## Option 1: Connect from the VantaSite back office (recommended)
+
+1. In the VantaSite back office, open **Third-party stores** (第三方商城) and click **Add** (添加).
+2. Fill in the form:
+
+   | Field | Value |
+   | --- | --- |
+   | Store name (店铺名称) | Any name; it is shown as the order source |
+   | Store type (商城类型) | **SHOPIFY** |
+   | Access mode (接入方式) | **Public app** (公开应用) |
+   | HANDLE | The `xxx` part of `xxx.myshopify.com` |
+   | Currency mode (币种模式) | See [Currency mode](#currency-mode) below |
+
+3. Click **Connect Shopify** (连接 Shopify). You are taken to Shopify.
+4. Review the requested access in Shopify and install the app.
+5. After authorization you return to the VantaSite back office and see **Connected** (已连接). Click **Go to third-party stores** (前往第三方商城); the store's authorization status in the list is **Connected** (已连接).
+
+**Finding your HANDLE**: in the Shopify admin the browser address looks like `admin.shopify.com/store/xxx`; `xxx` is the HANDLE. You can also paste `https://xxx.myshopify.com` and the system extracts the handle. Do not use the store's custom domain.
+
+## Option 2: Open the app from the Shopify App Store or your Shopify admin
+
+Use this option if you installed the app in Shopify first.
+
+1. Find **VantaSite Order Sync** in the Shopify App Store and install it, or open the installed app from **Apps** in your Shopify admin.
+2. The page asks you to enter your VantaSite back-office address. Enter the domain you see in the browser address bar when you sign in to VantaSite, then continue.
+3. Sign in to the VantaSite back office if you are not signed in.
+4. After you sign in, the store is connected automatically and the page shows **Connected** (已连接). The store appears under **Third-party stores** (第三方商城) with its HANDLE as the store name and shop currency as the currency mode; you can change both with **Edit** (编辑).
+
+:::info
+Complete the connection within 30 minutes of step 2. If the link expires, open the app again from your Shopify admin.
+
+If the page says the store is already connected to VantaSite, simply sign in to the back office to see it.
+:::
+
+## Check that sync works
+
+1. Place a test order in your Shopify store.
+2. Within about 1 minute, open **Order review** (审单) in VantaSite and filter by **Platform = SHOPIFY** (订单平台 = SHOPIFY). The order should be listed.
+
+Shopify pushes new orders, order updates and cancellations to VantaSite in real time. VantaSite also reconciles about every 15 minutes to pick up anything that was missed, without creating duplicate orders.
+
+Automatic sync only covers orders created **after** the store is connected. Use a manual sync for earlier orders.
+
+## Sync past orders
+
+1. Under **Third-party stores** (第三方商城), click **Sync orders** (订单同步) in the store's row.
+2. Choose an order creation date range (no earlier than 60 days ago). The number of orders in the range is shown first.
+3. Confirm to start a background task and follow its progress in the **Task center** (任务中心) at the top right.
+
+Syncing the same range again does not create duplicate orders; existing orders are updated.
+
+## Currency mode
+
+| Option | Meaning | When to use |
+| --- | --- | --- |
+| Shop currency (店铺结算币种) | Record amounts in the store's currency | The store uses one currency, or you want a single accounting currency |
+| Presentment currency (订单展示币种) | Record amounts in the currency the customer saw at checkout | The store sells in multiple currencies and you want to keep what the customer actually paid |
+
+## Pause, resume and remove
+
+- **Pause**: turn off the status switch in the list. Sync stops.
+- **Resume**: turn the status switch back on. Orders placed while paused are picked up at the next reconciliation.
+- **Remove**: click **Delete** (删除) in the store's row to remove the sync configuration. Orders already synced are kept. If you no longer use the app, also uninstall it in your Shopify admin.
+
+## Reconnect
+
+If the authorization status is **Disconnected** (已断开) or **Connection error** (连接异常), click **Reconnect** (重新连接) in the store's row and authorize again as in steps 3–5 of Option 1. Existing sync history and orders are kept.
+
+## Uninstall the app
+
+After you uninstall VantaSite Order Sync from **Settings → Apps** in your Shopify admin:
+
+- the store shows **Disconnected** (已断开) in VantaSite, sync stops and the access tokens are cleared;
+- orders already synced are kept;
+- about 48 hours later Shopify asks us to delete the store's data, and VantaSite redacts the recipient name, phone number, email address, street address, postal code and customer IP address of that store's orders. Products, amounts, status and country / province / city are kept.
+
+If you reinstall and connect the store again, the original store record is restored.
+
+## Product metafields
+
+With metafields on your Shopify products, synced orders automatically carry the local product name, waybill product name, SKU code and order owner.
+
+1. In your Shopify admin, go to **Settings → Custom data → Products**.
+2. Click **Add definition** and create the definitions below. The namespace and key must match exactly; use the **Single line text** type for all of them.
+
+   | Field | Namespace and key | Purpose |
+   | --- | --- | --- |
+   | Chinese product name | `xyz.cn_product_name` | Chinese name of the product in the order |
+   | Waybill product name | `xyz.waybill_product_name` | Product name printed on shipping labels |
+   | Owner account | `xyz.owner_telephone` | The owner's VantaSite sign-in phone number |
+   | Owner name | `xyz.owner_name` | The owner's name |
+   | Priority SKU code | `xyz.sku_code_high` | Overrides the product's own SKU |
+   | Fallback SKU code | `xyz.sku_code` | Used when the product has no SKU |
+
+   Create only the ones you need.
+
+3. Open a product, fill in the metafields at the bottom of the page and save. Orders synced afterwards use these values.
+
+The **SKU code** is the first non-empty value of:
+
+1. metafield `sku_code_high`
+2. the SKU on the product variant
+3. metafield `sku_code`
+
+VantaSite first matches the code against SKUs in the store owner's department; if nothing in the department matches, it matches against SKUs owned by the store owner. Codes are case-sensitive. If no match is found, the order is still synced with an empty SKU name.
+
+The **order owner** is read from the metafields of the first product in the order, in this order:
+
+1. the VantaSite user matching `owner_telephone`
+2. the VantaSite user matching `owner_name`
+3. the store owner (default)
+
+## Payment status mapping
+
+| Shopify payment status | VantaSite payment status |
+| --- | --- |
+| `pending` | Processing (处理中) |
+| `authorized` | Authorized (已授权) |
+| `partially_paid` | Partially paid (部分付款) |
+| `paid` | Paid (已付款) |
+| `partially_refunded` | Partially refunded (部分退款) |
+| `refunded` | Refunded (已退款) |
+| `voided` | Awaiting payment (待付款) |
+
+Any other status is treated as **Awaiting payment** (待付款).
+
+## FAQ
+
+### "This store is already connected to another account"
+
+A HANDLE can be connected only once, and the limit is shared by Shopify and Shopline stores. Ask the account that connected the store to remove it, then connect again.
+
+### The back-office address is not recognized
+
+Enter the domain shown in your browser when you sign in to the VantaSite back office, for example `xxx.example.com`, not your Shopify store address.
+
+### The link has expired
+
+The connection link is valid for 30 minutes. Open the app again from your Shopify admin, or connect from the VantaSite back office with Option 1.
+
+### Fewer past orders than in the Shopify admin
+
+The app does not have the `read_all_orders` scope yet and can only sync orders from the last 60 days.
+
+### Recipient details show `[redacted]` or are empty
+
+The order was redacted under the retention rule or a Shopify deletion request (see the [Privacy Policy](../privacy-policy.mdx)). Redacted data cannot be restored.
+
+### Wrong order amounts or currency
+
+The currency mode does not fit your store. Edit the store, change the currency mode, save, and sync the affected date range again.
+
+### I cannot find a synced order
+
+1. Check in the task center that the sync task has finished.
+2. Filter the order review list by **Platform = SHOPIFY**.
+3. Make sure the date range covers the order's **creation time** in Shopify.
+4. The order may already have been approved and moved to the formal order list.
+
+### Missing Chinese product name or wrong order owner
+
+1. Check that the metafield namespace is `xyz` and the keys match the table exactly.
+2. Check that the metafields are set on the **product**, not on a variant.
+3. If the owner account or name does not match any VantaSite user, the store owner is used.
+
+### A manual sync task first shows "正在连接Shopline" (Connecting to Shopline)
+
+This is a generic task message and does not affect the sync. It changes to the sync progress shortly.
+
+---
+
+## Appendix: internal use within your organization (credentials mode)
+
+If the store and your Shopify app belong to **the same Shopify organization**, you can connect with your own app's Client ID and Client Secret instead of installing the public app. In credentials mode VantaSite polls for new orders every minute.
+
+:::warning
+The app and the store must belong to the same Shopify organization, otherwise no access token can be obtained. Since January 1, 2026 Shopify no longer allows creating custom apps in the store admin; use the Dev Dashboard.
+:::
+
+### 1. Create the app and configure scopes
+
+1. Open the [Shopify Dev Dashboard](https://dev.shopify.com/dashboard), click **Create app** under **Apps**, choose **Start from Dev Dashboard** and give it any name.
+2. Create a version on the app's **Versions** page. Set **App URL** to any reachable address and choose the latest **Webhooks API version**.
+3. Enter the scopes and click **Release**:
+
+   | Scope | Required | Purpose |
+   | --- | --- | --- |
+   | `read_orders` | Yes | Read orders |
+   | `read_products` | Recommended | Read product metafields |
+   | `read_all_orders` | Optional | Sync orders older than 60 days |
+
+Apps used within your own organization can read recipient details by default. If synced orders have no recipient details, check **Protected customer data access** under the app's **API access requests**.
+
+### 2. Install the app and copy the credentials
+
+1. On the app's home page, click **Install app** in the **Installs** card and install it on the store.
+2. On the app's **Settings** page, copy the **Client ID** and **Client secret**. Treat the Client Secret like a password.
+
+### 3. Add the store in VantaSite
+
+Under **Third-party stores** (第三方商城), click **Add** (添加), choose **SHOPIFY** as the store type and **Credentials** (凭证模式) as the access mode:
+
+| Field | Value |
+| --- | --- |
+| Store name (店铺名称) | Any name |
+| HANDLE | The `xxx` part of `xxx.myshopify.com` |
+| Client ID | The Client ID you copied |
+| Client Secret | The Client secret you copied |
+| Currency mode (币种模式) | Shop currency or presentment currency |
+
+VantaSite verifies the connection when you save. If it succeeds, the status shows **Connected** (已连接) and new orders are synced automatically.
+
+:::info
+VantaSite obtains the access token with the Client ID and Client Secret. The token is valid for 24 hours and is refreshed before it expires. If you regenerate the Client Secret in Shopify, edit the store and enter the new value; the Client Secret is not shown when editing, and leaving it empty keeps the current value.
+:::
+
+### Credentials mode troubleshooting
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| 无法获取Shopify访问令牌 (cannot get a Shopify access token) | HANDLE is a custom domain, credentials were copied incompletely, the app is not installed on the store, or they are not in the same organization | Check each item and save again |
+| 无法连接到Shopify (cannot connect to Shopify) | Wrong HANDLE, or the server cannot reach Shopify | Check the HANDLE |
+| 应用缺少订单读取权限(read_orders) (app lacks read_orders) | The app version does not include `read_orders` | Release a new version with the scope, then edit and save the store |
+| Client ID/Secret无效或应用权限不足 (invalid Client ID/Secret or insufficient scopes) | The Client Secret was regenerated, or the app was uninstalled | Make sure the app is installed, then edit the store and enter the new Client Secret |
+
+When a connection error occurs the store is disabled automatically. After fixing the problem, edit and save the store, then turn the status switch back on.
