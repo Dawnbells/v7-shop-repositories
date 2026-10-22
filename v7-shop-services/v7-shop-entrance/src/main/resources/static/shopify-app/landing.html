@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>VantaSite Order Sync</title>
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #1f2933;
+    --muted: #616e7c;
+    --border: #d9dee3;
+    --primary: #1f6feb;
+    --primary-hover: #1858c4;
+    --error: #c62828;
+    --error-bg: #fdecea;
+    --success: #2e7d32;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161b;
+      --card: #1c2229;
+      --text: #e6e9ec;
+      --muted: #9aa5b1;
+      --border: #333c46;
+      --primary: #4c8dff;
+      --primary-hover: #6aa0ff;
+      --error: #ff8a80;
+      --error-bg: #3a1f1f;
+      --success: #81c784;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 48px 16px;
+  }
+  .card {
+    width: 100%;
+    max-width: 480px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 24px;
+  }
+  .brand { font-size: 13px; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; }
+  h1 { font-size: 20px; line-height: 1.4; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  p { margin: 0 0 12px; }
+  .zh { display: block; }
+  .en { display: block; color: var(--muted); font-size: 14px; }
+  label { display: block; font-weight: 600; margin: 0 0 8px; }
+  label .en { font-weight: 400; }
+  input[type="text"] {
+    width: 100%;
+    font: inherit;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 0 0 6px;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--primary); outline-offset: 1px; border-color: var(--primary); }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  button {
+    width: 100%;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    background: var(--primary);
+    border: 0;
+    border-radius: 8px;
+    padding: 11px 16px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--primary-hover); }
+  button:disabled { opacity: .6; cursor: default; }
+  .error {
+    display: none;
+    color: var(--error);
+    background: var(--error-bg);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 0 0 16px;
+  }
+  .error.show { display: block; }
+  .ok { color: var(--success); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main class="card">
+  <p class="brand">VantaSite Order Sync</p>
+
+  <!-- 已授权，等待填写后台地址 -->
+  <section id="view-bind" class="hidden">
+    <h1>
+      <span class="zh">连接你的 VantaSite 后台</span>
+      <span class="en">Connect your VantaSite admin</span>
+    </h1>
+    <p class="sub">
+      <span class="zh">Shopify 已授权。请输入你的 VantaSite 后台地址，登录后即可完成绑定。</span>
+      <span class="en">Shopify authorization is complete. Enter your VantaSite admin URL and sign in to finish connecting.</span>
+    </p>
+    <div id="bind-error" class="error" role="alert" aria-live="polite"></div>
+    <form id="bind-form" novalidate>
+      <label for="admin-host">
+        <span class="zh">输入你的 VantaSite 后台地址</span>
+        <span class="en">Enter your VantaSite admin URL</span>
+      </label>
+      <input id="admin-host" name="adminHost" type="text" inputmode="url" autocomplete="url"
+             autocapitalize="off" spellcheck="false" placeholder="admin.example.com" required>
+      <p class="hint">
+        <span class="zh">例如 admin.example.com，可直接粘贴浏览器地址栏中的后台网址。</span>
+        <span class="en">For example admin.example.com. You can paste the address from your browser.</span>
+      </p>
+      <button id="bind-submit" type="submit">
+        <span class="zh">继续</span>
+        <span class="en" style="color:inherit">Continue</span>
+      </button>
+    </form>
+  </section>
+
+  <!-- 已连接 -->
+  <section id="view-connected" class="hidden">
+    <h1 class="ok">
+      <span class="zh">该店铺已连接到 VantaSite</span>
+      <span class="en">This store is already connected to VantaSite</span>
+    </h1>
+    <p>
+      <span class="zh">请登录 VantaSite 后台查看店铺与订单同步情况。</span>
+      <span class="en">Sign in to your VantaSite admin to view the store and its order sync.</span>
+    </p>
+  </section>
+
+  <!-- 无效或出错 -->
+  <section id="view-invalid" class="hidden">
+    <h1>
+      <span class="zh">无法完成连接</span>
+      <span class="en">We couldn't complete the connection</span>
+    </h1>
+    <p id="invalid-detail">
+      <span class="zh">请从 Shopify 后台重新打开本应用。</span>
+      <span class="en">Please open this app again from your Shopify admin.</span>
+    </p>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // 错误码 → 双语文案（与后端 IShopifyInstallService.ErrorCode 一致）
+  var MESSAGES = {
+    TICKET_EXPIRED: ['授权已过期，请从 Shopify 后台重新打开本应用。',
+      'Authorization has expired. Please open this app again from your Shopify admin.'],
+    UNKNOWN_HOST: ['无法识别该后台地址，请检查后重新输入。',
+      "We don't recognize this admin URL. Please check it and try again."],
+    INVALID_STATE: ['连接请求已失效，请从 Shopify 后台重新打开本应用。',
+      'This connection request is no longer valid. Please open this app again from your Shopify admin.'],
+    INVALID_HMAC: ['请求校验失败，请从 Shopify 后台重新打开本应用。',
+      'The request could not be verified. Please open this app again from your Shopify admin.'],
+    INVALID_SHOP: ['店铺地址无效，请从 Shopify 后台重新打开本应用。',
+      'The store address is invalid. Please open this app again from your Shopify admin.'],
+    TOKEN_EXCHANGE_FAILED: ['向 Shopify 获取授权失败，请稍后从 Shopify 后台重新打开本应用。',
+      'Could not obtain authorization from Shopify. Please try again later from your Shopify admin.'],
+    HANDLE_TAKEN: ['该店铺已被其他账户连接。',
+      'This store is already connected to another account.'],
+    APP_NOT_CONFIGURED: ['应用暂不可用，请稍后再试。',
+      'The app is temporarily unavailable. Please try again later.'],
+    NETWORK: ['网络异常，请稍后重试。', 'Network error. Please try again.']
+  };
+  var DEFAULT_INVALID = ['请从 Shopify 后台重新打开本应用。', 'Please open this app again from your Shopify admin.'];
+
+  var params = new URLSearchParams(window.location.search);
+  var ticket = params.get('ticket');
+  var status = params.get('status');
+  var code = params.get('code');
+
+  function show(id) {
+    document.getElementById(id).classList.remove('hidden');
+  }
+
+  // 只用 textContent 写入，避免把 query 内容当 HTML
+  function fillBilingual(el, pair) {
+    while (el.firstChild) { el.removeChild(el.firstChild); }
+    var zh = document.createElement('span');
+    zh.className = 'zh';
+    zh.textContent = pair[0];
+    var en = document.createElement('span');
+    en.className = 'en';
+    en.textContent = pair[1];
+    el.appendChild(zh);
+    el.appendChild(en);
+  }
+
+  function showBindError(errCode) {
+    var el = document.getElementById('bind-error');
+    fillBilingual(el, MESSAGES[errCode] || MESSAGES.UNKNOWN_HOST);
+    el.classList.add('show');
+  }
+
+  if (ticket && /^[0-9a-f]{64}$/.test(ticket)) {
+    show('view-bind');
+    var form = document.getElementById('bind-form');
+    var input = document.getElementById('admin-host');
+    var submit = document.getElementById('bind-submit');
+    input.focus();
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      var adminHost = input.value.trim();
+      if (!adminHost) {
+        showBindError('UNKNOWN_HOST');
+        input.focus();
+        return;
+      }
+      document.getElementById('bind-error').classList.remove('show');
+      submit.disabled = true;
+      fetch('/shopify-app/landing/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'omit',
+        body: JSON.stringify({ ticket: ticket, adminHost: adminHost })
+      }).then(function (resp) {
+        return resp.json().catch(function () { return {}; }).then(function (data) {
+          if (resp.ok && data && typeof data.redirectUrl === 'string' && data.redirectUrl.indexOf('https://') === 0) {
+            window.location.href = data.redirectUrl;
+            return;
+          }
+          submit.disabled = false;
+          showBindError(data && data.code ? data.code : 'UNKNOWN_HOST');
+          if (data && data.code === 'TICKET_EXPIRED') {
+            submit.disabled = true;
+            input.disabled = true;
+          }
+        });
+      }).catch(function () {
+        submit.disabled = false;
+        showBindError('NETWORK');
+      });
+    });
+  } else if (status === 'connected') {
+    show('view-connected');
+  } else {
+    show('view-invalid');
+    fillBilingual(document.getElementById('invalid-detail'),
+      status === 'error' && code && MESSAGES[code] ? MESSAGES[code] : DEFAULT_INVALID);
+  }
+})();
+</script>
+</body>
+</html>
