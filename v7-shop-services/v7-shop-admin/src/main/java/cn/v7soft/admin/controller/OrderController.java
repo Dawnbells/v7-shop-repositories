@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
+import cn.hutool.json.JSONUtil;
 import cn.v7soft.admin.controller.req.DownloadOrderRequest;
 import cn.v7soft.admin.controller.req.EditOrderRequest;
 import cn.v7soft.admin.controller.req.QueryOrderRequest;
@@ -31,13 +32,17 @@ import cn.v7soft.admin.controller.req.UpdateOrderLogisticsRequest;
 import cn.v7soft.admin.controller.req.UpdateRemarkRequest;
 import cn.v7soft.admin.controller.resp.OrderResponse;
 import cn.v7soft.admin.service.IOrderService;
+import cn.v7soft.admin.service.IProtectedDataAccessLogService;
 import cn.v7soft.admin.utils.OrderQueryHelper;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.controller.request.QueryPageRequest;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.primary.Department;
+import cn.v7soft.core.entities.BaseEntity;
 import cn.v7soft.dao.entities.primary.Order;
+import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import cn.v7soft.dao.repositories.primary.DepartmentRepository;
+import cn.v7soft.dao.utils.SaSessionUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -52,10 +57,13 @@ import lombok.extern.slf4j.Slf4j;
 public class OrderController extends BaseDataRangeController<Order, IOrderService, OrderResponse, QueryOrderRequest, EditOrderRequest> {
 
     private final DepartmentRepository departmentRepository;
+    private final IProtectedDataAccessLogService protectedDataAccessLogService;
 
-    protected OrderController(IOrderService service, DepartmentRepository departmentRepository) {
+    protected OrderController(IOrderService service, DepartmentRepository departmentRepository,
+                              IProtectedDataAccessLogService protectedDataAccessLogService) {
         super(service);
         this.departmentRepository = departmentRepository;
+        this.protectedDataAccessLogService = protectedDataAccessLogService;
     }
 
     @Override
@@ -73,7 +81,48 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
         Page<OrderResponse> responsePage = service.findPaginated(convertQueryPageRequest(request))
                 .map(order -> filling(order, OrderResponse.convertEntity(order, desensitized)));
         fillPrivateDomainFlag(responsePage);
+        recordShopifyListAccess(responsePage);
         return responsePage;
+    }
+
+    /**
+     * 返回结果含 Shopify 订单时记录受保护客户数据访问日志，任何异常不影响响应
+     */
+    private void recordShopifyListAccess(Page<OrderResponse> responsePage) {
+        try {
+            List<Long> shopifyIds = responsePage.getContent().stream()
+                    .filter(r -> r.getPlatform() == WebsiteTypeEnum.SHOPIFY && r.getId() != null)
+                    .map(r -> Long.valueOf(r.getId()))
+                    .toList();
+            protectedDataAccessLogService.record(IProtectedDataAccessLogService.ACTION_LIST,
+                    IProtectedDataAccessLogService.ORDER_TYPE_ORDER, shopifyIds);
+        } catch (Exception e) {
+            log.warn("订单列表访问日志记录失败", e);
+        }
+    }
+
+    /**
+     * 导出为异步任务：提交后按导出执行器相同的查询条件（当前用户 + 当前视图模式的数据范围）加 platform = SHOPIFY，
+     * 取前 {@link IProtectedDataAccessLogService#MAX_STORED_IDS} 个订单 ID 与总数记录导出日志。任何异常不影响响应。
+     */
+    private void recordShopifyExportAccess(DownloadOrderRequest request) {
+        try {
+            if (request.getPlatform() != null && request.getPlatform() != WebsiteTypeEnum.SHOPIFY) {
+                return;
+            }
+            // 复制一份请求，避免改动已提交的导出参数
+            DownloadOrderRequest query = JSONUtil.toBean(JSONUtil.toJsonStr(request), DownloadOrderRequest.class);
+            query.setPlatform(WebsiteTypeEnum.SHOPIFY);
+            query.setPageNo(1);
+            query.setPageSize(IProtectedDataAccessLogService.MAX_STORED_IDS);
+            Page<Order> shopifyOrders = service.findPaginated(OrderQueryHelper.convertOrderQueryPageRequest(query, service),
+                    SaSessionUtil.getLoginUser(), SaSessionUtil.getViewMode());
+            List<Long> shopifyIds = shopifyOrders.getContent().stream().map(BaseEntity::getId).toList();
+            protectedDataAccessLogService.record(IProtectedDataAccessLogService.ACTION_EXPORT,
+                    IProtectedDataAccessLogService.ORDER_TYPE_ORDER, shopifyIds, shopifyOrders.getTotalElements());
+        } catch (Exception e) {
+            log.warn("订单导出访问日志记录失败", e);
+        }
     }
 
     private void fillPrivateDomainFlag(Page<OrderResponse> responsePage) {
@@ -154,7 +203,9 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
     @PostMapping("/download")
     @Operation(summary = "下载订单")
     public Long download(@RequestBody @Valid DownloadOrderRequest request) {
-        return service.download(request);
+        Long taskId = service.download(request);
+        recordShopifyExportAccess(request);
+        return taskId;
     }
 
     @SaCheckLogin

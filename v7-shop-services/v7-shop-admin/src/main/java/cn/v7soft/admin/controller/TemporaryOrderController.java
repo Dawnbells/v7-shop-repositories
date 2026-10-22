@@ -1,5 +1,6 @@
 package cn.v7soft.admin.controller;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -16,6 +17,7 @@ import cn.v7soft.admin.controller.req.EditTemporaryOrderRequest;
 import cn.v7soft.admin.controller.req.QueryOrderRequest;
 import cn.v7soft.admin.controller.resp.OrderResponse;
 import cn.v7soft.admin.service.ICompanyService;
+import cn.v7soft.admin.service.IProtectedDataAccessLogService;
 import cn.v7soft.admin.service.ITemporaryOrderService;
 import cn.v7soft.common.controller.BaseDataRangeController;
 import cn.v7soft.core.controller.request.QueryPageRequest;
@@ -23,6 +25,7 @@ import cn.v7soft.core.controller.request.attributes.EqualsQueryAttribute;
 import cn.v7soft.core.enums.ClientResponseEnum;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.TemporaryOrder;
+import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,10 +41,13 @@ public class TemporaryOrderController extends BaseDataRangeController<TemporaryO
         OrderResponse,
         QueryOrderRequest, EditTemporaryOrderRequest> {
     private final ICompanyService companyService;
+    private final IProtectedDataAccessLogService protectedDataAccessLogService;
 
-    protected TemporaryOrderController(ITemporaryOrderService service, ICompanyService companyService) {
+    protected TemporaryOrderController(ITemporaryOrderService service, ICompanyService companyService,
+                                       IProtectedDataAccessLogService protectedDataAccessLogService) {
         super(service);
         this.companyService = companyService;
+        this.protectedDataAccessLogService = protectedDataAccessLogService;
     }
 
     @Override
@@ -55,7 +61,26 @@ public class TemporaryOrderController extends BaseDataRangeController<TemporaryO
     public Page<OrderResponse> page(@Valid @RequestBody QueryOrderRequest request) {
         String permission = getPermissionPrefix() + ".page";
         StpUtil.checkPermission(permission);
-        return service.findPaginated(convertQueryPageRequest(request)).map(order -> filling(order, OrderResponse.convertEntity(order, !Objects.equals(Boolean.TRUE, request.getIsAudit()))));
+        Page<OrderResponse> responsePage = service.findPaginated(convertQueryPageRequest(request))
+                .map(order -> filling(order, OrderResponse.convertEntity(order, !Objects.equals(Boolean.TRUE, request.getIsAudit()))));
+        recordShopifyAccess(responsePage);
+        return responsePage;
+    }
+
+    /**
+     * 返回结果含 Shopify 订单时记录受保护客户数据访问日志，任何异常不影响响应
+     */
+    private void recordShopifyAccess(Page<OrderResponse> responsePage) {
+        try {
+            List<Long> shopifyIds = responsePage.getContent().stream()
+                    .filter(r -> r.getPlatform() == WebsiteTypeEnum.SHOPIFY && r.getId() != null)
+                    .map(r -> Long.valueOf(r.getId()))
+                    .toList();
+            protectedDataAccessLogService.record(IProtectedDataAccessLogService.ACTION_LIST,
+                    IProtectedDataAccessLogService.ORDER_TYPE_TEMPORARY, shopifyIds);
+        } catch (Exception e) {
+            log.warn("临时订单访问日志记录失败", e);
+        }
     }
 
     @Override
