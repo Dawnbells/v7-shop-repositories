@@ -3,20 +3,36 @@
 > 工作稿。18 项检查按 Dev Dashboard 的分组逐项列出：官方要求、我们的草案、还缺什么。
 > 官方依据：[App Store 要求清单](https://shopify.dev/docs/apps/launch/app-requirements-checklist)、[图片规范 4.4.4 / 4.4.5](https://shopify.dev/changelog/posts/clearer-standards-for-app-listing-images)。
 
-## 0. 先决条件：代码层面的差距（上架前必须补）
+## 0. 先决条件：已实现 / 待办
 
-当前实现（`ShopifyTokenService` 用 `grant_type=client_credentials` 换 token，后台轮询 REST `/admin/api/2026-07/orders.json`）只适用于**与店铺同属一个 Shopify 组织**的 Dev Dashboard 应用。公开上架后商家的店铺不在我们组织内，这条链路拿不到 token。
+原实现（`client_credentials` 换 token + 轮询 REST）只适用于与店铺同属一个 Shopify 组织的应用。功能「Shopify 公开应用」（`docs/features/shopify-public-app/`）已补齐公开上架所需的代码与文档；凭证模式保留为「组织内自用」。
 
-| 项 | 现状 | 上架要求 |
-| --- | --- | --- |
-| 安装 / 授权 | 商家手填 Client ID / Secret | OAuth 安装流程（authorization code grant；若做嵌入式则 token exchange + App Bridge），安装页第一步就是 OAuth |
-| 合规 webhook | 无 | 必须订阅并处理 `customers/data_request`、`customers/redact`、`shop/redact`；HMAC 校验失败返回 401，正常返回 2xx |
-| 隐私政策 | 无 | 独立页面 URL，必填，返回 200 |
-| 受保护客户数据 | 组织内自用默认可读 | 公开应用需在 Dev Dashboard 申请 Protected customer data access（姓名/地址/电话/邮箱），并写明用途 |
-| 计费 | 无 | 免费则标 Free；收费必须走 Shopify Billing API |
-| 卸载处理 | 无 | 建议订阅 `app/uninstalled`，自动停用店铺并清除 token |
+### 已实现（本功能）
 
-**替代方案**：如果只是想让组织外的客户店铺也能用，Shopify 的「custom distribution」（一个应用对应一家店铺，安装链接分发，不进应用商店、不用审核、不用填这 18 项）也许更贴近需求。需要先确认到底要哪一种。
+| 项 | 实现 |
+| --- | --- |
+| 安装 / 授权 | OAuth 授权码流程，两条入口：后台「第三方商城 → 添加 → SHOPIFY → 公开应用 → 连接 Shopify」；从 App Store / 店铺后台打开 → 落地页填 VantaSite 后台地址 → 登录 → 自动绑定。state 为一次性票据，回调校验 HMAC |
+| 访问令牌 | expiring offline token（access 1 小时、refresh 90 天），临期自动刷新，失效后店铺「连接异常」并可「重新连接」 |
+| Admin API | 全部改为 GraphQL Admin API（`2026-07`），代码中不再调用 REST |
+| 订单同步 | `orders/create`、`orders/updated`、`orders/cancelled` webhook 实时入审单列表，约 15 分钟一次对账兜底；手动历史同步限最近 60 天 |
+| 合规 webhook | `customers/data_request`、`customers/redact`、`shop/redact`；HMAC 不符返回 401，正常返回 200；脱敏与 30 天内交付有处理记录 |
+| 卸载处理 | `app/uninstalled` → 店铺「已断开」、清除 token、停止同步，已同步订单保留 |
+| 受保护客户数据措施 | 订单最后更新后 12 个月自动脱敏收货人信息（可配置）；收货人信息查看/导出访问日志 |
+| 隐私政策 | `https://docs.vantasite.com/en/privacy-policy`（文档站中英双语） |
+| 应用声明 | `v7-shop-services/shopify.app.toml`（App URL、回调、scope、webhook 订阅） |
+| 计费 | 免费，无需接 Billing API |
+
+### 待办（上架前）
+
+| 项 | 说明 |
+| --- | --- |
+| 受保护客户数据 Level 2 申请 | 在 Dev Dashboard 的 API access requests 申请姓名、地址、电话、邮箱；用途写「审单、收货、面单打印、风控」，措施对照隐私政策第 5–7 节（保留期脱敏、访问日志、权限控制、HTTPS） |
+| `read_all_orders` | 二期单独申请；获批前历史同步限 60 天 |
+| 邮箱 | support、merchant review、app submission、Emergency developer contact；隐私政策中的 `support@vantasite.com` 为占位 |
+| 域名 | 中立域名 `<app-host>`（反向代理到后端 `/shopify-app/**`）与文档站 `docs.vantasite.com` 上线，HTTPS 证书就绪；填入 `shopify.app.toml` 与 `SHOPIFY_APP_HOST` |
+| 应用声明落地 | 在 Dev Dashboard 创建公开应用，`client_id` 填入 `shopify.app.toml` 后 `shopify app deploy` |
+| 测试账号 | 测试环境后台地址与审核账号（见第 7 节） |
+| 素材 | App icon、Feature media、截图、录屏 |
 
 ---
 
@@ -24,7 +40,7 @@
 
 ### App name（≤30 字符）
 
-草案：`VantaSite Order Sync`（20 字符）。品牌名前置。待定：以哪个品牌（xyz / ht / VantaSite）上架。
+草案：`VantaSite Order Sync`（20 字符）。品牌名前置。品牌已定为 VantaSite。
 
 ### App icon
 
@@ -51,7 +67,7 @@ Pull new and past Shopify orders into VantaSite for review, SKU matching and ful
 ### App details（≤500 字符）
 
 ```
-Connect your Shopify store to VantaSite. New orders are picked up about every minute and land in your order review list, where your team checks addresses, matches SKUs and releases orders for fulfillment. Sync past orders for any date range in the background and follow progress in the task center. Product metafields can fill in local product names, SKU codes and order owners automatically. Record amounts in shop currency or presentment currency. Pause or remove the connection at any time.
+Connect your Shopify store to VantaSite. New orders arrive in near real time and land in your order review list, where your team checks addresses, matches SKUs and releases orders for fulfillment. Sync orders from the last 60 days in the background and follow progress in the task center. Product metafields can fill in local product names, SKU codes and order owners automatically. Record amounts in shop currency or presentment currency. Pause or remove the connection at any time.
 ```
 
 不要出现「最快」「永不」「保证」之类绝对化或比较性措辞，也不要写数据性承诺。
@@ -60,7 +76,7 @@ Connect your Shopify store to VantaSite. New orders are picked up about every mi
 
 ```
 Near real-time sync of new orders into the VantaSite review list
-Historical order sync by date range, run in the background
+Sync orders from the last 60 days by date range, in the background
 Auto-fill product names, SKU codes and order owner from metafields
 Payment status mapping with shop or presentment currency modes
 Pause, resume or remove a store connection in one click
@@ -76,13 +92,13 @@ Pause, resume or remove a store connection in one click
 
 - 3–6 张桌面截图，**精确 1600×900**；Chrome 里把 devicePixelRatio 设为 1 再截，否则高分屏会出 2400×1350。
 - 不能带浏览器边框、桌面壁纸；每张展示不同功能或状态。
-- 建议顺序：
-  1. 第三方商城列表，Shopify 店铺显示「已连接」
-  2. 添加 Shopify 店铺表单（上架后应替换为 OAuth 安装页）
-  3. 订单同步对话框：选时间范围、显示订单数量
-  4. 任务中心里的同步进度
-  5. 审单列表按「订单平台 = SHOPIFY」筛选
-  6. 订单详情（含 SKU 匹配结果）
+- 建议顺序（与 OAuth 安装流程一致）：
+  1. 第三方商城列表，Shopify 店铺接入方式「公开应用」、授权状态「已连接」
+  2. 添加 Shopify 店铺表单：接入方式选「公开应用」，「连接 Shopify」按钮
+  3. 落地页「输入你的 VantaSite 后台地址」（从 App Store 安装后进入，中英双语）
+  4. 绑定成功页「已连接 {handle}」
+  5. 审单列表按「订单平台 = SHOPIFY」筛选，显示 webhook 推送的新订单
+  6. 订单同步对话框：选时间范围（最近 60 天）、显示订单数量，任务中心同步进度
 - 注意：后台界面是中文，而上架语言是英文。审核员看不懂截图内容可能被打回，建议截英文界面（若后台有 i18n）或在图上加英文说明条。
 
 ### Support
@@ -90,13 +106,13 @@ Pause, resume or remove a store connection in one click
 | 字段 | 填什么 | 状态 |
 | --- | --- | --- |
 | Support email | 商家联系用邮箱 | 需要你提供 |
-| Support URL | 帮助中心或文档站入口 | 可用 v7-shop-docs 的 Shopify 页面 |
-| Privacy policy URL | 独立隐私政策页，必填，HTTP 200 | 需要新建页面 |
+| Support URL | 帮助中心或文档站入口 | `https://docs.vantasite.com/en/third-party-order-sync/shopify` |
+| Privacy policy URL | 独立隐私政策页，必填，HTTP 200 | `https://docs.vantasite.com/en/privacy-policy`（文档站上线后核对返回 200） |
 
 ### Resources（可选但建议填）
 
-- Documentation URL：v7-shop-docs 的 `/third-party-order-sync/shopify` 页面（需要有英文版）。
-- FAQ URL：可以用 `shopify-order-sync-guide.md` 的常见问题部分做成英文页。
+- Documentation URL：`https://docs.vantasite.com/en/third-party-order-sync/shopify`（英文安装指南，已完成）。
+- FAQ URL：英文安装指南的 FAQ 小节 `https://docs.vantasite.com/en/third-party-order-sync/shopify#faq`。
 - Changelog、Support portal：可留空。
 - Demo store：开发店铺链接，可选。
 
@@ -109,7 +125,7 @@ Pause, resume or remove a store connection in one click
 - 免费：选 Recurring charge，加一个 plan 标记 Free，价格 0。
 - 收费：必须接 Shopify Billing API，商家能自助升降级，账单出现在店铺的 charge history。
 - 企业定制价写在「Description of additional charges」。
-- **待定**：免费还是收费。
+- **已定**：免费。
 
 ---
 
@@ -165,34 +181,44 @@ fulfillment
 ### Screencast URL
 
 - YouTube（unlisted）/ Vimeo / Loom，英文或带英文字幕。
-- 内容：从安装（OAuth 授权）→ 店铺显示已连接 → 在 Shopify 下测试单 → 审单列表出现订单 → 历史订单同步 → 暂停/删除，完整走一遍，60–120 秒即可。
-- **待录制**：要等 OAuth 安装流程做完再录。
+- 内容：从 listing 安装（OAuth 授权）→ 落地页填后台地址 → 登录并自动绑定 → 店铺显示已连接 → 在 Shopify 下测试单 → 1 分钟内审单列表出现订单 → 最近 60 天历史同步 → 暂停/恢复 → 卸载后显示已断开，完整走一遍，60–120 秒即可。
+- **待录制**：在测试环境部署本功能后录制。
 
-### Testing instructions（草案，英文，每步写预期结果）
+### Testing instructions（草案，英文，每步写预期结果，与 PRD §5 流程一致）
 
 ```
-1. Install the app on the test store from the install link. Approve the requested scopes (read_orders, read_products, read_all_orders).
-   Expected: you are redirected to VantaSite and the store appears under "Third-party stores" with status "Connected".
-2. Log in to VantaSite (credentials in the test account section).
-3. In the test store admin, create a test order.
-   Expected: within about 1 minute the order appears in VantaSite → Order review, filter "Platform = SHOPIFY".
-4. In Third-party stores, click "Sync orders" on the test store, pick the last 30 days, confirm.
-   Expected: a task appears in the task center and completes; past orders appear in Order review.
-5. Toggle the store status off, then on.
-   Expected: sync pauses and resumes; no duplicate orders are created.
-6. Uninstall the app from the test store.
-   Expected: the store status in VantaSite changes to "Disconnected".
+The VantaSite back office is in Chinese; English labels are given with the Chinese text in brackets.
+Test account credentials and the back-office address are in the test account section.
+
+1. Install the app on the test store from the app listing and approve the requested scopes (read_orders, read_products).
+   Expected: you land on the VantaSite page "Enter your VantaSite back-office address".
+2. Enter the back-office address from the test account section and continue.
+   Expected: you are taken to the VantaSite sign-in page.
+3. Sign in with the test account.
+   Expected: the store is linked automatically and the page shows "Connected [已连接]".
+4. Click "Go to third-party stores [前往第三方商城]".
+   Expected: the store is listed with access mode "Public app [公开应用]" and status "Connected [已连接]".
+5. In the test store admin, create a test order.
+   Expected: within about 1 minute the order appears in Order review [审单] when filtered by "Platform = SHOPIFY [订单平台 = SHOPIFY]".
+6. In Third-party stores [第三方商城], click "Sync orders [订单同步]" on the store, pick a range within the last 60 days and confirm.
+   Expected: a task appears in the Task center [任务中心] and completes; orders in that range appear in Order review without duplicates.
+   Ranges older than 60 days cannot be selected because the app does not request read_all_orders.
+7. Turn the store's status switch off, create another test order, then turn the switch back on.
+   Expected: no order is synced while paused; after resuming, the order appears within about 15 minutes; no duplicates are created.
+8. Uninstall the app from the test store (Settings > Apps).
+   Expected: the store status in VantaSite changes to "Disconnected [已断开]"; orders already synced remain.
 ```
 
 ---
 
 ## 需要你拍板 / 提供的清单
 
-1. 上架形式：公开 App Store，还是 custom distribution。
-2. 品牌与应用名。
-3. 免费还是收费。
-4. App icon、Feature media 设计稿。
-5. 三个邮箱：support、merchant review、app submission。
-6. 隐私政策页面的域名（放在哪个站点）。
-7. 测试环境地址与后台账号。
-8. 后台是否有英文界面（影响截图与录屏）。
+已定：公开 App Store 上架、品牌与应用名（VantaSite / VantaSite Order Sync）、免费、隐私政策放在文档站（`https://docs.vantasite.com/en/privacy-policy`）。
+
+仍需提供：
+
+1. App icon、Feature media 设计稿。
+2. 四个邮箱：support、merchant review、app submission、emergency developer contact。
+3. 中立域名 `<app-host>` 与文档站域名上线。
+4. 测试环境地址与后台账号。
+5. 后台是否有英文界面（影响截图与录屏；暂按中文界面 + 英文标注处理）。
