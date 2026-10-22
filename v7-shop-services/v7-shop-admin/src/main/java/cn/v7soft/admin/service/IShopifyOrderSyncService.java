@@ -1,5 +1,6 @@
 package cn.v7soft.admin.service;
 
+import cn.hutool.json.JSONObject;
 import cn.v7soft.admin.controller.req.CountThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.resp.CountThirdPartyOrderResponse;
@@ -35,4 +36,21 @@ public interface IShopifyOrderSyncService {
      * 换取 token 失败时抛出异常（token 为必填列，无法落库）
      */
     void verifyAndUpdateAuthStatus(ThirdPartyWebsite website);
+
+    /**
+     * 把 webhook 订单 payload（REST 形状）导入审单表。
+     * @param updateExisting true 时覆盖已存在订单
+     * @return 是否新建
+     */
+    default boolean importWebhookOrder(ThirdPartyWebsiteDto website, JSONObject orderPayload, boolean updateExisting) {
+        throw new UnsupportedOperationException("importWebhookOrder 尚未实现");
+    }
+
+    /**
+     * 对账：拉取 updated_at >= since 的订单，新订单创建，已存在且已取消的标记取消
+     * @return 处理到的最大 updated_at（东八区）
+     */
+    default LocalDateTime reconcileOrders(ThirdPartyWebsiteDto website, LocalDateTime since) {
+        throw new UnsupportedOperationException("reconcileOrders 尚未实现");
+    }
 }
