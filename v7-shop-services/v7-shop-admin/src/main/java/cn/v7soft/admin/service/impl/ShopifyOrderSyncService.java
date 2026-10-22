@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import cn.v7soft.admin.config.ShopifyAppProperties;
 import cn.v7soft.admin.controller.req.CountThirdPartyOrdersRequest;
 import cn.v7soft.admin.controller.req.EditTemporaryOrderRequest;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
@@ -44,28 +45,20 @@ import cn.v7soft.dao.enums.PaymentStatus;
 import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
-import io.github.resilience4j.ratelimiter.RateLimiter;
-import io.github.resilience4j.ratelimiter.RateLimiterConfig;
-import io.github.resilience4j.retry.Retry;
-import io.github.resilience4j.retry.RetryConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.net.URI;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -73,44 +66,101 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
- * Shopify 订单同步（REST Admin API）。
- * 与 Shopline 的实现（ThirdPartyWebsiteService）相互独立，订单转换逻辑按 Shopify 的字段单独维护。
+ * Shopify 订单同步（Admin GraphQL API）。
+ * <p>
+ * GraphQL 订单节点先经 {@link ShopifyGraphqlOrderAdapter} 转成 REST 形状（与 webhook payload 同形），
+ * 再由同一套转换器写入审单表。与 Shopline 的实现（ThirdPartyWebsiteService）相互独立。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
-    private static final String API_VERSION = "2026-07";
-    private static final String PAGE_LIMIT = "100";
-    // 取消检查只需判断取消状态，限定返回字段并放大每页数量；单轮最多翻页数，剩余的下一轮继续
-    private static final String CANCEL_CHECK_FIELDS = "id,cancelled_at,updated_at,line_items";
-    private static final String CANCEL_CHECK_PAGE_LIMIT = "250";
-    private static final int CANCEL_CHECK_MAX_PAGES = 10;
-    private static final String METAFIELD_NAMESPACE = "xyz";
-    private static final String METAFIELD_KEY_CN_PRODUCT_NAME = "cn_product_name";
-    private static final String METAFIELD_KEY_WAYBILL_PRODUCT_NAME = "waybill_product_name";
-    private static final String METAFIELD_KEY_OWNER_NAME = "owner_name";
-    private static final String METAFIELD_KEY_OWNER_TELEPHONE = "owner_telephone";
-    private static final String METAFIELD_KEY_SKU_CODE = "sku_code";
-    private static final String METAFIELD_KEY_SKU_CODE_HIGH = "sku_code_high";
-    private static final Pattern LINK_PAGE_INFO_PATTERN = Pattern.compile("<[^>]*[?&]page_info=([^&>]+)[^>]*>;\\s*rel=\"next\"");
+    /*
+     * 单个 GraphQL 查询的请求成本上限为 1000 点（按 first 估算，嵌套连接相乘：对象 1 点，连接 2 + first × 节点成本）。
+     * 订单页：每个行项目 ≈ 14 点（自身 1 + 单价 MoneyBag 3 + variant 1 + product 1 + 元字段 2+6），
+     * 每单 ≈ 111 点（订单 1 + 5 个 MoneyBag 15 + 访问摘要 3 + 附加属性 1 + 客户 3 + 地址 2 + 运费行 2+3×4 + 行项目 2+5×14），
+     * 8 单/页 ≈ 900 点。行项目超过 5 个的订单单独补查。
+     */
+    static final int ORDER_PAGE_SIZE = 8;
+    static final int LINE_ITEM_PAGE_SIZE = 5;
+    static final int LINE_ITEM_FOLLOW_UP_PAGE_SIZE = 50;
+    // 取消检查只取取消状态与行项目剩余数量：每单 ≈ 1 + 2 + 1 + 10 = 14 点，50 单/页 ≈ 700 点
+    static final int CANCEL_CHECK_PAGE_SIZE = 50;
+    static final int CANCEL_CHECK_LINE_ITEM_PAGE_SIZE = 10;
+    // 单轮最多翻页数，剩余的下一轮继续
+    static final int CANCEL_CHECK_MAX_PAGES = 50;
+    // 对账单轮最多翻页数（8 单/页），剩余的下一轮从返回的游标继续
+    static final int RECONCILE_MAX_PAGES = 200;
+    // 自动同步整页都是已存在订单时，本轮最多继续翻的页数（同一秒创建的订单超过一页时避免游标原地踏步）
+    static final int AUTO_SKIP_MAX_PAGES = 20;
+    // nodes 批量查商品元字段：每个商品 ≈ 1 + 2 + 6 = 9 点
+    static final int METAFIELD_BATCH_SIZE = 50;
+
+    private static final String DEFAULT_API_VERSION = "2026-07";
+    private static final String METAFIELD_KEY_CN_PRODUCT_NAME = ShopifyGraphqlOrderAdapter.METAFIELD_KEY_CN_PRODUCT_NAME;
+    private static final String METAFIELD_KEY_WAYBILL_PRODUCT_NAME = ShopifyGraphqlOrderAdapter.METAFIELD_KEY_WAYBILL_PRODUCT_NAME;
+    private static final String METAFIELD_KEY_OWNER_NAME = ShopifyGraphqlOrderAdapter.METAFIELD_KEY_OWNER_NAME;
+    private static final String METAFIELD_KEY_OWNER_TELEPHONE = ShopifyGraphqlOrderAdapter.METAFIELD_KEY_OWNER_TELEPHONE;
+    private static final String METAFIELD_KEY_SKU_CODE = ShopifyGraphqlOrderAdapter.METAFIELD_KEY_SKU_CODE;
+    private static final String METAFIELD_KEY_SKU_CODE_HIGH = ShopifyGraphqlOrderAdapter.METAFIELD_KEY_SKU_CODE_HIGH;
     private static final Pattern LOCALE_PATTERN = Pattern.compile("([a-z]{2})[_-]([A-Z]{2})");
     private static final DateTimeFormatter ISO_OFFSET = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
     private static final DateTimeFormatter UTC_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'");
     private static final ZoneOffset ZONE_8 = ZoneOffset.of("+08:00");
 
+    // ==================== GraphQL 查询 ====================
+
+    private static final String MONEY = "{ shopMoney { amount currencyCode } presentmentMoney { amount currencyCode } }";
+    private static final String ADDRESS = "{ firstName lastName name company phone address1 address2 city province provinceCode zip country countryCodeV2 }";
+    static final String METAFIELDS_SELECTION = "metafields(first: " + ShopifyGraphqlOrderAdapter.METAFIELD_KEYS.size() + ", keys: ["
+            + ShopifyGraphqlOrderAdapter.METAFIELD_KEYS.stream()
+            .map(key -> "\"" + ShopifyGraphqlOrderAdapter.METAFIELD_NAMESPACE + "." + key + "\"")
+            .collect(Collectors.joining(", "))
+            + "]) { nodes { namespace key value } }";
+    static final String LINE_ITEM_SELECTION = "id name title variantTitle sku quantity currentQuantity"
+            + " originalUnitPriceSet " + MONEY
+            + " variant { legacyResourceId sku }"
+            + " product { legacyResourceId " + METAFIELDS_SELECTION + " }";
+    static final String ORDER_SELECTION = "id legacyResourceId name createdAt updatedAt cancelledAt cancelReason closedAt"
+            + " displayFinancialStatus displayFulfillmentStatus currencyCode presentmentCurrencyCode"
+            + " totalPriceSet " + MONEY
+            + " subtotalPriceSet " + MONEY
+            + " totalShippingPriceSet " + MONEY
+            + " totalTaxSet " + MONEY
+            + " totalDiscountsSet " + MONEY
+            + " email phone customerLocale note tags sourceName clientIp"
+            + " customerJourneySummary { firstVisit { landingPage referrerUrl } lastVisit { landingPage referrerUrl } }"
+            + " customAttributes { key value }"
+            + " customer { legacyResourceId firstName lastName defaultEmailAddress { emailAddress } defaultPhoneNumber { phoneNumber } }"
+            + " shippingAddress " + ADDRESS
+            + " billingAddress " + ADDRESS
+            + " paymentGatewayNames"
+            + " shippingLines(first: 3) { nodes { title code originalPriceSet " + MONEY + " } }"
+            + " lineItems(first: " + LINE_ITEM_PAGE_SIZE + ") { pageInfo { hasNextPage endCursor } nodes { " + LINE_ITEM_SELECTION + " } }";
+    private static final String CANCEL_CHECK_LINE_ITEM_SELECTION = "currentQuantity";
+    private static final String CANCEL_CHECK_SELECTION = "id legacyResourceId cancelledAt updatedAt"
+            + " lineItems(first: " + CANCEL_CHECK_LINE_ITEM_PAGE_SIZE + ") { pageInfo { hasNextPage endCursor } nodes { "
+            + CANCEL_CHECK_LINE_ITEM_SELECTION + " } }";
+    static final String SORT_CREATED_AT = "CREATED_AT";
+    static final String SORT_UPDATED_AT = "UPDATED_AT";
+    static final String ORDERS_COUNT_QUERY = "query ShopifyOrdersCount($q: String) { ordersCount(query: $q, limit: null) { count precision } }";
+    static final String PRODUCT_METAFIELDS_QUERY = "query ShopifyProductMetafields($ids: [ID!]!) { nodes(ids: $ids) { ... on Product { id legacyResourceId "
+            + METAFIELDS_SELECTION + " } } }";
+
+    private final ShopifyGraphqlClient graphqlClient;
     private final RestTemplate restTemplate;
+    private final ShopifyAppProperties appProperties;
     private final ShopifyTokenService tokenService;
     private final ShopifyWebsiteStore websiteStore;
     private final ICurrencyService currencyService;
@@ -121,122 +171,73 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     private final IProductSKUService productSKUService;
     private final SystemUserRepository systemUserRepository;
 
-    /**
-     * 一次调用使用的凭证，token 被拒绝并刷新后会更新
-     */
-    private static class ApiSession {
-        private final Long websiteId;
-        private final String handle;
-        private String token;
+    static String ordersQuery(String sortKey, String selection) {
+        return "query ShopifyOrders($first: Int!, $cursor: String, $q: String) { orders(first: $first, after: $cursor, query: $q, sortKey: "
+                + sortKey + ", reverse: false) { pageInfo { hasNextPage endCursor } nodes { " + selection + " } } }";
+    }
 
-        private ApiSession(Long websiteId, String handle, String token) {
-            this.websiteId = websiteId;
-            this.handle = handle;
-            this.token = token;
-        }
+    static String lineItemsQuery(String selection) {
+        return "query ShopifyOrderLineItems($id: ID!, $first: Int!, $cursor: String) { order(id: $id) { lineItems(first: $first, after: $cursor)"
+                + " { pageInfo { hasNextPage endCursor } nodes { " + selection + " } } } }";
+    }
+
+    /**
+     * 一页 GraphQL 订单（已转成 REST 形状）
+     */
+    private record OrderPage(List<JSONObject> orders, String nextCursor) {
     }
 
     // ==================== 公开接口 ====================
 
     @Override
     public CountThirdPartyOrderResponse countOrders(ThirdPartyWebsite website, CountThirdPartyOrdersRequest request) {
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(buildApiUrl(website.getHandle(), "orders/count.json"))
-                .queryParam("status", "any");
-        if (request.getCreateAtMin() != null) {
-            builder.queryParam("created_at_min", formatUtc(request.getCreateAtMin()));
-        }
-        if (request.getCreateAtMax() != null) {
-            builder.queryParam("created_at_max", formatUtc(request.getCreateAtMax()));
-        }
-        URI uri = builder.build().toUri();
-
         ThirdPartyWebsiteDto websiteDto = websiteStore.getDtoById(website.getId());
-        ResponseEntity<String> response;
-        try {
-            ApiSession session = new ApiSession(website.getId(), website.getHandle(), tokenService.getAccessToken(websiteDto));
-            response = get(session, uri);
-        } catch (HttpClientErrorException e) {
-            String unavailableMessage = shopUnavailableMessage(e.getStatusCode().value());
-            if (unavailableMessage != null) {
-                websiteStore.markWebsiteAuthError(website.getId(), unavailableMessage);
-            }
-            throw e;
+        prepareAccess(websiteDto);
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("q", createdAtQuery(request.getCreateAtMin(), request.getCreateAtMax()));
+        ShopifyGraphqlClient.GraphqlResult result = graphqlClient.execute(websiteDto, ORDERS_COUNT_QUERY, variables);
+        JSONObject count = result.data() == null ? null : result.data().getJSONObject("ordersCount");
+        if (count == null || count.getInt("count") == null) {
+            throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getId(), "Shopify ordersCount 返回为空");
         }
-
-        String errors = "status: " + response.getStatusCode();
-        if (StrUtil.isNotBlank(response.getBody())) {
-            JSONObject body = JSONUtil.parseObj(response.getBody());
-            if (body.containsKey("count")) {
-                return CountThirdPartyOrderResponse.builder()
-                        .count(body.get("count", Integer.class))
-                        .build();
-            }
-            if (body.containsKey("errors")) {
-                errors = body.getStr("errors");
-            }
-        }
-        throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getId(), errors);
+        return CountThirdPartyOrderResponse.builder()
+                .count(count.getInt("count"))
+                .build();
     }
 
     @Override
     public ShoplineOrderLoadResult loadOrders(ThirdPartyWebsiteDto website, SyncThirdPartyOrdersRequest request, String pageInfo, SyncMode syncMode) {
         boolean isAutoSync = syncMode == SyncMode.AUTO;
         Long websiteId = website.getLongId();
+        // 自动同步按 created_at 游标（lastSyncOrderTime）拉取，边界上已存在的订单由 findByOriginOrderId 跳过；lastSyncOrderId 只记录不参与查询
+        String query = createdAtQuery(request.getCreateAtMin(), request.getCreateAtMax());
+        String cursor = StrUtil.blankToDefault(pageInfo, null);
 
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(buildApiUrl(website.getHandle(), "orders.json"));
-        if (StrUtil.isNotBlank(pageInfo)) {
-            // 翻页时只允许携带 page_info 与 limit
-            builder.queryParam("page_info", pageInfo);
-        } else {
-            builder.queryParam("status", "any");
-            if (request.getCreateAtMin() != null) {
-                builder.queryParam("created_at_min", formatUtc(request.getCreateAtMin()));
-            }
-            if (request.getCreateAtMax() != null) {
-                builder.queryParam("created_at_max", formatUtc(request.getCreateAtMax()));
-            }
-            if (isAutoSync && StrUtil.isNotBlank(website.getLastSyncOrderId())) {
-                // 携带 since_id 时按 id 升序返回
-                builder.queryParam("since_id", website.getLastSyncOrderId());
-            } else {
-                builder.queryParam("order", "created_at asc");
-            }
-        }
-        builder.queryParam("limit", PAGE_LIMIT);
-        URI uri = builder.build().toUri();
-
-        ApiSession session = new ApiSession(websiteId, website.getHandle(), null);
-        ResponseEntity<String> response;
+        ShoplineOrderLoadResult pageResult;
         try {
-            session.token = tokenService.getAccessToken(website);
-            response = get(session, uri);
+            prepareAccess(website);
+            Map<String, Map<String, String>> metafieldsCache = new HashMap<>();
+            OrderPage page = fetchOrderPage(website, SORT_CREATED_AT, query, cursor, metafieldsCache);
+            pageResult = page.orders().isEmpty()
+                    ? ShoplineOrderLoadResult.empty(page.nextCursor())
+                    : convertAndSaveOrders(website, page.orders(), syncMode, page.nextCursor(), metafieldsCache);
+            int extraPages = 0;
+            while (isAutoSync && pageResult.getNextPageInfo() != null && extraPages++ < AUTO_SKIP_MAX_PAGES
+                    && pageResult.getFetchedCount() > 0 && pageResult.getSkippedCount() == pageResult.getFetchedCount()) {
+                OrderPage next = fetchOrderPage(website, SORT_CREATED_AT, query, pageResult.getNextPageInfo(), metafieldsCache);
+                ShoplineOrderLoadResult nextResult = next.orders().isEmpty()
+                        ? ShoplineOrderLoadResult.empty(next.nextCursor())
+                        : convertAndSaveOrders(website, next.orders(), syncMode, next.nextCursor(), metafieldsCache);
+                pageResult = mergeSkippedPage(pageResult, nextResult);
+            }
         } catch (HttpClientErrorException e) {
             int statusCode = e.getStatusCode().value();
-            String unavailableMessage = shopUnavailableMessage(statusCode);
-            if (unavailableMessage != null) {
-                websiteStore.markWebsiteAuthError(websiteId, unavailableMessage);
-            } else if (statusCode == 401 || statusCode == 403) {
+            if (statusCode == 401 || statusCode == 403) {
                 websiteStore.markWebsiteAuthError(websiteId, "Client ID/Secret无效或应用权限不足 (HTTP " + statusCode + ")");
             }
-            log.error("Shopify order sync page request failed: websiteId={}, handle={}, syncMode={}, status={}, uri={}",
-                    websiteId, website.getHandle(), syncMode, statusCode, uri, e);
+            log.error("Shopify order sync page request failed: websiteId={}, handle={}, syncMode={}, status={}",
+                    websiteId, website.getHandle(), syncMode, statusCode, e);
             throw e;
-        }
-
-        if (StrUtil.isBlank(response.getBody())) {
-            return ShoplineOrderLoadResult.empty(null);
-        }
-
-        JSONObject body = JSONUtil.parseObj(response.getBody());
-        if (body.containsKey("errors")) {
-            throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(websiteId, body.getStr("errors"));
-        }
-
-        JSONArray orders = body.getJSONArray("orders");
-        String nextPageInfo = extractNextPageInfo(response.getHeaders());
-        ShoplineOrderLoadResult pageResult = ShoplineOrderLoadResult.empty(nextPageInfo);
-        if (orders != null && !orders.isEmpty()) {
-            pageResult = convertAndSaveOrders(website, session, orders, syncMode, nextPageInfo);
         }
         if (isAutoSync) {
             websiteStore.updateLastSyncInfo(websiteId, pageResult);
@@ -246,35 +247,30 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
 
     @Override
     public ShopifyCancelCheckResult checkCancelledOrders(ThirdPartyWebsiteDto website, LocalDateTime updatedAtMin, String pageInfo) {
-        ApiSession session = new ApiSession(website.getLongId(), website.getHandle(), tokenService.getAccessToken(website));
+        prepareAccess(website);
+        String query = ordersQuery(SORT_UPDATED_AT, CANCEL_CHECK_SELECTION);
+        String filter = "updated_at:>='" + formatUtc(updatedAtMin) + "'";
         LocalDateTime cursor = updatedAtMin;
         int pages = 0;
         int cancelledCount = 0;
         do {
-            UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(buildApiUrl(website.getHandle(), "orders.json"));
-            if (pageInfo != null) {
-                builder.queryParam("page_info", pageInfo);
-            } else {
-                builder.queryParam("status", "any")
-                        .queryParam("updated_at_min", formatUtc(updatedAtMin))
-                        .queryParam("order", "updated_at asc");
-            }
-            builder.queryParam("fields", CANCEL_CHECK_FIELDS);
-            builder.queryParam("limit", CANCEL_CHECK_PAGE_LIMIT);
-            ResponseEntity<String> response = get(session, builder.build().toUri());
-            if (StrUtil.isBlank(response.getBody())) {
-                throw new IllegalStateException("Shopify cancelled order check returned an empty response");
-            }
-            JSONObject body = JSONUtil.parseObj(response.getBody());
-            if (body.containsKey("errors")) {
-                throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getLongId(), body.getStr("errors"));
-            }
-            JSONArray orders = body.getJSONArray("orders");
-            if (orders == null) {
+            JSONObject connection = executeOrders(website, query, filter, pageInfo, CANCEL_CHECK_PAGE_SIZE);
+            if (connection == null) {
                 throw new IllegalStateException("Shopify cancelled order check response is missing orders");
             }
-            for (int i = 0; i < orders.size(); i++) {
-                JSONObject order = orders.getJSONObject(i);
+            JSONArray nodes = ShopifyGraphqlOrderAdapter.connectionNodes(connection);
+            if (nodes == null) {
+                throw new IllegalStateException("Shopify cancelled order check response is missing orders");
+            }
+            for (int i = 0; i < nodes.size(); i++) {
+                JSONObject node = nodes.getJSONObject(i);
+                if (node == null) {
+                    continue;
+                }
+                if (needsRemainingLineItemsForCancel(node)) {
+                    completeLineItems(website, node, CANCEL_CHECK_LINE_ITEM_SELECTION);
+                }
+                JSONObject order = ShopifyGraphqlOrderAdapter.toRestOrder(node, null);
                 String originOrderId = order.getStr("id");
                 if (StrUtil.isNotBlank(originOrderId) && isCustomerCancelled(order)
                         && temporaryOrderService.markCustomerCancelled(originOrderId)) {
@@ -285,7 +281,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                     cursor = updatedAt;
                 }
             }
-            pageInfo = extractNextPageInfo(response.getHeaders());
+            pageInfo = nextCursor(connection);
         } while (pageInfo != null && ++pages < CANCEL_CHECK_MAX_PAGES);
 
         if (cancelledCount > 0) {
@@ -293,6 +289,64 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                     website.getId(), website.getHandle(), cancelledCount, updatedAtMin, cursor);
         }
         return new ShopifyCancelCheckResult(cursor, pageInfo);
+    }
+
+    @Override
+    public boolean importWebhookOrder(ThirdPartyWebsiteDto website, JSONObject orderPayload, boolean updateExisting) {
+        String originOrderId = orderPayload.getStr("id");
+        if (!updateExisting && StrUtil.isNotBlank(originOrderId)
+                && temporaryOrderService.findByOriginOrderId(originOrderId).isPresent()) {
+            return false;
+        }
+        return convertShopifyOrderToTemporary(website, website.getOwner(), orderPayload, updateExisting, new HashMap<>());
+    }
+
+    @Override
+    public LocalDateTime reconcileOrders(ThirdPartyWebsiteDto website, LocalDateTime since) {
+        prepareAccess(website);
+        String filter = "updated_at:>='" + formatUtc(since) + "'";
+        Map<String, Map<String, String>> metafieldsCache = new HashMap<>();
+        LocalDateTime cursor = since;
+        String pageCursor = null;
+        int pages = 0;
+        int created = 0;
+        int cancelled = 0;
+        int skipped = 0;
+        boolean aborted = false;
+        do {
+            OrderPage page = fetchOrderPage(website, SORT_UPDATED_AT, filter, pageCursor, metafieldsCache);
+            for (JSONObject order : page.orders()) {
+                String originOrderId = order.getStr("id");
+                try {
+                    if (StrUtil.isBlank(originOrderId) || temporaryOrderService.findByOriginOrderId(originOrderId).isEmpty()) {
+                        if (convertShopifyOrderToTemporary(website, website.getOwner(), order, false, metafieldsCache)) {
+                            created++;
+                        }
+                    } else if (isCustomerCancelled(order)) {
+                        if (temporaryOrderService.markCustomerCancelled(originOrderId)) {
+                            cancelled++;
+                        }
+                    } else {
+                        skipped++;
+                    }
+                } catch (Exception e) {
+                    // 按 updated_at 升序处理，失败即停在此前的游标，下一轮重试
+                    log.error("Shopify reconcile order failed: websiteId={}, handle={}, orderId={}, orderName={}, updatedAt={}",
+                            website.getId(), website.getHandle(), originOrderId, order.getStr("name"), order.getStr("updated_at"), e);
+                    aborted = true;
+                    break;
+                }
+                LocalDateTime updatedAt = parseShopifyDateTime(order.getStr("updated_at"));
+                if (updatedAt != null && (cursor == null || updatedAt.isAfter(cursor))) {
+                    cursor = updatedAt;
+                }
+            }
+            pageCursor = page.nextCursor();
+        } while (!aborted && pageCursor != null && ++pages < RECONCILE_MAX_PAGES);
+
+        log.info("Shopify reconcile finished: websiteId={}, handle={}, since={}, cursor={}, created={}, cancelled={}, skipped={}, aborted={}, morePages={}",
+                website.getId(), website.getHandle(), since, cursor, created, cancelled, skipped, aborted, !aborted && pageCursor != null);
+        return cursor;
     }
 
     @Override
@@ -314,19 +368,20 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         website.setToken(token.accessToken());
         website.setTokenExpiresAt(token.expiresAt());
 
+        // 店铺可能尚未落库（无 id），不经过 ShopifyGraphqlClient（其失败处理会按 id 写库），直接调一次 GraphQL ordersCount 验证
         try {
-            URI uri = UriComponentsBuilder.fromHttpUrl(buildApiUrl(website.getHandle(), "orders/count.json"))
-                    .queryParam("status", "any")
-                    .build().toUri();
-            ResponseEntity<String> response = callShopifyApi(website.getHandle(),
-                    () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(token.accessToken()), String.class));
-
-            if (response.getStatusCode().is2xxSuccessful()) {
+            JSONObject body = postVerifyQuery(website.getHandle(), token.accessToken());
+            JSONArray errors = body.get("errors") instanceof JSONArray array ? array : null;
+            JSONObject data = body.getJSONObject("data");
+            if (errors != null && !errors.isEmpty()) {
+                website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);
+                website.setAuthMessage(isAccessDenied(errors) ? "应用缺少订单读取权限(read_orders)" : "API错误: " + errors);
+            } else if (data != null && data.getJSONObject("ordersCount") != null) {
                 website.setAuthStatus(ThirdPartyAuthStatusEnum.AUTHED);
                 website.setAuthMessage(null);
             } else {
                 website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);
-                website.setAuthMessage("API响应异常: HTTP " + response.getStatusCode().value());
+                website.setAuthMessage("API响应异常: 未返回订单数");
             }
         } catch (HttpClientErrorException e) {
             website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);
@@ -351,6 +406,180 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         }
     }
 
+    // ==================== GraphQL 调用 ====================
+
+    /**
+     * 请求前校验 handle 并取 token：token 获取阶段店铺冻结/锁定（402/423）时停用店铺；
+     * 请求阶段的 401/402/423/限流由 ShopifyGraphqlClient 处理
+     */
+    private void prepareAccess(ThirdPartyWebsiteDto website) {
+        ShopifyHost.host(website.getHandle());
+        try {
+            tokenService.getAccessToken(website);
+        } catch (HttpClientErrorException e) {
+            String unavailableMessage = shopUnavailableMessage(e.getStatusCode().value());
+            if (unavailableMessage != null) {
+                websiteStore.markWebsiteAuthError(website.getLongId(), unavailableMessage);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 拉取一页完整订单（行项目补全）并转成 REST 形状，内联元字段写入 metafieldsCache
+     */
+    private OrderPage fetchOrderPage(ThirdPartyWebsiteDto website, String sortKey, String filter, String cursor,
+                                     Map<String, Map<String, String>> metafieldsCache) {
+        JSONObject connection = executeOrders(website, ordersQuery(sortKey, ORDER_SELECTION), filter, cursor, ORDER_PAGE_SIZE);
+        if (connection == null) {
+            throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getLongId(), "Shopify orders 返回为空");
+        }
+        JSONArray nodes = ShopifyGraphqlOrderAdapter.connectionNodes(connection);
+        List<JSONObject> orders = new ArrayList<>(nodes == null ? 0 : nodes.size());
+        if (nodes != null) {
+            for (int i = 0; i < nodes.size(); i++) {
+                JSONObject node = nodes.getJSONObject(i);
+                if (node == null) {
+                    continue;
+                }
+                completeLineItems(website, node, LINE_ITEM_SELECTION);
+                orders.add(ShopifyGraphqlOrderAdapter.toRestOrder(node, metafieldsCache));
+            }
+        }
+        return new OrderPage(orders, nextCursor(connection));
+    }
+
+    private JSONObject executeOrders(ThirdPartyWebsiteDto website, String query, String filter, String cursor, int pageSize) {
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("first", pageSize);
+        variables.put("cursor", cursor);
+        variables.put("q", filter);
+        ShopifyGraphqlClient.GraphqlResult result = graphqlClient.execute(website, query, variables);
+        return result.data() == null ? null : result.data().getJSONObject("orders");
+    }
+
+    /**
+     * 行项目超过首屏数量时按游标补查剩余行项目，追加到节点的 lineItems.nodes
+     */
+    private void completeLineItems(ThirdPartyWebsiteDto website, JSONObject orderNode, String selection) {
+        JSONObject lineItems = orderNode.getJSONObject("lineItems");
+        if (lineItems == null) {
+            return;
+        }
+        JSONArray nodes = ShopifyGraphqlOrderAdapter.connectionNodes(lineItems);
+        if (nodes == null) {
+            nodes = new JSONArray();
+        }
+        String cursor = nextCursor(lineItems);
+        String query = lineItemsQuery(selection);
+        while (cursor != null) {
+            Map<String, Object> variables = new HashMap<>();
+            variables.put("id", orderNode.getStr("id"));
+            variables.put("first", LINE_ITEM_FOLLOW_UP_PAGE_SIZE);
+            variables.put("cursor", cursor);
+            ShopifyGraphqlClient.GraphqlResult result = graphqlClient.execute(website, query, variables);
+            JSONObject order = result.data() == null ? null : result.data().getJSONObject("order");
+            JSONObject more = order == null ? null : order.getJSONObject("lineItems");
+            if (more == null) {
+                throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getLongId(),
+                        "Shopify 订单行项目补查返回为空: " + orderNode.getStr("id"));
+            }
+            JSONArray moreNodes = ShopifyGraphqlOrderAdapter.connectionNodes(more);
+            if (moreNodes != null) {
+                nodes.addAll(moreNodes);
+            }
+            cursor = nextCursor(more);
+        }
+        JSONObject completed = new JSONObject();
+        completed.set("nodes", nodes);
+        orderNode.set("lineItems", completed);
+    }
+
+    /**
+     * 首屏行项目剩余数量全为 0 且还有更多行项目时，才需要补查以判断是否整单移除
+     */
+    private boolean needsRemainingLineItemsForCancel(JSONObject orderNode) {
+        Object cancelledAt = orderNode.get("cancelledAt");
+        if (!JSONUtil.isNull(cancelledAt) && cancelledAt != null) {
+            return false;
+        }
+        JSONObject lineItems = orderNode.getJSONObject("lineItems");
+        if (lineItems == null || nextCursor(lineItems) == null) {
+            return false;
+        }
+        JSONArray nodes = ShopifyGraphqlOrderAdapter.connectionNodes(lineItems);
+        if (nodes == null) {
+            return true;
+        }
+        for (int i = 0; i < nodes.size(); i++) {
+            JSONObject item = nodes.getJSONObject(i);
+            Integer currentQuantity = item == null ? null : item.getInt("currentQuantity");
+            if (currentQuantity == null || currentQuantity > 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 连接的下一页游标，没有下一页时为 null
+     */
+    private static String nextCursor(JSONObject connection) {
+        JSONObject pageInfo = connection.getJSONObject("pageInfo");
+        if (pageInfo == null || !Boolean.TRUE.equals(pageInfo.getBool("hasNextPage"))) {
+            return null;
+        }
+        return StrUtil.blankToDefault(pageInfo.getStr("endCursor"), null);
+    }
+
+    private JSONObject postVerifyQuery(String handle, String accessToken) {
+        String url = "https://" + ShopifyHost.host(handle) + "/admin/api/" + apiVersion() + "/graphql.json";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.add("X-Shopify-Access-Token", accessToken);
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("query", ORDERS_COUNT_QUERY);
+        requestBody.put("variables", Collections.emptyMap());
+        ResponseEntity<String> response = restTemplate.postForEntity(url, new HttpEntity<>(requestBody, headers), String.class);
+        if (StrUtil.isBlank(response.getBody())) {
+            throw new IllegalStateException("Shopify GraphQL 返回空响应 (HTTP " + response.getStatusCode().value() + ")");
+        }
+        return JSONUtil.parseObj(response.getBody());
+    }
+
+    private static boolean isAccessDenied(JSONArray errors) {
+        for (int i = 0; i < errors.size(); i++) {
+            Object item = errors.get(i);
+            if (item instanceof JSONObject error) {
+                JSONObject extensions = error.getJSONObject("extensions");
+                if (extensions != null && "ACCESS_DENIED".equals(extensions.getStr("code"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private String apiVersion() {
+        String version = appProperties == null ? null : appProperties.getApiVersion();
+        return StrUtil.isBlank(version) ? DEFAULT_API_VERSION : version;
+    }
+
+    /**
+     * created_at 范围的搜索语法（UTC），无边界时为 null（不过滤）
+     */
+    private String createdAtQuery(LocalDateTime min, LocalDateTime max) {
+        List<String> terms = new ArrayList<>(2);
+        if (min != null) {
+            terms.add("created_at:>='" + formatUtc(min) + "'");
+        }
+        if (max != null) {
+            terms.add("created_at:<='" + formatUtc(max) + "'");
+        }
+        return terms.isEmpty() ? null : String.join(" ", terms);
+    }
+
     // ==================== 内部方法 ====================
 
     private String shopUnavailableMessage(int statusCode) {
@@ -365,49 +594,33 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         return ShopifyHost.host(handle);
     }
 
-    private String buildApiUrl(String handle, String endpoint) {
-        return "https://" + buildHost(handle) + "/admin/api/" + API_VERSION + "/" + endpoint;
-    }
-
-    private HttpEntity<String> buildHttpEntity(String token) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.add("X-Shopify-Access-Token", token);
-        return new HttpEntity<>(headers);
-    }
-
     /**
-     * GET 请求，token 被拒绝（401）时刷新 token 后重试一次
+     * 自动同步整页跳过后继续翻页：计数累加，游标取两页中较大者，下一页游标取后一页
      */
-    private ResponseEntity<String> get(ApiSession session, URI uri) {
-        try {
-            return callShopifyApi(session.handle,
-                    () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(session.token), String.class));
-        } catch (HttpClientErrorException.Unauthorized e) {
-            log.warn("Shopify token rejected, refreshing: websiteId={}, handle={}", session.websiteId, session.handle);
-            session.token = tokenService.forceRefresh(session.websiteId, session.token);
-            return callShopifyApi(session.handle,
-                    () -> restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(session.token), String.class));
+    private static ShoplineOrderLoadResult mergeSkippedPage(ShoplineOrderLoadResult skippedPage, ShoplineOrderLoadResult next) {
+        String cursorOrderId = skippedPage.getCursorOrderId();
+        if (next.getCursorOrderId() != null && (cursorOrderId == null || compareOrderId(next.getCursorOrderId(), cursorOrderId) > 0)) {
+            cursorOrderId = next.getCursorOrderId();
         }
+        LocalDateTime cursorOrderTime = skippedPage.getCursorOrderTime();
+        if (next.getCursorOrderTime() != null && (cursorOrderTime == null || next.getCursorOrderTime().isAfter(cursorOrderTime))) {
+            cursorOrderTime = next.getCursorOrderTime();
+        }
+        return ShoplineOrderLoadResult.builder()
+                .nextPageInfo(next.getNextPageInfo())
+                .fetchedCount(skippedPage.getFetchedCount() + next.getFetchedCount())
+                .successCount(skippedPage.getSuccessCount() + next.getSuccessCount())
+                .failedCount(skippedPage.getFailedCount() + next.getFailedCount())
+                .skippedCount(skippedPage.getSkippedCount() + next.getSkippedCount())
+                .createdCount(skippedPage.getCreatedCount() + next.getCreatedCount())
+                .cursorOrderId(cursorOrderId)
+                .cursorOrderTime(cursorOrderTime)
+                .build();
     }
 
-    private String extractNextPageInfo(HttpHeaders headers) {
-        List<String> linkHeaders = headers.get("link");
-        if (linkHeaders == null || linkHeaders.isEmpty()) {
-            return null;
-        }
-        for (String link : linkHeaders) {
-            Matcher matcher = LINK_PAGE_INFO_PATTERN.matcher(link);
-            if (matcher.find()) {
-                return matcher.group(1);
-            }
-        }
-        return null;
-    }
-
-    private ShoplineOrderLoadResult convertAndSaveOrders(ThirdPartyWebsiteDto website, ApiSession session, JSONArray orders,
-                                                         SyncMode syncMode, String nextPageInfo) {
+    private ShoplineOrderLoadResult convertAndSaveOrders(ThirdPartyWebsiteDto website, List<JSONObject> orders,
+                                                         SyncMode syncMode, String nextPageInfo,
+                                                         Map<String, Map<String, String>> metafieldsCache) {
         SystemUserDto owner = website.getOwner();
         int successCount = 0;
         int failedCount = 0;
@@ -415,18 +628,15 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         int createdCount = 0;
         boolean updateExisting = syncMode == SyncMode.MANUAL;
 
-        // 保守策略游标：仅记录已成功处理（created/skipped）的最大 id；
+        // 保守策略游标：仅记录已成功处理（created/skipped）的最大 id 与创建时间；
         // 自动同步遇到失败单立即终止本页，手动同步则继续处理并统计本页所有订单。
         String cursorOrderId = null;
         LocalDateTime cursorOrderTime = null;
         boolean abortedByFailure = false;
         int processedIndex = 0;
 
-        // 同一页内相同商品的 metafields 只请求一次
-        Map<String, Map<String, String>> metafieldsCache = new HashMap<>();
-
         for (int i = 0; i < orders.size(); i++) {
-            JSONObject order = orders.getJSONObject(i);
+            JSONObject order = orders.get(i);
             String originOrderId = order.getStr("id");
             if (log.isDebugEnabled()) {
                 log.debug("Shopify order sync raw order\n"
@@ -443,7 +653,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                         && temporaryOrderService.findByOriginOrderId(originOrderId).isPresent()) {
                     skippedCount++;
                 } else {
-                    if (convertShopifyOrderToTemporary(website, session, owner, order, updateExisting, metafieldsCache)) {
+                    if (convertShopifyOrderToTemporary(website, owner, order, updateExisting, metafieldsCache)) {
                         createdCount++;
                     }
                     successCount++;
@@ -487,13 +697,13 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                 .build();
     }
 
-    private boolean convertShopifyOrderToTemporary(ThirdPartyWebsiteDto website, ApiSession session, SystemUserDto owner,
+    private boolean convertShopifyOrderToTemporary(ThirdPartyWebsiteDto website, SystemUserDto owner,
                                                    JSONObject order, boolean updateExisting,
                                                    Map<String, Map<String, String>> metafieldsCache) {
         CurrencyMode currencyMode = website.getCurrencyMode() != null ? website.getCurrencyMode() : CurrencyMode.SHOP_MONEY;
         String moneyKey = currencyMode == CurrencyMode.PRESENTMENT_MONEY ? "presentment_money" : "shop_money";
 
-        Map<String, Map<String, String>> productMetafieldsMap = fetchMetafieldsForLineItems(session, order, metafieldsCache);
+        Map<String, Map<String, String>> productMetafieldsMap = fetchMetafieldsForLineItems(website, order, metafieldsCache);
 
         EditTemporaryOrderRequest request = new EditTemporaryOrderRequest();
         request.setCompanyId(owner.getCompanyId());
@@ -947,45 +1157,13 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         return skuCode;
     }
 
-    // ==================== Shopify API 限流 & 重试 ====================
-
-    // REST Admin API 为漏桶限流：桶容量 40，每秒恢复 2 个请求
-    private static final int SHOPIFY_RATE_LIMIT_PER_SECOND = 2;
-    private static final int SHOPIFY_MAX_RETRIES = 3;
-    private static final Duration SHOPIFY_RETRY_WAIT = Duration.ofSeconds(1);
-
-    private final ConcurrentHashMap<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
-
-    private final Retry shopifyRetry = Retry.of("shopify-api", RetryConfig.custom()
-            .maxAttempts(SHOPIFY_MAX_RETRIES)
-            .waitDuration(SHOPIFY_RETRY_WAIT)
-            .retryOnException(e -> e instanceof HttpClientErrorException.TooManyRequests
-                    || e instanceof ResourceAccessException)
-            .build());
-
-    private RateLimiter getRateLimiter(String handle) {
-        return rateLimiters.computeIfAbsent(handle, h -> RateLimiter.of("shopify-" + h, RateLimiterConfig.custom()
-                .limitForPeriod(SHOPIFY_RATE_LIMIT_PER_SECOND)
-                .limitRefreshPeriod(Duration.ofSeconds(1))
-                .timeoutDuration(Duration.ofSeconds(10))
-                .build()));
-    }
-
-    /**
-     * 统一包裹 Shopify API 调用：限流 + 429 重试。
-     */
-    private <T> T callShopifyApi(String handle, Supplier<T> apiCall) {
-        RateLimiter limiter = getRateLimiter(handle);
-        Supplier<T> decorated = Retry.decorateSupplier(shopifyRetry, RateLimiter.decorateSupplier(limiter, apiCall));
-        return decorated.get();
-    }
-
     // ==================== Metafield 相关 ====================
 
     /**
-     * 收集订单 line_items 中所有不重复的 product_id 并获取 metafields，已在缓存中的商品不再请求。
+     * 收集订单 line_items 中所有不重复的 product_id 并取其元字段。
+     * 订单查询已内联返回的元字段在缓存里直接使用；未命中（webhook 路径）的用 GraphQL nodes 批量查询，查询失败降级为空。
      */
-    private Map<String, Map<String, String>> fetchMetafieldsForLineItems(ApiSession session, JSONObject order,
+    private Map<String, Map<String, String>> fetchMetafieldsForLineItems(ThirdPartyWebsiteDto website, JSONObject order,
                                                                          Map<String, Map<String, String>> metafieldsCache) {
         JSONArray lineItems = order.getJSONArray("line_items");
         if (lineItems == null || lineItems.isEmpty()) {
@@ -1001,51 +1179,45 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                 }
             }
         }
+        List<String> missing = productIds.stream().filter(id -> !metafieldsCache.containsKey(id)).toList();
+        for (int from = 0; from < missing.size(); from += METAFIELD_BATCH_SIZE) {
+            List<String> batch = missing.subList(from, Math.min(from + METAFIELD_BATCH_SIZE, missing.size()));
+            metafieldsCache.putAll(fetchProductMetafields(website, batch));
+        }
         Map<String, Map<String, String>> result = new HashMap<>();
         for (String productId : productIds) {
-            result.put(productId, metafieldsCache.computeIfAbsent(productId, id -> fetchProductMetafields(session, id)));
+            result.put(productId, metafieldsCache.getOrDefault(productId, Map.of()));
         }
         return result;
     }
 
     /**
-     * 获取单个商品的 metafields，受限流 + 重试保护。失败时降级返回空 Map。
+     * 用 nodes(ids:) 批量查商品元字段，返回每个请求的商品（查不到的为空 Map）。失败时降级返回空 Map。
      */
-    private Map<String, String> fetchProductMetafields(ApiSession session, String productId) {
-        URI uri = UriComponentsBuilder.fromHttpUrl(buildApiUrl(session.handle, "products/" + productId + "/metafields.json"))
-                .queryParam("namespace", METAFIELD_NAMESPACE)
-                .build().toUri();
+    private Map<String, Map<String, String>> fetchProductMetafields(ThirdPartyWebsiteDto website, List<String> productIds) {
+        Map<String, Map<String, String>> result = new HashMap<>();
+        productIds.forEach(id -> result.put(id, Map.of()));
         try {
-            return parseMetafieldResponse(get(session, uri).getBody());
-        } catch (HttpClientErrorException.TooManyRequests e) {
-            log.warn("Shopify fetchMetafields 429 exhausted retries: productId={}", productId);
-        } catch (HttpClientErrorException e) {
-            log.warn("Shopify fetchMetafields HTTP error: productId={}, status={}", productId, e.getStatusCode());
+            Map<String, Object> variables = new HashMap<>();
+            variables.put("ids", productIds.stream().map(ShopifyGraphqlOrderAdapter::productGid).toList());
+            ShopifyGraphqlClient.GraphqlResult response = graphqlClient.execute(website, PRODUCT_METAFIELDS_QUERY, variables);
+            JSONArray nodes = response.data() == null ? null : response.data().getJSONArray("nodes");
+            if (nodes == null) {
+                return result;
+            }
+            for (int i = 0; i < nodes.size(); i++) {
+                Object item = nodes.get(i);
+                if (!(item instanceof JSONObject product)) {
+                    continue;
+                }
+                String productId = StrUtil.blankToDefault(product.getStr("legacyResourceId"),
+                        ShopifyGraphqlOrderAdapter.legacyId(product.getStr("id")));
+                if (StrUtil.isNotBlank(productId)) {
+                    result.put(productId, ShopifyGraphqlOrderAdapter.parseMetafields(product.getJSONObject("metafields")));
+                }
+            }
         } catch (Exception e) {
-            log.warn("Shopify fetchMetafields failed: productId={}, error={}", productId, e.getMessage());
-        }
-        return Map.of();
-    }
-
-    private Map<String, String> parseMetafieldResponse(String body) {
-        if (StrUtil.isBlank(body)) {
-            return Map.of();
-        }
-        JSONArray metafields = JSONUtil.parseObj(body).getJSONArray("metafields");
-        if (metafields == null || metafields.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, String> result = new HashMap<>();
-        for (int i = 0; i < metafields.size(); i++) {
-            JSONObject mf = metafields.getJSONObject(i);
-            if (mf == null) {
-                continue;
-            }
-            String key = mf.getStr("key");
-            Object value = mf.get("value");
-            if (StrUtil.isNotBlank(key) && value != null) {
-                result.put(key, value.toString());
-            }
+            log.warn("Shopify fetchMetafields failed: websiteId={}, productIds={}, error={}", website.getId(), productIds, e.getMessage());
         }
         return result;
     }

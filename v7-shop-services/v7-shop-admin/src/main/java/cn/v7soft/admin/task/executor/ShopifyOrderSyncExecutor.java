@@ -1,5 +1,6 @@
 package cn.v7soft.admin.task.executor;
 
+import cn.v7soft.admin.config.ShopifyAppProperties;
 import cn.v7soft.admin.controller.req.SyncThirdPartyOrdersRequest;
 import cn.v7soft.admin.service.IShopifyOrderSyncService;
 import cn.v7soft.admin.service.ICompanyService;
@@ -9,6 +10,7 @@ import cn.v7soft.admin.service.dto.ShopifyCancelCheckResult;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.admin.service.impl.ShopifyWebsiteStore;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.ShopifyAccessMode;
 import cn.v7soft.dao.tenant.TenantContext;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -39,9 +41,12 @@ public class ShopifyOrderSyncExecutor {
     private final IShopifyOrderSyncService shopifyOrderSyncService;
     private final ShopifyWebsiteStore websiteStore;
     private final ICompanyService companyService;
+    private final ShopifyAppProperties appProperties;
     private final AtomicInteger threadCounter = new AtomicInteger(0);
     // 各商城上次执行取消检查的服务器时间，仅用于控制频率，重启后会立即检查一次
     private final ConcurrentHashMap<Long, LocalDateTime> lastCancelCheckAt = new ConcurrentHashMap<>();
+    // 公开应用店铺上次对账的服务器时间，仅用于控制频率，重启后会立即对账一次
+    private final ConcurrentHashMap<Long, LocalDateTime> lastReconcileAt = new ConcurrentHashMap<>();
     private final ExecutorService syncPool = Executors.newFixedThreadPool(MAX_CONCURRENCY,
             r -> {
                 Thread t = new Thread(r, "shopify-sync-" + threadCounter.incrementAndGet());
@@ -55,11 +60,16 @@ public class ShopifyOrderSyncExecutor {
     }
 
     /**
-     * 扫描所有 VALID 且已认证的 Shopify 商城，按条件决定是否同步：
+     * 扫描所有 VALID 且已认证的 Shopify 商城，按接入方式分流：
+     * <p>
+     * 凭证模式（accessMode 为 null 或 CREDENTIALS）按条件决定是否同步：
      * - 上次有新订单 → 立即同步
      * - 上次无新订单 → 距上次同步至少间隔 60 秒
-     * 每个商城拉取一页（最多 100 条）新订单，多个商城并行（最多 5 并发）。
-     * 返回下次调度延迟（毫秒）：有新订单返回 10s，否则 60s。
+     * 每个商城拉取一页新订单，另每 5 分钟检查一次取消状态。
+     * <p>
+     * 公开应用（PUBLIC_APP）由 webhook 驱动，这里只每 reconcile-interval-minutes 对账一次，不轮询、不单独检查取消。
+     * <p>
+     * 多个商城并行（最多 5 并发）。返回下次调度延迟（毫秒）：有新订单返回 10s，否则 60s。
      */
     public long syncNext() {
         try {
@@ -70,13 +80,33 @@ public class ShopifyOrderSyncExecutor {
                 return 60_000;
             }
 
-            List<ThirdPartyWebsite> syncable = filterSyncableWebsites(activeWebsites);
-            if (syncable.isEmpty()) {
-                return 10_000;
+            List<ThirdPartyWebsite> credentialWebsites = activeWebsites.stream()
+                    .filter(w -> !ShopifyAccessMode.isPublicApp(w.getAccessMode()))
+                    .toList();
+            List<ThirdPartyWebsite> reconcilable = filterReconcileDueWebsites(activeWebsites.stream()
+                    .filter(w -> ShopifyAccessMode.isPublicApp(w.getAccessMode()))
+                    .toList());
+            List<ThirdPartyWebsite> syncable = filterSyncableWebsites(credentialWebsites);
+            if (syncable.isEmpty() && reconcilable.isEmpty()) {
+                return credentialWebsites.isEmpty() ? 60_000 : 10_000;
             }
 
             AtomicBoolean hasNewOrders = new AtomicBoolean(false);
-            List<Future<?>> futures = new ArrayList<>(syncable.size());
+            List<Future<?>> futures = new ArrayList<>(syncable.size() + reconcilable.size());
+
+            for (ThirdPartyWebsite website : reconcilable) {
+                futures.add(syncPool.submit(() -> {
+                    try {
+                        TenantContext.setCurrentTenant(website.getCompanyId(), companyService.companyCached(website.getCompanyId()));
+                        reconcileWebsite(website);
+                    } catch (Exception e) {
+                        log.error("Shopify reconcile website failed: websiteId={}, handle={}",
+                                website.getId(), website.getHandle(), e);
+                    } finally {
+                        TenantContext.clear();
+                    }
+                }));
+            }
 
             for (ThirdPartyWebsite website : syncable) {
                 futures.add(syncPool.submit(() -> {
@@ -118,6 +148,50 @@ public class ShopifyOrderSyncExecutor {
         }
     }
 
+    /**
+     * 公开应用店铺距上次对账至少间隔 reconcile-interval-minutes；入选即记录本次对账时间（失败也等下一个间隔）
+     */
+    private List<ThirdPartyWebsite> filterReconcileDueWebsites(List<ThirdPartyWebsite> websites) {
+        LocalDateTime now = LocalDateTime.now();
+        long intervalSeconds = Math.max(reconcileIntervalMinutes(), 1) * 60L;
+        List<ThirdPartyWebsite> due = new ArrayList<>(websites.size());
+        for (ThirdPartyWebsite website : websites) {
+            LocalDateTime last = lastReconcileAt.get(website.getId());
+            if (last == null || Duration.between(last, now).getSeconds() >= intervalSeconds) {
+                lastReconcileAt.put(website.getId(), now);
+                due.add(website);
+            }
+        }
+        return due;
+    }
+
+    /**
+     * 对账：since = lastReconcileTime ?: installedAt ?: createTime，从 since − lookback 拉取更新过的订单，
+     * 游标推进到返回的最大 updated_at（不早于 since，避免无订单时回看窗口让游标倒退）
+     */
+    private void reconcileWebsite(ThirdPartyWebsite website) {
+        LocalDateTime since = website.getLastReconcileTime() != null ? website.getLastReconcileTime()
+                : website.getInstalledAt() != null ? website.getInstalledAt()
+                : website.getCreateTime();
+        if (since == null) {
+            since = LocalDateTime.now();
+        }
+        ThirdPartyWebsiteDto websiteDto = websiteStore.getDtoById(website.getId());
+        LocalDateTime cursor = shopifyOrderSyncService.reconcileOrders(websiteDto, since.minusMinutes(reconcileLookbackMinutes()));
+        LocalDateTime next = cursor != null && cursor.isAfter(since) ? cursor : since;
+        if (!Objects.equals(next, website.getLastReconcileTime())) {
+            websiteStore.updateReconcileTime(website.getId(), next);
+        }
+    }
+
+    private int reconcileIntervalMinutes() {
+        return appProperties != null ? appProperties.getReconcileIntervalMinutes() : 15;
+    }
+
+    private int reconcileLookbackMinutes() {
+        return appProperties != null ? Math.max(appProperties.getReconcileLookbackMinutes(), 0) : 30;
+    }
+
     private List<ThirdPartyWebsite> filterSyncableWebsites(List<ThirdPartyWebsite> websites) {
         LocalDateTime now = LocalDateTime.now();
         return websites.stream()
@@ -147,7 +221,7 @@ public class ShopifyOrderSyncExecutor {
     }
 
     /**
-     * 自动同步只按 since_id 拉新订单，已同步订单后续被取消需按 updated_at 另行检查。
+     * 自动同步只按 created_at 拉新订单，已同步订单后续被取消需按 updated_at 另行检查。
      * 每个商城至少间隔 5 分钟检查一次，游标为已处理到的 Shopify 订单更新时间。
      */
     private void checkCancelledOrders(ThirdPartyWebsite website) {
