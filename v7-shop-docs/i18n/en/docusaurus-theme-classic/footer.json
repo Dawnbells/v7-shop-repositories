@@ -1,0 +1,54 @@
+{
+  "link.title.产品能力": {
+    "message": "Product",
+    "description": "The title of the footer links column with title=产品能力 in the footer"
+  },
+  "link.title.操作中心": {
+    "message": "Guides",
+    "description": "The title of the footer links column with title=操作中心 in the footer"
+  },
+  "link.title.版本与资源": {
+    "message": "Resources",
+    "description": "The title of the footer links column with title=版本与资源 in the footer"
+  },
+  "link.item.label.外贸独立站": {
+    "message": "Storefronts",
+    "description": "The label of footer link with label=外贸独立站 linking to /docs/mall-guide/overview"
+  },
+  "link.item.label.商品与主题配置": {
+    "message": "Products and Themes",
+    "description": "The label of footer link with label=商品与主题配置 linking to /docs/mall-guide/product-management"
+  },
+  "link.item.label.第三方订单同步": {
+    "message": "Third-party Order Sync",
+    "description": "The label of footer link with label=第三方订单同步 linking to /docs/third-party-order-sync/overview"
+  },
+  "link.item.label.操作手册": {
+    "message": "Docs",
+    "description": "The label of footer link with label=操作手册 linking to /docs/intro"
+  },
+  "link.item.label.域名配置": {
+    "message": "Domain Setup",
+    "description": "The label of footer link with label=域名配置 linking to /docs/mall-guide/domain-setup"
+  },
+  "link.item.label.实时同步": {
+    "message": "Real-time Sync",
+    "description": "The label of footer link with label=实时同步 linking to /docs/third-party-order-sync/realtime-sync"
+  },
+  "link.item.label.更新日志": {
+    "message": "Changelog",
+    "description": "The label of footer link with label=更新日志 linking to /blog"
+  },
+  "link.item.label.历史同步": {
+    "message": "Historical Sync",
+    "description": "The label of footer link with label=历史同步 linking to /docs/third-party-order-sync/history-sync"
+  },
+  "link.item.label.常见问题": {
+    "message": "FAQ",
+    "description": "The label of footer link with label=常见问题 linking to /docs/third-party-order-sync/faq"
+  },
+  "link.item.label.隐私政策": {
+    "message": "Privacy Policy",
+    "description": "The label of footer link with label=隐私政策 linking to /docs/privacy-policy"
+  }
+}
