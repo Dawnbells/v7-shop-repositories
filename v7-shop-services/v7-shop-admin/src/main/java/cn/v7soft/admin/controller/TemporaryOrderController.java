@@ -61,20 +61,19 @@ public class TemporaryOrderController extends BaseDataRangeController<TemporaryO
     public Page<OrderResponse> page(@Valid @RequestBody QueryOrderRequest request) {
         String permission = getPermissionPrefix() + ".page";
         StpUtil.checkPermission(permission);
-        Page<OrderResponse> responsePage = service.findPaginated(convertQueryPageRequest(request))
-                .map(order -> filling(order, OrderResponse.convertEntity(order, !Objects.equals(Boolean.TRUE, request.getIsAudit()))));
-        recordShopifyAccess(responsePage);
-        return responsePage;
+        Page<TemporaryOrder> orderPage = service.findPaginated(convertQueryPageRequest(request));
+        recordShopifyAccess(orderPage);
+        return orderPage.map(order -> filling(order, OrderResponse.convertEntity(order, !Objects.equals(Boolean.TRUE, request.getIsAudit()))));
     }
 
     /**
      * 返回结果含 Shopify 订单时记录受保护客户数据访问日志，任何异常不影响响应
      */
-    private void recordShopifyAccess(Page<OrderResponse> responsePage) {
+    private void recordShopifyAccess(Page<TemporaryOrder> orderPage) {
         try {
-            List<Long> shopifyIds = responsePage.getContent().stream()
-                    .filter(r -> r.getPlatform() == WebsiteTypeEnum.SHOPIFY && r.getId() != null)
-                    .map(r -> Long.valueOf(r.getId()))
+            List<Long> shopifyIds = orderPage.getContent().stream()
+                    .filter(o -> o.getPlatform() == WebsiteTypeEnum.SHOPIFY)
+                    .map(TemporaryOrder::getId)
                     .toList();
             protectedDataAccessLogService.record(IProtectedDataAccessLogService.ACTION_LIST,
                     IProtectedDataAccessLogService.ORDER_TYPE_TEMPORARY, shopifyIds);

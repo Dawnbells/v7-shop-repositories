@@ -78,21 +78,21 @@ public class OrderController extends BaseDataRangeController<Order, IOrderServic
         String permission = getPermissionPrefix() + ".page";
         StpUtil.checkPermission(permission);
         boolean desensitized = !Objects.equals(Boolean.TRUE, request.getIsAudit()) && !Objects.equals(Boolean.TRUE, request.getIsContact());
-        Page<OrderResponse> responsePage = service.findPaginated(convertQueryPageRequest(request))
-                .map(order -> filling(order, OrderResponse.convertEntity(order, desensitized)));
+        Page<Order> orderPage = service.findPaginated(convertQueryPageRequest(request));
+        Page<OrderResponse> responsePage = orderPage.map(order -> filling(order, OrderResponse.convertEntity(order, desensitized)));
         fillPrivateDomainFlag(responsePage);
-        recordShopifyListAccess(responsePage);
+        recordShopifyListAccess(orderPage);
         return responsePage;
     }
 
     /**
      * 返回结果含 Shopify 订单时记录受保护客户数据访问日志，任何异常不影响响应
      */
-    private void recordShopifyListAccess(Page<OrderResponse> responsePage) {
+    private void recordShopifyListAccess(Page<Order> orderPage) {
         try {
-            List<Long> shopifyIds = responsePage.getContent().stream()
-                    .filter(r -> r.getPlatform() == WebsiteTypeEnum.SHOPIFY && r.getId() != null)
-                    .map(r -> Long.valueOf(r.getId()))
+            List<Long> shopifyIds = orderPage.getContent().stream()
+                    .filter(o -> o.getPlatform() == WebsiteTypeEnum.SHOPIFY)
+                    .map(Order::getId)
                     .toList();
             protectedDataAccessLogService.record(IProtectedDataAccessLogService.ACTION_LIST,
                     IProtectedDataAccessLogService.ORDER_TYPE_ORDER, shopifyIds);
