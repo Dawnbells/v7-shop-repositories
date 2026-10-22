@@ -1,0 +1,18 @@
+{
+  "title": {
+    "message": "VantaSite",
+    "description": "The title in the navbar"
+  },
+  "logo.alt": {
+    "message": "VantaSite Logo",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.操作手册": {
+    "message": "Docs",
+    "description": "Navbar item with label 操作手册"
+  },
+  "item.label.更新日志": {
+    "message": "Changelog",
+    "description": "Navbar item with label 更新日志"
+  }
+}

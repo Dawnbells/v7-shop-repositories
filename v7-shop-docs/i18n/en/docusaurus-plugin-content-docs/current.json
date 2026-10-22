@@ -1,0 +1,14 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.tutorialSidebar.category.独立站模板使用教程": {
+    "message": "Storefront Template Guide",
+    "description": "The label for category '独立站模板使用教程' in sidebar 'tutorialSidebar'"
+  },
+  "sidebar.tutorialSidebar.category.第三方商城订单同步": {
+    "message": "Third-party Store Order Sync",
+    "description": "The label for category '第三方商城订单同步' in sidebar 'tutorialSidebar'"
+  }
+}
