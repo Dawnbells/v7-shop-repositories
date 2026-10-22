@@ -11,14 +11,14 @@
 
 | 项 | 实现 |
 | --- | --- |
-| 安装 / 授权 | OAuth 授权码流程，两条入口：后台「第三方商城 → 添加 → SHOPIFY → 公开应用 → 连接 Shopify」；从 App Store / 店铺后台打开 → 落地页填 VantaSite 后台地址 → 登录 → 自动绑定。state 为一次性票据，回调校验 HMAC |
+| 安装 / 授权 | OAuth 授权码流程，两条入口：后台「第三方商城 → 添加 → SHOPIFY → 公开应用 → 连接 Shopify」；从 App Store / 店铺后台打开 → 落地页填 VantaSite 总后台地址（`admin.<your-domain>`）→ 登录 → 自动绑定。state 为一次性票据，回调校验 HMAC |
 | 访问令牌 | expiring offline token（access 1 小时、refresh 90 天），临期自动刷新，失效后店铺「连接异常」并可「重新连接」 |
 | Admin API | 全部改为 GraphQL Admin API（`2026-07`），代码中不再调用 REST |
 | 订单同步 | `orders/create`、`orders/updated`、`orders/cancelled` webhook 实时入审单列表，约 15 分钟一次对账兜底；手动历史同步限最近 60 天 |
 | 合规 webhook | `customers/data_request`、`customers/redact`、`shop/redact`；HMAC 不符返回 401，正常返回 200；脱敏与 30 天内交付有处理记录 |
 | 卸载处理 | `app/uninstalled` → 店铺「已断开」、清除 token、停止同步，已同步订单保留 |
 | 受保护客户数据措施 | 订单最后更新后 12 个月自动脱敏收货人信息（可配置）；收货人信息查看/导出访问日志 |
-| 隐私政策 | `https://docs.vantasite.com/en/privacy-policy`（文档站中英双语） |
+| 隐私政策 | `https://docs.vantasite.com/en/docs/privacy-policy`（文档站中英双语；短链接 `/en/privacy-policy` 为跳转页） |
 | 应用声明 | `v7-shop-services/shopify.app.toml`（App URL、回调、scope、webhook 订阅） |
 | 计费 | 免费，无需接 Billing API |
 
@@ -95,7 +95,7 @@ Pause, resume or remove a store connection in one click
 - 建议顺序（与 OAuth 安装流程一致）：
   1. 第三方商城列表，Shopify 店铺接入方式「公开应用」、授权状态「已连接」
   2. 添加 Shopify 店铺表单：接入方式选「公开应用」，「连接 Shopify」按钮
-  3. 落地页「输入你的 VantaSite 后台地址」（从 App Store 安装后进入，中英双语）
+  3. 落地页「Connect your VantaSite admin」，输入框「Enter your VantaSite admin URL」（从 App Store 安装后进入，中英双语）
   4. 绑定成功页「已连接 {handle}」
   5. 审单列表按「订单平台 = SHOPIFY」筛选，显示 webhook 推送的新订单
   6. 订单同步对话框：选时间范围（最近 60 天）、显示订单数量，任务中心同步进度
@@ -106,13 +106,13 @@ Pause, resume or remove a store connection in one click
 | 字段 | 填什么 | 状态 |
 | --- | --- | --- |
 | Support email | 商家联系用邮箱 | 需要你提供 |
-| Support URL | 帮助中心或文档站入口 | `https://docs.vantasite.com/en/third-party-order-sync/shopify` |
-| Privacy policy URL | 独立隐私政策页，必填，HTTP 200 | `https://docs.vantasite.com/en/privacy-policy`（文档站上线后核对返回 200） |
+| Support URL | 帮助中心或文档站入口 | `https://docs.vantasite.com/en/docs/third-party-order-sync/shopify`（短链接 `/en/third-party-order-sync/shopify` 为跳转页，不填） |
+| Privacy policy URL | 独立隐私政策页，必填，HTTP 200 | `https://docs.vantasite.com/en/docs/privacy-policy`（真实页面，文档站上线后核对直接返回 200；短链接 `/en/privacy-policy` 是 meta-refresh 跳转页，Shopify 自动检查可能不跟随跳转，不要填） |
 
 ### Resources（可选但建议填）
 
-- Documentation URL：`https://docs.vantasite.com/en/third-party-order-sync/shopify`（英文安装指南，已完成）。
-- FAQ URL：英文安装指南的 FAQ 小节 `https://docs.vantasite.com/en/third-party-order-sync/shopify#faq`。
+- Documentation URL：`https://docs.vantasite.com/en/docs/third-party-order-sync/shopify`（英文安装指南，已完成；短链接 `/en/third-party-order-sync/shopify` 为跳转页，仅作备用）。
+- FAQ URL：英文安装指南的 FAQ 小节 `https://docs.vantasite.com/en/docs/third-party-order-sync/shopify#faq`。
 - Changelog、Support portal：可留空。
 - Demo store：开发店铺链接，可选。
 
@@ -188,11 +188,11 @@ fulfillment
 
 ```
 The VantaSite back office is in Chinese; English labels are given with the Chinese text in brackets.
-Test account credentials and the back-office address are in the test account section.
+Test account credentials and the VantaSite admin URL are in the test account section.
 
 1. Install the app on the test store from the app listing and approve the requested scopes (read_orders, read_products).
-   Expected: you land on the VantaSite page "Enter your VantaSite back-office address".
-2. Enter the back-office address from the test account section and continue.
+   Expected: you land on the VantaSite page "Connect your VantaSite admin" with the field "Enter your VantaSite admin URL".
+2. Enter the VantaSite admin URL from the test account section (in the form admin.<your-domain>) and continue.
    Expected: you are taken to the VantaSite sign-in page.
 3. Sign in with the test account.
    Expected: the store is linked automatically and the page shows "Connected [已连接]".
@@ -213,7 +213,7 @@ Test account credentials and the back-office address are in the test account sec
 
 ## 需要你拍板 / 提供的清单
 
-已定：公开 App Store 上架、品牌与应用名（VantaSite / VantaSite Order Sync）、免费、隐私政策放在文档站（`https://docs.vantasite.com/en/privacy-policy`）。
+已定：公开 App Store 上架、品牌与应用名（VantaSite / VantaSite Order Sync）、免费、隐私政策放在文档站（`https://docs.vantasite.com/en/docs/privacy-policy`）。
 
 仍需提供：
 
