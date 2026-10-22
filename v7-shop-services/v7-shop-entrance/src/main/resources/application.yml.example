@@ -195,6 +195,25 @@ logging:
       max-history: 150
       total-size-cap: 200MB
 
+# Shopify 公开应用（App Store 上架版），详见 docs/features/shopify-public-app/ARCH.md §2
+# client-id/client-secret 为空时公开应用相关端点返回「未配置」，凭证模式不受影响
+shopify:
+  app:
+    client-id: ${SHOPIFY_APP_CLIENT_ID:}
+    client-secret: ${SHOPIFY_APP_CLIENT_SECRET:}
+    # 中立域名，含协议，无尾斜杠，例如 https://shopify.vantasite.com
+    app-host: ${SHOPIFY_APP_HOST:}
+    api-version: ${SHOPIFY_API_VERSION:2026-07}
+    scopes: ${SHOPIFY_APP_SCOPES:read_orders,read_products}
+    # 安装成功后是否用 GraphQL 注册订单 webhook（TOML 已声明时保持 false）
+    register-webhooks-on-install: ${SHOPIFY_REGISTER_WEBHOOKS:false}
+    install-ticket-ttl-minutes: 10
+    pending-ticket-ttl-minutes: 30
+    reconcile-interval-minutes: 15
+    reconcile-lookback-minutes: 30
+    pii-retention-days: 365
+    access-log-retention-days: 365
+
 forest:
   log-enabled: true
   max-connections: 1000

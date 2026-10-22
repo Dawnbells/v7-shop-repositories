@@ -19,5 +19,9 @@ public enum ThirdPartyAuthStatusEnum {
     /**
      * 店铺已封号（第三方平台返回 Store is frozen，店铺会被自动禁用）
      */
-    FROZEN
+    FROZEN,
+    /**
+     * 已断开（Shopify 公开应用被商家卸载，需重新连接）
+     */
+    DISCONNECTED
 }
