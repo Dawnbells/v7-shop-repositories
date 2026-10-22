@@ -26,6 +26,7 @@ public enum ServiceResponseEnum implements IClientExceptionAssert {
     ERR_TOKEN_EMPTY(200, "7001", "第三方商城未获取Token: {0}"),
     ERR_TOKEN_INVALID(200, "7002", "第三方商城Token已失效: {0}"),
     ERR_STORE_FROZEN(200, "7003", "第三方商城店铺已封号，已自动禁用该店铺: {0}"),
+    ERR_SHOPIFY_APP_NOT_CONFIGURED(503, "7004", "Shopify 公开应用未配置"),
     ERR_NO_LANGUAGE(200, "8001", "未配置语言包"),
     NOT_FOUND(404, "404", "Not Found"),
     UNKNOWN(200, "99999", "未知错误");
