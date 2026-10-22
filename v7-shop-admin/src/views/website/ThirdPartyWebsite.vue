@@ -206,10 +206,8 @@ const syncTip = (row: any) => {
   if (row.authStatus === 'FROZEN') return '店铺已封号，无法同步订单'
   if (row.authStatus === 'DISCONNECTED') return '商家已卸载应用，请重新连接后再同步'
   if (row.authStatus !== 'AUTHED')
-    return isPublicApp(row)
-      ? '商城连接异常，请重新连接'
-      : '商城连接异常，请检查配置后重新编辑保存'
-  return row.lastManualSyncTime ? '上次手动同步: ' + row.lastManualSyncTime : '尚未手动同步过'
+    return isPublicApp(row) ? '商城连接异常，请重新连接' : '商城连接异常，请检查配置后重新编辑保存'
+  return row.lastManualSyncTime ? `上次手动同步: ${row.lastManualSyncTime}` : '尚未手动同步过'
 }
 
 const handleReconnect = async (row: any) => {
@@ -221,7 +219,7 @@ const handleReconnect = async (row: any) => {
       handle: row.handle,
       currencyMode: row.currencyMode || 'SHOP_MONEY',
     })
-    window.location.href = data.authorizeUrl
+    globalThis.location.href = data.authorizeUrl
   } catch {
     row.reconnectLoading = false
   }

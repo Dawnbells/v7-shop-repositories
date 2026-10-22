@@ -1,5 +1,11 @@
 <template>
-  <vab-dialog v-model="dialogFormVisible" append-to-body :title="title" width="600px" @close="close">
+  <vab-dialog
+    v-model="dialogFormVisible"
+    append-to-body
+    :title="title"
+    width="600px"
+    @close="close"
+  >
     <el-form ref="formRef" label-width="120px" :model="form" :rules="rules">
       <el-form-item v-if="!isEditingPublicApp" label="商城类型" prop="websiteType">
         <el-select v-model="form.websiteType" :disabled="!!form.id" placeholder="请选择店铺类型">
@@ -45,7 +51,12 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button v-if="isPublicApp && !form.id" :loading="saveLoading" type="primary" @click="connect">
+      <el-button
+        v-if="isPublicApp && !form.id"
+        :loading="saveLoading"
+        type="primary"
+        @click="connect"
+      >
         连接 Shopify
       </el-button>
       <el-button v-else :loading="saveLoading" type="primary" @click="save">保存</el-button>
@@ -151,7 +162,7 @@ const connect = () => {
         handle: form.handle,
         currencyMode: form.currencyMode,
       })
-      window.location.href = data.authorizeUrl
+      globalThis.location.href = data.authorizeUrl
     } catch {
       saveLoading.value = false
     }
