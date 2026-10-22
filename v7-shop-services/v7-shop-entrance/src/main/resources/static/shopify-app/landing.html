@@ -111,20 +111,20 @@
       <span class="en">Connect your VantaSite admin</span>
     </h1>
     <p class="sub">
-      <span class="zh">Shopify 已授权。请输入你的 VantaSite 后台地址，登录后即可完成绑定。</span>
-      <span class="en">Shopify authorization is complete. Enter your VantaSite admin URL and sign in to finish connecting.</span>
+      <span class="zh">Shopify 已授权。请输入你的 VantaSite 总后台地址，登录后即可完成绑定。</span>
+      <span class="en">Shopify authorization is complete. Enter your VantaSite main admin URL and sign in to finish connecting.</span>
     </p>
     <div id="bind-error" class="error" role="alert" aria-live="polite"></div>
     <form id="bind-form" novalidate>
       <label for="admin-host">
-        <span class="zh">输入你的 VantaSite 后台地址</span>
-        <span class="en">Enter your VantaSite admin URL</span>
+        <span class="zh">输入你的 VantaSite 总后台地址</span>
+        <span class="en">Enter your VantaSite main admin URL</span>
       </label>
       <input id="admin-host" name="adminHost" type="text" inputmode="url" autocomplete="url"
-             autocapitalize="off" spellcheck="false" placeholder="admin.example.com" required>
+             autocapitalize="off" spellcheck="false" placeholder="admin.your-domain.com" required>
       <p class="hint">
-        <span class="zh">例如 admin.example.com，可直接粘贴浏览器地址栏中的后台网址。</span>
-        <span class="en">For example admin.example.com. You can paste the address from your browser.</span>
+        <span class="zh">请填写总后台地址，形如 admin.your-domain.com（不是店铺后台地址）。</span>
+        <span class="en">Use your main admin address, such as admin.your-domain.com (not a store admin address).</span>
       </p>
       <button id="bind-submit" type="submit">
         <span class="zh">继续</span>
@@ -152,8 +152,8 @@
       <span class="en">We couldn't complete the connection</span>
     </h1>
     <p id="invalid-detail">
-      <span class="zh">请从 Shopify 后台重新打开本应用。</span>
-      <span class="en">Please open this app again from your Shopify admin.</span>
+      <span class="zh">请从 Shopify 后台重新打开本应用，或回到 VantaSite 后台重新点击「连接 Shopify」。</span>
+      <span class="en">Please open this app again from your Shopify admin, or go back to your VantaSite admin and click "Connect Shopify" again.</span>
     </p>
   </section>
 </main>
@@ -166,8 +166,8 @@
   var MESSAGES = {
     TICKET_EXPIRED: ['授权已过期，请从 Shopify 后台重新打开本应用。',
       'Authorization has expired. Please open this app again from your Shopify admin.'],
-    UNKNOWN_HOST: ['无法识别该后台地址，请检查后重新输入。',
-      "We don't recognize this admin URL. Please check it and try again."],
+    UNKNOWN_HOST: ['无法识别该后台地址，请填写总后台地址（形如 admin.your-domain.com）后重试。',
+      "We don't recognize this admin URL. Enter your main admin address (such as admin.your-domain.com) and try again."],
     INVALID_STATE: ['连接请求已失效，请从 Shopify 后台重新打开本应用。',
       'This connection request is no longer valid. Please open this app again from your Shopify admin.'],
     INVALID_HMAC: ['请求校验失败，请从 Shopify 后台重新打开本应用。',
@@ -176,13 +176,14 @@
       'The store address is invalid. Please open this app again from your Shopify admin.'],
     TOKEN_EXCHANGE_FAILED: ['向 Shopify 获取授权失败，请稍后从 Shopify 后台重新打开本应用。',
       'Could not obtain authorization from Shopify. Please try again later from your Shopify admin.'],
-    HANDLE_TAKEN: ['该店铺已被其他账户连接。',
-      'This store is already connected to another account.'],
+    HANDLE_TAKEN: ['该店铺已通过其他方式接入 VantaSite，无法通过本应用连接。请联系你的 VantaSite 管理员。',
+      'This store is already connected to VantaSite in another way and cannot be connected through this app. Please contact your VantaSite administrator.'],
     APP_NOT_CONFIGURED: ['应用暂不可用，请稍后再试。',
       'The app is temporarily unavailable. Please try again later.'],
     NETWORK: ['网络异常，请稍后重试。', 'Network error. Please try again.']
   };
-  var DEFAULT_INVALID = ['请从 Shopify 后台重新打开本应用。', 'Please open this app again from your Shopify admin.'];
+  var DEFAULT_INVALID = ['请从 Shopify 后台重新打开本应用，或回到 VantaSite 后台重新点击「连接 Shopify」。',
+    'Please open this app again from your Shopify admin, or go back to your VantaSite admin and click "Connect Shopify" again.'];
 
   var params = new URLSearchParams(window.location.search);
   var ticket = params.get('ticket');

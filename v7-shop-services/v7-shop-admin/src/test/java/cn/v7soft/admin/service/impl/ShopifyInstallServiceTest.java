@@ -353,6 +353,49 @@ class ShopifyInstallServiceTest {
         }
 
         @Test
+        @DisplayName("凭证模式记录（含 accessMode=null 存量）占用 handle → status=error&code=HANDLE_TAKEN，不进入 OAuth")
+        void shouldRejectHandleTakenByCredentialsRecord() {
+            ThirdPartyWebsite credentials = publicAppWebsite(1L, COMPANY_ID);
+            credentials.setAccessMode(ShopifyAccessMode.CREDENTIALS);
+            ThirdPartyWebsite legacy = publicAppWebsite(2L, OTHER_COMPANY_ID);
+            legacy.setAccessMode(null);
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com"))
+                    .thenReturn(Optional.of(credentials), Optional.of(legacy));
+
+            for (int i = 0; i < 2; i++) {
+                assertEquals("/shopify-app/landing.html?status=error&code=HANDLE_TAKEN",
+                        service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"))));
+            }
+            verify(ticketStore, never()).create(any(), any());
+            verifyNoInteractions(tokenService);
+        }
+
+        @Test
+        @DisplayName("非 Shopify 记录占用 handle → HANDLE_TAKEN")
+        void shouldRejectHandleTakenByOtherWebsiteType() {
+            ThirdPartyWebsite shopline = publicAppWebsite(1L, COMPANY_ID);
+            shopline.setWebsiteType(WebsiteTypeEnum.SHOPLINE);
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(shopline));
+
+            assertEquals("/shopify-app/landing.html?status=error&code=HANDLE_TAKEN",
+                    service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"))));
+            verify(ticketStore, never()).create(any(), any());
+        }
+
+        @Test
+        @DisplayName("授权异常（ERROR）的公开应用记录（任意租户）→ 继续签发票据重连")
+        void shouldReauthorizeErroredPublicApp() {
+            ThirdPartyWebsite website = publicAppWebsite(1L, OTHER_COMPANY_ID);
+            website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(website));
+
+            String location = service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")));
+
+            assertTrue(location.startsWith("https://shop-a.myshopify.com/admin/oauth/authorize?"));
+            verify(ticketStore).create(any(), any());
+        }
+
+        @Test
         @DisplayName("未配置 → status=error&code=APP_NOT_CONFIGURED")
         void shouldReportNotConfigured() {
             properties.setClientId(null);
@@ -645,6 +688,17 @@ class ShopifyInstallServiceTest {
             verify(companyService).identityCached("example.com");
             verify(ticketStore, never()).delete(any());
             verify(ticketStore, never()).update(any(), any());
+        }
+
+        @Test
+        @DisplayName("非 admin. 开头的地址规范化为总后台 admin.{顶级域名}")
+        void shouldNormalizeToAdminHost() {
+            when(ticketStore.get(NONCE)).thenReturn(Optional.of(storeTicket("shop-a", token())));
+
+            for (String input : List.of("shop1.example.com", "https://admin12.example.com/#/login", "a.b.example.com/x")) {
+                assertEquals("https://admin.example.com/#/shopify-bind?bindTicket=" + NONCE,
+                        service.resolveLanding(NONCE, input), input);
+            }
         }
     }
 

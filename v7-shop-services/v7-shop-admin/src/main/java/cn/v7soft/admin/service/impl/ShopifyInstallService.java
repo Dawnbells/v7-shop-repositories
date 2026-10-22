@@ -56,6 +56,7 @@ public class ShopifyInstallService implements IShopifyInstallService {
     static final String CALLBACK_PATH = "/shopify-app/oauth/callback";
     static final String WEBHOOK_PATH = "/shopify-app/webhooks";
     static final String ADMIN_BIND_PATH = "/#/shopify-bind";
+    static final String ADMIN_HOST_PREFIX = "admin.";
     static final List<String> WEBHOOK_TOPICS = List.of("ORDERS_CREATE", "ORDERS_UPDATED", "ORDERS_CANCELLED", "APP_UNINSTALLED");
 
     private static final Pattern SHOP_DOMAIN = Pattern.compile("^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$");
@@ -153,10 +154,18 @@ public class ShopifyInstallService implements IShopifyInstallService {
             return landingStatus("invalid");
         }
         Optional<ThirdPartyWebsite> existing = websiteStore.findByShopDomain(shop);
-        if (existing.isPresent()
-                && ShopifyAccessMode.isPublicApp(existing.get().getAccessMode())
-                && existing.get().getAuthStatus() == ThirdPartyAuthStatusEnum.AUTHED) {
-            return landingStatus("connected");
+        if (existing.isPresent()) {
+            ThirdPartyWebsite record = existing.get();
+            if (record.getWebsiteType() != WebsiteTypeEnum.SHOPIFY || !ShopifyAccessMode.isPublicApp(record.getAccessMode())) {
+                // 凭证模式（含 accessMode=null 存量）或非 Shopify 记录占用 handle：不进入 OAuth，
+                // 避免应用装上后绑定失败、卸载时 webhook 打到凭证模式店铺
+                log.warn("Shopify landing rejected, handle taken by non public-app record: handle={}", handle);
+                return landingError(ErrorCode.HANDLE_TAKEN);
+            }
+            if (record.getAuthStatus() == ThirdPartyAuthStatusEnum.AUTHED) {
+                return landingStatus("connected");
+            }
+            // 断开/异常的公开应用记录：继续授权（重连）
         }
         ShopifyInstallTicket ticket = new ShopifyInstallTicket(null, ShopifyInstallTicket.TicketType.STORE, handle,
                 null, null, null, null, null, null, null, null);
@@ -219,8 +228,9 @@ public class ShopifyInstallService implements IShopifyInstallService {
         if (topLevelDomain == null || companyService.identityCached(topLevelDomain) == null) {
             throw new InstallException(ErrorCode.UNKNOWN_HOST);
         }
+        // 统一跳总后台 admin.{顶级域名}：后台登录页对非 admin. 开头的地址会跳到总后台登录且不带 redirect，bindTicket 会丢。
         // 参数名必须是 bindTicket：后台 SPA 会把 ticket 当作 SSO 票据处理
-        return "https://" + host + ADMIN_BIND_PATH + "?bindTicket=" + encode(ticket.nonce());
+        return "https://" + ADMIN_HOST_PREFIX + topLevelDomain + ADMIN_BIND_PATH + "?bindTicket=" + encode(ticket.nonce());
     }
 
     // ==================== 绑定 ====================

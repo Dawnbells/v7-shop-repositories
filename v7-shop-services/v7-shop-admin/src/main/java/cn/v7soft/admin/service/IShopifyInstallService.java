@@ -67,7 +67,7 @@ public interface IShopifyInstallService {
     String handleCallback(Map<String, String[]> params);
 
     /**
-     * 落地页提交后台地址：返回后台绑定页地址 {@code https://{host}/#/shopify-bind?bindTicket={nonce}}
+     * 落地页提交后台地址：返回总后台绑定页地址 {@code https://admin.{顶级域名}/#/shopify-bind?bindTicket={nonce}}
      * @throws InstallException TICKET_EXPIRED / UNKNOWN_HOST
      */
     String resolveLanding(String ticket, String adminHost);
