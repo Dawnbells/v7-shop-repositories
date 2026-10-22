@@ -77,11 +77,12 @@ const goThirdPartyWebsite = () => {
 }
 
 onMounted(() => {
-  const ticket = queryValue('ticket')
+  // 不用 ticket：全局路由守卫会把 URL 中的 ticket 当作 SSO 登录票据
+  const bindTicket = queryValue('bindTicket')
   const status = queryValue('status')
   handle.value = queryValue('handle')
-  if (ticket) {
-    bindByTicket(ticket)
+  if (bindTicket) {
+    bindByTicket(bindTicket)
   } else if (status === 'success') {
     state.value = 'success'
   } else if (status === 'error') {
