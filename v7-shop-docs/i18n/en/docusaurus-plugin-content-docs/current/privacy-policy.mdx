@@ -1,0 +1,100 @@
+---
+sidebar_position: 99
+title: Privacy Policy
+description: Privacy policy for VantaSite Order Sync (Shopify app)
+---
+
+# Privacy Policy
+
+**Effective date: October 22, 2026**
+
+This privacy policy explains how VantaSite ("we", "us") collects, uses, retains and deletes data from Shopify stores when a merchant installs and uses the Shopify app **VantaSite Order Sync** (the "App"). The App is free. It only reads order and product data, and its sole purpose is to sync Shopify orders into the merchant's own VantaSite back office.
+
+For the personal information of store customers, the merchant is the data controller and we process that data on the merchant's behalf and according to the merchant's instructions. Customers who want to exercise their privacy rights should contact the store they ordered from first; we will help the merchant handle the request.
+
+## 1. Data we collect
+
+The App reads data only within the access scopes the merchant grants (`read_orders`, `read_products`):
+
+| Category | Details |
+| --- | --- |
+| Order information | Order number, created and updated time, payment status, fulfillment status, cancellation status and reason, amounts and currencies, discounts, shipping, taxes, payment gateway names, order notes and tags, order source and landing page |
+| Recipient information | Name, phone number, email address, street address, postal code and country / province / city of the shipping and billing contacts |
+| Customer technical information | The customer's IP address and browser user agent at checkout |
+| Product information | Product name, variant, SKU, quantity and unit price of each line item, plus product metafields in the `xyz` namespace (for example local product name, waybill product name, SKU code and order owner) |
+| Store information | Store domain (handle), access tokens, granted access scopes, install and uninstall time |
+
+We do not collect any information directly from customers, and the App does not place cookies or tracking scripts on the merchant's storefront.
+
+In addition, when members of the merchant's team view or export the recipient information of Shopify orders in VantaSite, the system records an access log (user, time, action and order IDs) for security auditing.
+
+## 2. Where the data comes from
+
+- **Shopify Admin API**: after the merchant authorizes the App, we read order and product data through the Shopify Admin API (GraphQL). This includes historical syncs started by the merchant (limited to the last 60 days) and a reconciliation run about every 15 minutes.
+- **Shopify webhooks**: Shopify notifies us when an order is created, updated or cancelled, when the App is uninstalled, and when a data deletion or data access request is made. We verify the signature (HMAC) of every notification and do not process notifications that fail verification.
+
+## 3. How we use the data
+
+We use the data above only to provide the following services to the merchant:
+
+- **Order review**: show orders in the merchant's VantaSite order review list so the merchant's team can check addresses, match SKUs and release orders;
+- **Fulfillment**: arrange fulfillment and shipping based on recipient information;
+- **Shipping labels**: print shipping labels that need the recipient's name, phone number, address and the waybill product name;
+- **Risk control**: identify unusual or high-risk orders using signals such as the customer's IP address and user agent.
+
+We do not use this data for advertising, marketing messages or profiling, or for any purpose other than the services above.
+
+## 4. Data sharing
+
+- We **do not sell** any data obtained from Shopify, and we **do not share** it with third parties for their own use.
+- The data is available only inside the merchant's own VantaSite account, to team members the merchant has authorized, according to their back-office permissions.
+- The cloud servers and databases we use to run the service are managed by us and are used only to store and process the data.
+- If required by law or by a competent authority, we may disclose data to the extent necessary and will notify the merchant where legally permitted.
+
+## 5. Retention and redaction
+
+- **Retention period**: **12 months** after an order was last updated, the system automatically redacts its recipient information (the period is configurable by the operator). Redaction covers the recipient's name, phone number, email address, street address, postal code and the customer's IP address. Products, amounts, order status and country / province / city are kept for reconciliation and reporting.
+- **Access logs**: logs of viewing and exporting recipient information are deleted after 12 months.
+- **Uninstalling the App**: after the merchant uninstalls the App, the store is shown as "Disconnected" in VantaSite, syncing stops and the access tokens are cleared. Orders already synced stay in the merchant's account until a deletion request described below is received or the retention period ends.
+
+## 6. Deletion and data access requests
+
+We handle the following three requests according to Shopify's privacy compliance requirements and complete each one **within 30 days** of receipt:
+
+| Request | When it is sent | What we do |
+| --- | --- | --- |
+| `shop/redact` (store data deletion) | Sent by Shopify about 48 hours after the merchant uninstalls the App | Redact the recipient name, phone number, email address, street address, postal code and customer IP address of all synced orders of that store, and delete the store's access credentials |
+| `customers/redact` (customer data deletion) | Sent by Shopify after a customer asks the merchant to delete their data | Apply the same redaction to that customer's orders in that store |
+| `customers/data_request` (customer data access) | Sent by Shopify after a customer asks the merchant for their data | Notify the VantaSite user who owns the store connection, who exports the related order data and delivers it to the merchant within 30 days; the merchant then provides it to the customer |
+
+We keep a record of each request (request type, time, number of orders affected and status) for traceability.
+
+## 7. Security
+
+We apply reasonable technical and organizational measures to protect the data, including:
+
+- HTTPS encryption for all traffic with Shopify and for access to the back office;
+- signature verification of Shopify notifications and authorization callbacks, and one-time, short-lived tickets for app installation;
+- access tokens stored only on the server, not shown in the back-office interface and not written to logs;
+- role-based and data-scope permission control in the back office, so a merchant can only access orders in their own account;
+- access logs for viewing and exporting recipient information;
+- read-only access to orders and products; the App does not change any data in the merchant's store.
+
+No security measure removes all risk. If a security incident affects merchant data, we will notify the affected merchants as required by applicable law.
+
+## 8. Customer rights
+
+Depending on where they live (for example under the GDPR or the CCPA), customers may have rights to access, correct or delete their personal information. Because customer data comes from the merchant's store, customers should first send their request to the merchant they ordered from. When Shopify forwards such a request to us, we handle it as described in section 6. If a customer contacts us directly, we will pass the request on to the relevant merchant.
+
+## 9. Changes to this policy
+
+We may update this policy to reflect product changes or legal requirements. The updated version will be published on this page with a new effective date. For material changes, we will notify merchants through the VantaSite back office or by email.
+
+## 10. Contact us
+
+If you have any questions about this policy or how we handle data, please contact us:
+
+{/* TODO: the official support email is not decided yet; replace this placeholder when it is (update the Chinese version too) */}
+
+- Email: support@vantasite.com
+- Website: https://docs.vantasite.com
