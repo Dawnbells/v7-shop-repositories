@@ -87,6 +87,7 @@ ARCH.md §2、§3、§4、§5.4 全部。`ShopifyGraphqlClient.execute` 的重�
 - 新建 `v7-shop-admin/.../service/IShopifyInstallService.java`、`service/impl/ShopifyInstallService.java`（授权 URL、回调处理、`upsert`、webhook 注册）。
 - 新建 `v7-shop-admin/.../controller/ShopifyAppController.java`（`/shopify-app/landing`、`/shopify-app/oauth/callback`、`/shopify-app/landing/resolve`）。
 - `v7-shop-admin/.../controller/ShopifyWebsiteController.java`：新增 `install-url`、`bind`；`doEdit` 对 `PUBLIC_APP` 的限制。
+- `v7-shop-admin/.../controller/req/EditShopifyWebsiteRequest.java`：`clientId` 去掉 `@NotBlank`，凭证模式在控制器里校验。
 - 新建请求类 `controller/req/ShopifyInstallUrlRequest.java`、`ShopifyBindRequest.java`、`ShopifyLandingResolveRequest.java`；响应 `controller/resp/ShopifyInstallUrlResponse.java`。
 - 新建 `v7-shop-entrance/src/main/resources/static/shopify-app/landing.html`（内联 CSS/JS，中英双语，手机宽度可用，无外部依赖）。
 - 测试：新建 `ShopifyInstallServiceTest.java`、`controller/ShopifyAppControllerTest.java`（用 `MockMvc` standalone 或直接调用方法，mock 依赖）。
@@ -99,7 +100,7 @@ ARCH.md §5.1、§5.2、§6.3、§9。授权 URL 的 `redirect_uri` = `{app-host
 - [ ] 回调：HMAC/shop/state/handle 任一不符不换 token、不写库、按票据类型跳转到对应错误页。
 - [ ] `ADMIN` 票据成功：店铺新建或恢复，owner = 票据用户，租户 = 票据租户，`lastSyncOrderTime = now`，票据删除，302 到 `{returnOrigin}/#/shopify-bind?status=success&handle=`。
 - [ ] `STORE` 票据成功：token 写入票据并续期，302 到 `landing.html?ticket=`。
-- [ ] `resolve`：票据过期 400 `TICKET_EXPIRED`；域名解析不到公司 400 `UNKNOWN_HOST`；成功返回 `https://{host}/#/shopify-bind?ticket=`。
+- [ ] `resolve`：票据过期 400 `TICKET_EXPIRED`；域名解析不到公司 400 `UNKNOWN_HOST`；成功返回 `https://{host}/#/shopify-bind?bindTicket=`（参数名不能是 `ticket`，会被后台 SSO 登录拦截）。
 - [ ] `bind`：需登录与权限；占用规则；成功创建 `PUBLIC_APP` 店铺并删除票据。
 - [ ] `/shopify-app/landing` 对已连接店铺 302 `status=connected`；未连接签发票据并 302 到授权 URL。
 - [ ] `register-webhooks-on-install=true` 时调用 `webhookSubscriptionCreate` 并先查重；失败只记日志。
@@ -192,7 +193,7 @@ ARCH.md §3.2–§3.4、§5.3、§5.4（`ShopifyPiiRedactionService`）、§6.4�
 ### 验收标准
 - [ ] 添加 → SHOPIFY → 默认公开应用：仅店铺名称/HANDLE/币种模式 + 「连接 Shopify」，点击后整页跳转到返回的 `authorizeUrl`；切凭证模式显示现有表单且保存行为不变。
 - [ ] 列表显示接入方式；`DISCONNECTED` 灰标签；`PUBLIC_APP` 且 `DISCONNECTED/ERROR` 出现「重新连接」。
-- [ ] `/shopify-bind?ticket=` 未登录先登录再回到本页并自动绑定；`status=success|error` 正确显示；有「前往第三方商城」按钮。
+- [ ] `/shopify-bind?bindTicket=` 未登录先登录再回到本页并自动绑定；`status=success|error` 正确显示；有「前往第三方商城」按钮。
 - [ ] 同步对话框对 `SHOPIFY && !hasAllOrdersScope` 限制 60 天并提示。
 - [ ] `pnpm vue-tsc`、`pnpm lint:eslint` 无错误。
 

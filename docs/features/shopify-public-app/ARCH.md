@@ -184,7 +184,7 @@ Redis：复用 `RedisConfig.jsonRedisTemplate`（`RedisTemplate<String,Object>`�
 处理：取 `STORE` 票据且 `pendingToken != null`，否则 `PARAMETER_ILLEGAL "票据不存在或已过期"`；handle 占用规则同上；创建/恢复店铺（见 §6.3）；删除票据。
 响应：`ThirdPartyWebsiteResponse`（与 `doEdit` 相同结构，含 `accessMode`）。
 
-**POST `/third-party-website/shopify/doEdit`**（现有）：`accessMode=PUBLIC_APP` 的记录只允许改 `nickName`、`currencyMode`，其余字段忽略，不再调用 `verifyAndUpdateAuthStatus`。新增（无 id）请求仍为凭证模式。
+**POST `/third-party-website/shopify/doEdit`**（现有）：`accessMode=PUBLIC_APP` 的记录只允许改 `nickName`、`currencyMode`，其余字段忽略，不再调用 `verifyAndUpdateAuthStatus`。`EditShopifyWebsiteRequest.clientId` 去掉 `@NotBlank`，改在控制器里对凭证模式校验非空（公开应用记录没有 clientId）。新增（无 id）请求仍为凭证模式。
 
 **POST `/third-party-website/page`**（现有）响应行新增 `accessMode`、`hasAllOrdersScope`。
 
@@ -210,7 +210,7 @@ Redis：复用 `RedisConfig.jsonRedisTemplate`（`RedisTemplate<String,Object>`�
 错误码集合（结果页与后台共用）：`INVALID_STATE`、`INVALID_HMAC`、`INVALID_SHOP`、`TOKEN_EXCHANGE_FAILED`、`HANDLE_TAKEN`、`TICKET_EXPIRED`、`UNKNOWN_HOST`、`APP_NOT_CONFIGURED`。
 
 **静态页 `/shopify-app/landing.html`**（`v7-shop-entrance/src/main/resources/static/shopify-app/landing.html`，纯 HTML+JS，中英双语，手机宽度可用）按 query 分支：
-- `ticket`：显示表单「输入你的 VantaSite 后台地址」，提交调用 `/shopify-app/landing/resolve`，成功后 `location.href = redirectUrl`；错误码映射双语文案。
+- `ticket`（落地页自身的 query，这里不会经过后台 SPA，可保留 `ticket`）：显示表单「输入你的 VantaSite 后台地址」，提交调用 `/shopify-app/landing/resolve`，成功后 `location.href = redirectUrl`；错误码映射双语文案。
 - `status=connected`：「该店铺已连接到 VantaSite，请登录后台查看」。
 - `status=invalid|error`：「请从 Shopify 后台重新打开本应用」。
 
@@ -373,7 +373,7 @@ void record(String action, String orderType, List<Long> orderIds);   // 当前�
 - `ThirdPartyWebsiteEdit.vue`：`websiteType=SHOPIFY` 时增加「接入方式」单选（公开应用 / 凭证模式，默认公开应用）。公开应用：显示店铺名称、HANDLE、币种模式，底部按钮「连接 Shopify」→ 调 `shopifyInstallUrl` → `window.location.href = authorizeUrl`。凭证模式：现有表单。编辑 `accessMode=PUBLIC_APP` 记录：只显示店铺名称、币种模式，保存调 `doEditShopify`。
 - `ThirdPartyWebsite.vue`：新列「接入方式」；`authStatus=DISCONNECTED` 显示灰色「已断开」标签（tooltip「商家已卸载应用」）；`PUBLIC_APP` 且 `authStatus in (DISCONNECTED, ERROR)` 操作列显示「重新连接」（调 `shopifyInstallUrl` 带 id）；「编辑」对 `PUBLIC_APP` 仍可用。
 - `ThirdPartyOrderSync.vue`：`row.websiteType=SHOPIFY && !row.hasAllOrdersScope` 时起始时间最小值 = 今天 - 60 天，默认值也改为该值，表单下方提示「未获得全部订单权限，只能同步最近 60 天」。
-- 新页 `src/views/website/ShopifyBind.vue`，路由加入 `src/router/index.ts` 的 `constantRoutes`：`{ path: '/shopify-bind', name: 'ShopifyBind', component, meta: { hidden: true, title: 'Shopify 绑定' } }`（**不加**白名单，未登录会被导到登录页并保留 `redirect`）。逻辑：有 `ticket` → 调 `shopifyBind({ ticket })`，成功显示「已连接 {handle}」；有 `status=success` → 显示成功；`status=error` → 按 `code` 显示文案。页面提供按钮「前往第三方商城」（`router.push({ name: 'ThirdPartyWebsite' })`，若该路由名不存在则回首页）。
+- 新页 `src/views/website/ShopifyBind.vue`，路由加入 `src/router/index.ts` 的 `constantRoutes`：`{ path: '/shopify-bind', name: 'ShopifyBind', component, meta: { hidden: true, title: 'Shopify 绑定' } }`（**不加**白名单，未登录会被导到登录页并保留 `redirect`）。逻辑：有 `bindTicket` → 调 `shopifyBind({ ticket: bindTicket })`（URL 参数名用 `bindTicket`，避免与 SSO 的 `ticket` 撞名），成功显示「已连接 {handle}」；有 `status=success` → 显示成功；`status=error` → 按 `code` 显示文案。页面提供按钮「前往第三方商城」（`router.push({ name: 'ThirdPartyWebsite' })`，若该路由名不存在则回首页）。
 
 ---
 
