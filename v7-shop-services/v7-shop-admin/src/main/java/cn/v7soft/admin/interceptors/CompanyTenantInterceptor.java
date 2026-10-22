@@ -53,6 +53,12 @@ public class CompanyTenantInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        if (path.startsWith("/shopify-app/")) {
+            // Shopify 公开应用的 OAuth 回调、落地页、webhook 由 Shopify 或商家浏览器直接访问，
+            // 无后台域名可解析；端点自行按票据或店铺设置租户
+            return true;
+        }
+
         if (path.startsWith("/front-agent/")) {
             // 前端机 agent 为服务端调用，无 Origin/Referer 头，本拦截器的域名解析不适用；
             // 鉴权与按 Host 设置租户由 FrontAgentInterceptor（order=100，晚于本拦截器）负责
