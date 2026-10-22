@@ -10,6 +10,7 @@ import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.ShopifyWebhookEvent;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import cn.v7soft.dao.repositories.primary.ShopifyWebhookEventRepository;
 import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import cn.v7soft.dao.tenant.TenantContext;
@@ -36,6 +37,7 @@ public class ShopifyWebhookProcessor {
     static final int ERROR_MAX_LENGTH = 1000;
     static final String NOTE_WEBSITE_PAUSED = "店铺已暂停";
     static final String NOTE_WEBSITE_NOT_FOUND = "店铺不存在";
+    static final String NOTE_NOT_PUBLIC_APP = "非公开应用店铺";
     static final String NOTE_UNSUPPORTED_TOPIC = "不支持的 topic";
 
     private final ShopifyWebhookEventRepository eventRepository;
@@ -95,10 +97,12 @@ public class ShopifyWebhookProcessor {
     Outcome handle(ShopifyWebhookEvent event) {
         String topic = event.getTopic();
         if (event.getWebsiteId() == null) {
+            String note = NOTE_WEBSITE_NOT_FOUND;
             if (ShopifyComplianceService.isComplianceTopic(topic)) {
-                complianceService.recordShopNotFound(event);
+                note = missingWebsiteNote(event);
+                complianceService.recordSkipped(event, note);
             }
-            return Outcome.done(NOTE_WEBSITE_NOT_FOUND);
+            return Outcome.done(note);
         }
         if (!ShopifyWebhookService.isSupportedTopic(topic)) {
             return new Outcome(ShopifyWebhookEvent.State.IGNORED, NOTE_UNSUPPORTED_TOPIC);
@@ -109,8 +113,16 @@ public class ShopifyWebhookProcessor {
             TenantContext.setCurrentTenant(companyId, companyService.companyCached(companyId));
         }
 
+        Optional<ThirdPartyWebsite> website = websiteRepository.findById(event.getWebsiteId());
+        if (website.isPresent() && !ShopifyWebhookService.isPublicAppWebsite(website.get())) {
+            // 落库后店铺改成了凭证模式等情况：不得作用于非公开应用店铺
+            if (ShopifyComplianceService.isComplianceTopic(topic)) {
+                complianceService.recordSkipped(event, NOTE_NOT_PUBLIC_APP);
+            }
+            return Outcome.done(NOTE_NOT_PUBLIC_APP);
+        }
+
         if (ShopifyWebhookService.isOrderTopic(topic)) {
-            Optional<ThirdPartyWebsite> website = websiteRepository.findById(event.getWebsiteId());
             if (website.isEmpty()) {
                 return Outcome.done(NOTE_WEBSITE_NOT_FOUND);
             }
@@ -151,6 +163,17 @@ public class ShopifyWebhookProcessor {
             }
         }
         return Outcome.done();
+    }
+
+    /**
+     * 合规事件落库时没解析到公开应用店铺：同 handle 存在凭证模式店铺时记「非公开应用店铺」，否则「店铺不存在」。
+     * 在设置租户前调用（findByShopDomain 内部 silent，且不在事务内）。
+     */
+    private String missingWebsiteNote(ShopifyWebhookEvent event) {
+        boolean shopifyWebsiteExists = websiteStore.findByShopDomain(event.getShopDomain())
+                .filter(website -> website.getWebsiteType() == WebsiteTypeEnum.SHOPIFY)
+                .isPresent();
+        return shopifyWebsiteExists ? NOTE_NOT_PUBLIC_APP : NOTE_WEBSITE_NOT_FOUND;
     }
 
     private ThirdPartyWebsiteDto loadWebsiteDto(ShopifyWebhookEvent event) {

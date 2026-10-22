@@ -2,7 +2,11 @@ package cn.v7soft.admin.service.impl;
 
 import cn.v7soft.dao.entities.primary.ShopifyWebhookEvent;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.ShopifyAccessMode;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import java.util.stream.Stream;
 import cn.v7soft.dao.repositories.primary.ShopifyWebhookEventRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,7 +36,12 @@ class ShopifyWebhookServiceTest {
     private ShopifyWebhookService service;
 
     private static ThirdPartyWebsite website(WebsiteTypeEnum type) {
-        return ThirdPartyWebsite.builder().id(20L).companyId(10L).handle("demo").websiteType(type).build();
+        return website(type, ShopifyAccessMode.PUBLIC_APP);
+    }
+
+    private static ThirdPartyWebsite website(WebsiteTypeEnum type, ShopifyAccessMode accessMode) {
+        return ThirdPartyWebsite.builder().id(20L).companyId(10L).handle("demo").websiteType(type)
+                .accessMode(accessMode).build();
     }
 
     private ShopifyWebhookEvent savedEvent() {
@@ -119,6 +128,34 @@ class ShopifyWebhookServiceTest {
 
         ShopifyWebhookEvent event = savedEvent();
         assertEquals(ShopifyWebhookEvent.State.PENDING, event.getState());
+        assertNull(event.getWebsiteId());
+        assertNull(event.getCompanyId());
+    }
+
+    static Stream<Arguments> credentialsCases() {
+        ShopifyWebhookService.EnqueueResult ignored = ShopifyWebhookService.EnqueueResult.IGNORED;
+        ShopifyWebhookService.EnqueueResult pending = ShopifyWebhookService.EnqueueResult.PENDING;
+        return Stream.of(
+                Arguments.of("app/uninstalled", ShopifyAccessMode.CREDENTIALS, ignored),
+                Arguments.of("app/uninstalled", null, ignored),
+                Arguments.of("orders/create", ShopifyAccessMode.CREDENTIALS, ignored),
+                Arguments.of("orders/create", null, ignored),
+                Arguments.of("shop/redact", ShopifyAccessMode.CREDENTIALS, pending),
+                Arguments.of("shop/redact", null, pending),
+                Arguments.of("customers/redact", ShopifyAccessMode.CREDENTIALS, pending),
+                Arguments.of("customers/redact", null, pending));
+    }
+
+    @ParameterizedTest(name = "{0} / accessMode={1} -> {2}")
+    @MethodSource("credentialsCases")
+    @DisplayName("同 handle 的凭证模式店铺（含 accessMode=null）按找不到处理：不关联店铺，非合规 IGNORED、合规 PENDING")
+    void shouldNotBindCredentialsWebsite(String topic, ShopifyAccessMode accessMode,
+                                         ShopifyWebhookService.EnqueueResult expected) {
+        when(websiteStore.findByShopDomain(SHOP)).thenReturn(Optional.of(website(WebsiteTypeEnum.SHOPIFY, accessMode)));
+
+        assertEquals(expected, service.enqueue("wh-1", topic, SHOP, "2026-07", "{}"));
+
+        ShopifyWebhookEvent event = savedEvent();
         assertNull(event.getWebsiteId());
         assertNull(event.getCompanyId());
     }

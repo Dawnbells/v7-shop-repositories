@@ -3,6 +3,7 @@ package cn.v7soft.admin.service.impl;
 import cn.hutool.core.util.StrUtil;
 import cn.v7soft.dao.entities.primary.ShopifyWebhookEvent;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.ShopifyAccessMode;
 import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import cn.v7soft.dao.repositories.primary.ShopifyWebhookEventRepository;
 import lombok.RequiredArgsConstructor;
@@ -61,8 +62,10 @@ public class ShopifyWebhookService {
     }
 
     /**
-     * 按 webhook_id 去重后落库。支持的 topic 按 shop_domain 解析店铺：找到落 PENDING；找不到时合规类仍落 PENDING
+     * 按 webhook_id 去重后落库。支持的 topic 按 shop_domain 解析公开应用店铺：找到落 PENDING；找不到时合规类仍落 PENDING
      * （处理器只记录后 DONE），其余落 IGNORED；不支持的 topic 落 IGNORED。
+     * <p>
+     * 同 handle 的凭证模式店铺（accessMode 为 CREDENTIALS 或 null）按「找不到」处理，webhook 不得作用于它。
      */
     public EnqueueResult enqueue(String webhookId, String topic, String shopDomain, String apiVersion, String payload) {
         if (eventRepository.existsByWebhookId(webhookId)) {
@@ -106,7 +109,14 @@ public class ShopifyWebhookService {
     }
 
     private Optional<ThirdPartyWebsite> findShopifyWebsite(String shopDomain) {
-        return websiteStore.findByShopDomain(shopDomain)
-                .filter(website -> website.getWebsiteType() == WebsiteTypeEnum.SHOPIFY);
+        return websiteStore.findByShopDomain(shopDomain).filter(ShopifyWebhookService::isPublicAppWebsite);
+    }
+
+    /**
+     * 是否为通过公开应用接入的 Shopify 店铺（只有这类店铺接收公开应用的 webhook）
+     */
+    public static boolean isPublicAppWebsite(ThirdPartyWebsite website) {
+        return website != null && website.getWebsiteType() == WebsiteTypeEnum.SHOPIFY
+                && ShopifyAccessMode.isPublicApp(website.getAccessMode());
     }
 }

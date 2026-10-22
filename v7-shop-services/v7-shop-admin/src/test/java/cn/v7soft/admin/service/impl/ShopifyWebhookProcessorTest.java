@@ -9,6 +9,11 @@ import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.Company;
 import cn.v7soft.dao.entities.primary.ShopifyWebhookEvent;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.ShopifyAccessMode;
+import cn.v7soft.dao.enums.WebsiteTypeEnum;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import java.util.stream.Stream;
 import cn.v7soft.dao.repositories.primary.ShopifyWebhookEventRepository;
 import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import cn.v7soft.dao.tenant.TenantContext;
@@ -77,9 +82,13 @@ class ShopifyWebhookProcessorTest {
                 .build();
     }
 
+    private static ThirdPartyWebsite website(StatusEnum status, ShopifyAccessMode accessMode) {
+        return ThirdPartyWebsite.builder().id(WEBSITE_ID).companyId(COMPANY_ID).status(status)
+                .websiteType(WebsiteTypeEnum.SHOPIFY).accessMode(accessMode).build();
+    }
+
     private void websiteStatus(StatusEnum status) {
-        ThirdPartyWebsite website = ThirdPartyWebsite.builder().id(WEBSITE_ID).companyId(COMPANY_ID).status(status).build();
-        when(websiteRepository.findById(WEBSITE_ID)).thenReturn(Optional.of(website));
+        when(websiteRepository.findById(WEBSITE_ID)).thenReturn(Optional.of(website(status, ShopifyAccessMode.PUBLIC_APP)));
     }
 
     private ThirdPartyWebsiteDto websiteDto() {
@@ -197,7 +206,7 @@ class ShopifyWebhookProcessorTest {
 
         processor.process(event);
 
-        verify(complianceService).recordShopNotFound(event);
+        verify(complianceService).recordSkipped(event, "店铺不存在");
         verify(complianceService, never()).shopRedact(any());
         verify(complianceService, never()).customersRedact(any());
         verify(complianceService, never()).customersDataRequest(any());
@@ -224,12 +233,68 @@ class ShopifyWebhookProcessorTest {
     @Test
     @DisplayName("店铺暂停不影响 app/uninstalled 与合规 topic")
     void shouldProcessNonOrderTopicsWhenPaused() {
-        ShopifyWebhookEvent event = event("app/uninstalled", "{}");
+        websiteStatus(StatusEnum.INVALID);
+        ShopifyWebhookEvent uninstall = event("app/uninstalled", "{}");
+        ShopifyWebhookEvent redact = event("shop/redact", "{}");
+
+        processor.process(uninstall);
+        processor.process(redact);
+
+        verify(websiteStore).markDisconnected(WEBSITE_ID);
+        verify(complianceService).shopRedact(redact);
+        assertNull(uninstall.getError());
+    }
+
+    // ==================== 非公开应用店铺 ====================
+
+    @ParameterizedTest
+    @ValueSource(strings = {"shop/redact", "customers/redact", "customers/data_request"})
+    @DisplayName("合规 topic 落库时未解析到公开应用店铺、但同 handle 有凭证模式店铺：只记合规记录（非公开应用店铺）")
+    void shouldRecordNotPublicAppWhenCredentialsWebsiteExists(String topic) {
+        when(websiteStore.findByShopDomain("demo.myshopify.com"))
+                .thenReturn(Optional.of(website(StatusEnum.VALID, ShopifyAccessMode.CREDENTIALS)));
+        ShopifyWebhookEvent event = event(topic, "{}");
+        event.setWebsiteId(null);
+        event.setCompanyId(null);
 
         processor.process(event);
 
-        verify(websiteStore).markDisconnected(WEBSITE_ID);
-        verify(websiteRepository, never()).findById(any());
+        verify(complianceService).recordSkipped(event, "非公开应用店铺");
+        verifyNoMoreInteractions(complianceService);
+        verify(websiteStore, never()).markDisconnected(any());
+        verify(websiteStore, never()).clearCredentials(any());
+        assertDone(event);
+        assertEquals("非公开应用店铺", event.getError());
+    }
+
+    static Stream<Arguments> credentialsCases() {
+        return Stream.of("app/uninstalled", "shop/redact", "customers/redact", "customers/data_request",
+                        "orders/create", "orders/cancelled")
+                .flatMap(topic -> Stream.of(Arguments.of(topic, ShopifyAccessMode.CREDENTIALS), Arguments.of(topic, null)));
+    }
+
+    @ParameterizedTest(name = "{0} / accessMode={1}")
+    @MethodSource("credentialsCases")
+    @DisplayName("事件已关联店铺但店铺为凭证模式（含 accessMode=null）：不断开、不脱敏、不清凭证、不导入订单")
+    void shouldNotTouchCredentialsWebsite(String topic, ShopifyAccessMode accessMode) {
+        when(websiteRepository.findById(WEBSITE_ID)).thenReturn(Optional.of(website(StatusEnum.VALID, accessMode)));
+        ShopifyWebhookEvent event = event(topic, "{\"id\":1}");
+
+        processor.process(event);
+
+        verify(websiteStore, never()).markDisconnected(any());
+        verify(websiteStore, never()).clearCredentials(any());
+        verify(complianceService, never()).shopRedact(any());
+        verify(complianceService, never()).customersRedact(any());
+        verify(complianceService, never()).customersDataRequest(any());
+        verifyNoInteractions(orderSyncService, temporaryOrderService);
+        if (ShopifyComplianceService.isComplianceTopic(topic)) {
+            verify(complianceService).recordSkipped(event, "非公开应用店铺");
+        } else {
+            verifyNoInteractions(complianceService);
+        }
+        assertDone(event);
+        assertEquals("非公开应用店铺", event.getError());
     }
 
     // ==================== 失败退避 ====================

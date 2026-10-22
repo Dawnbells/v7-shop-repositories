@@ -8,7 +8,10 @@ import cn.v7soft.admin.service.INoticeService;
 import cn.v7soft.admin.service.dto.ThirdPartyWebsiteDto;
 import cn.v7soft.dao.entities.primary.ShopifyComplianceRecord;
 import cn.v7soft.dao.entities.primary.ShopifyWebhookEvent;
+import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
+import cn.v7soft.dao.enums.ThirdPartyAuthStatusEnum;
 import cn.v7soft.dao.repositories.primary.ShopifyComplianceRecordRepository;
+import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.jpa.domain.Specification;
@@ -41,6 +44,9 @@ public class ShopifyComplianceService {
     static final String NOTICE_TITLE = "Shopify 客户数据请求";
     static final String NOTICE_TYPE = "SHOPIFY_COMPLIANCE";
     static final String NOTE_SHOP_NOT_FOUND = "店铺不存在";
+    static final String NOTE_NOT_PUBLIC_APP = "非公开应用店铺";
+    static final String NOTE_UNEXPECTED_SEQUENCE = "未收到卸载事件，按异常时序处理";
+    static final String NOTE_DATA_REQUEST_WEBSITE_MISSING = "店铺已删除或不存在，未发送站内通知，请人工处理";
     static final int NOTE_MAX_LENGTH = 1000;
     private static final DateTimeFormatter DUE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
@@ -48,32 +54,43 @@ public class ShopifyComplianceService {
     private final ShopifyPiiRedactionService redactionService;
     private final ShopifyWebsiteStore websiteStore;
     private final INoticeService noticeService;
+    private final ThirdPartyWebsiteRepository websiteRepository;
 
     public static boolean isComplianceTopic(String topic) {
         return topic != null && COMPLIANCE_TOPICS.contains(topic);
     }
 
     /**
-     * 合规事件找不到店铺：只记录（DONE，note「店铺不存在」），无数据可处理
+     * 合规事件不处理数据（店铺不存在、或同 handle 的店铺不是公开应用接入）：只记录（DONE + note），不动任何数据
      */
-    public ShopifyComplianceRecord recordShopNotFound(ShopifyWebhookEvent event) {
+    public ShopifyComplianceRecord recordSkipped(ShopifyWebhookEvent event, String note) {
         ShopifyComplianceRecord record = newRecord(event, parse(event));
         record.setState(ShopifyComplianceRecord.State.DONE);
         record.setCompletedAt(LocalDateTime.now());
         record.setAffectedCount(0);
-        record.setNote(NOTE_SHOP_NOT_FOUND);
+        record.setNote(StrUtil.blankToDefault(note, NOTE_SHOP_NOT_FOUND));
         return recordRepository.save(record);
     }
 
     /**
-     * shop/redact（payload {shop_id, shop_domain}）：记录 → 按店铺脱敏 → 清凭证 → DONE + affectedCount
+     * shop/redact（payload {shop_id, shop_domain}）：记录 → （店铺未断开时先断开）→ 按店铺脱敏 → 清凭证 → DONE + affectedCount。
+     * <p>
+     * 正常时序是先 app/uninstalled 再 shop/redact；若店铺仍未断开（uninstalledAt 为空或 authStatus 不是 DISCONNECTED），
+     * 先 markDisconnected 停止同步，并在记录 note 写明按异常时序处理。店铺已被删除时跳过断开，照常脱敏与清凭证。
      */
     public ShopifyComplianceRecord shopRedact(ShopifyWebhookEvent event) {
         ShopifyComplianceRecord record = startRecord(event, parse(event));
         try {
+            String note = null;
+            Optional<ThirdPartyWebsite> website = websiteRepository.findById(event.getWebsiteId());
+            if (website.isPresent() && !isDisconnected(website.get())) {
+                websiteStore.markDisconnected(event.getWebsiteId());
+                note = NOTE_UNEXPECTED_SEQUENCE;
+                log.warn("[ShopifyCompliance] shop/redact 时店铺未断开，先断开: websiteId={}", event.getWebsiteId());
+            }
             int affected = redactionService.redactByWebsite(event.getCompanyId(), event.getWebsiteId());
             websiteStore.clearCredentials(event.getWebsiteId());
-            return complete(record, affected);
+            return complete(record, affected, note);
         } catch (RuntimeException e) {
             markError(record, e);
             throw e;
@@ -90,7 +107,7 @@ public class ShopifyComplianceService {
         try {
             int affected = redactionService.redactByCustomer(event.getCompanyId(), event.getWebsiteId(),
                     idList(payload, "orders_to_redact"), record.getCustomerEmail(), record.getCustomerPhone());
-            return complete(record, affected);
+            return complete(record, affected, null);
         } catch (RuntimeException e) {
             markError(record, e);
             throw e;
@@ -99,7 +116,8 @@ public class ShopifyComplianceService {
 
     /**
      * customers/data_request（payload {shop_id, shop_domain, orders_requested:[], customer:{id,email,phone},
-     * data_request:{id}}）：记录 MANUAL → 给店铺归属人发站内通知，由人工在 dueAt 前导出交付商家
+     * data_request:{id}}）：记录 MANUAL → 给店铺归属人发站内通知，由人工在 dueAt 前导出交付商家。
+     * 店铺已被删除（查不到）时只在记录 note 写明原因，不发通知、不抛异常。
      */
     public ShopifyComplianceRecord customersDataRequest(ShopifyWebhookEvent event) {
         JSONObject payload = parse(event);
@@ -108,8 +126,13 @@ public class ShopifyComplianceService {
         record.setState(ShopifyComplianceRecord.State.MANUAL);
         JSONObject dataRequest = payload.getJSONObject("data_request");
         String dataRequestId = dataRequest == null ? null : dataRequest.getStr("id");
-        if (StrUtil.isNotBlank(dataRequestId)) {
-            record.setNote("data_request_id=" + dataRequestId);
+        String dataRequestNote = StrUtil.isNotBlank(dataRequestId) ? "data_request_id=" + dataRequestId : null;
+        record.setNote(dataRequestNote);
+        if (websiteRepository.findById(event.getWebsiteId()).isEmpty()) {
+            record.setNote(dataRequestNote == null ? NOTE_DATA_REQUEST_WEBSITE_MISSING
+                    : dataRequestNote + "；" + NOTE_DATA_REQUEST_WEBSITE_MISSING);
+            log.warn("[ShopifyCompliance] 数据请求的店铺已不存在，未发送通知: websiteId={}", event.getWebsiteId());
+            return recordRepository.save(record);
         }
         record = recordRepository.save(record);
 
@@ -137,12 +160,16 @@ public class ShopifyComplianceService {
         return recordRepository.save(record);
     }
 
-    private ShopifyComplianceRecord complete(ShopifyComplianceRecord record, int affected) {
+    private ShopifyComplianceRecord complete(ShopifyComplianceRecord record, int affected, String note) {
         record.setState(ShopifyComplianceRecord.State.DONE);
         record.setAffectedCount(affected);
         record.setCompletedAt(LocalDateTime.now());
-        record.setNote(null);
+        record.setNote(note);
         return recordRepository.save(record);
+    }
+
+    private static boolean isDisconnected(ThirdPartyWebsite website) {
+        return website.getUninstalledAt() != null && website.getAuthStatus() == ThirdPartyAuthStatusEnum.DISCONNECTED;
     }
 
     private void markError(ShopifyComplianceRecord record, RuntimeException e) {
