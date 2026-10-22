@@ -48,14 +48,28 @@
       <el-table-column align="center" label="店铺名称" prop="nickName" />
       <el-table-column align="center" label="店铺唯一标识" prop="handle" />
       <el-table-column align="center" label="店铺类型" prop="websiteType" />
+      <el-table-column align="center" label="接入方式" width="110">
+        <template #default="{ row }">
+          <span v-if="row.websiteType !== 'SHOPIFY'">—</span>
+          <span v-else-if="isPublicApp(row)">公开应用</span>
+          <span v-else>凭证模式</span>
+        </template>
+      </el-table-column>
       <el-table-column align="center" label="授权状态" width="140">
         <template #default="{ row }">
           <el-tooltip
             v-if="row.authStatus === 'FROZEN'"
-            content="店铺已被 Shopline 封号，系统已自动禁用该店铺"
+            content="店铺已被平台封号，系统已自动禁用该店铺"
             placement="top"
           >
             <el-tag type="danger">店铺已封号</el-tag>
+          </el-tooltip>
+          <el-tooltip
+            v-else-if="row.authStatus === 'DISCONNECTED'"
+            content="商家已卸载应用"
+            placement="top"
+          >
+            <el-tag type="info">已断开</el-tag>
           </el-tooltip>
           <el-tooltip
             v-else-if="row.authStatus === 'ERROR'"
@@ -82,20 +96,9 @@
           />
         </template>
       </el-table-column>
-      <el-table-column align="center" label="操作" width="250">
+      <el-table-column align="center" label="操作" width="320">
         <template #default="{ row }">
-          <el-tooltip
-            :content="
-              row.authStatus === 'FROZEN'
-                ? '店铺已封号，无法同步订单'
-                : row.authStatus !== 'AUTHED'
-                  ? '商城连接异常，请检查配置后重新编辑保存'
-                  : row.lastManualSyncTime
-                    ? '上次手动同步: ' + row.lastManualSyncTime
-                    : '尚未手动同步过'
-            "
-            placement="top"
-          >
+          <el-tooltip :content="syncTip(row)" placement="top">
             <span>
               <el-button
                 :disabled="row.authStatus !== 'AUTHED'"
@@ -107,6 +110,15 @@
               </el-button>
             </span>
           </el-tooltip>
+          <el-button
+            v-if="canReconnect(row)"
+            :loading="row.reconnectLoading"
+            text
+            type="warning"
+            @click="handleReconnect(row)"
+          >
+            重新连接
+          </el-button>
           <el-button text type="primary" @click="handleEdit(row)">编辑</el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
@@ -130,7 +142,7 @@
 
 <script lang="ts" setup>
 import { Delete, Plus, Search } from '@element-plus/icons-vue'
-import { doDelete, page, switchValidity } from '../../api/ThirdPartyWebsite'
+import { doDelete, page, shopifyInstallUrl, switchValidity } from '../../api/ThirdPartyWebsite'
 
 defineOptions({
   name: 'ThirdPartyWebsite',
@@ -181,6 +193,36 @@ const handleFold = () => {
 
 const setSelectRows = (value: string) => {
   selectRows.value = value
+}
+
+// accessMode 为空的历史记录按凭证模式处理
+const isPublicApp = (row: any) => row.websiteType === 'SHOPIFY' && row.accessMode === 'PUBLIC_APP'
+
+// 公开应用店铺断开或授权异常时可重新走 OAuth 授权
+const canReconnect = (row: any) =>
+  isPublicApp(row) && ['DISCONNECTED', 'ERROR'].includes(row.authStatus)
+
+const syncTip = (row: any) => {
+  if (row.authStatus === 'FROZEN') return '店铺已封号，无法同步订单'
+  if (row.authStatus === 'DISCONNECTED') return '商家已卸载应用，请重新连接后再同步'
+  if (row.authStatus !== 'AUTHED')
+    return isPublicApp(row) ? '商城连接异常，请重新连接' : '商城连接异常，请检查配置后重新编辑保存'
+  return row.lastManualSyncTime ? `上次手动同步: ${row.lastManualSyncTime}` : '尚未手动同步过'
+}
+
+const handleReconnect = async (row: any) => {
+  row.reconnectLoading = true
+  try {
+    const { data }: any = await shopifyInstallUrl({
+      id: row.id,
+      nickName: row.nickName,
+      handle: row.handle,
+      currencyMode: row.currencyMode || 'SHOP_MONEY',
+    })
+    globalThis.location.href = data.authorizeUrl
+  } catch {
+    row.reconnectLoading = false
+  }
 }
 
 const handleAdd = () => {

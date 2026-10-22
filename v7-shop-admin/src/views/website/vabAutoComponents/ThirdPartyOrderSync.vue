@@ -8,12 +8,24 @@
   >
     <el-form ref="formRef" label-width="120px" :model="form" :rules="rules">
       <el-form-item label="订单起始时间" prop="createAtMin">
-        <el-date-picker v-model="form.createAtMin" placeholder="订单起始时间" type="datetime" />
+        <el-date-picker
+          v-model="form.createAtMin"
+          :disabled-date="disabledMinDate"
+          placeholder="订单起始时间"
+          type="datetime"
+        />
       </el-form-item>
       <el-form-item label="订单结束时间" prop="createAtMax">
         <el-date-picker v-model="form.createAtMax" placeholder="订单结束时间" type="datetime" />
       </el-form-item>
     </el-form>
+    <el-alert
+      v-if="limitedTo60Days"
+      :closable="false"
+      show-icon
+      title="未获得全部订单权限，只能同步最近 60 天"
+      type="warning"
+    />
     <template #footer>
       <el-button :loading="syncLoading" type="primary" @click="syncOrder">同步订单</el-button>
     </template>
@@ -39,13 +51,43 @@ const form = reactive<any>({
   createAtMin: '2020-01-01 00:00:00',
   createAtMax: new Date(),
 })
-const rules = reactive<any>({})
+// 公开应用接入且未获得 read_all_orders 权限时，只能拉取最近 60 天订单；
+// 凭证模式不写 hasAllOrdersScope，与 Shopline 一样保持原默认值与范围
+const limitedTo60Days = computed<boolean>(
+  () => form.accessMode === 'PUBLIC_APP' && !form.hasAllOrdersScope
+)
+// 今天 0 点往前 60 天
+const getMinCreateAt = () => {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  date.setDate(date.getDate() - 60)
+  return date
+}
+const disabledMinDate = (date: Date) =>
+  limitedTo60Days.value && date.getTime() < getMinCreateAt().getTime()
+const rules = reactive<any>({
+  createAtMin: [
+    {
+      trigger: 'change',
+      validator: (_rule: any, value: any, callback: any) => {
+        if (
+          limitedTo60Days.value &&
+          value &&
+          new Date(value).getTime() < getMinCreateAt().getTime()
+        )
+          callback(new Error('未获得全部订单权限，起始时间不能早于 60 天前'))
+        else callback()
+      },
+    },
+  ],
+})
 
 const showEdit = (row: any) => {
   dialogFormVisible.value = true
   nextTick(() => {
     title.value = '订单同步'
     Object.assign(form, row)
+    if (limitedTo60Days.value) form.createAtMin = getMinCreateAt()
   })
 }
 
@@ -63,6 +105,8 @@ const close = () => {
 }
 
 const syncOrder = async () => {
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
   syncLoading.value = true
   try {
     let result = await countOrders(form)

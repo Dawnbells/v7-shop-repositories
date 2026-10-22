@@ -57,6 +57,16 @@ export const constantRoutes: VabRouteRecord[] = [
       hidden: true,
     },
   },
+  {
+    // Shopify 公开应用安装回跳页；不进白名单，未登录先登录再回到本页
+    path: '/shopify-bind',
+    name: 'ShopifyBind',
+    component: () => import('/@/views/website/ShopifyBind.vue'),
+    meta: {
+      hidden: true,
+      title: 'Shopify 绑定',
+    },
+  },
 ]
 
 export const asyncRoutes: VabRouteRecord[] = [
