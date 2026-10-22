@@ -29,9 +29,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   INVALID_HMAC: '回调校验失败',
   INVALID_SHOP: '回调校验失败',
   TOKEN_EXCHANGE_FAILED: '获取授权失败',
-  HANDLE_TAKEN: '该店铺已绑定到其他账号',
+  HANDLE_TAKEN: '该店铺已绑定到其他账号，请联系对方解绑',
   TICKET_EXPIRED: '链接已过期，请重新发起',
   APP_NOT_CONFIGURED: '应用未配置，请联系管理员',
+  // 前端自用：票据绑定失败后刷新页面时的兜底文案
+  BIND_FAILED: '绑定失败，请重新发起',
 }
 
 const route = useRoute()
@@ -65,9 +67,14 @@ const bindByTicket = async (ticket: string) => {
     state.value = 'success'
   } catch (error: any) {
     // request 封装抛出的是后端响应体 { code, msg }
-    errorMessage.value = error?.msg || error?.message || '绑定失败，请重新发起'
+    errorMessage.value = error?.msg || error?.message || ERROR_MESSAGES.BIND_FAILED
     state.value = 'error'
   }
+  // 票据已被后端消费，从地址中去掉 bindTicket，避免刷新时重复绑定；同一路由不会重新挂载
+  const query: Record<string, string> =
+    state.value === 'success' ? { status: 'success' } : { status: 'error', code: 'BIND_FAILED' }
+  if (handle.value) query.handle = handle.value
+  router.replace({ query })
 }
 
 const goThirdPartyWebsite = () => {

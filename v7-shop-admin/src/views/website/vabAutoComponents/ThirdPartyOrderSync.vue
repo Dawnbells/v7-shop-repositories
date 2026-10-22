@@ -51,9 +51,10 @@ const form = reactive<any>({
   createAtMin: '2020-01-01 00:00:00',
   createAtMax: new Date(),
 })
-// Shopify 店铺未获得 read_all_orders 权限时，只能拉取最近 60 天订单
+// 公开应用接入且未获得 read_all_orders 权限时，只能拉取最近 60 天订单；
+// 凭证模式不写 hasAllOrdersScope，与 Shopline 一样保持原默认值与范围
 const limitedTo60Days = computed<boolean>(
-  () => form.websiteType === 'SHOPIFY' && !form.hasAllOrdersScope
+  () => form.accessMode === 'PUBLIC_APP' && !form.hasAllOrdersScope
 )
 // 今天 0 点往前 60 天
 const getMinCreateAt = () => {
