@@ -9,7 +9,8 @@ import org.springframework.data.repository.query.Param;
 import java.util.Collection;
 
 /**
- * 正式订单风险记录（t_order_risk_record_infos）的 IP 清空，配合订单脱敏使用
+ * 正式订单风险记录（t_order_risk_record_infos）的 IP 清空，配合订单脱敏使用。
+ * 原生 SQL：软删除的记录同样清空；ids 来自已按租户限定的订单查询。
  */
 public interface OrderRiskRecordInfoPiiRepository extends BaseRepository<OrderRiskRecordInfo> {
 
@@ -18,7 +19,7 @@ public interface OrderRiskRecordInfoPiiRepository extends BaseRepository<OrderRi
      * @return 更新行数
      */
     @Modifying
-    @Query("UPDATE OrderRiskRecordInfo r SET r.remoteIp = NULL, r.remoteIpInfo = NULL, "
-            + "r.realIp = NULL, r.realIpInfo = NULL WHERE r.id IN :ids")
+    @Query(value = "UPDATE t_order_risk_record_infos r SET r.remote_ip = NULL, r.remote_ip_info = NULL, "
+            + "r.real_ip = NULL, r.real_ip_info = NULL WHERE r.id IN (:ids)", nativeQuery = true)
     int clearIpByIds(@Param("ids") Collection<Long> ids);
 }
