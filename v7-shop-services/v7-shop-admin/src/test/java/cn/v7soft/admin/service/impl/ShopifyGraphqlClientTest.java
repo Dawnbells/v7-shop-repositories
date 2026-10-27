@@ -146,29 +146,93 @@ class ShopifyGraphqlClientTest {
     }
 
     @Test
-    @DisplayName("THROTTLED：最多重试 3 次，仍被限流则抛 ERR_TOKEN_INVALID")
+    @DisplayName("THROTTLED：最多重试 3 次，仍被限流则提示 GraphQL 请求失败")
     void shouldGiveUpAfterThreeThrottleRetries() {
         when(tokenService.getAccessToken(any())).thenReturn("token-1");
         when(restTemplate.postForEntity(eq(URL), any(), eq(String.class))).thenReturn(ok(THROTTLED_BODY));
 
         BaseException ex = assertThrows(BaseException.class, () -> client.execute(website("test-shop"), QUERY, null));
 
-        assertEquals(ServiceResponseEnum.ERR_TOKEN_INVALID, ex.getResponseEnum());
+        assertEquals(ServiceResponseEnum.ERR_SHOPIFY_GRAPHQL, ex.getResponseEnum());
         assertEquals(3, sleeps.size());
         verify(restTemplate, times(4)).postForEntity(eq(URL), any(), eq(String.class));
     }
 
     @Test
-    @DisplayName("其他 errors：不重试，抛 ERR_TOKEN_INVALID")
+    @DisplayName("其他 errors：不重试，保留 GraphQL 错误详情，不误报 token 失效")
     void shouldThrowOnUserErrors() {
         when(tokenService.getAccessToken(any())).thenReturn("token-1");
         when(restTemplate.postForEntity(eq(URL), any(), eq(String.class))).thenReturn(ok(USER_ERROR_BODY));
 
         BaseException ex = assertThrows(BaseException.class, () -> client.execute(website("test-shop"), QUERY, null));
 
-        assertEquals(ServiceResponseEnum.ERR_TOKEN_INVALID, ex.getResponseEnum());
+        assertEquals(ServiceResponseEnum.ERR_SHOPIFY_GRAPHQL, ex.getResponseEnum());
+        assertTrue(ex.getMessage().contains("Field 'foo'"));
         verify(restTemplate, times(1)).postForEntity(eq(URL), any(), eq(String.class));
         assertTrue(sleeps.isEmpty());
+        verifyNoInteractions(websiteStore);
+    }
+
+    @Test
+    @DisplayName("缺少 read_customers：拒绝部分订单数据，保留权限原因，不刷新 token 或停用店铺")
+    void shouldReportMissingCustomerScope() {
+        String body = """
+                {"data":{"orders":{"nodes":[{"id":"gid://shopify/Order/1","customer":null}]}},
+                 "errors":[{"message":"Access denied for customer field. Required access: `read_customers` access scope.",
+                 "extensions":{"code":"ACCESS_DENIED","requiredAccess":"`read_customers` access scope."},
+                 "path":["orders","nodes",0,"customer"]}]}
+                """;
+        when(tokenService.getAccessToken(any())).thenReturn("token-1");
+        when(restTemplate.postForEntity(eq(URL), any(), eq(String.class))).thenReturn(ok(body));
+
+        ThirdPartyWebsiteDto website = website("test-shop");
+        website.setId("2442700183043");
+        BaseException ex = assertThrows(BaseException.class, () -> client.execute(website, QUERY));
+
+        assertEquals(ServiceResponseEnum.ERR_SHOPIFY_ACCESS_DENIED, ex.getResponseEnum());
+        assertTrue(ex.getMessage().contains("read_customers"));
+        assertTrue(ex.getMessage().contains("2442700183043"));
+        assertFalse(ex.getMessage().contains("Token已失效"));
+        verify(restTemplate, times(1)).postForEntity(eq(URL), any(), eq(String.class));
+        verify(tokenService, never()).forceRefresh(anyLong(), anyString());
+        verifyNoInteractions(websiteStore);
+        assertTrue(sleeps.isEmpty());
+    }
+
+    @Test
+    @DisplayName("受保护数据审批不足：即使同时限流也优先提示权限问题，不自动重试")
+    void shouldReportDataApprovalDenialBeforeThrottling() {
+        String body = """
+                {"errors":[
+                  {"message":"Throttled","extensions":{"code":"THROTTLED"}},
+                  {"message":"This app is not approved to access the Customer object.",
+                   "extensions":{"code":"ACCESS_DENIED"}}
+                ]}
+                """;
+        when(tokenService.getAccessToken(any())).thenReturn("token-1");
+        when(restTemplate.postForEntity(eq(URL), any(), eq(String.class))).thenReturn(ok(body));
+
+        BaseException ex = assertThrows(BaseException.class, () -> client.execute(website("test-shop"), QUERY));
+
+        assertEquals(ServiceResponseEnum.ERR_SHOPIFY_ACCESS_DENIED, ex.getResponseEnum());
+        assertTrue(ex.getMessage().contains("not approved"));
+        verify(restTemplate, times(1)).postForEntity(eq(URL), any(), eq(String.class));
+        verify(tokenService, never()).forceRefresh(anyLong(), anyString());
+        verifyNoInteractions(websiteStore);
+        assertTrue(sleeps.isEmpty());
+    }
+
+    @Test
+    @DisplayName("空响应：报告接口异常，不误报 token 失效")
+    void shouldReportEmptyResponse() {
+        when(tokenService.getAccessToken(any())).thenReturn("token-1");
+        when(restTemplate.postForEntity(eq(URL), any(), eq(String.class))).thenReturn(ok(""));
+
+        BaseException ex = assertThrows(BaseException.class, () -> client.execute(website("test-shop"), QUERY));
+
+        assertEquals(ServiceResponseEnum.ERR_SHOPIFY_GRAPHQL, ex.getResponseEnum());
+        assertTrue(ex.getMessage().contains("HTTP 200"));
+        verify(tokenService, never()).forceRefresh(anyLong(), anyString());
         verifyNoInteractions(websiteStore);
     }
 

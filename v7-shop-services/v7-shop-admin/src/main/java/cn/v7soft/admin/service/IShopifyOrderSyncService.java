@@ -38,16 +38,15 @@ public interface IShopifyOrderSyncService {
     void verifyAndUpdateAuthStatus(ThirdPartyWebsite website);
 
     /**
-     * 把 webhook 订单 payload（REST 形状）导入审单表。
-     * @param updateExisting true 时覆盖已存在订单
+     * 把 webhook 订单 payload（REST 形状）导入审单表：原始订单 ID 已存在时按它更新（payload 不比本地新时跳过），不存在时新建
      * @return 是否新建
      */
-    default boolean importWebhookOrder(ThirdPartyWebsiteDto website, JSONObject orderPayload, boolean updateExisting) {
+    default boolean importWebhookOrder(ThirdPartyWebsiteDto website, JSONObject orderPayload) {
         throw new UnsupportedOperationException("importWebhookOrder 尚未实现");
     }
 
     /**
-     * 对账：拉取 updated_at >= since 的订单，新订单创建，已存在且已取消的标记取消
+     * 对账：拉取 updated_at >= since 的订单，新订单创建，已存在且 Shopify 端有更新的整单更新（含取消状态）
      * @return 处理到的最大 updated_at（东八区）
      */
     default LocalDateTime reconcileOrders(ThirdPartyWebsiteDto website, LocalDateTime since) {

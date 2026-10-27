@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Privacy Policy – V7 Order Connector</title>
+<!-- Shopify App Store 上架用的隐私政策页（公开访问：/legal/privacy-policy.html；Shopify 要求该 URL 不得含 "shopify"）；完整版见 v7-shop-docs privacy-policy.mdx -->
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #1f2933;
+    --muted: #616e7c;
+    --border: #d9dee3;
+    --primary: #1f6feb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161b;
+      --card: #1c2229;
+      --text: #e6e9ec;
+      --muted: #9aa5b1;
+      --border: #333c46;
+      --primary: #4c8dff;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: 48px 16px;
+  }
+  .card {
+    max-width: 760px;
+    margin: 0 auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 28px;
+  }
+  .brand { font-size: 13px; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+  h1 { font-size: 24px; line-height: 1.3; margin: 0 0 4px; }
+  .date { color: var(--muted); margin: 0 0 24px; }
+  h2 { font-size: 17px; margin: 28px 0 8px; }
+  p { margin: 0 0 12px; }
+  ul { margin: 0 0 12px; padding-left: 22px; }
+  li { margin: 0 0 6px; }
+  code { font-size: 13px; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; }
+  a { color: var(--primary); }
+</style>
+</head>
+<body>
+<main class="card">
+  <p class="brand">V7 Order Connector</p>
+  <h1>Privacy Policy</h1>
+  <p class="date">Effective date: October 27, 2026</p>
+
+  <p>This policy explains how we collect, use, retain and delete data when a merchant installs the Shopify app
+    <strong>V7 Order Connector</strong> (the "App"). The App only reads order and product data, and its sole purpose
+    is to sync the merchant's Shopify orders into the merchant's own order management back office.</p>
+  <p>For the personal information of store customers, the merchant is the data controller; we process that data
+    only on the merchant's behalf and according to the merchant's instructions.</p>
+
+  <h2>1. Data we collect</h2>
+  <p>We only read data within the access scopes the merchant grants (<code>read_orders</code> and
+    <code>read_products</code>):</p>
+  <ul>
+    <li><strong>Order information</strong>: order number, time, payment, fulfillment and cancellation status, amounts,
+      discounts, shipping, taxes, notes and tags.</li>
+    <li><strong>Recipient information</strong>: name, phone number, email address and shipping / billing address.</li>
+    <li><strong>Customer technical information</strong>: the customer's IP address and browser user agent at checkout.</li>
+    <li><strong>Product information</strong>: product name, variant, SKU, quantity, price and related product metafields.</li>
+    <li><strong>Store information</strong>: store domain, access token, granted scopes, install and uninstall time.</li>
+  </ul>
+  <p>We do not collect data directly from customers, and the App does not add cookies or scripts to the storefront.</p>
+
+  <h2>2. How we use the data</h2>
+  <p>We use the data only to provide the App's service to the merchant: reviewing orders, fulfilling and shipping
+    them, printing shipping labels, and identifying high-risk orders. We do not use it for advertising, marketing or
+    profiling.</p>
+
+  <h2>3. Data sharing</h2>
+  <ul>
+    <li>We do <strong>not sell</strong> data obtained from Shopify, and do not share it with third parties for their own use.</li>
+    <li>The data is only available inside the merchant's own account, to team members the merchant has authorized.</li>
+    <li>We may disclose data where required by law, to the extent necessary.</li>
+  </ul>
+
+  <h2>4. Retention and deletion</h2>
+  <ul>
+    <li>Recipient personal information is automatically redacted <strong>12 months</strong> after the order was last
+      updated. Non-personal order data is kept for reconciliation and reporting.</li>
+    <li>When the App is uninstalled, syncing stops and the store's access token is deleted.</li>
+    <li>We handle Shopify's mandatory privacy webhooks within <strong>30 days</strong>:
+      <code>shop/redact</code> (redact all personal data of the store's orders and delete its credentials),
+      <code>customers/redact</code> (redact that customer's orders) and
+      <code>customers/data_request</code> (export that customer's order data to the merchant).</li>
+  </ul>
+
+  <h2>5. Security</h2>
+  <p>Data is transmitted over HTTPS. Every Shopify webhook and OAuth callback is verified with an HMAC signature.
+    Access tokens are stored only on the server and never shown in the interface or written to logs. Access to the
+    back office is permission-controlled, and viewing or exporting recipient information is logged.</p>
+
+  <h2>6. Your rights</h2>
+  <p>Customers may have rights to access, correct or delete their personal information (for example under the GDPR
+    or the CCPA). Please send such requests to the store you ordered from; when Shopify forwards a request to us, we
+    handle it as described in section 4.</p>
+
+  <h2>7. Changes</h2>
+  <p>We may update this policy from time to time. The updated version will be published on this page with a new
+    effective date.</p>
+
+  <h2>8. Contact us</h2>
+  <p>Questions about this policy: <a href="mailto:dawnbells.w@gmail.com">dawnbells.w@gmail.com</a></p>
+</main>
+</body>
+</html>

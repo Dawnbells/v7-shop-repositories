@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *     <li>POST https://{handle}.myshopify.com/admin/api/{api-version}/graphql.json，头 X-Shopify-Access-Token</li>
  *     <li>401：强制刷新 token 后重试一次</li>
  *     <li>errors[].extensions.code == THROTTLED：按 extensions.cost.throttleStatus 等待后重试，最多 3 次</li>
- *     <li>其他 errors 非空：抛 ERR_TOKEN_INVALID</li>
+ *     <li>ACCESS_DENIED：提示检查权限与客户数据审批；其他 GraphQL 错误保留错误详情，不误报 token 失效</li>
  *     <li>HTTP 402/423：标记店铺授权异常并停用后抛出原异常</li>
  * </ul>
  * 每个店铺共用一个 2 次/秒的限流器。
@@ -114,13 +114,19 @@ public class ShopifyGraphqlClient {
             }
 
             if (StrUtil.isBlank(response.getBody())) {
-                throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(websiteId,
+                throw ServiceResponseEnum.ERR_SHOPIFY_GRAPHQL.newException(String.valueOf(websiteId),
                         "Shopify GraphQL 返回空响应 (HTTP " + response.getStatusCode().value() + ")");
             }
             JSONObject body = JSONUtil.parseObj(response.getBody());
             JSONObject extensions = body.getJSONObject("extensions");
             JSONArray errors = readErrors(body);
             if (errors != null && !errors.isEmpty()) {
+                JSONObject accessDenied = findError(errors, "ACCESS_DENIED");
+                if (accessDenied != null) {
+                    log.warn("Shopify GraphQL access denied: websiteId={}, handle={}, errors={}", websiteId, handle, errors);
+                    throw ServiceResponseEnum.ERR_SHOPIFY_ACCESS_DENIED.newException(String.valueOf(websiteId),
+                            accessDenied.getStr("message", "ACCESS_DENIED"));
+                }
                 if (isThrottled(errors) && throttleRetries < MAX_THROTTLE_RETRIES) {
                     throttleRetries++;
                     long waitMillis = throttleWaitMillis(extensions);
@@ -130,7 +136,7 @@ public class ShopifyGraphqlClient {
                     continue;
                 }
                 log.warn("Shopify GraphQL errors: websiteId={}, handle={}, errors={}", websiteId, handle, errors);
-                throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(websiteId, errors.toString());
+                throw ServiceResponseEnum.ERR_SHOPIFY_GRAPHQL.newException(String.valueOf(websiteId), errors.toString());
             }
             return new GraphqlResult(body.getJSONObject("data"), errors, extensions);
         }
@@ -195,16 +201,20 @@ public class ShopifyGraphqlClient {
     }
 
     private static boolean isThrottled(JSONArray errors) {
+        return findError(errors, "THROTTLED") != null;
+    }
+
+    private static JSONObject findError(JSONArray errors, String code) {
         for (int i = 0; i < errors.size(); i++) {
             Object item = errors.get(i);
             if (item instanceof JSONObject error) {
                 JSONObject extensions = error.getJSONObject("extensions");
-                if (extensions != null && "THROTTLED".equals(extensions.getStr("code"))) {
-                    return true;
+                if (extensions != null && code.equals(extensions.getStr("code"))) {
+                    return error;
                 }
             }
         }
-        return false;
+        return null;
     }
 
     private static String shopUnavailableMessage(int statusCode) {

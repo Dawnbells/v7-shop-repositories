@@ -1,10 +1,9 @@
 package cn.v7soft.admin.service.impl;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -28,7 +27,7 @@ import cn.v7soft.dao.entities.primary.OrderItemInfo;
 import cn.v7soft.dao.entities.primary.SystemUser;
 import cn.v7soft.dao.entities.primary.TemporaryOrder;
 import cn.v7soft.dao.entities.primary.TemporaryOrderItemInfo;
-import cn.v7soft.dao.enums.OrderStatus;
+import cn.v7soft.dao.entities.primary.TemporaryOrderRiskRecordInfo;
 import cn.v7soft.dao.repositories.primary.OrderRepository;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
 import cn.v7soft.dao.repositories.primary.TemporaryOrderRepository;
@@ -38,13 +37,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Service
 public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, TemporaryOrderRepository> implements ITemporaryOrderService {
-
-    /**
-     * 客户取消时允许自动改为“客户取消”的正式订单状态，其余状态只追加审单备注
-     */
-    private static final Set<OrderStatus> CANCELLABLE_ORDER_STATUSES = EnumSet.of(OrderStatus.PENDING, OrderStatus.CONFIRMED);
-    private static final String CUSTOMER_CANCELLED_REMARK = "Shopify 已取消";
-    private static final int ORDER_REMARK_MAX_LENGTH = 256;
 
     private final Lock lock = new ReentrantLock();
     private final ICompanyService companyService;
@@ -155,24 +147,15 @@ public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, 
     }
 
     /**
-     * 待审核/已确认的正式订单改为客户取消；已发货等其他状态不改状态，只在审单备注中追加提示
+     * 正式订单只标记平台已取消，不改审单状态与审单备注
      */
     private void applyCustomerCancelledToOrder(String originOrderId) {
         orderRepository.findByOriginOrderIdForUpdate(originOrderId).ifPresent(order -> {
-            if (order.getOrderStatus() == OrderStatus.CUSTOMER_CANCELLED) {
+            if (Boolean.TRUE.equals(order.getPlatformCancelled())) {
                 return;
             }
-            if (CANCELLABLE_ORDER_STATUSES.contains(order.getOrderStatus())) {
-                order.setOrderStatus(OrderStatus.CUSTOMER_CANCELLED);
-            } else {
-                String remark = StrUtil.blankToDefault(order.getOrderCheckRemark(), "");
-                if (remark.contains(CUSTOMER_CANCELLED_REMARK)) {
-                    return;
-                }
-                // order_remark 列长 256，超长时截断原备注以保留取消提示
-                String kept = StrUtil.subPre(remark, ORDER_REMARK_MAX_LENGTH - CUSTOMER_CANCELLED_REMARK.length() - 1);
-                order.setOrderCheckRemark(kept.isEmpty() ? CUSTOMER_CANCELLED_REMARK : kept + "\n" + CUSTOMER_CANCELLED_REMARK);
-            }
+            order.setPlatformCancelled(true);
+            order.setPlatformCancelledAt(LocalDateTime.now());
             orderRepository.saveAndFlush(order);
         });
     }
@@ -193,10 +176,20 @@ public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, 
         }
         temporaryOrder.setContextInfo(request.toContextInfo(owner));
         if (!piiRedacted) {
-            temporaryOrder.setRiskInfo(request.toRiskInfo());
+            TemporaryOrderRiskRecordInfo previousRisk = temporaryOrder.getRiskInfo();
+            TemporaryOrderRiskRecordInfo riskInfo = request.toRiskInfo();
+            // Shopify GraphQL 不提供 UA，对账/手动同步更新时保留 webhook 导入时写入的 UA
+            if (previousRisk != null && StrUtil.isBlank(riskInfo.getUa()) && StrUtil.isNotBlank(previousRisk.getUa())) {
+                riskInfo.setUa(previousRisk.getUa());
+                riskInfo.setBrowserPlatform(previousRisk.getBrowserPlatform());
+            }
+            temporaryOrder.setRiskInfo(riskInfo);
         }
         temporaryOrder.setOwner(owner);
         temporaryOrder.setCustomerCancelled(Boolean.TRUE.equals(request.getCustomerCancelled()));
+        if (request.getOriginUpdatedAt() != null) {
+            temporaryOrder.setOriginUpdatedAt(request.getOriginUpdatedAt());
+        }
 
         List<TemporaryOrderItemInfo> itemInfos = request.toItemInfos();
         if (temporaryOrder.getItemInfos() == null) {
@@ -210,6 +203,9 @@ public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, 
         });
     }
 
+    /**
+     * 已转正式订单：更新来源、金额、支付、商品、归属与风控信息；收货信息、审单状态与备注、机审结果、物流、建联记录以审单为准不覆盖
+     */
     private void updateReviewedOrder(TemporaryOrder temporaryOrder) {
         orderRepository.findByOriginOrderId(temporaryOrder.getOriginOrderId()).ifPresent(order -> {
             Order latestOrder = TemporaryOrderDto.convert(temporaryOrder).toOrderInfo();
@@ -222,14 +218,12 @@ public class TemporaryOrderService extends BaseDataRangeService<TemporaryOrder, 
             order.setOrderTime(latestOrder.getOrderTime());
             order.setPaymentInfo(latestOrder.getPaymentInfo());
             order.setFinancialInfo(latestOrder.getFinancialInfo());
-            order.setDeliveryInfo(latestOrder.getDeliveryInfo());
             order.setContextInfo(latestOrder.getContextInfo());
-            order.setRiskInfo(latestOrder.getRiskInfo());
+            if (order.getPiiRedactedAt() == null) {
+                order.setRiskInfo(latestOrder.getRiskInfo());
+            }
             replaceOrderItems(order, latestOrder.getItemInfos());
             refreshOrderItemSummary(order);
-            if (order.getLogisticsInfo() != null && !latestOrder.getItemInfos().isEmpty()) {
-                order.getLogisticsInfo().setWaybillProductName(latestOrder.getItemInfos().get(0).getWaybillProductName());
-            }
             orderRepository.saveAndFlush(order);
         });
     }

@@ -78,47 +78,27 @@ class TemporaryOrderServiceCancelTest {
     }
 
     @Test
-    void shouldCancelPendingAndConfirmedOrders() {
-        for (OrderStatus status : new OrderStatus[]{OrderStatus.PENDING, OrderStatus.CONFIRMED}) {
-            Order order = order(status, "");
+    void shouldMarkPlatformCancelledWithoutTouchingReviewFields() {
+        for (OrderStatus status : OrderStatus.values()) {
+            Order order = order(status, "原备注");
             when(repository.findByOriginOrderIdForUpdate(ORIGIN_ORDER_ID)).thenReturn(Optional.of(temporaryOrder(false)));
             when(orderRepository.findByOriginOrderIdForUpdate(ORIGIN_ORDER_ID)).thenReturn(Optional.of(order));
 
             service.markCustomerCancelled(ORIGIN_ORDER_ID);
 
-            assertEquals(OrderStatus.CUSTOMER_CANCELLED, order.getOrderStatus());
-            assertEquals("", order.getOrderCheckRemark());
+            assertTrue(order.getPlatformCancelled());
+            assertNotNull(order.getPlatformCancelledAt());
+            // 审单状态与备注保持不变
+            assertEquals(status, order.getOrderStatus());
+            assertEquals("原备注", order.getOrderCheckRemark());
             verify(orderRepository).saveAndFlush(order);
         }
     }
 
     @Test
-    void shouldKeepShippedStatusAndAppendRemark() {
-        Order order = order(OrderStatus.SHIPPED, "原备注");
-        when(repository.findByOriginOrderIdForUpdate(ORIGIN_ORDER_ID)).thenReturn(Optional.of(temporaryOrder(false)));
-        when(orderRepository.findByOriginOrderIdForUpdate(ORIGIN_ORDER_ID)).thenReturn(Optional.of(order));
-
-        service.markCustomerCancelled(ORIGIN_ORDER_ID);
-
-        assertEquals(OrderStatus.SHIPPED, order.getOrderStatus());
-        assertEquals("原备注\nShopify 已取消", order.getOrderCheckRemark());
-    }
-
-    @Test
-    void shouldTruncateLongRemarkToFitColumn() {
-        Order order = order(OrderStatus.DELIVERED, "备".repeat(256));
-        when(repository.findByOriginOrderIdForUpdate(ORIGIN_ORDER_ID)).thenReturn(Optional.of(temporaryOrder(false)));
-        when(orderRepository.findByOriginOrderIdForUpdate(ORIGIN_ORDER_ID)).thenReturn(Optional.of(order));
-
-        service.markCustomerCancelled(ORIGIN_ORDER_ID);
-
-        assertEquals(256, order.getOrderCheckRemark().length());
-        assertTrue(order.getOrderCheckRemark().endsWith("\nShopify 已取消"));
-    }
-
-    @Test
     void shouldNotRewriteWhenAlreadyHandled() {
-        Order order = order(OrderStatus.SHIPPED, "原备注\nShopify 已取消");
+        Order order = order(OrderStatus.SHIPPED, "原备注");
+        order.setPlatformCancelled(true);
         TemporaryOrder temporaryOrder = temporaryOrder(true);
         when(repository.findByOriginOrderIdForUpdate(ORIGIN_ORDER_ID)).thenReturn(Optional.of(temporaryOrder));
         when(orderRepository.findByOriginOrderIdForUpdate(ORIGIN_ORDER_ID)).thenReturn(Optional.of(order));

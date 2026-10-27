@@ -198,9 +198,9 @@ const setSelectRows = (value: string) => {
 // accessMode 为空的历史记录按凭证模式处理
 const isPublicApp = (row: any) => row.websiteType === 'SHOPIFY' && row.accessMode === 'PUBLIC_APP'
 
-// 公开应用店铺断开或授权异常时可重新走 OAuth 授权
+// 已连接的公开应用也允许重新授权，用于补充新增权限
 const canReconnect = (row: any) =>
-  isPublicApp(row) && ['DISCONNECTED', 'ERROR'].includes(row.authStatus)
+  isPublicApp(row) && ['AUTHED', 'DISCONNECTED', 'ERROR'].includes(row.authStatus)
 
 const syncTip = (row: any) => {
   if (row.authStatus === 'FROZEN') return '店铺已封号，无法同步订单'

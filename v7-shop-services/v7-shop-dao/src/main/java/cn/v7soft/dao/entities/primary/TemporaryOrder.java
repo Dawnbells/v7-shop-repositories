@@ -140,6 +140,12 @@ public class TemporaryOrder extends BaseAutoIdDataRangeEntity {
     private Boolean customerCancelled = false;
 
     /**
+     * 来源平台订单的最后更新时间（东八区），用于跳过不比本地新的同步数据；未知时为 null
+     */
+    @Column(name = "origin_updated_at")
+    private LocalDateTime originUpdatedAt;
+
+    /**
      * 收货人等个人信息被脱敏的时间（Shopify 合规 redact 或保留期到期），null 表示未脱敏
      */
     @Column(name = "pii_redacted_at")

@@ -59,6 +59,11 @@ public class CompanyTenantInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        if (path.startsWith("/legal/")) {
+            // 公开法律文本静态页（如 Shopify 上架用的隐私政策），任何人可直接访问，不涉及租户
+            return true;
+        }
+
         if (path.startsWith("/front-agent/")) {
             // 前端机 agent 为服务端调用，无 Origin/Referer 头，本拦截器的域名解析不适用；
             // 鉴权与按 Host 设置租户由 FrontAgentInterceptor（order=100，晚于本拦截器）负责

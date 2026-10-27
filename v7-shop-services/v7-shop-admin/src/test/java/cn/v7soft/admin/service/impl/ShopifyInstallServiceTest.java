@@ -96,7 +96,6 @@ class ShopifyInstallServiceTest {
         properties.setClientId(CLIENT_ID);
         properties.setClientSecret(CLIENT_SECRET);
         properties.setAppHost(APP_HOST + "/");
-        properties.setScopes("read_orders,read_products");
         service = new ShopifyInstallService(properties, ticketStore, tokenService, websiteStore, graphqlClient,
                 websiteService, companyService);
 
