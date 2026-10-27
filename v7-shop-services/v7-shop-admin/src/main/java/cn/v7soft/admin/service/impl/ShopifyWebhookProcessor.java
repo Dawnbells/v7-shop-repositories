@@ -147,10 +147,9 @@ public class ShopifyWebhookProcessor {
     private Outcome handleOrderTopic(ShopifyWebhookEvent event, String topic) {
         JSONObject payload = JSONUtil.parseObj(event.getPayload());
         switch (topic) {
-            case ShopifyWebhookService.TOPIC_ORDERS_CREATE ->
-                    orderSyncService.importWebhookOrder(loadWebsiteDto(event), payload, false);
-            case ShopifyWebhookService.TOPIC_ORDERS_UPDATED ->
-                    orderSyncService.importWebhookOrder(loadWebsiteDto(event), payload, true);
+            // 新建与更新同样处理：原始订单 ID 已存在即按它更新
+            case ShopifyWebhookService.TOPIC_ORDERS_CREATE, ShopifyWebhookService.TOPIC_ORDERS_UPDATED ->
+                    orderSyncService.importWebhookOrder(loadWebsiteDto(event), payload);
             case ShopifyWebhookService.TOPIC_ORDERS_CANCELLED -> {
                 String originOrderId = payload.getStr("id");
                 if (StrUtil.isBlank(originOrderId)) {

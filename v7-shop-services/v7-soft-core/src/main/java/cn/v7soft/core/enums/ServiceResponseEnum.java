@@ -27,6 +27,8 @@ public enum ServiceResponseEnum implements IClientExceptionAssert {
     ERR_TOKEN_INVALID(200, "7002", "第三方商城Token已失效: {0}"),
     ERR_STORE_FROZEN(200, "7003", "第三方商城店铺已封号，已自动禁用该店铺: {0}"),
     ERR_SHOPIFY_APP_NOT_CONFIGURED(503, "7004", "Shopify 公开应用未配置"),
+    ERR_SHOPIFY_ACCESS_DENIED(200, "7005", "Shopify 数据访问权限不足，请检查权限配置、店铺授权及受保护客户数据审批（店铺 {0}）: {1}"),
+    ERR_SHOPIFY_GRAPHQL(200, "7006", "Shopify GraphQL 请求失败（店铺 {0}）: {1}"),
     ERR_NO_LANGUAGE(200, "8001", "未配置语言包"),
     NOT_FOUND(404, "404", "Not Found"),
     UNKNOWN(200, "99999", "未知错误");

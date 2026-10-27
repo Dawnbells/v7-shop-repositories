@@ -275,6 +275,13 @@
             <div class="bold" :class="orderStatusClass(row.orderStatus)">
               <span>{{ borderStatus(row.orderStatus) }}</span>
             </div>
+            <el-tooltip
+              v-if="row.platformCancelled"
+              :content="`来源平台已取消${row.platformCancelledAt ? '（同步于 ' + row.platformCancelledAt + '）' : ''}`"
+              placement="top"
+            >
+              <el-tag type="warning" effect="dark" size="small">平台已取消</el-tag>
+            </el-tooltip>
             <div class="text-danger">
               <span
                 style="white-space: pre-wrap; cursor: pointer"

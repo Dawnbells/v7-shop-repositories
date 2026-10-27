@@ -237,7 +237,7 @@ public class BotOrderCheckService implements IBotOrderCheckService {
         Order savedOrder = orderService.saveAndMarkReviewed(orderInfo, temporaryOrderDto.getLongId());
 
         // 客户已取消的订单不发送确认邮件
-        if (savedOrder.getOrderStatus() == OrderStatus.CUSTOMER_CANCELLED) {
+        if (Boolean.TRUE.equals(savedOrder.getPlatformCancelled()) || savedOrder.getOrderStatus() == OrderStatus.CUSTOMER_CANCELLED) {
             return;
         }
         // 在事务内提取邮件所需数据为 DTO，避免 @Async 线程中触发 LAZY 加载

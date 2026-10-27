@@ -105,13 +105,13 @@ class ShopifyWebhookProcessorTest {
     // ==================== 分发 ====================
 
     @Test
-    @DisplayName("orders/create → importWebhookOrder(dto, payload, false)，处理时租户为店铺公司，结束后清理")
+    @DisplayName("orders/create → importWebhookOrder(dto, payload)，处理时租户为店铺公司，结束后清理")
     void shouldImportCreatedOrderUnderTenant() {
         websiteStatus(StatusEnum.VALID);
         ThirdPartyWebsiteDto dto = websiteDto();
         AtomicReference<Long> tenantDuringImport = new AtomicReference<>();
         AtomicReference<Company> companyDuringImport = new AtomicReference<>();
-        when(orderSyncService.importWebhookOrder(any(), any(), anyBoolean())).thenAnswer(inv -> {
+        when(orderSyncService.importWebhookOrder(any(), any())).thenAnswer(inv -> {
             tenantDuringImport.set(TenantContext.getCurrentTenant());
             companyDuringImport.set(TenantContext.getCurrentTenantEntity());
             return true;
@@ -121,7 +121,7 @@ class ShopifyWebhookProcessorTest {
         processor.process(event);
 
         ArgumentCaptor<JSONObject> payload = ArgumentCaptor.forClass(JSONObject.class);
-        verify(orderSyncService).importWebhookOrder(same(dto), payload.capture(), eq(false));
+        verify(orderSyncService).importWebhookOrder(same(dto), payload.capture());
         assertEquals("450789469", payload.getValue().getStr("id"));
         assertEquals(COMPANY_ID, tenantDuringImport.get());
         assertSame(company, companyDuringImport.get());
@@ -133,7 +133,7 @@ class ShopifyWebhookProcessorTest {
     }
 
     @Test
-    @DisplayName("orders/updated → importWebhookOrder(dto, payload, true)")
+    @DisplayName("orders/updated 同样 → importWebhookOrder(dto, payload)")
     void shouldImportUpdatedOrder() {
         websiteStatus(StatusEnum.VALID);
         ThirdPartyWebsiteDto dto = websiteDto();
@@ -141,7 +141,7 @@ class ShopifyWebhookProcessorTest {
 
         processor.process(event);
 
-        verify(orderSyncService).importWebhookOrder(same(dto), any(), eq(true));
+        verify(orderSyncService).importWebhookOrder(same(dto), any());
         assertDone(event);
     }
 
@@ -304,7 +304,7 @@ class ShopifyWebhookProcessorTest {
     void shouldBackoffOnFailure() {
         websiteStatus(StatusEnum.VALID);
         websiteDto();
-        when(orderSyncService.importWebhookOrder(any(), any(), anyBoolean())).thenThrow(new IllegalStateException("boom"));
+        when(orderSyncService.importWebhookOrder(any(), any())).thenThrow(new IllegalStateException("boom"));
         ShopifyWebhookEvent event = event("orders/create", "{\"id\":1}");
         event.setAttempts(2);
         LocalDateTime before = LocalDateTime.now();

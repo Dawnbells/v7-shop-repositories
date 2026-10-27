@@ -1,28 +1,30 @@
-# Shopify 公开应用声明（VantaSite Order Sync）
+# Shopify 公开应用声明（V7 Order Connector）
 # 字段说明：https://shopify.dev/docs/apps/build/cli-for-apps/app-configuration
 # 用法：替换下方占位后执行 `shopify app deploy`（或在 Dev Dashboard 新建版本时按此填写），
 #       使 Dev Dashboard 中的 App URL、Redirect URLs、scope、webhook 订阅与后端配置（shopify.app.*）保持一致。
 #
 # 占位说明：
 #   client_id   —— 在 Shopify Dev Dashboard 创建应用后，于应用 Settings 页复制 Client ID 填入（与环境变量中的 client id 一致）
-#   <app-host>  —— 对外的中立域名主机名（反向代理指向 v7-shop-entrance），不含协议；
-#                  后端配置 shopify.app.app-host（SHOPIFY_APP_HOST）含协议，二者应为同一域名，例如 shopify.vantasite.com
+#   应用域名为 api.xyzdwd.com，反向代理指向 v7-shop-entrance；
+#   后端配置 shopify.app.app-host（SHOPIFY_APP_HOST）应为 https://api.xyzdwd.com
 #   订单 webhook 由本文件声明，后端 register-webhooks-on-install 保持 false，避免重复订阅
+#   App Store 上架信息中的 Privacy policy URL 填 https://api.xyzdwd.com/legal/privacy-policy.html
+#   （Shopify 要求该 URL 不得含 "shopify"；静态页 v7-shop-entrance/src/main/resources/static/legal/privacy-policy.html，不在本文件声明）
 
-client_id = "<在 Dev Dashboard 填>"
-name = "VantaSite Order Sync"
+client_id = "edc686a8ab2ee9a182cb4635177d3c4e"
+name = "V7 Order Connector"
 # 商家从 Shopify 后台 / App Store 打开应用时进入的落地页（ShopifyAppController /shopify-app/landing）
-application_url = "https://<app-host>/shopify-app/landing"
+application_url = "https://api.xyzdwd.com/shopify-app/landing"
 # 非嵌入式应用，不使用 App Bridge
 embedded = false
 
 [access_scopes]
-# 首版只申请只读订单与商品；read_all_orders 需单独申请，二期再加
+# 只读订单与商品；收货人、邮箱、电话取自订单本身，不申请 read_customers；read_all_orders 需单独申请
 scopes = "read_orders,read_products"
 
 [auth]
 # OAuth 授权码回调（ShopifyAppController /shopify-app/oauth/callback）
-redirect_urls = ["https://<app-host>/shopify-app/oauth/callback"]
+redirect_urls = ["https://api.xyzdwd.com/shopify-app/oauth/callback"]
 
 [webhooks]
 api_version = "2026-07"
@@ -30,9 +32,9 @@ api_version = "2026-07"
 # 订单与卸载 webhook（ShopifyWebhookController /shopify-app/webhooks，HMAC 校验后落库异步处理）
 [[webhooks.subscriptions]]
 topics = ["orders/create", "orders/updated", "orders/cancelled", "app/uninstalled"]
-uri = "https://<app-host>/shopify-app/webhooks"
+uri = "https://api.xyzdwd.com/shopify-app/webhooks"
 
 # 隐私合规 webhook（上架必需），与订单 webhook 共用同一端点
 [[webhooks.subscriptions]]
 compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
-uri = "https://<app-host>/shopify-app/webhooks"
+uri = "https://api.xyzdwd.com/shopify-app/webhooks"

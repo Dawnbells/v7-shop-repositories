@@ -2,6 +2,7 @@ package cn.v7soft.admin.service.impl;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -338,8 +339,10 @@ public class OrderService extends BaseDataRangeService<Order, OrderRepository> i
         // 机审 DTO 可能在取消检查前已读取；加锁后以数据库的最新状态为准。
         TemporaryOrder temporaryOrder = temporaryOrderRepository.findByIdForUpdate(temporaryOrderId)
                 .orElseThrow(() -> ClientResponseEnum.PARAMETER_ILLEGAL.newException("临时订单不存在：" + temporaryOrderId));
-        if (Boolean.TRUE.equals(temporaryOrder.getCustomerCancelled())) {
-            order.setOrderStatus(OrderStatus.CUSTOMER_CANCELLED);
+        // 来源平台已取消只写平台取消字段，审单状态保持不变
+        if (Boolean.TRUE.equals(temporaryOrder.getCustomerCancelled()) && !Boolean.TRUE.equals(order.getPlatformCancelled())) {
+            order.setPlatformCancelled(true);
+            order.setPlatformCancelledAt(LocalDateTime.now());
         }
         Order savedOrder = this.saveAndFlush(order);
         temporaryOrderRepository.markAsReviewed(temporaryOrderId);

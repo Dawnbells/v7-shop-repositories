@@ -63,6 +63,9 @@ public class EditTemporaryOrderRequest extends IdRequest {
     @Schema(description = "来源平台上客户已取消")
     private Boolean customerCancelled;
 
+    @Schema(description = "来源平台订单最后更新时间")
+    private LocalDateTime originUpdatedAt;
+
     public OrderPaymentInfo toPaymentInfo() {
         OrderPaymentInfo orderPaymentInfo = new OrderPaymentInfo();
         BeanUtil.copyProperties(this.paymentInfo, orderPaymentInfo);

@@ -209,6 +209,19 @@ public class Order extends BaseDataRangeEntity {
     private String contactRemark;
 
     /**
+     * 来源平台上客户已取消（整单取消或全部商品被移除）。与审单状态 orderStatus 相互独立，同步只写此字段
+     */
+    @Builder.Default
+    @Column(name = "is_platform_cancelled")
+    private Boolean platformCancelled = false;
+
+    /**
+     * 首次同步到来源平台已取消的时间
+     */
+    @Column(name = "platform_cancelled_at")
+    private LocalDateTime platformCancelledAt;
+
+    /**
      * 收货人等个人信息被脱敏的时间（Shopify 合规 redact 或保留期到期），null 表示未脱敏
      */
     @Column(name = "pii_redacted_at")

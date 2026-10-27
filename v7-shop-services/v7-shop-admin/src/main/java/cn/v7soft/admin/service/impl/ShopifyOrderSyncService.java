@@ -37,6 +37,7 @@ import cn.v7soft.dao.entities.primary.Currency;
 import cn.v7soft.dao.entities.primary.Language;
 import cn.v7soft.dao.entities.primary.ProductSKU;
 import cn.v7soft.dao.entities.primary.SystemUser;
+import cn.v7soft.dao.entities.primary.TemporaryOrder;
 import cn.v7soft.dao.entities.primary.ThirdPartyWebsite;
 import cn.v7soft.dao.enums.BrowserPlatform;
 import cn.v7soft.dao.enums.CurrencyMode;
@@ -91,8 +92,9 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     /*
      * 单个 GraphQL 查询的请求成本上限为 1000 点（按 first 估算，嵌套连接相乘：对象 1 点，连接 2 + first × 节点成本）。
      * 订单页：每个行项目 ≈ 14 点（自身 1 + 单价 MoneyBag 3 + variant 1 + product 1 + 元字段 2+6），
-     * 每单 ≈ 111 点（订单 1 + 5 个 MoneyBag 15 + 访问摘要 3 + 附加属性 1 + 客户 3 + 地址 2 + 运费行 2+3×4 + 行项目 2+5×14），
-     * 8 单/页 ≈ 900 点。行项目超过 5 个的订单单独补查。
+     * 每单 ≈ 108 点（订单 1 + 5 个 MoneyBag 15 + 访问摘要 3 + 附加属性 1 + 地址 2 + 运费行 2+3×4 + 行项目 2+5×14），
+     * 8 单/页 ≈ 870 点。行项目超过 5 个的订单单独补查。
+     * 不查 customer：收货人取自收货/账单地址，邮箱电话取订单自身字段，因此无需 read_customers 权限。
      */
     static final int ORDER_PAGE_SIZE = 8;
     static final int LINE_ITEM_PAGE_SIZE = 5;
@@ -144,7 +146,6 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             + " email phone customerLocale note tags sourceName clientIp"
             + " customerJourneySummary { firstVisit { landingPage referrerUrl } lastVisit { landingPage referrerUrl } }"
             + " customAttributes { key value }"
-            + " customer { legacyResourceId firstName lastName defaultEmailAddress { emailAddress } defaultPhoneNumber { phoneNumber } }"
             + " shippingAddress " + ADDRESS
             + " billingAddress " + ADDRESS
             + " paymentGatewayNames"
@@ -207,7 +208,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         ShopifyGraphqlClient.GraphqlResult result = graphqlClient.execute(websiteDto, ORDERS_COUNT_QUERY, variables);
         JSONObject count = result.data() == null ? null : result.data().getJSONObject("ordersCount");
         if (count == null || count.getInt("count") == null) {
-            throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getId(), "Shopify ordersCount 返回为空");
+            throw ServiceResponseEnum.ERR_SHOPIFY_GRAPHQL.newException(String.valueOf(website.getId()), "Shopify ordersCount 返回为空");
         }
         return CountThirdPartyOrderResponse.builder()
                 .count(count.getInt("count"))
@@ -301,25 +302,29 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
     }
 
     @Override
-    public boolean importWebhookOrder(ThirdPartyWebsiteDto website, JSONObject orderPayload, boolean updateExisting) {
+    public boolean importWebhookOrder(ThirdPartyWebsiteDto website, JSONObject orderPayload) {
         String originOrderId = orderPayload.getStr("id");
-        boolean checkExisting = !updateExisting || website.isPublicApp();
-        boolean exists = checkExisting && StrUtil.isNotBlank(originOrderId)
-                && temporaryOrderService.findByOriginOrderId(originOrderId).isPresent();
-        if (exists && !updateExisting) {
-            return false;
-        }
-        if (!exists && website.isPublicApp() && createdBeforeBinding(orderPayload, bindingBoundary(website))) {
+        Optional<TemporaryOrder> existing = StrUtil.isBlank(originOrderId) ? Optional.empty()
+                : temporaryOrderService.findByOriginOrderId(originOrderId);
+        if (existing.isPresent()) {
+            // 原始订单 ID 已存在（orders/create 重复或晚于 orders/updated 到达）：按 ID 更新；乱序/重试的旧 payload 跳过
+            if (!isNewerThanLocal(orderPayload, existing.get())) {
+                log.info("Shopify webhook order skipped, not newer than local: websiteId={}, orderId={}, updatedAt={}",
+                        website.getId(), originOrderId, orderPayload.getStr("updated_at"));
+                return false;
+            }
+        } else if (website.isPublicApp() && createdBeforeBinding(orderPayload, bindingBoundary(website))) {
             // 公开应用只自动导入绑定之后创建的订单，绑定前的订单走手动同步（PRD §6）
             log.info("Shopify webhook order skipped, created before binding: websiteId={}, orderId={}", website.getId(), originOrderId);
             return false;
         }
-        return convertShopifyOrderToTemporary(website, website.getOwner(), orderPayload, updateExisting, new HashMap<>());
+        return convertShopifyOrderToTemporary(website, website.getOwner(), orderPayload, true, new HashMap<>());
     }
 
     /**
      * 对账（公开应用）。按 updated_at 升序拉取 updated_at >= since 的订单：
-     * 不存在的新建（公开应用跳过绑定前创建的订单），已存在且客户取消的标记取消，其余跳过。
+     * 不存在的新建（公开应用跳过绑定前创建的订单）；已存在且 Shopify updated_at 比本地记录新的按原始订单 ID 整单更新（含取消状态，
+     * 已转正式订单的按 TemporaryOrderService 规则只更新非审单字段），不比本地新的跳过。
      * <p>
      * 游标语义：返回值与落库的 lastReconcileTime 都是「已确认处理完的最大 updated_at」（东八区），
      * updated_at 不晚于它的订单本轮都已处理。每处理完一页落库一次（只前进不后退，起点为 website.lastReconcileTime）；
@@ -338,7 +343,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         String pageCursor = null;
         int pages = 0;
         int created = 0;
-        int cancelled = 0;
+        int updated = 0;
         int skipped = 0;
         int beforeBinding = 0;
         String stopReason = null;
@@ -353,16 +358,18 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                 for (JSONObject order : page.orders()) {
                     String originOrderId = order.getStr("id");
                     try {
-                        if (StrUtil.isBlank(originOrderId) || temporaryOrderService.findByOriginOrderId(originOrderId).isEmpty()) {
+                        Optional<TemporaryOrder> existing = StrUtil.isBlank(originOrderId) ? Optional.empty()
+                                : temporaryOrderService.findByOriginOrderId(originOrderId);
+                        if (existing.isEmpty()) {
                             if (createdBeforeBinding(order, boundary)) {
                                 beforeBinding++;
-                            } else if (convertShopifyOrderToTemporary(website, website.getOwner(), order, false, metafieldsCache)) {
+                            } else if (convertShopifyOrderToTemporary(website, website.getOwner(), order, true, metafieldsCache)) {
+                                // 允许更新：与 webhook 并发导入同一订单时按原始订单 ID 更新而不是报重复
                                 created++;
                             }
-                        } else if (isCustomerCancelled(order)) {
-                            if (temporaryOrderService.markCustomerCancelled(originOrderId)) {
-                                cancelled++;
-                            }
+                        } else if (isNewerThanLocal(order, existing.get())) {
+                            convertShopifyOrderToTemporary(website, website.getOwner(), order, true, metafieldsCache);
+                            updated++;
                         } else {
                             skipped++;
                         }
@@ -387,9 +394,17 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             stopReason = "page-failed";
         }
 
-        log.info("Shopify reconcile finished: websiteId={}, handle={}, since={}, cursor={}, pages={}, created={}, cancelled={}, skipped={}, beforeBinding={}, stopReason={}",
-                website.getId(), website.getHandle(), since, cursor, pages, created, cancelled, skipped, beforeBinding, stopReason);
+        log.info("Shopify reconcile finished: websiteId={}, handle={}, since={}, cursor={}, pages={}, created={}, updated={}, skipped={}, beforeBinding={}, stopReason={}",
+                website.getId(), website.getHandle(), since, cursor, pages, created, updated, skipped, beforeBinding, stopReason);
         return cursor;
+    }
+
+    /**
+     * Shopify 订单的 updated_at 是否比本地记录的新；本地没有记录（旧数据）或 Shopify 未返回时视为更新
+     */
+    private boolean isNewerThanLocal(JSONObject order, TemporaryOrder local) {
+        LocalDateTime remote = parseShopifyDateTime(order.getStr("updated_at"));
+        return remote == null || local.getOriginUpdatedAt() == null || remote.isAfter(local.getOriginUpdatedAt());
     }
 
     /**
@@ -503,7 +518,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
                                      Map<String, Map<String, String>> metafieldsCache) {
         JSONObject connection = executeOrders(website, ordersQuery(sortKey, ORDER_SELECTION), filter, cursor, ORDER_PAGE_SIZE);
         if (connection == null) {
-            throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getLongId(), "Shopify orders 返回为空");
+            throw ServiceResponseEnum.ERR_SHOPIFY_GRAPHQL.newException(String.valueOf(website.getLongId()), "Shopify orders 返回为空");
         }
         JSONArray nodes = ShopifyGraphqlOrderAdapter.connectionNodes(connection);
         List<JSONObject> orders = new ArrayList<>(nodes == null ? 0 : nodes.size());
@@ -552,7 +567,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             JSONObject order = result.data() == null ? null : result.data().getJSONObject("order");
             JSONObject more = order == null ? null : order.getJSONObject("lineItems");
             if (more == null) {
-                throw ServiceResponseEnum.ERR_TOKEN_INVALID.newException(website.getLongId(),
+                throw ServiceResponseEnum.ERR_SHOPIFY_GRAPHQL.newException(String.valueOf(website.getLongId()),
                         "Shopify 订单行项目补查返回为空: " + orderNode.getStr("id"));
             }
             JSONArray moreNodes = ShopifyGraphqlOrderAdapter.connectionNodes(more);
@@ -795,6 +810,7 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         request.setRiskInfo(riskInfo);
         request.setItemInfos(buildItemInfos(order, moneyKey, owner, productMetafieldsMap));
         request.setCustomerCancelled(isCustomerCancelled(order));
+        request.setOriginUpdatedAt(parseShopifyDateTime(order.getStr("updated_at")));
 
         // 归属人优先级：归属人账号(telephone) > 归属人(name) > 第三方商城归属(website owner)
         applyOwnerFromMetafields(request.getContextInfo(), order, productMetafieldsMap, owner.getCompanyId());
@@ -806,7 +822,6 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
         TemporaryOrderDeliveryInfoRequest info = new TemporaryOrderDeliveryInfoRequest();
         info.setRemark(StrUtil.blankToDefault(order.getStr("note"), ""));
 
-        JSONObject customer = order.getJSONObject("customer");
         JSONObject addr = order.getJSONObject("shipping_address");
         if (addr == null || addr.isEmpty()) {
             addr = order.getJSONObject("billing_address");
@@ -825,16 +840,13 @@ public class ShopifyOrderSyncService implements IShopifyOrderSyncService {
             if (StrUtil.isBlank(info.getProvince())) {
                 fillProvinceFromAddressLibrary(website, order, info, addr.getStr("country_code"));
             }
-        } else if (customer != null) {
-            info.setFirstName(StrUtil.blankToDefault(customer.getStr("first_name"), ""));
-            info.setLastName(StrUtil.blankToDefault(customer.getStr("last_name"), ""));
-            info.setPhone(StrUtil.blankToDefault(customer.getStr("phone"), ""));
+        }
+        // 地址没有电话时用订单联系电话
+        if (StrUtil.isBlank(info.getPhone())) {
+            info.setPhone(StrUtil.blankToDefault(order.getStr("phone"), ""));
         }
 
-        String email = customer != null ? customer.getStr("email") : null;
-        if (StrUtil.isBlank(email)) {
-            email = StrUtil.blankToDefault(order.getStr("email"), order.getStr("contact_email"));
-        }
+        String email = StrUtil.blankToDefault(order.getStr("email"), order.getStr("contact_email"));
         info.setEmail(StrUtil.blankToDefault(email, ""));
         info.setReceiveUpdates(false);
         info.setRemoteArea(false);

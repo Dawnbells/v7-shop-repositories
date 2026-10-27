@@ -92,6 +92,12 @@ public class OrderResponse extends IdResponse {
     @Schema(title = "建联备注")
     private String contactRemark;
 
+    @Schema(title = "来源平台已取消")
+    private Boolean platformCancelled;
+
+    @Schema(title = "来源平台取消同步时间")
+    private LocalDateTime platformCancelledAt;
+
     @Schema(title = "是否私域部门订单")
     private Boolean isPrivateDomain;
 
@@ -137,6 +143,8 @@ public class OrderResponse extends IdResponse {
                 .quantity(order.getQuantity())
                 .contacted(order.getContacted())
                 .contactRemark(order.getContactRemark())
+                .platformCancelled(Boolean.TRUE.equals(order.getPlatformCancelled()))
+                .platformCancelledAt(order.getPlatformCancelledAt())
                 .build();
     }
 }

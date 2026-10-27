@@ -183,7 +183,7 @@ class ShopifyGraphqlOrderAdapterTest {
         service.loadOrders(website(currencyMode), new SyncThirdPartyOrdersRequest(), "", SyncMode.MANUAL);
         // 订单查询内联返回元字段，不再单独查询商品
         verify(restTemplate, times(1)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
-        service.importWebhookOrder(website(currencyMode), resource("order-rest.json"), true);
+        service.importWebhookOrder(website(currencyMode), resource("order-rest.json"));
         // webhook 路径缓存未命中，用 nodes 一次批量查询两个商品
         verify(restTemplate, times(2)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
         Map<String, Object> variables = (Map<String, Object>) requests.getAllValues().get(1).getBody().get("variables");
@@ -209,7 +209,8 @@ class ShopifyGraphqlOrderAdapterTest {
         assertEquals("运单品名", fromGraphql.getItemInfos().get(0).getWaybillProductName());
         assertEquals("SKU-GIFT", fromGraphql.getItemInfos().get(1).getSkuCode());
         assertEquals("192.168.1.1", fromGraphql.getRiskInfo().getRemoteIp());
-        assertEquals("jane@example.com", fromGraphql.getDeliveryInfo().getEmail());
+        // 邮箱取订单自身的 email，不读取 customer（无需 read_customers）
+        assertEquals("order@example.com", fromGraphql.getDeliveryInfo().getEmail());
         assertEquals("https://test-shop.myshopify.com/products/test", fromGraphql.getFromUrl());
     }
 

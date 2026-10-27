@@ -54,12 +54,15 @@ class OrderServiceCancelTest {
 
         when(temporaryRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(temporary));
         when(orderRepository.saveAndFlush(staleOrder)).thenAnswer(invocation -> {
-            assertEquals(OrderStatus.CUSTOMER_CANCELLED, staleOrder.getOrderStatus());
+            assertTrue(staleOrder.getPlatformCancelled());
             return staleOrder;
         });
         Order saved = orderService.saveAndMarkReviewed(staleOrder, 1L);
 
-        assertEquals(OrderStatus.CUSTOMER_CANCELLED, saved.getOrderStatus());
+        // 平台取消只写新字段，审单状态保持待审核
+        assertTrue(saved.getPlatformCancelled());
+        assertNotNull(saved.getPlatformCancelledAt());
+        assertEquals(OrderStatus.PENDING, saved.getOrderStatus());
         var ordered = inOrder(temporaryRepository, orderRepository);
         ordered.verify(temporaryRepository).findByIdForUpdate(1L);
         ordered.verify(orderRepository, times(2)).saveAndFlush(staleOrder);
@@ -76,7 +79,8 @@ class OrderServiceCancelTest {
         when(orderRepository.findByOriginOrderIdForUpdate("origin-1")).thenReturn(Optional.of(staleOrder));
         assertTrue(temporaryService.markCustomerCancelled("origin-1"));
 
-        assertEquals(OrderStatus.CUSTOMER_CANCELLED, staleOrder.getOrderStatus());
+        assertTrue(staleOrder.getPlatformCancelled());
+        assertEquals(OrderStatus.PENDING, staleOrder.getOrderStatus());
         var ordered = inOrder(temporaryRepository, orderRepository);
         ordered.verify(temporaryRepository).findByOriginOrderIdForUpdate("origin-1");
         ordered.verify(orderRepository).findByOriginOrderIdForUpdate("origin-1");
@@ -89,7 +93,9 @@ class OrderServiceCancelTest {
         when(temporaryRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(temporary));
         when(orderRepository.saveAndFlush(staleOrder)).thenReturn(staleOrder);
 
-        assertEquals(OrderStatus.PENDING, orderService.saveAndMarkReviewed(staleOrder, 1L).getOrderStatus());
+        Order saved = orderService.saveAndMarkReviewed(staleOrder, 1L);
+        assertEquals(OrderStatus.PENDING, saved.getOrderStatus());
+        assertFalse(saved.getPlatformCancelled());
     }
 
     @Test
