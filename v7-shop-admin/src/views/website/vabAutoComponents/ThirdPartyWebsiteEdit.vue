@@ -51,14 +51,14 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button
-        v-if="isPublicApp && !form.id"
-        :loading="saveLoading"
-        type="primary"
-        @click="connect"
-      >
-        连接 Shopify
-      </el-button>
+      <template v-if="isPublicApp && !form.id">
+        <el-button :disabled="saveLoading" :loading="copyLoading" @click="copyLink">
+          复制链接
+        </el-button>
+        <el-button :disabled="copyLoading" :loading="saveLoading" type="primary" @click="connect">
+          连接 Shopify
+        </el-button>
+      </template>
       <el-button v-else :loading="saveLoading" type="primary" @click="save">保存</el-button>
     </template>
   </vab-dialog>
@@ -77,6 +77,7 @@ const formRef = ref<any>(null)
 const title = ref<string>('')
 const dialogFormVisible = ref<boolean>(false)
 const saveLoading = ref<boolean>(false)
+const copyLoading = ref<boolean>(false)
 // 表单默认值；关闭时整体还原，避免被 v-if 隐藏的字段残留上一次的值
 const defaultForm = () => ({
   id: undefined,
@@ -151,21 +152,50 @@ const save = () => {
   })
 }
 
-// 公开应用：获取授权地址后整页跳转到 Shopify 授权页
-const connect = () => {
-  formRef.value.validate(async (valid: any) => {
-    if (!valid) return
-    saveLoading.value = true
-    try {
-      const { data }: any = await shopifyInstallUrl({
-        nickName: form.nickName,
-        handle: form.handle,
-        currencyMode: form.currencyMode,
-      })
-      globalThis.location.href = data.authorizeUrl
-    } catch {
-      saveLoading.value = false
+// 公开应用：校验表单后获取 Shopify 授权地址，校验不通过或请求失败时返回空
+const fetchAuthorizeUrl = async (): Promise<string> => {
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return ''
+  const { data }: any = await shopifyInstallUrl({
+    nickName: form.nickName,
+    handle: form.handle,
+    currencyMode: form.currencyMode,
+  }).catch(() => ({}))
+  return data?.authorizeUrl || ''
+}
+
+// 在新标签页打开 Shopify 授权页，授权完成后由回调页完成绑定
+const connect = async () => {
+  saveLoading.value = true
+  try {
+    const authorizeUrl = await fetchAuthorizeUrl()
+    if (!authorizeUrl) return
+    const win = globalThis.open(authorizeUrl, '_blank')
+    if (!win) {
+      $baseMessage('新标签页被浏览器拦截，请允许弹出窗口或使用「复制链接」', 'warning', 'hey')
+      return
     }
-  })
+    win.opener = null
+    $baseMessage('已在新标签页打开 Shopify 授权页，完成授权后刷新列表即可', 'success', 'hey')
+    dialogFormVisible.value = false
+  } finally {
+    saveLoading.value = false
+  }
+}
+
+// 复制 Shopify 授权链接，便于在其他浏览器或已登录 Shopify 的环境中打开
+const { copy } = useClipboard({ legacy: true })
+const copyLink = async () => {
+  copyLoading.value = true
+  try {
+    const authorizeUrl = await fetchAuthorizeUrl()
+    if (!authorizeUrl) return
+    await copy(authorizeUrl)
+    $baseMessage('授权链接已复制', 'success', 'hey')
+  } catch {
+    $baseMessage('复制失败，请重试', 'error', 'hey')
+  } finally {
+    copyLoading.value = false
+  }
 }
 </script>
