@@ -2,6 +2,7 @@ package cn.v7soft.admin.controller;
 
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.stp.StpUtil;
+import cn.v7soft.admin.config.ShopifyAppProperties;
 import cn.v7soft.admin.controller.req.EditShopifyWebsiteRequest;
 import cn.v7soft.admin.controller.req.ShopifyBindRequest;
 import cn.v7soft.admin.controller.req.ShopifyInstallUrlRequest;
@@ -10,6 +11,8 @@ import cn.v7soft.admin.controller.resp.ThirdPartyWebsiteResponse;
 import cn.v7soft.admin.service.IShopifyInstallService;
 import cn.v7soft.admin.service.IShopifyInstallService.ErrorCode;
 import cn.v7soft.admin.service.IShopifyInstallService.InstallException;
+import cn.v7soft.admin.service.IShopifyInstallService.IntentCookie;
+import cn.v7soft.admin.service.IShopifyInstallService.Redirect;
 import cn.v7soft.admin.service.IShopifyOrderSyncService;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.core.exception.BaseException;
@@ -23,6 +26,7 @@ import cn.v7soft.dao.enums.WebsiteTypeEnum;
 import cn.v7soft.dao.tenant.TenantContext;
 import cn.v7soft.dao.tenant.WebsiteContext;
 import cn.v7soft.dao.utils.SaSessionUtil;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -56,28 +60,86 @@ class ShopifyAppControllerTest {
         private IShopifyInstallService installService;
         private MockMvc mockMvc;
 
+        private ShopifyAppProperties properties;
+
         @BeforeEach
         void setUp() {
             installService = mock(IShopifyInstallService.class);
-            mockMvc = MockMvcBuilders.standaloneSetup(new ShopifyAppController(installService)).build();
+            properties = new ShopifyAppProperties();
+            properties.setAppHost("https://shopify.vantasite.test");
+            mockMvc = MockMvcBuilders.standaloneSetup(new ShopifyAppController(installService, properties)).build();
         }
 
         @Test
-        @DisplayName("GET /landing：把原始查询参数交给服务，302 到服务返回的地址")
+        @DisplayName("GET /landing：把原始查询参数与意向 cookie 交给服务，302 到服务返回的地址，KEEP 时不写 cookie")
         void landingRedirects() throws Exception {
-            when(installService.handleLanding(anyMap())).thenReturn("/shopify-app/landing.html?status=connected");
+            when(installService.handleLanding(anyMap(), any()))
+                    .thenReturn(Redirect.of("/shopify-app/landing.html?status=connected"));
 
             mockMvc.perform(get("/shopify-app/landing").param("shop", "shop-a.myshopify.com").param("hmac", "abc")
-                            .param("timestamp", "1"))
+                            .param("timestamp", "1").cookie(new Cookie("v7_shopify_connect", "intent-1")))
                     .andExpect(status().isFound())
                     .andExpect(header().string("Location", "/shopify-app/landing.html?status=connected"))
-                    .andExpect(header().string("Cache-Control", "no-store"));
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(header().doesNotExist("Set-Cookie"));
 
             @SuppressWarnings("unchecked")
             ArgumentCaptor<Map<String, String[]>> params = ArgumentCaptor.forClass(Map.class);
-            verify(installService).handleLanding(params.capture());
+            verify(installService).handleLanding(params.capture(), eq("intent-1"));
             assertArrayEquals(new String[]{"shop-a.myshopify.com"}, params.getValue().get("shop"));
             assertArrayEquals(new String[]{"abc"}, params.getValue().get("hmac"));
+        }
+
+        @Test
+        @DisplayName("GET /landing：服务要求 CLEAR → 写过期的意向 cookie")
+        void landingClearsIntentCookie() throws Exception {
+            when(installService.handleLanding(anyMap(), any())).thenReturn(
+                    new Redirect("https://shop-a.myshopify.com/admin/oauth/authorize?x=1", IntentCookie.CLEAR, null));
+
+            String setCookie = mockMvc.perform(get("/shopify-app/landing").param("shop", "shop-a.myshopify.com"))
+                    .andExpect(status().isFound())
+                    .andReturn().getResponse().getHeader("Set-Cookie");
+
+            assertNotNull(setCookie);
+            assertTrue(setCookie.startsWith("v7_shopify_connect=;"), setCookie);
+            assertTrue(setCookie.contains("Max-Age=0"), setCookie);
+            assertTrue(setCookie.contains("Path=/shopify-app/"), setCookie);
+            verify(installService).handleLanding(anyMap(), isNull());
+        }
+
+        @Test
+        @DisplayName("GET /connect：服务要求 SET → 写 HttpOnly/Secure/Lax 意向 cookie，有效期取 connect-intent-ttl-minutes")
+        void connectSetsIntentCookie() throws Exception {
+            when(installService.handleConnect("intent-1")).thenReturn(
+                    new Redirect("https://apps.shopify.com/v7-order-connector", IntentCookie.SET, "intent-1"));
+
+            String setCookie = mockMvc.perform(get("/shopify-app/connect").param("intent", "intent-1"))
+                    .andExpect(status().isFound())
+                    .andExpect(header().string("Location", "https://apps.shopify.com/v7-order-connector"))
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andReturn().getResponse().getHeader("Set-Cookie");
+
+            assertNotNull(setCookie);
+            assertTrue(setCookie.startsWith("v7_shopify_connect=intent-1;"), setCookie);
+            assertTrue(setCookie.contains("Max-Age=3600"), setCookie);
+            assertTrue(setCookie.contains("Path=/shopify-app/"), setCookie);
+            assertTrue(setCookie.contains("HttpOnly"), setCookie);
+            assertTrue(setCookie.contains("Secure"), setCookie);
+            assertTrue(setCookie.contains("SameSite=Lax"), setCookie);
+        }
+
+        @Test
+        @DisplayName("GET /connect：app-host 为 http（本地调试）→ cookie 不带 Secure")
+        void connectCookieWithoutSecureOnHttp() throws Exception {
+            properties.setAppHost("http://localhost:8080");
+            when(installService.handleConnect(any())).thenReturn(
+                    new Redirect("/shopify-app/landing.html?status=install", IntentCookie.SET, "intent-1"));
+
+            String setCookie = mockMvc.perform(get("/shopify-app/connect").param("intent", "intent-1"))
+                    .andReturn().getResponse().getHeader("Set-Cookie");
+
+            assertNotNull(setCookie);
+            assertFalse(setCookie.contains("Secure"), setCookie);
         }
 
         @Test
@@ -200,11 +262,10 @@ class ShopifyAppControllerTest {
         @Test
         @DisplayName("install-url：新建校验 create，回跳 origin 取 Origin 头，顶级域名经 DomainUtils 解析")
         void installUrlForNewStore() {
-            when(installService.createAdminAuthorizeUrl(isNull(), eq("A"), eq("shop-a"), isNull(),
+            when(installService.createAdminInstallUrl(isNull(), eq("A"), isNull(),
                     eq("https://admin.example.com"), eq("example.com"), eq(7L), eq(501L))).thenReturn("https://auth");
             ShopifyInstallUrlRequest request = new ShopifyInstallUrlRequest();
             request.setNickName("A");
-            request.setHandle("shop-a");
             MockHttpServletRequest http = new MockHttpServletRequest();
             http.addHeader("Origin", "https://admin.example.com");
 
@@ -217,7 +278,7 @@ class ShopifyAppControllerTest {
         @Test
         @DisplayName("install-url：带 id 重连校验 update 权限；无 Origin 时取 Referer")
         void installUrlForReconnect() {
-            when(installService.createAdminAuthorizeUrl(eq(55L), any(), any(), any(),
+            when(installService.createAdminInstallUrl(eq(55L), any(), any(),
                     eq("https://admin.example.com/#/website/third-party"), eq("example.com"), eq(7L), eq(501L)))
                     .thenReturn("https://auth");
             ShopifyInstallUrlRequest request = new ShopifyInstallUrlRequest();

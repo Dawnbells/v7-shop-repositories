@@ -9,6 +9,8 @@ import cn.v7soft.admin.config.ShopifyAppProperties;
 import cn.v7soft.admin.service.ICompanyService;
 import cn.v7soft.admin.service.IShopifyInstallService.ErrorCode;
 import cn.v7soft.admin.service.IShopifyInstallService.InstallException;
+import cn.v7soft.admin.service.IShopifyInstallService.IntentCookie;
+import cn.v7soft.admin.service.IShopifyInstallService.Redirect;
 import cn.v7soft.admin.service.IThirdPartyWebsiteService;
 import cn.v7soft.admin.service.dto.ShopifyInstallTicket;
 import cn.v7soft.admin.service.dto.ShopifyInstallTicket.TicketType;
@@ -49,6 +51,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -135,30 +138,21 @@ class ShopifyInstallServiceTest {
     // ==================== install-url ====================
 
     @Nested
-    @DisplayName("createAdminAuthorizeUrl")
-    class AdminAuthorizeUrl {
+    @DisplayName("createAdminInstallUrl")
+    class AdminInstallUrl {
 
         @Test
-        @DisplayName("规范化 handle，签发 ADMIN 票据，返回含 client_id/scope/redirect_uri/state 的授权 URL")
-        void shouldBuildAuthorizeUrl() {
-            String url = service.createAdminAuthorizeUrl(null, "店铺A", "https://Shop-A.myshopify.com",
-                    CurrencyMode.PRESENTMENT_MONEY, "https://admin.example.com/some/path?x=1", "example.com", COMPANY_ID, USER_ID);
+        @DisplayName("新增：签发不含 handle 的 INTENT 票据（意向 TTL），返回 {app-host}/shopify-app/connect?intent=")
+        void shouldCreateConnectIntent() {
+            String url = service.createAdminInstallUrl(null, "店铺A", CurrencyMode.PRESENTMENT_MONEY,
+                    "https://admin.example.com/some/path?x=1", "example.com", COMPANY_ID, USER_ID);
 
-            URI uri = URI.create(url);
-            assertEquals("https", uri.getScheme());
-            assertEquals("shop-a.myshopify.com", uri.getHost());
-            assertEquals("/admin/oauth/authorize", uri.getPath());
-            Map<String, String> query = parseQuery(uri.getRawQuery());
-            assertEquals(CLIENT_ID, query.get("client_id"));
-            assertEquals("read_orders,read_products", query.get("scope"));
-            assertEquals(APP_HOST + "/shopify-app/oauth/callback", query.get("redirect_uri"));
-            assertEquals(NONCE, query.get("state"));
-
+            assertEquals(APP_HOST + "/shopify-app/connect?intent=" + NONCE, url);
             ArgumentCaptor<ShopifyInstallTicket> ticket = ArgumentCaptor.forClass(ShopifyInstallTicket.class);
-            verify(ticketStore).create(ticket.capture(), eq(Duration.ofMinutes(10)));
+            verify(ticketStore).create(ticket.capture(), eq(Duration.ofMinutes(60)));
             ShopifyInstallTicket saved = ticket.getValue();
-            assertEquals(TicketType.ADMIN, saved.type());
-            assertEquals("shop-a", saved.handle());
+            assertEquals(TicketType.INTENT, saved.type());
+            assertNull(saved.handle());
             assertEquals(COMPANY_ID, saved.companyId());
             assertEquals(USER_ID, saved.userId());
             assertEquals("店铺A", saved.nickName());
@@ -166,72 +160,43 @@ class ShopifyInstallServiceTest {
             assertEquals(RETURN_ORIGIN, saved.returnOrigin());
             assertNull(saved.websiteId());
             assertNull(saved.pendingToken());
+            verifyNoInteractions(websiteStore);
         }
 
         @Test
-        @DisplayName("名称与币种缺省：名称取 handle，币种 SHOP_MONEY；回跳 origin 保留端口")
+        @DisplayName("新增缺省：名称留空（绑定后取 Shopify 店铺名），币种 SHOP_MONEY；回跳 origin 保留端口")
         void shouldDefaultNameAndCurrency() {
-            service.createAdminAuthorizeUrl(null, " ", "shop-a", null, "http://admin.example.com:5200", "example.com",
+            service.createAdminInstallUrl(null, " ", null, "http://admin.example.com:5200", "example.com",
                     COMPANY_ID, USER_ID);
 
             ArgumentCaptor<ShopifyInstallTicket> ticket = ArgumentCaptor.forClass(ShopifyInstallTicket.class);
             verify(ticketStore).create(ticket.capture(), any());
-            assertEquals("shop-a", ticket.getValue().nickName());
+            assertNull(ticket.getValue().nickName());
             assertEquals(CurrencyMode.SHOP_MONEY, ticket.getValue().currencyMode());
             assertEquals("http://admin.example.com:5200", ticket.getValue().returnOrigin());
         }
 
         @Test
-        @DisplayName("handle 被其他租户占用 → Handle已被占用，不签发票据")
-        void shouldRejectHandleOfOtherTenant() {
-            when(websiteStore.findByShopDomain("shop-a.myshopify.com"))
-                    .thenReturn(Optional.of(publicAppWebsite(1L, OTHER_COMPANY_ID)));
-
-            BaseException e = assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(null, "A", "shop-a",
-                    null, RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID));
-            assertEquals(ClientResponseEnum.PARAMETER_ILLEGAL, e.getResponseEnum());
-            assertTrue(e.getMessage().contains("Handle已被占用"));
-            verify(ticketStore, never()).create(any(), any());
-        }
-
-        @Test
-        @DisplayName("当前租户的凭证模式记录占用 handle（含 accessMode=null 存量）→ Handle已被占用")
-        void shouldRejectHandleOfCredentialsRecord() {
-            ThirdPartyWebsite legacy = publicAppWebsite(1L, COMPANY_ID);
-            legacy.setAccessMode(null);
-            when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(legacy));
-
-            BaseException e = assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(null, "A", "shop-a",
-                    null, RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID));
-            assertTrue(e.getMessage().contains("Handle已被占用"));
-            verify(ticketStore, never()).create(any(), any());
-        }
-
-        @Test
-        @DisplayName("当前租户已有公开应用记录 → 视为重连，票据带 websiteId")
-        void shouldTreatExistingPublicAppAsReconnect() {
-            when(websiteStore.findByShopDomain("shop-a.myshopify.com"))
-                    .thenReturn(Optional.of(publicAppWebsite(55L, COMPANY_ID)));
-
-            service.createAdminAuthorizeUrl(null, "A", "shop-a", null, RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID);
-
-            ArgumentCaptor<ShopifyInstallTicket> ticket = ArgumentCaptor.forClass(ShopifyInstallTicket.class);
-            verify(ticketStore).create(ticket.capture(), any());
-            assertEquals(55L, ticket.getValue().websiteId());
-        }
-
-        @Test
-        @DisplayName("带 id 重连：handle 可空，名称与币种沿用原记录")
+        @DisplayName("带 id 重连：handle 取自原记录，名称与币种沿用原记录，返回授权 URL")
         void shouldReconnectById() {
             ThirdPartyWebsite record = publicAppWebsite(55L, COMPANY_ID);
             record.setNickName("原名称");
             record.setCurrencyMode(CurrencyMode.PRESENTMENT_MONEY);
             when(websiteService.getById(55L)).thenReturn(record);
 
-            service.createAdminAuthorizeUrl(55L, null, null, null, RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID);
+            String url = service.createAdminInstallUrl(55L, null, null, RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID);
 
+            URI uri = URI.create(url);
+            assertEquals("shop-a.myshopify.com", uri.getHost());
+            assertEquals("/admin/oauth/authorize", uri.getPath());
+            Map<String, String> query = parseQuery(uri.getRawQuery());
+            assertEquals(CLIENT_ID, query.get("client_id"));
+            assertEquals("read_orders,read_products", query.get("scope"));
+            assertEquals(APP_HOST + "/shopify-app/oauth/callback", query.get("redirect_uri"));
+            assertEquals(NONCE, query.get("state"));
             ArgumentCaptor<ShopifyInstallTicket> ticket = ArgumentCaptor.forClass(ShopifyInstallTicket.class);
-            verify(ticketStore).create(ticket.capture(), any());
+            verify(ticketStore).create(ticket.capture(), eq(Duration.ofMinutes(10)));
+            assertEquals(TicketType.ADMIN, ticket.getValue().type());
             assertEquals(55L, ticket.getValue().websiteId());
             assertEquals("shop-a", ticket.getValue().handle());
             assertEquals("原名称", ticket.getValue().nickName());
@@ -239,13 +204,16 @@ class ShopifyInstallServiceTest {
         }
 
         @Test
-        @DisplayName("带 id 重连凭证模式记录 → 拒绝")
+        @DisplayName("带 id 重连凭证模式或其他租户记录 → 拒绝")
         void shouldRejectReconnectOfCredentialsRecord() {
             ThirdPartyWebsite record = publicAppWebsite(55L, COMPANY_ID);
             record.setAccessMode(ShopifyAccessMode.CREDENTIALS);
             when(websiteService.getById(55L)).thenReturn(record);
+            when(websiteService.getById(56L)).thenReturn(publicAppWebsite(56L, OTHER_COMPANY_ID));
 
-            assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(55L, null, null, null,
+            assertThrows(BaseException.class, () -> service.createAdminInstallUrl(55L, null, null,
+                    RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID));
+            assertThrows(BaseException.class, () -> service.createAdminInstallUrl(56L, null, null,
                     RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID));
             verify(ticketStore, never()).create(any(), any());
         }
@@ -255,22 +223,14 @@ class ShopifyInstallServiceTest {
         void shouldRejectOriginOfOtherTenant() {
             when(companyService.identityCached("other.com")).thenReturn(company(OTHER_COMPANY_ID));
 
-            assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(null, "A", "shop-a", null,
+            assertThrows(BaseException.class, () -> service.createAdminInstallUrl(null, "A", null,
                     "https://admin.other.com", "other.com", COMPANY_ID, USER_ID));
-            assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(null, "A", "shop-a", null,
+            assertThrows(BaseException.class, () -> service.createAdminInstallUrl(null, "A", null,
                     "https://admin.unknown.com", "unknown.com", COMPANY_ID, USER_ID));
-            assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(null, "A", "shop-a", null,
+            assertThrows(BaseException.class, () -> service.createAdminInstallUrl(null, "A", null,
                     null, "example.com", COMPANY_ID, USER_ID));
-            assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(null, "A", "shop-a", null,
+            assertThrows(BaseException.class, () -> service.createAdminInstallUrl(null, "A", null,
                     "javascript:alert(1)", "example.com", COMPANY_ID, USER_ID));
-            verify(ticketStore, never()).create(any(), any());
-        }
-
-        @Test
-        @DisplayName("非法 handle → PARAMETER_ILLEGAL")
-        void shouldRejectInvalidHandle() {
-            assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(null, "A", "https://evil.com",
-                    null, RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID));
             verify(ticketStore, never()).create(any(), any());
         }
 
@@ -279,9 +239,55 @@ class ShopifyInstallServiceTest {
         void shouldFailWhenNotConfigured() {
             properties.setClientSecret("");
 
-            BaseException e = assertThrows(BaseException.class, () -> service.createAdminAuthorizeUrl(null, "A",
-                    "shop-a", null, RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID));
+            BaseException e = assertThrows(BaseException.class, () -> service.createAdminInstallUrl(null, "A",
+                    null, RETURN_ORIGIN, "example.com", COMPANY_ID, USER_ID));
             assertEquals(ServiceResponseEnum.ERR_SHOPIFY_APP_NOT_CONFIGURED, e.getResponseEnum());
+        }
+    }
+
+    // ==================== connect ====================
+
+    @Nested
+    @DisplayName("handleConnect")
+    class Connect {
+
+        @Test
+        @DisplayName("意向有效 + 已配置 install-url → 写 cookie 并跳 App Store 安装页")
+        void shouldRememberIntentAndGoToAppStore() {
+            properties.setInstallUrl(" https://apps.shopify.com/v7-order-connector ");
+            when(ticketStore.get(NONCE)).thenReturn(Optional.of(intentTicket(null)));
+
+            Redirect redirect = service.handleConnect(NONCE);
+
+            assertEquals("https://apps.shopify.com/v7-order-connector", redirect.location());
+            assertEquals(IntentCookie.SET, redirect.intentCookie());
+            assertEquals(NONCE, redirect.intent());
+            verify(ticketStore, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("意向有效 + 未配置 install-url（上架前）→ 写 cookie 并跳说明页")
+        void shouldShowInstallInstructionsBeforeListing() {
+            when(ticketStore.get(NONCE)).thenReturn(Optional.of(intentTicket(null)));
+
+            Redirect redirect = service.handleConnect(NONCE);
+
+            assertEquals("/shopify-app/landing.html?status=install", redirect.location());
+            assertEquals(IntentCookie.SET, redirect.intentCookie());
+        }
+
+        @Test
+        @DisplayName("意向不存在 / 已确定店铺 / 非 INTENT 票据 / 缺参数 → TICKET_EXPIRED 并清 cookie")
+        void shouldRejectInvalidIntent() {
+            when(ticketStore.get(NONCE)).thenReturn(Optional.empty(), Optional.of(intentTicket("shop-a")),
+                    Optional.of(adminTicket("shop-a")));
+
+            for (String intent : Arrays.asList(NONCE, NONCE, NONCE, null)) {
+                Redirect redirect = service.handleConnect(intent);
+                assertEquals("/shopify-app/landing.html?status=error&code=TICKET_EXPIRED", redirect.location());
+                assertEquals(IntentCookie.CLEAR, redirect.intentCookie());
+                assertNull(redirect.intent());
+            }
         }
     }
 
@@ -297,7 +303,7 @@ class ShopifyInstallServiceTest {
             Map<String, String[]> params = signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"));
             params.put("hmac", new String[]{"0".repeat(64)});
 
-            assertEquals("/shopify-app/landing.html?status=invalid", service.handleLanding(params));
+            assertEquals("/shopify-app/landing.html?status=invalid", landing(params));
             verify(ticketStore, never()).create(any(), any());
         }
 
@@ -306,26 +312,135 @@ class ShopifyInstallServiceTest {
         void shouldRejectInvalidShop() {
             Map<String, String[]> params = signed(Map.of("shop", "evil.com", "timestamp", "1700000000"));
 
-            assertEquals("/shopify-app/landing.html?status=invalid", service.handleLanding(params));
+            assertEquals("/shopify-app/landing.html?status=invalid", landing(params));
             verify(ticketStore, never()).create(any(), any());
         }
 
         @Test
-        @DisplayName("已连接（PUBLIC_APP + AUTHED）→ status=connected")
-        void shouldShowConnected() {
+        @DisplayName("已连接（PUBLIC_APP + AUTHED）→ 跳所属租户总后台 admin.{domain}")
+        void shouldRedirectConnectedToTenantAdmin() {
+            Company company = company(COMPANY_ID);
+            company.setDomain("Example.com");
+            when(companyService.companyCached(COMPANY_ID)).thenReturn(company);
             when(websiteStore.findByShopDomain("shop-a.myshopify.com"))
                     .thenReturn(Optional.of(publicAppWebsite(1L, COMPANY_ID)));
 
-            String location = service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")));
+            String location = landing(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")));
 
-            assertEquals("/shopify-app/landing.html?status=connected", location);
+            assertEquals("https://admin.example.com/", location);
             verify(ticketStore, never()).create(any(), any());
+        }
+
+        @Test
+        @DisplayName("已连接但租户没有合法域名 → status=connected")
+        void shouldShowConnected() {
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com"))
+                    .thenReturn(Optional.of(publicAppWebsite(1L, COMPANY_ID)));
+            Company badDomain = company(OTHER_COMPANY_ID);
+            badDomain.setDomain("evil.com/@x");
+            when(companyService.companyCached(OTHER_COMPANY_ID)).thenReturn(badDomain);
+
+            assertEquals("/shopify-app/landing.html?status=connected",
+                    landing(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"))));
+
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com"))
+                    .thenReturn(Optional.of(publicAppWebsite(1L, OTHER_COMPANY_ID)));
+            assertEquals("/shopify-app/landing.html?status=connected",
+                    landing(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"))));
+            verify(ticketStore, never()).create(any(), any());
+        }
+
+        @Test
+        @DisplayName("有连接意向 → 以意向的租户签发带 handle 的 INTENT 票据，删除意向并清 cookie")
+        void shouldStartIntentInstall() {
+            String intentNonce = "b".repeat(64);
+            when(ticketStore.get(intentNonce)).thenReturn(Optional.of(intentTicket(null).withNonce(intentNonce)));
+
+            Redirect redirect = service.handleLanding(
+                    signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")), intentNonce);
+
+            URI uri = URI.create(redirect.location());
+            assertEquals("shop-a.myshopify.com", uri.getHost());
+            assertEquals(NONCE, parseQuery(uri.getRawQuery()).get("state"));
+            assertEquals(IntentCookie.CLEAR, redirect.intentCookie());
+            ArgumentCaptor<ShopifyInstallTicket> ticket = ArgumentCaptor.forClass(ShopifyInstallTicket.class);
+            verify(ticketStore).create(ticket.capture(), eq(Duration.ofMinutes(10)));
+            ShopifyInstallTicket saved = ticket.getValue();
+            assertEquals(TicketType.INTENT, saved.type());
+            assertEquals("shop-a", saved.handle());
+            assertEquals(COMPANY_ID, saved.companyId());
+            assertEquals(USER_ID, saved.userId());
+            assertEquals("店铺A", saved.nickName());
+            assertEquals(CurrencyMode.PRESENTMENT_MONEY, saved.currencyMode());
+            assertEquals(RETURN_ORIGIN, saved.returnOrigin());
+            verify(ticketStore).delete(intentNonce);
+        }
+
+        @Test
+        @DisplayName("有连接意向 + 本租户已断开的记录 → 按重连签发，票据带 websiteId")
+        void shouldReconnectOwnRecordWithIntent() {
+            String intentNonce = "b".repeat(64);
+            ThirdPartyWebsite website = publicAppWebsite(55L, COMPANY_ID);
+            website.setAuthStatus(ThirdPartyAuthStatusEnum.DISCONNECTED);
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(website));
+            when(ticketStore.get(intentNonce)).thenReturn(Optional.of(intentTicket(null).withNonce(intentNonce)));
+
+            service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")), intentNonce);
+
+            ArgumentCaptor<ShopifyInstallTicket> ticket = ArgumentCaptor.forClass(ShopifyInstallTicket.class);
+            verify(ticketStore).create(ticket.capture(), any());
+            assertEquals(TicketType.INTENT, ticket.getValue().type());
+            assertEquals(55L, ticket.getValue().websiteId());
+        }
+
+        @Test
+        @DisplayName("有连接意向 + 其他租户的断开记录占用 handle → HANDLE_TAKEN，意向保留")
+        void shouldRejectIntentForHandleOfOtherTenant() {
+            String intentNonce = "b".repeat(64);
+            ThirdPartyWebsite website = publicAppWebsite(55L, OTHER_COMPANY_ID);
+            website.setAuthStatus(ThirdPartyAuthStatusEnum.DISCONNECTED);
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(website));
+            when(ticketStore.get(intentNonce)).thenReturn(Optional.of(intentTicket(null).withNonce(intentNonce)));
+
+            Redirect redirect = service.handleLanding(
+                    signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")), intentNonce);
+
+            assertEquals("/shopify-app/landing.html?status=error&code=HANDLE_TAKEN", redirect.location());
+            assertEquals(IntentCookie.KEEP, redirect.intentCookie());
+            verify(ticketStore, never()).create(any(), any());
+            verify(ticketStore, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("cookie 中的意向已过期 → 按 STORE 流程签发，并清 cookie")
+        void shouldFallBackToStoreWhenIntentExpired() {
+            String intentNonce = "b".repeat(64);
+            when(ticketStore.get(intentNonce)).thenReturn(Optional.empty());
+
+            Redirect redirect = service.handleLanding(
+                    signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")), intentNonce);
+
+            assertTrue(redirect.location().startsWith("https://shop-a.myshopify.com/admin/oauth/authorize?"));
+            assertEquals(IntentCookie.CLEAR, redirect.intentCookie());
+            ArgumentCaptor<ShopifyInstallTicket> ticket = ArgumentCaptor.forClass(ShopifyInstallTicket.class);
+            verify(ticketStore).create(ticket.capture(), any());
+            assertEquals(TicketType.STORE, ticket.getValue().type());
+        }
+
+        @Test
+        @DisplayName("没有意向 cookie → cookie 不变")
+        void shouldKeepCookieWithoutIntent() {
+            Redirect redirect = service.handleLanding(
+                    signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")), null);
+
+            assertEquals(IntentCookie.KEEP, redirect.intentCookie());
+            verify(ticketStore, never()).get(any());
         }
 
         @Test
         @DisplayName("未连接 → 签发 STORE 票据（无租户）并跳转授权 URL")
         void shouldIssueStoreTicket() {
-            String location = service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com",
+            String location = landing(signed(Map.of("shop", "shop-a.myshopify.com",
                     "timestamp", "1700000000", "host", "YWRtaW4uc2hvcGlmeS5jb20vc3RvcmUvc2hvcC1h")));
 
             URI uri = URI.create(location);
@@ -346,7 +461,7 @@ class ShopifyInstallServiceTest {
             website.setAuthStatus(ThirdPartyAuthStatusEnum.DISCONNECTED);
             when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(website));
 
-            String location = service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")));
+            String location = landing(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")));
 
             assertTrue(location.startsWith("https://shop-a.myshopify.com/admin/oauth/authorize?"));
         }
@@ -363,7 +478,7 @@ class ShopifyInstallServiceTest {
 
             for (int i = 0; i < 2; i++) {
                 assertEquals("/shopify-app/landing.html?status=error&code=HANDLE_TAKEN",
-                        service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"))));
+                        landing(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"))));
             }
             verify(ticketStore, never()).create(any(), any());
             verifyNoInteractions(tokenService);
@@ -377,7 +492,7 @@ class ShopifyInstallServiceTest {
             when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(shopline));
 
             assertEquals("/shopify-app/landing.html?status=error&code=HANDLE_TAKEN",
-                    service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"))));
+                    landing(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000"))));
             verify(ticketStore, never()).create(any(), any());
         }
 
@@ -388,7 +503,7 @@ class ShopifyInstallServiceTest {
             website.setAuthStatus(ThirdPartyAuthStatusEnum.ERROR);
             when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(website));
 
-            String location = service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")));
+            String location = landing(signed(Map.of("shop", "shop-a.myshopify.com", "timestamp", "1700000000")));
 
             assertTrue(location.startsWith("https://shop-a.myshopify.com/admin/oauth/authorize?"));
             verify(ticketStore).create(any(), any());
@@ -400,7 +515,7 @@ class ShopifyInstallServiceTest {
             properties.setClientId(null);
 
             assertEquals("/shopify-app/landing.html?status=error&code=APP_NOT_CONFIGURED",
-                    service.handleLanding(signed(Map.of("shop", "shop-a.myshopify.com"))));
+                    landing(signed(Map.of("shop", "shop-a.myshopify.com"))));
         }
     }
 
@@ -623,6 +738,55 @@ class ShopifyInstallServiceTest {
         }
 
         @Test
+        @DisplayName("INTENT 成功：以意向的租户写库，删票据，结果显示在落地页 status=linked（不跳后台）")
+        void shouldLinkStoreOnIntentSuccess() {
+            when(ticketStore.get(NONCE)).thenReturn(Optional.of(intentTicket("shop-a")));
+            when(tokenService.exchangeAuthorizationCode("shop-a", AUTH_CODE)).thenReturn(token());
+            AtomicReference<Long> tenantDuringSave = new AtomicReference<>();
+            when(websiteService.save(any(ThirdPartyWebsite.class))).thenAnswer(inv -> {
+                tenantDuringSave.set(TenantContext.getCurrentTenant());
+                ThirdPartyWebsite w = inv.getArgument(0);
+                w.setId(900L);
+                return w;
+            });
+
+            String location = service.handleCallback(callbackParams("shop-a"));
+
+            assertEquals("/shopify-app/landing.html?status=linked&handle=shop-a", location);
+            assertEquals(COMPANY_ID, tenantDuringSave.get());
+            assertNull(TenantContext.getCurrentTenant());
+            ArgumentCaptor<ThirdPartyWebsite> captor = ArgumentCaptor.forClass(ThirdPartyWebsite.class);
+            verify(websiteService).save(captor.capture());
+            assertEquals(COMPANY_ID, captor.getValue().getCompanyId());
+            assertEquals(USER_ID, captor.getValue().getOwner().getId());
+            assertEquals("店铺A", captor.getValue().getNickName());
+            verify(ticketStore).delete(NONCE);
+        }
+
+        @Test
+        @DisplayName("INTENT：handle 属于其他租户 → 落地页 HANDLE_TAKEN（不回后台）")
+        void shouldReportIntentHandleTaken() {
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com"))
+                    .thenReturn(Optional.of(publicAppWebsite(55L, OTHER_COMPANY_ID)));
+            when(ticketStore.get(NONCE)).thenReturn(Optional.of(intentTicket("shop-a")));
+            when(tokenService.exchangeAuthorizationCode("shop-a", AUTH_CODE)).thenReturn(token());
+
+            assertEquals("/shopify-app/landing.html?status=error&code=HANDLE_TAKEN",
+                    service.handleCallback(callbackParams("shop-a")));
+            verify(websiteService, never()).save(any());
+            verify(ticketStore).delete(NONCE);
+        }
+
+        @Test
+        @DisplayName("尚未确定店铺的意向被当作 state → INVALID_STATE，不换 token")
+        void shouldRejectUnresolvedIntentAsState() {
+            when(ticketStore.get(NONCE)).thenReturn(Optional.of(intentTicket(null)));
+
+            assertEquals("/shopify-app/landing.html?status=invalid", service.handleCallback(callbackParams("shop-a")));
+            verifyNoInteractions(tokenService);
+        }
+
+        @Test
         @DisplayName("STORE 成功：token 写入票据并续期为 pending TTL，302 landing.html?ticket=")
         void shouldStorePendingTokenOnStoreSuccess() {
             when(ticketStore.get(NONCE)).thenReturn(Optional.of(storeTicket("shop-a", null)));
@@ -751,6 +915,50 @@ class ShopifyInstallServiceTest {
         }
     }
 
+    // ==================== 店铺名默认值 ====================
+
+    @Nested
+    @DisplayName("upsert 店铺名")
+    class ShopName {
+
+        @Test
+        @DisplayName("新建且未填名称 → 用 Shopify 店铺名覆盖默认的 handle")
+        void shouldUseShopifyShopName() {
+            JSONObject data = JSONUtil.parseObj("{\"shop\":{\"name\":\"  My Store  \"}}");
+            when(graphqlClient.execute(any(ThirdPartyWebsiteDto.class), eq(ShopifyInstallService.SHOP_NAME_QUERY)))
+                    .thenReturn(new ShopifyGraphqlClient.GraphqlResult(data, null, null));
+
+            ThirdPartyWebsite saved = service.upsert("shop-a", COMPANY_ID, USER_ID, " ", null, token());
+
+            assertEquals("My Store", saved.getNickName());
+            verify(websiteService, times(2)).save(any(ThirdPartyWebsite.class));
+        }
+
+        @Test
+        @DisplayName("查询失败或返回空 → 保留 handle，不影响写库结果")
+        void shouldKeepHandleWhenLookupFails() {
+            when(graphqlClient.execute(any(ThirdPartyWebsiteDto.class), eq(ShopifyInstallService.SHOP_NAME_QUERY)))
+                    .thenThrow(new IllegalStateException("boom " + ACCESS_TOKEN))
+                    .thenReturn(null);
+
+            assertEquals("shop-a", service.upsert("shop-a", COMPANY_ID, USER_ID, null, null, token()).getNickName());
+            assertEquals("shop-a", service.upsert("shop-a", COMPANY_ID, USER_ID, null, null, token()).getNickName());
+            verify(websiteService, times(2)).save(any(ThirdPartyWebsite.class));
+        }
+
+        @Test
+        @DisplayName("填了名称或恢复已有记录 → 不查询店铺名")
+        void shouldSkipLookupWhenNamedOrRestored() {
+            service.upsert("shop-a", COMPANY_ID, USER_ID, "A", null, token());
+            ThirdPartyWebsite existing = publicAppWebsite(55L, COMPANY_ID);
+            existing.setAuthStatus(ThirdPartyAuthStatusEnum.DISCONNECTED);
+            when(websiteStore.findByShopDomain("shop-a.myshopify.com")).thenReturn(Optional.of(existing));
+            service.upsert("shop-a", COMPANY_ID, USER_ID, null, null, token());
+
+            verifyNoInteractions(graphqlClient);
+        }
+    }
+
     // ==================== webhook 注册 ====================
 
     @Nested
@@ -847,6 +1055,18 @@ class ShopifyInstallServiceTest {
     private static ShopifyInstallTicket adminTicket(String handle) {
         return new ShopifyInstallTicket(NONCE, TicketType.ADMIN, handle, COMPANY_ID, USER_ID, "店铺A",
                 CurrencyMode.PRESENTMENT_MONEY, null, RETURN_ORIGIN, null, LocalDateTime.now());
+    }
+
+    /**
+     * @param handle null 表示后台刚签发、尚未确定店铺的意向
+     */
+    private static ShopifyInstallTicket intentTicket(String handle) {
+        return new ShopifyInstallTicket(NONCE, TicketType.INTENT, handle, COMPANY_ID, USER_ID, "店铺A",
+                CurrencyMode.PRESENTMENT_MONEY, null, RETURN_ORIGIN, null, LocalDateTime.now());
+    }
+
+    private String landing(Map<String, String[]> params) {
+        return service.handleLanding(params, null).location();
     }
 
     private static ShopifyInstallTicket storeTicket(String handle, ShopifyTokenService.ExchangedToken pendingToken) {

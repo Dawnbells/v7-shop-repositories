@@ -216,7 +216,6 @@ const handleReconnect = async (row: any) => {
     const { data }: any = await shopifyInstallUrl({
       id: row.id,
       nickName: row.nickName,
-      handle: row.handle,
       currencyMode: row.currencyMode || 'SHOP_MONEY',
     })
     globalThis.location.href = data.authorizeUrl

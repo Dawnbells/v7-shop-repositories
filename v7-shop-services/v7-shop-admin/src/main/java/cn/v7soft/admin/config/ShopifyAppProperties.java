@@ -59,6 +59,17 @@ public class ShopifyAppProperties {
     private int pendingTicketTtlMinutes = 30;
 
     /**
+     * 后台「连接 Shopify」意向（及其 cookie）的有效期（分钟），需覆盖把链接转给店主安装的时间
+     */
+    private int connectIntentTtlMinutes = 60;
+
+    /**
+     * 应用在 Shopify App Store 的安装页，例如 https://apps.shopify.com/xxx；
+     * 为空时（上架批准前）中转地址跳到说明页，提示商家从 Shopify 后台打开应用
+     */
+    private String installUrl;
+
+    /**
      * 公开应用对账间隔（分钟）
      */
     private int reconcileIntervalMinutes = 15;

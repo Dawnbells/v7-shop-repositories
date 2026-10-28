@@ -105,9 +105,9 @@ public class ShopifyWebsiteController {
             returnOrigin = header(httpRequest, "Referer");
         }
         String topLevelDomain = DomainUtils.getOriginTopLevelDomain(httpRequest);
-        String authorizeUrl = installService.createAdminAuthorizeUrl(
+        String authorizeUrl = installService.createAdminInstallUrl(
                 request.hasId() ? request.getIdLongValue() : null,
-                request.getNickName(), request.getHandle(), request.getCurrencyMode(),
+                request.getNickName(), request.getCurrencyMode(),
                 returnOrigin, topLevelDomain, TenantContext.getCurrentTenant(), SaSessionUtil.getLoginUser().getLongId());
         return new ShopifyInstallUrlResponse(authorizeUrl);
     }
