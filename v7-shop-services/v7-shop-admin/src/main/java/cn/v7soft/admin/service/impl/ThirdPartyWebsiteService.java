@@ -83,6 +83,10 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     private static final Pattern LOCALE_PATTERN = Pattern.compile("([a-z]{2})[_-]([A-Z]{2})");
     private static final String STORE_FROZEN_MESSAGE = "店铺已封号";
     private static final DateTimeFormatter ISO_OFFSET = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+    /** 删除时 handle 后缀分隔符，真实 handle 不含 '#'，不会与之冲突 */
+    private static final String DELETED_HANDLE_SEPARATOR = "#DELETED#";
+    /** 删除时写入的 token 占位前缀（token 列 NOT NULL + 唯一） */
+    private static final String DELETED_TOKEN_PREFIX = "DELETED:";
 
     private final RestTemplate restTemplate;
     private final AsyncTaskRepository asyncTaskRepository;
@@ -134,6 +138,30 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
     @Override
     public Optional<ThirdPartyWebsite> getByHandle(String handle) {
         return repository.findByHandle(handle);
+    }
+
+    /**
+     * 软删除，同时把 handle、token 改写为占位值：两列是跨租户的全局唯一索引，
+     * 原值留在已删除记录上会导致该店铺再也无法被任何租户添加
+     */
+    @Override
+    @Transactional
+    public void deleteAll(List<Long> ids) {
+        for (Long id : ids) {
+            ThirdPartyWebsite website = getById(id);
+            website.setHandle(deletedHandle(website.getHandle(), id));
+            website.setToken(deletedToken(id));
+            website.setStatus(StatusEnum.DELETED);
+            repository.saveAndFlush(website);
+        }
+    }
+
+    static String deletedHandle(String handle, Long id) {
+        return handle + DELETED_HANDLE_SEPARATOR + id;
+    }
+
+    static String deletedToken(Long id) {
+        return DELETED_TOKEN_PREFIX + id;
     }
 
     @Override

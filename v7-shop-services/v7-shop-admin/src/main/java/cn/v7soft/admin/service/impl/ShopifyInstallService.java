@@ -303,7 +303,7 @@ public class ShopifyInstallService implements IShopifyInstallService {
         try {
             saved = websiteService.save(website);
         } catch (DataIntegrityViolationException e) {
-            // 异常信息可能含 token 原文，不打印；多为其他租户或已删除记录占用了 handle
+            // 异常信息可能含 token 原文，不打印；多为其他租户占用了 handle
             log.warn("Shopify install save conflict: handle={}, companyId={}", handle, companyId);
             throw new InstallException(ErrorCode.HANDLE_TAKEN);
         }
