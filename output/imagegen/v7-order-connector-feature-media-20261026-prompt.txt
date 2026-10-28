@@ -1,0 +1,8 @@
+Generator: built-in image_gen
+Use case: ads-marketing.
+Asset type: Shopify App Store feature media image for V7 Order Connector.
+Create one polished production-ready promotional banner, landscape 16:9, target 1600 x 900 pixels, opaque PNG.
+Text verbatim: "V7 Order Connector" as large dominant heading and "Manage your Shopify orders in one place" as a clearly readable supporting line. Only other labels: "Shopify orders" on the source and "V7 COD" on the destination.
+Composition: spacious refined B2B software graphic. Heading in the upper left with ample clear space. Below it, a small cluster of white order-sheet cards on the left flows through one clean mint-green directional synchronization arrow to a single consolidated order-management panel on the right. Visually communicate one-way import into a centralized workspace. The panel is an abstract conceptual illustration using simple rows and checkmarks, NOT a fabricated screenshot or a detailed product UI. All elements stay within generous safe margins.
+Visual style: crisp premium geometric graphics, deep royal blue background, white typography and order cards, restrained mint-green/cyan accents, subtle depth and soft gradients consistent with a blue-and-green order-sync app icon. Excellent contrast, clean uncluttered layout, professional and trustworthy.
+Constraints: no Shopify logo, no shopping-bag logo, no currency symbols, no prices, no testimonials, no ratings, no numerical performance claims, no extra text, no watermarks, no browser chrome, no photographic mockup, no multiple variants. Deliver the banner itself edge to edge.
