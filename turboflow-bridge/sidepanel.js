@@ -1,4 +1,5 @@
 import { normalizeGenerationMode, generationModeLabel } from './generation-mode.js';
+import { renderGenerationDecisionPanel } from './generation-decision-panel.js';
 
 (function () {
   /* ── DOM refs ── */
@@ -7,6 +8,10 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
   const statusText = document.getElementById('status-text');
   const btnOpenFlow = document.getElementById('btn-open-flow');
   const btnRunNow = document.getElementById('btn-run-now');
+  const generationDecisionsEl = document.getElementById('generation-decisions');
+  let generationDecisions = [];
+  let generationDecisionBusy = false;
+  let decisionRequestBusy = false;
   const btnDeleteProjects = document.getElementById('btn-delete-projects');
   const operationStatus = document.getElementById('flow-operation-status');
   const currentTaskEl = document.getElementById('current-task');
@@ -115,6 +120,9 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
   });
 
   chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'GENERATION_DECISIONS_CHANGED') {
+      updateGenerationDecisions(msg.decisions, msg.busy);
+    }
     if (msg.type === 'FLOW_RECOVERY_CHANGED') renderRecovery(msg.recovery);
     if (msg.type === 'FLOW_CLEANUP_PROGRESS') {
       cleanupBusy = !['idle', 'done'].includes(msg.phase);
@@ -161,7 +169,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
 
   function setPaused(value) {
     paused = !!value;
-    btnRunNow.classList.toggle('hidden', !paused);
+    btnRunNow.classList.toggle('hidden', !paused || generationDecisions.length > 0);
     if (paused) {
       btnOpenFlow.classList.add('hidden');
       btnRunNow.textContent = 'Run Now';
@@ -180,7 +188,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
       operationStatus.classList.toggle('hidden', !recoveryBusy);
     }
     btnRunNow.disabled = recoveryBusy || cleanupBusy;
-    btnRunNow.classList.toggle('hidden', !paused || recoveryBusy);
+    btnRunNow.classList.toggle('hidden', !paused || recoveryBusy || generationDecisions.length > 0);
     btnOpenFlow.disabled = recoveryBusy || cleanupBusy;
     if (recoveryBusy || cleanupBusy) btnDeleteProjects.disabled = true;
   }
@@ -195,6 +203,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
       ]);
       if (status) {
         cleanupBusy = !!status.deletingProjects;
+        updateGenerationDecisions(status.generationDecisions, status.generationDecisionBusy);
         setPaused(status.paused);
         renderRecovery(status.recovery, status.drainingCount);
         if (status.paused) { statusText.textContent = status.pauseReason; statusDot.className = 'dot disconnected'; }
@@ -203,6 +212,32 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
       btnDeleteProjects.disabled = !cleanup?.allowed || cleanupBusy || recoveryBusy;
       btnDeleteProjects.title = cleanup?.allowed ? '删除当前账号全部 Flow 项目' : cleanup?.reason || '请先打开 Flow 项目首页';
     } catch {} finally { statusRefreshing = false; }
+  }
+
+  function updateGenerationDecisions(records, busy) {
+    generationDecisions = Array.isArray(records) ? records : [];
+    generationDecisionBusy = !!busy;
+    renderGenerationDecisionPanel(generationDecisionsEl, generationDecisions,
+      generationDecisionBusy || decisionRequestBusy || cleanupBusy || recoveryBusy, chooseGenerationDecision);
+    btnRunNow.classList.toggle('hidden', !paused || recoveryBusy || generationDecisions.length > 0);
+  }
+
+  async function chooseGenerationDecision(id, action) {
+    if (decisionRequestBusy || generationDecisionBusy) return;
+    decisionRequestBusy = true;
+    updateGenerationDecisions(generationDecisions, generationDecisionBusy);
+    try {
+      const result = await chrome.runtime.sendMessage({ type: 'RESOLVE_GENERATION_DECISION', id, action });
+      if (!result?.ok) throw new Error(result?.error || '处理失败');
+      showToast(action === 'original' ? '已选择原图策略' : '已安排重新派发');
+      loadTaskHistory();
+      loadStats();
+    } catch (error) { showToast(error.message); log('error', error.message); }
+    finally {
+      decisionRequestBusy = false;
+      updateGenerationDecisions(generationDecisions, generationDecisionBusy);
+      await refreshOperationStatus();
+    }
   }
 
   async function init() {
@@ -214,6 +249,7 @@ import { normalizeGenerationMode, generationModeLabel } from './generation-mode.
 
     const status = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
     if (status) {
+      updateGenerationDecisions(status.generationDecisions, status.generationDecisionBusy);
       renderCurrentTasks(Array.isArray(status.currentTasks)
         ? status.currentTasks
         : (status.currentTask ? [status.currentTask] : []));

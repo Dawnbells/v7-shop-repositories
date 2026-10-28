@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as policy from '../task-error-policy.js';
+import { isUnsafeGeneration } from '../generation-decision-state.js';
 import { parseBatchexecuteResponse } from '../flow-modern-api.js';
 import { generateWithReference, resolveFlowImageUrl, uploadImageToFlow } from '../flow-api.js';
 
@@ -12,6 +13,7 @@ function backgroundStopHarness() {
   const events = [];
   const releases = [];
   const context = vm.createContext({
+    isUnsafeGeneration,
     ...policy,
     roundRecovery: { state: { roundId: 1 }, halt: () => events.push({ type: 'ROUND_STOPPED' }), success() {} },
     trackOperation: promise => promise, observeFlowError: () => false,

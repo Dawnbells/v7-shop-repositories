@@ -67,8 +67,19 @@ import { FlowSubmissionPacer } from './flow-submission-pacer.js';
 import { translateImageForMode } from './flow-generation-mode.js';
 import { releaseApi238 } from './flow-api-2.3.8.js';
 import { normalizeGenerationMode, generationModeLabel } from './generation-mode.js';
+import { createGenerationDecisions, createGenerationDecisionTimeout, isUnsafeGeneration } from './generation-decision-state.js';
 
-const VERSION = '1.5.11';
+const VERSION = '1.5.13';
+const generationDecisions = createGenerationDecisions(chrome.storage.local);
+let generationDecisionBusy = false;
+let generationLeaseRefresh = null;
+const GENERATION_DECISION_ALARM = 'unsafe-generation-default-original';
+const generationDecisionTimeout = createGenerationDecisionTimeout({
+  list: () => generationDecisions.list(), resolve: resolveGenerationDecision,
+  armAlarm: when => { Promise.resolve(chrome.alarms.create(GENERATION_DECISION_ALARM, { when })).catch(() => {}); },
+  clearAlarm: () => { chrome.alarms.clear(GENERATION_DECISION_ALARM).catch(() => {}); },
+  onError: error => addLog('warn', `自动原图处理等待重试: ${error.message}`),
+});
 const POLL_INTERVAL_MS = 500;
 // 同时「翻译中」的上限，设置页可调（1–10，默认 1 = 单线程）。上传 / 挂图 / 写 prompt / 提交
 // 始终串行；译图下载到扩展后立即释放槽位，服务端回传与后续任务并行。
@@ -414,7 +425,8 @@ const roundRecovery = new FlowRecoveryController({
 });
 
 function flowWorkBlocked() {
-  return pollPaused || roundRecovery.blocked || !!openingFlowPromise || deletingProjects;
+  return pollPaused || roundRecovery.blocked || !!openingFlowPromise || deletingProjects
+    || generationDecisions.list().length > 0;
 }
 
 function trackOperation(promise) {
@@ -583,8 +595,12 @@ chrome.runtime.onStartup.addListener(() => {
   loadPersistedState().then(() => scheduleLoop(1000));
 });
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === GENERATION_DECISION_ALARM) {
+    loadPersistedState().then(() => generationDecisionTimeout.run()).catch(error => addLog('warn', error.message));
+  }
   if (alarm.name === PENDING_POLICY_REPORT_ALARM) {
     flushPendingPolicyReports().catch((error) => addLog('warn', `Pending policy report flush failed: ${error.message}`));
+    loadPersistedState().then(refreshGenerationDecisionLeases).catch(error => addLog('warn', error.message));
   }
 });
 
@@ -703,11 +719,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       flowSlotOwner: flowTasks.submissionOwner,
       flowConcurrency: flowTasks.snapshot(),
       prefetchedTask: getPrefetchedTaskSummary(),
+      generationDecisions: generationDecisions.summaries(),
+      generationDecisionBusy,
     });
     return false;
   }
 
   if (msg.type === 'RUN_NOW') {
+    if (generationDecisions.list().length || generationDecisionBusy) {
+      sendResponse({ ok: false, error: '请先为安全策略拒绝的图片选择重试或使用原图' });
+      return false;
+    }
     if (roundRecovery.busy || openingFlowPromise || deletingProjects) {
       sendResponse({ ok: false, error: 'Flow is busy' });
       return false;
@@ -715,6 +737,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     beginFlowRecovery(null, true);
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (msg.type === 'RESOLVE_GENERATION_DECISION') {
+    resolveGenerationDecision(msg.id, msg.action)
+      .then(() => sendResponse({ ok: true }))
+      .catch(error => sendResponse({ ok: false, error: error.message }));
+    return true;
   }
 
   if (msg.type === 'GET_PROJECT_CLEANUP_STATUS') {
@@ -1059,10 +1088,112 @@ async function restorePersistedState() {
   if (roundRecovery.state.phase === 'stopped' && !pollPaused) {
     pausePoll('Flow stopped; click Run Now', { code: 'RECOVERY_INTERRUPTED' });
   }
+  await generationDecisions.restore();
+  // Upgrade from the old immediate-fail path: its assignment was already returned.
+  if (!generationDecisions.list().length && pollPaused && isUnsafeGeneration(pauseReason)) {
+    const previous = taskHistory.find(item => item.status === 'failed' && isUnsafeGeneration(item.error) && item.sourceImage);
+    if (previous) await generationDecisions.save({
+      id: crypto.randomUUID(), serviceBaseUrl: previous.service, returned: true,
+      task: { taskId: previous.taskId, subTaskId: previous.subTaskId, imageBase64: previous.sourceImage },
+      context: { sourceImage: previous.sourceImage, sourceThumb: previous.sourceThumb,
+        targetLang: previous.targetLang, startedAt: previous.time },
+      error: previous.error,
+    });
+  }
+  if (generationDecisions.list().length && (!pollPaused || isUnsafeGeneration(pauseReason))) {
+    pausePoll('图片生成被安全策略拒绝，请选择重试或使用原图', { code: 'FLOW_UNSAFE_GENERATION' });
+  }
   if (pollPaused || generationMode !== 'api-2.3.8') {
     releaseApi238().catch(error => addLog('warn', `Verification helper cleanup: ${error.message}`));
   }
   await refreshReuseSummary();
+  broadcastGenerationDecisions();
+  refreshGenerationDecisionLeases().catch(error => addLog('warn', error.message));
+}
+
+function broadcastGenerationDecisions() {
+  generationDecisionTimeout.schedule();
+  broadcast({ type: 'GENERATION_DECISIONS_CHANGED', decisions: generationDecisions.summaries(), busy: generationDecisionBusy });
+}
+
+async function generationDecisionService(record) {
+  const config = await loadConfig();
+  const service = config.services.find(item => item.enabled !== false && item.token
+    && normalizeBaseUrl(item.baseUrl) === normalizeBaseUrl(record.serviceBaseUrl));
+  if (!service) throw new Error('请先恢复此任务对应的服务配置');
+  return service;
+}
+
+function refreshGenerationDecisionLeases() {
+  if (generationLeaseRefresh) return generationLeaseRefresh;
+  if (generationDecisionBusy) return Promise.resolve();
+  generationLeaseRefresh = (async () => {
+    for (const record of generationDecisions.list()) {
+      if (record.returned || record.action || !record.task.assignmentId) continue;
+      try {
+        const service = await generationDecisionService(record);
+        // This existing endpoint only extends the assignment lease; it does not
+        // mark the task completed or store a translated image.
+        await postJson(service, '/turboflow-bridge/tasks/translated', {
+          bridgeId, assignmentId: record.task.assignmentId,
+        });
+      } catch (error) {
+        if (/assignment not found or expired|reprocess.required/i.test(error.message || '')) {
+          await generationDecisions.save({ ...record, returned: true });
+          broadcastGenerationDecisions();
+        } else addLog('warn', `待选择任务续租失败: ${record.task.subTaskId}: ${error.message}`);
+      }
+    }
+  })().finally(() => { generationLeaseRefresh = null; });
+  return generationLeaseRefresh;
+}
+
+async function resolveGenerationDecision(id, action, { automatic = false } = {}) {
+  await loadPersistedState();
+  if (!['retry', 'original'].includes(action)) throw new Error('无效的处理方式');
+  if (generationDecisionBusy || roundRecovery.busy || deletingProjects || openingFlowPromise) throw new Error('正在处理，请稍候');
+  generationDecisionBusy = true;
+  broadcastGenerationDecisions();
+  try {
+    // Finish any lease update before recording a decision, so it cannot replace
+    // the chosen action with an older copy of the record.
+    if (generationLeaseRefresh) await generationLeaseRefresh;
+    const record = generationDecisions.get(id);
+    if (automatic && (!record || record.action || record.deadlineAt > Date.now())) return;
+    if (!record) throw new Error('此任务已处理，请刷新状态');
+    if (record.action && record.action !== action) throw new Error('已提交此选择，请继续完成原操作');
+    const service = await generationDecisionService(record);
+    await generationDecisions.save({ ...record, action });
+    if (!record.resolved && action === 'original') {
+      const policy = await rememberImagePolicyFallback(chrome.storage.local, record.task.imageBase64, {
+        apiStatus: 'INVALID_ARGUMENT', reason: 'PUBLIC_ERROR_UNSAFE_GENERATION',
+      });
+      if (!record.returned) await completePolicyFallbackTask(service, record.task, record.context, policy);
+      else addLog('warn', `已选择原图策略: ${record.task.subTaskId}；本 Bridge 再次收到该图时按原图完成`);
+    } else if (!record.resolved && !record.returned) {
+      await reportFailWithRetry(service, { bridgeId, assignmentId: record.task.assignmentId,
+        errorCode: 'FLOW_RPC_REJECTED', message: record.error, retryable: true,
+        elapsedMs: Date.now() - record.context.startedAt });
+      recordStat(STAT_FAILED);
+      addTaskHistory({ taskId: record.task.taskId, subTaskId: record.task.subTaskId,
+        service: record.serviceBaseUrl, status: 'failed', error: record.error,
+        elapsedMs: Date.now() - record.context.startedAt, time: Date.now(),
+        sourceThumb: record.context.sourceThumb, sourceImage: record.context.sourceImage,
+        targetLang: record.context.targetLang });
+    }
+    await generationDecisions.save({ ...record, action, resolved: true });
+    await generationDecisions.remove(id);
+    if (!generationDecisions.list().length && pauseReasonCode === 'FLOW_UNSAFE_GENERATION') {
+      await roundRecovery.restore({ ...roundRecovery.snapshot(), phase: 'running' }, false);
+      if (!generationDecisions.list().length && pauseReasonCode === 'FLOW_UNSAFE_GENERATION') {
+        resumePoll();
+        scheduleLoop(0);
+      }
+    }
+  } finally {
+    generationDecisionBusy = false;
+    broadcastGenerationDecisions();
+  }
 }
 
 async function loadConfig() {
@@ -1529,6 +1660,23 @@ async function executeTask(service, task, conn = null) {
     scheduleLoop(POLL_INTERVAL_MS);
   } catch (e) {
     const elapsed = Date.now() - startedAt;
+    if (isUnsafeGeneration(e)) {
+      // Stop before the first await, but keep this assignment for the user's
+      // decision instead of immediately failing it back to another bridge.
+      if (!pollPaused || pauseReasonCode === 'FLOW_UNSAFE_GENERATION') {
+        pausePoll('图片生成被安全策略拒绝，请选择重试或使用原图', { code: 'FLOW_UNSAFE_GENERATION' });
+      }
+      const record = await generationDecisions.save({
+        id: `${service.baseUrl}::${task.assignmentId}`, serviceBaseUrl: service.baseUrl,
+        task, context, error: e.message,
+      });
+      addLog('warn', `等待选择重试或原图: ${task.subTaskId}: ${e.message}`);
+      if (record.storageError) addLog('warn', `待选择任务暂存内存: ${record.storageError}`);
+      removeCurrentTask(task.assignmentId);
+      broadcastGenerationDecisions();
+      refreshGenerationDecisionLeases().catch(error => addLog('warn', error.message));
+      return;
+    }
     if (e.code === 'FLOW_SUBMISSION_PAUSED' || /New Flow submissions.*paused/i.test(e.message || '')) {
       // This assignment never submitted generation. Return it for retry without
       // counting another Google failure or disturbing already-submitted tasks.

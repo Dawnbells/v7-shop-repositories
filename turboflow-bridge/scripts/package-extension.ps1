@@ -12,6 +12,8 @@ if ($preset.baseUrl -ne 'https://api.xyzdwd.com' -or [string]::IsNullOrWhiteSpac
 
 # 显式列出运行时文件，避免把测试、开发文件或旧 ZIP 再嵌进安装包。
 $packageEntries = @(
+  'generation-decision-state.js'
+  'generation-decision-panel.js'
   'background.js'
   'bridge-defaults.js'
   'flow-recovery-controller.js'
@@ -48,6 +50,8 @@ $packageEntries = @(
 )
 
 $requiredArchiveEntries = @(
+  'generation-decision-state.js'
+  'generation-decision-panel.js'
   'bridge-defaults.js'
   'flow-recovery-controller.js'
   'flow-project-lifecycle.js'
