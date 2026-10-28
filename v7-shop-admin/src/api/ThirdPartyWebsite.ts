@@ -56,11 +56,10 @@ export function switchValidity(data: any) {
   })
 }
 
-// Shopify 公开应用：获取授权跳转地址（新增或重新连接）
+// Shopify 公开应用：新增返回连接链接（店铺在 Shopify 中选择），带 id 重新连接返回授权地址
 export function shopifyInstallUrl(data: {
   id?: string
-  nickName: string
-  handle: string
+  nickName?: string
   currencyMode: 'SHOP_MONEY' | 'PRESENTMENT_MONEY'
 }) {
   return request({

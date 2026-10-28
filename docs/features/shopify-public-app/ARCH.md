@@ -64,11 +64,16 @@ shopify:
     # 中立域名，含协议，无尾斜杠，例如 https://shopify.vantasite.com
     app-host: ${SHOPIFY_APP_HOST:}
     api-version: ${SHOPIFY_API_VERSION:2026-07}
+    # 必须与 shopify.app.toml 的 [access_scopes] 一致
     scopes: ${SHOPIFY_APP_SCOPES:read_orders,read_products}
     # 安装成功后是否用 GraphQL 注册订单 webhook（TOML 已声明时保持 false）
     register-webhooks-on-install: ${SHOPIFY_REGISTER_WEBHOOKS:false}
     install-ticket-ttl-minutes: 10
     pending-ticket-ttl-minutes: 30
+    # 后台「连接 Shopify」链接（意向）有效期
+    connect-intent-ttl-minutes: 60
+    # App Store 安装页，上架批准后填写；为空时连接链接跳说明页
+    install-url: ${SHOPIFY_APP_INSTALL_URL:}
     reconcile-interval-minutes: 15
     reconcile-lookback-minutes: 30
     pii-retention-days: 365
@@ -170,12 +175,11 @@ Redis：复用 `RedisConfig.jsonRedisTemplate`（`RedisTemplate<String,Object>`�
 
 请求：
 ```json
-{ "id": "可选，重连已有记录", "nickName": "店铺名称", "handle": "xxx 或 xxx.myshopify.com 或 https://xxx.myshopify.com", "currencyMode": "SHOP_MONEY|PRESENTMENT_MONEY" }
+{ "id": "可选，重连已有记录", "nickName": "可选，新增默认取 Shopify 店铺名", "currencyMode": "SHOP_MONEY|PRESENTMENT_MONEY" }
 ```
-处理：`ShopifyHost.normalize(handle)`；查 `getByHandle`：存在且不属于当前租户 → `PARAMETER_ILLEGAL "Handle已被占用"`；存在且属于当前租户但 `id` 不匹配且 `accessMode=CREDENTIALS` → 同上；存在且属于当前租户且 `accessMode=PUBLIC_APP` → 视为重连。Origin/Referer 取 `returnOrigin`（`DomainUtils`，必须能解析出当前租户公司，否则 `PARAMETER_ILLEGAL`）。签发 `ADMIN` 票据，返回：
-```json
-{ "authorizeUrl": "https://xxx.myshopify.com/admin/oauth/authorize?client_id=..&scope=read_orders,read_products&redirect_uri={app-host}/shopify-app/oauth/callback&state={nonce}" }
-```
+不接收店铺标识：App Store 要求 2.3.1 禁止让商家手填 myshopify 域名，店铺由商家在 Shopify 中选择。Origin/Referer 取 `returnOrigin`（`DomainUtils`，必须能解析出当前租户公司，否则 `PARAMETER_ILLEGAL`）。
+- 新增（无 `id`）：签发 `INTENT` 票据（handle 为空，TTL `connect-intent-ttl-minutes`），返回中转地址 `{ "authorizeUrl": "{app-host}/shopify-app/connect?intent={nonce}" }`。前端主按钮是「复制连接链接」，用于 Shopify 与后台在不同浏览器登录、或把链接转给店主。
+- 重连（带 `id`）：handle 取自原记录（必须是当前租户的公开应用记录），签发 `ADMIN` 票据，返回 `{ "authorizeUrl": "https://xxx.myshopify.com/admin/oauth/authorize?client_id=..&scope=read_orders,read_products&redirect_uri={app-host}/shopify-app/oauth/callback&state={nonce}" }`。
 错误：应用未配置 → `ServiceResponseEnum` 新增 `ERR_SHOPIFY_APP_NOT_CONFIGURED`（HTTP 503 语义，消息「Shopify 公开应用未配置」）。
 
 **POST `/third-party-website/shopify/bind`** 权限 `third-party-website.create`
@@ -190,16 +194,21 @@ Redis：复用 `RedisConfig.jsonRedisTemplate`（`RedisTemplate<String,Object>`�
 
 ### 5.2 公开端点 —— `ShopifyAppController`（`/shopify-app`）
 
-**GET `/shopify-app/landing`**  Shopify 打开 App URL 时进入。Query：`shop`、`hmac`、`timestamp`、其余透传。
+**GET `/shopify-app/connect?intent={nonce}`**  后台连接链接的中转。意向有效 → 写 cookie `v7_shopify_connect={nonce}`（`Path=/shopify-app/; HttpOnly; Secure; SameSite=Lax`，Max-Age = `connect-intent-ttl-minutes`），302 到 `install-url`（未配置时 `/shopify-app/landing.html?status=install`）；无效 → 清 cookie，302 `status=error&code=TICKET_EXPIRED`。Lax 保证 Shopify 安装后顶层跳回 `/landing` 时带上 cookie。
+
+**GET `/shopify-app/landing`**  Shopify 打开 App URL 时进入。Query：`shop`、`hmac`、`timestamp`、其余透传；Cookie：`v7_shopify_connect`（可选）。
 1. `ShopifyHmac.verifyQuery(params, secret)` 失败 → 302 `/shopify-app/landing.html?status=invalid`。
 2. `shop` 必须匹配 `^[a-z0-9][a-z0-9-]*\.myshopify\.com$`，handle = 去后缀。
-3. `TenantContext.silent()` 查 `getByHandle`：存在且 `accessMode=PUBLIC_APP` 且 `AUTHED` → 302 `/shopify-app/landing.html?status=connected`。
-4. 否则签发 `STORE` 票据（无租户），302 到授权 URL（`state=nonce`）。
+3. `TenantContext.silent()` 查 `getByHandle`：凭证模式/非 Shopify 记录占用 → `HANDLE_TAKEN`；存在且 `accessMode=PUBLIC_APP` 且 `AUTHED` → 302 所属租户总后台 `https://admin.{company.domain}/`（取不到合法域名时 `landing.html?status=connected`）。
+4. cookie 中有未消费的意向：handle 被其他租户的公开应用记录占用 → `HANDLE_TAKEN`（意向保留）；否则以意向的租户签发带 handle 的 `INTENT` 票据（nonce 作为 state），删除意向、清 cookie，302 到授权 URL。cookie 中的意向已失效时清 cookie。
+5. 否则签发 `STORE` 票据（无租户），302 到授权 URL（`state=nonce`）。
 
 **GET `/shopify-app/oauth/callback`** Query：`code`、`hmac`、`shop`、`state`、`timestamp`、`host`（可选）
 1. HMAC 校验；`shop` 格式校验；`state` 取票据，票据 `handle` 必须等于 shop 的 handle；三者任一失败 → 结果页 `status=invalid`（`ADMIN` 票据则回后台 `status=error&code=INVALID_STATE`）。
 2. 换 token：`POST https://{shop}/admin/oauth/access_token`，JSON `{client_id, client_secret, code, expiring: 1}` → `{access_token, scope, expires_in, refresh_token, refresh_token_expires_in}`。失败 → `code=TOKEN_EXCHANGE_FAILED`。
 3. `ADMIN` 票据：设租户 = 票据 companyId，创建/恢复店铺（§6.3，owner = 票据 userId），按配置注册 webhook，删除票据，302 `{returnOrigin}/#/shopify-bind?status=success&handle={handle}`。失败 302 `{returnOrigin}/#/shopify-bind?status=error&code={code}&handle={handle}`。
+   `INTENT` 票据：写库同 `ADMIN`，但授权的浏览器不一定登录了后台，成功 302 `/shopify-app/landing.html?status=linked&handle={handle}`，失败回结果页错误码。
+   新建且未填名称时，写库后用 `query { shop { name } }` 取 Shopify 店铺名作为名称，失败保留 handle。
 4. `STORE` 票据：把 token 写入票据（`pendingToken`），TTL 重置为 `pending-ticket-ttl-minutes`，302 `/shopify-app/landing.html?ticket={nonce}`。
 
 **POST `/shopify-app/landing/resolve`** JSON `{ "ticket": "nonce", "adminHost": "xxx.xyzdwd.com 或 https://xxx.xyzdwd.com/..." }`
@@ -210,8 +219,11 @@ Redis：复用 `RedisConfig.jsonRedisTemplate`（`RedisTemplate<String,Object>`�
 错误码集合（结果页与后台共用）：`INVALID_STATE`、`INVALID_HMAC`、`INVALID_SHOP`、`TOKEN_EXCHANGE_FAILED`、`HANDLE_TAKEN`、`TICKET_EXPIRED`、`UNKNOWN_HOST`、`APP_NOT_CONFIGURED`。
 
 **静态页 `/shopify-app/landing.html`**（`v7-shop-entrance/src/main/resources/static/shopify-app/landing.html`，纯 HTML+JS，中英双语，手机宽度可用）按 query 分支：
-- `ticket`（落地页自身的 query，这里不会经过后台 SPA，可保留 `ticket`）：显示表单「输入你的 VantaSite 后台地址」，提交调用 `/shopify-app/landing/resolve`，成功后 `location.href = redirectUrl`；错误码映射双语文案。
-- `status=connected`：「该店铺已连接到 VantaSite，请登录后台查看」。
+品牌统一显示应用名 **V7 Order Connector**。
+- `ticket`（落地页自身的 query，这里不会经过后台 SPA，可保留 `ticket`）：「关联你已有的 V7 账号」（B2B 服务，按 App Store 对需签约服务的例外，安装后第一步是用已有账号关联店铺），输入总后台地址，调用 `/shopify-app/landing/resolve`；成功后不自动跳转，给出「在本浏览器登录并完成关联」与「复制关联链接」（V7 在另一个浏览器登录时用）；附开通账号的联系方式；错误码映射双语文案。
+- `status=linked&handle=`：后台连接链接安装成功，「店铺已连接，请回到 V7 后台刷新列表」。
+- `status=install`：连接链接已记住，提示在本浏览器的 Shopify 后台安装/打开应用（上架前没有 App Store 安装页时）。
+- `status=connected`：「该店铺已连接到 V7，请登录后台查看」（取不到租户域名时的兜底）。
 - `status=invalid|error`：「请从 Shopify 后台重新打开本应用」。
 
 ### 5.3 Webhook —— `ShopifyWebhookController`

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
-<title>VantaSite Order Sync</title>
+<title>V7 Order Connector</title>
 <style>
   :root {
     --bg: #f4f6f8;
@@ -73,20 +73,27 @@
     margin: 0 0 6px;
   }
   input[type="text"]:focus { outline: 2px solid var(--primary); outline-offset: 1px; border-color: var(--primary); }
+  input[readonly] { font-size: 13px; color: var(--muted); }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
-  button {
+  button, .button {
+    display: block;
     width: 100%;
     font: inherit;
     font-weight: 600;
+    text-align: center;
+    text-decoration: none;
     color: #fff;
     background: var(--primary);
-    border: 0;
+    border: 1px solid var(--primary);
     border-radius: 8px;
     padding: 11px 16px;
+    margin: 0 0 10px;
     cursor: pointer;
   }
-  button:hover { background: var(--primary-hover); }
+  button:hover, .button:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
   button:disabled { opacity: .6; cursor: default; }
+  button.secondary { color: var(--primary); background: transparent; }
+  button.secondary:hover { color: var(--primary-hover); background: transparent; }
   .error {
     display: none;
     color: var(--error);
@@ -97,51 +104,104 @@
   }
   .error.show { display: block; }
   .ok { color: var(--success); }
+  .footnote { color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 12px; margin: 20px 0 0; }
+  .footnote a { color: var(--primary); }
   .hidden { display: none; }
 </style>
 </head>
 <body>
 <main class="card">
-  <p class="brand">VantaSite Order Sync</p>
+  <p class="brand">V7 Order Connector</p>
 
-  <!-- 已授权，等待填写后台地址 -->
+  <!-- 已授权：关联已有 V7 账号（B2B 服务，需先开通账号） -->
   <section id="view-bind" class="hidden">
     <h1>
-      <span class="zh">连接你的 VantaSite 后台</span>
-      <span class="en">Connect your VantaSite admin</span>
+      <span class="zh">关联你已有的 V7 账号</span>
+      <span class="en">Link your existing V7 account</span>
     </h1>
     <p class="sub">
-      <span class="zh">Shopify 已授权。请输入你的 VantaSite 总后台地址，登录后即可完成绑定。</span>
-      <span class="en">Shopify authorization is complete. Enter your VantaSite main admin URL and sign in to finish connecting.</span>
+      <span class="zh">V7 Order Connector 会把本店铺的 Shopify 订单同步到你的 V7 订单后台。Shopify 已授权，请输入 V7 总后台地址并登录，完成本店铺的关联。</span>
+      <span class="en">V7 Order Connector syncs this store's Shopify orders into your V7 order back office. Shopify authorization is complete. Enter your V7 main admin URL and sign in to link this store.</span>
     </p>
     <div id="bind-error" class="error" role="alert" aria-live="polite"></div>
     <form id="bind-form" novalidate>
       <label for="admin-host">
-        <span class="zh">输入你的 VantaSite 总后台地址</span>
-        <span class="en">Enter your VantaSite main admin URL</span>
+        <span class="zh">V7 总后台地址</span>
+        <span class="en">V7 main admin URL</span>
       </label>
       <input id="admin-host" name="adminHost" type="text" inputmode="url" autocomplete="url"
              autocapitalize="off" spellcheck="false" placeholder="admin.your-domain.com" required>
       <p class="hint">
-        <span class="zh">请填写总后台地址，形如 admin.your-domain.com（不是店铺后台地址）。</span>
-        <span class="en">Use your main admin address, such as admin.your-domain.com (not a store admin address).</span>
+        <span class="zh">形如 admin.your-domain.com（不是店铺后台地址）。</span>
+        <span class="en">Such as admin.your-domain.com (not a store admin address).</span>
       </p>
       <button id="bind-submit" type="submit">
         <span class="zh">继续</span>
         <span class="en" style="color:inherit">Continue</span>
       </button>
     </form>
+
+    <!-- 绑定链接已生成：可在本浏览器继续，或复制到已登录 V7 的另一个浏览器 -->
+    <div id="bind-ready" class="hidden">
+      <a id="bind-continue" class="button" href="#">
+        <span class="zh">在本浏览器登录并完成关联</span>
+        <span class="en" style="color:inherit">Sign in here and finish linking</span>
+      </a>
+      <button id="bind-copy" class="secondary" type="button">
+        <span class="zh">复制关联链接</span>
+        <span class="en" style="color:inherit">Copy link</span>
+      </button>
+      <input id="bind-link" type="text" readonly aria-label="Link">
+      <p id="bind-copy-tip" class="hint">
+        <span class="zh">如果 V7 是在另一个浏览器登录的，请复制链接到那个浏览器打开。链接有效期有限，仅可使用一次。</span>
+        <span class="en">If you're signed in to V7 in another browser, copy this link and open it there. The link expires and can be used only once.</span>
+      </p>
+    </div>
+
+    <p class="footnote">
+      <span class="zh">本服务需要先开通 V7 账号。还没有账号？请联系 <a href="mailto:dawnbells.w@gmail.com">dawnbells.w@gmail.com</a>。</span>
+      <span class="en">This service requires a V7 account. Don't have one? Contact <a href="mailto:dawnbells.w@gmail.com">dawnbells.w@gmail.com</a>.</span>
+    </p>
   </section>
 
-  <!-- 已连接 -->
-  <section id="view-connected" class="hidden">
+  <!-- 从 V7 后台发起连接后完成授权 -->
+  <section id="view-linked" class="hidden">
     <h1 class="ok">
-      <span class="zh">该店铺已连接到 VantaSite</span>
-      <span class="en">This store is already connected to VantaSite</span>
+      <span class="zh">店铺已连接</span>
+      <span class="en">Store connected</span>
+    </h1>
+    <p id="linked-shop"></p>
+    <p>
+      <span class="zh">订单将自动同步到 V7。请回到 V7 后台刷新「第三方商城」列表查看。</span>
+      <span class="en">Orders will sync to V7 automatically. Go back to your V7 admin and refresh the third-party store list.</span>
+    </p>
+  </section>
+
+  <!-- 后台发起连接，但应用尚无 App Store 安装页 -->
+  <section id="view-install" class="hidden">
+    <h1>
+      <span class="zh">在 Shopify 后台打开 V7 Order Connector</span>
+      <span class="en">Open V7 Order Connector in your Shopify admin</span>
     </h1>
     <p>
-      <span class="zh">请登录 VantaSite 后台查看店铺与订单同步情况。</span>
-      <span class="en">Sign in to your VantaSite admin to view the store and its order sync.</span>
+      <span class="zh">本浏览器已记住你在 V7 后台发起的连接。请在本浏览器登录 Shopify 后台，安装或打开 V7 Order Connector，授权后店铺会自动关联到你的 V7 账号。</span>
+      <span class="en">This browser has saved the connection you started in V7. Sign in to your Shopify admin in this browser and install or open V7 Order Connector. After you approve access, the store is linked to your V7 account automatically.</span>
+    </p>
+    <p class="hint">
+      <span class="zh">连接有效期有限，过期后请回到 V7 后台重新复制链接。</span>
+      <span class="en">The connection expires after a while. If it does, copy a new link from your V7 admin.</span>
+    </p>
+  </section>
+
+  <!-- 已连接（取不到所属后台地址时的兜底） -->
+  <section id="view-connected" class="hidden">
+    <h1 class="ok">
+      <span class="zh">该店铺已连接到 V7</span>
+      <span class="en">This store is already connected to V7</span>
+    </h1>
+    <p>
+      <span class="zh">请登录 V7 后台查看店铺与订单同步情况。</span>
+      <span class="en">Sign in to your V7 admin to view the store and its order sync.</span>
     </p>
   </section>
 
@@ -152,8 +212,8 @@
       <span class="en">We couldn't complete the connection</span>
     </h1>
     <p id="invalid-detail">
-      <span class="zh">请从 Shopify 后台重新打开本应用，或回到 VantaSite 后台重新点击「连接 Shopify」。</span>
-      <span class="en">Please open this app again from your Shopify admin, or go back to your VantaSite admin and click "Connect Shopify" again.</span>
+      <span class="zh">请从 Shopify 后台重新打开本应用，或回到 V7 后台重新点击「连接 Shopify」。</span>
+      <span class="en">Please open this app again from your Shopify admin, or go back to your V7 admin and click "Connect Shopify" again.</span>
     </p>
   </section>
 </main>
@@ -164,8 +224,8 @@
 
   // 错误码 → 双语文案（与后端 IShopifyInstallService.ErrorCode 一致）
   var MESSAGES = {
-    TICKET_EXPIRED: ['授权已过期，请从 Shopify 后台重新打开本应用。',
-      'Authorization has expired. Please open this app again from your Shopify admin.'],
+    TICKET_EXPIRED: ['链接已过期，请从 Shopify 后台重新打开本应用，或回到 V7 后台重新复制链接。',
+      'This link has expired. Open this app again from your Shopify admin, or copy a new link from your V7 admin.'],
     UNKNOWN_HOST: ['无法识别该后台地址，请填写总后台地址（形如 admin.your-domain.com）后重试。',
       "We don't recognize this admin URL. Enter your main admin address (such as admin.your-domain.com) and try again."],
     INVALID_STATE: ['连接请求已失效，请从 Shopify 后台重新打开本应用。',
@@ -176,14 +236,15 @@
       'The store address is invalid. Please open this app again from your Shopify admin.'],
     TOKEN_EXCHANGE_FAILED: ['向 Shopify 获取授权失败，请稍后从 Shopify 后台重新打开本应用。',
       'Could not obtain authorization from Shopify. Please try again later from your Shopify admin.'],
-    HANDLE_TAKEN: ['该店铺已通过其他方式接入 VantaSite，无法通过本应用连接。请联系你的 VantaSite 管理员。',
-      'This store is already connected to VantaSite in another way and cannot be connected through this app. Please contact your VantaSite administrator.'],
+    HANDLE_TAKEN: ['该店铺已通过其他方式或其他账号接入 V7，无法通过本应用连接。请联系你的 V7 管理员。',
+      'This store is already connected to V7 in another way or by another account and cannot be connected through this app. Please contact your V7 administrator.'],
     APP_NOT_CONFIGURED: ['应用暂不可用，请稍后再试。',
       'The app is temporarily unavailable. Please try again later.'],
     NETWORK: ['网络异常，请稍后重试。', 'Network error. Please try again.']
   };
-  var DEFAULT_INVALID = ['请从 Shopify 后台重新打开本应用，或回到 VantaSite 后台重新点击「连接 Shopify」。',
-    'Please open this app again from your Shopify admin, or go back to your VantaSite admin and click "Connect Shopify" again.'];
+  var DEFAULT_INVALID = ['请从 Shopify 后台重新打开本应用，或回到 V7 后台重新点击「连接 Shopify」。',
+    'Please open this app again from your Shopify admin, or go back to your V7 admin and click "Connect Shopify" again.'];
+  var COPIED = ['已复制，请到已登录 V7 的浏览器中打开。', 'Copied. Open it in the browser where you are signed in to V7.'];
 
   var params = new URLSearchParams(window.location.search);
   var ticket = params.get('ticket');
@@ -213,6 +274,27 @@
     el.classList.add('show');
   }
 
+  function showBindLink(url) {
+    document.getElementById('bind-form').classList.add('hidden');
+    document.getElementById('bind-continue').setAttribute('href', url);
+    var linkInput = document.getElementById('bind-link');
+    linkInput.value = url;
+    show('bind-ready');
+
+    document.getElementById('bind-copy').addEventListener('click', function () {
+      var tip = document.getElementById('bind-copy-tip');
+      var done = function () { fillBilingual(tip, COPIED); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(done, function () {
+          linkInput.select();
+        });
+      } else {
+        // 剪贴板不可用：选中文本由用户手动复制
+        linkInput.select();
+      }
+    });
+  }
+
   if (ticket && /^[0-9a-f]{64}$/.test(ticket)) {
     show('view-bind');
     var form = document.getElementById('bind-form');
@@ -238,7 +320,7 @@
       }).then(function (resp) {
         return resp.json().catch(function () { return {}; }).then(function (data) {
           if (resp.ok && data && typeof data.redirectUrl === 'string' && data.redirectUrl.indexOf('https://') === 0) {
-            window.location.href = data.redirectUrl;
+            showBindLink(data.redirectUrl);
             return;
           }
           submit.disabled = false;
@@ -253,6 +335,15 @@
         showBindError('NETWORK');
       });
     });
+  } else if (status === 'linked') {
+    show('view-linked');
+    var handle = params.get('handle');
+    if (handle && /^[a-z0-9][a-z0-9-]*$/.test(handle)) {
+      fillBilingual(document.getElementById('linked-shop'),
+        [handle + '.myshopify.com 已连接到你的 V7 账号。', handle + '.myshopify.com is now connected to your V7 account.']);
+    }
+  } else if (status === 'install') {
+    show('view-install');
   } else if (status === 'connected') {
     show('view-connected');
   } else {

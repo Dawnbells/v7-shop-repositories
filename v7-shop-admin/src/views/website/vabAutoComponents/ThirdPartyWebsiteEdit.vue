@@ -13,21 +13,16 @@
           <el-option label="SHOPIFY" value="SHOPIFY" />
         </el-select>
       </el-form-item>
-      <el-form-item v-if="isShopify && !form.id" label="接入方式" prop="accessMode">
-        <el-radio-group v-model="form.accessMode">
-          <el-radio value="PUBLIC_APP">公开应用</el-radio>
-          <el-radio value="CREDENTIALS">凭证模式</el-radio>
-        </el-radio-group>
-      </el-form-item>
       <el-form-item label="店铺名称" prop="nickName">
-        <el-input v-model.trim="form.nickName" clearable />
-      </el-form-item>
-      <el-form-item v-if="!isEditingPublicApp" label="HANDLE" prop="handle">
         <el-input
-          v-model.trim="form.handle"
+          v-model.trim="form.nickName"
           clearable
-          :placeholder="isShopify ? 'xxx.myshopify.com 中的 xxx' : ''"
+          :placeholder="isConnectingPublicApp ? '可不填，默认使用 Shopify 店铺名' : ''"
         />
+      </el-form-item>
+      <!-- 公开应用不填店铺标识：店铺由商家在 Shopify 中选择（App Store 要求） -->
+      <el-form-item v-if="!isPublicApp" label="HANDLE" prop="handle">
+        <el-input v-model.trim="form.handle" clearable />
       </el-form-item>
       <el-form-item v-if="!isShopify" label="访问令牌" prop="token">
         <el-input v-model.trim="form.token" clearable />
@@ -50,13 +45,18 @@
         </el-select>
       </el-form-item>
     </el-form>
+    <el-alert v-if="isConnectingPublicApp" :closable="false" show-icon type="info">
+      {{
+        `复制连接链接，在已登录 Shopify 的浏览器中打开并安装应用，店铺会自动连接到当前账号。链接 ${CONNECT_LINK_TTL_MINUTES} 分钟内有效，一个链接连接一个店铺。`
+      }}
+    </el-alert>
     <template #footer>
-      <template v-if="isPublicApp && !form.id">
-        <el-button :disabled="saveLoading" :loading="copyLoading" @click="copyLink">
-          复制链接
+      <template v-if="isConnectingPublicApp">
+        <el-button :disabled="copyLoading" :loading="saveLoading" @click="connect">
+          在本浏览器连接
         </el-button>
-        <el-button :disabled="copyLoading" :loading="saveLoading" type="primary" @click="connect">
-          连接 Shopify
+        <el-button :disabled="saveLoading" :loading="copyLoading" type="primary" @click="copyLink">
+          复制连接链接
         </el-button>
       </template>
       <el-button v-else :loading="saveLoading" type="primary" @click="save">保存</el-button>
@@ -92,12 +92,25 @@ const defaultForm = () => ({
   currencyMode: 'SHOP_MONEY',
 })
 const form = reactive<any>(defaultForm())
+// 与后端 shopify.app.connect-intent-ttl-minutes 默认值一致
+const CONNECT_LINK_TTL_MINUTES = 60
 const isShopify = computed<boolean>(() => form.websiteType === 'SHOPIFY')
+// 新增 Shopify 只走公开应用；凭证模式仅保留存量记录的编辑
 const isPublicApp = computed<boolean>(() => isShopify.value && form.accessMode === 'PUBLIC_APP')
 // 编辑公开应用接入的店铺：只允许改店铺名称与币种模式
 const isEditingPublicApp = computed<boolean>(() => !!form.id && isPublicApp.value)
+// 新增公开应用店铺：名称可空，绑定后默认取 Shopify 店铺名
+const isConnectingPublicApp = computed<boolean>(() => !form.id && isPublicApp.value)
 const rules = reactive<any>({
-  nickName: [{ required: true, trigger: 'blur', message: '请输入店铺名称' }],
+  nickName: [
+    {
+      trigger: 'blur',
+      validator: (_rule: any, value: string, callback: any) => {
+        if (!value && !isConnectingPublicApp.value) callback(new Error('请输入店铺名称'))
+        else callback()
+      },
+    },
+  ],
   handle: [{ required: true, trigger: 'blur', message: '请输入店铺唯一标识' }],
   token: [{ required: true, trigger: 'blur', message: '请输入访问令牌' }],
   clientId: [{ required: true, trigger: 'blur', message: '请输入Client ID' }],
@@ -152,19 +165,18 @@ const save = () => {
   })
 }
 
-// 公开应用：校验表单后获取 Shopify 授权地址，校验不通过或请求失败时返回空
+// 公开应用：校验表单后获取连接链接（不含店铺标识），校验不通过或请求失败时返回空
 const fetchAuthorizeUrl = async (): Promise<string> => {
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return ''
   const { data }: any = await shopifyInstallUrl({
     nickName: form.nickName,
-    handle: form.handle,
     currencyMode: form.currencyMode,
   }).catch(() => ({}))
   return data?.authorizeUrl || ''
 }
 
-// 在新标签页打开 Shopify 授权页，授权完成后由回调页完成绑定
+// 本浏览器已登录 Shopify 时：新标签页打开连接链接，安装授权后自动绑定
 const connect = async () => {
   saveLoading.value = true
   try {
@@ -176,14 +188,14 @@ const connect = async () => {
       return
     }
     win.opener = null
-    $baseMessage('已在新标签页打开 Shopify 授权页，完成授权后刷新列表即可', 'success', 'hey')
+    $baseMessage('已在新标签页打开，安装并授权应用后刷新列表即可', 'success', 'hey')
     dialogFormVisible.value = false
   } finally {
     saveLoading.value = false
   }
 }
 
-// 复制 Shopify 授权链接，便于在其他浏览器或已登录 Shopify 的环境中打开
+// 复制连接链接，到已登录 Shopify 的浏览器（或发给店主）打开
 const { copy } = useClipboard({ legacy: true })
 const copyLink = async () => {
   copyLoading.value = true
@@ -191,7 +203,7 @@ const copyLink = async () => {
     const authorizeUrl = await fetchAuthorizeUrl()
     if (!authorizeUrl) return
     await copy(authorizeUrl)
-    $baseMessage('授权链接已复制', 'success', 'hey')
+    $baseMessage('连接链接已复制，请在已登录 Shopify 的浏览器中打开', 'success', 'hey')
   } catch {
     $baseMessage('复制失败，请重试', 'error', 'hey')
   } finally {

@@ -204,11 +204,16 @@ shopify:
     # 中立域名，含协议，无尾斜杠，例如 https://shopify.vantasite.com
     app-host: ${SHOPIFY_APP_HOST:}
     api-version: ${SHOPIFY_API_VERSION:2026-07}
+    # 必须与 shopify.app.toml 的 [access_scopes] 一致
     scopes: ${SHOPIFY_APP_SCOPES:read_orders,read_products}
     # 安装成功后是否用 GraphQL 注册订单 webhook（TOML 已声明时保持 false）
     register-webhooks-on-install: ${SHOPIFY_REGISTER_WEBHOOKS:false}
     install-ticket-ttl-minutes: 10
     pending-ticket-ttl-minutes: 30
+    # 后台「连接 Shopify」链接（意向）有效期，前端提示文案按 60 分钟写
+    connect-intent-ttl-minutes: 60
+    # App Store 安装页，上架批准后填写，例如 https://apps.shopify.com/xxx；为空时连接链接跳到说明页
+    install-url: ${SHOPIFY_APP_INSTALL_URL:}
     reconcile-interval-minutes: 15
     reconcile-lookback-minutes: 30
     pii-retention-days: 365

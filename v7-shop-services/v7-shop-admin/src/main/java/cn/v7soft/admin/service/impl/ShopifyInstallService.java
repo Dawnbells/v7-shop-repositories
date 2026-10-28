@@ -54,6 +54,7 @@ import java.util.regex.Pattern;
 public class ShopifyInstallService implements IShopifyInstallService {
     public static final String LANDING_PAGE = "/shopify-app/landing.html";
     static final String CALLBACK_PATH = "/shopify-app/oauth/callback";
+    static final String CONNECT_PATH = "/shopify-app/connect";
     static final String WEBHOOK_PATH = "/shopify-app/webhooks";
     static final String ADMIN_BIND_PATH = "/#/shopify-bind";
     static final String ADMIN_HOST_PREFIX = "admin.";
@@ -65,6 +66,10 @@ public class ShopifyInstallService implements IShopifyInstallService {
     private static final String HANDLE_TAKEN_MESSAGE = "Handle已被占用: ";
     private static final String TICKET_EXPIRED_MESSAGE = "票据不存在或已过期";
     private static final String UNKNOWN_ORIGIN_MESSAGE = "无法识别当前后台地址，请从后台页面发起连接";
+
+    static final String SHOP_NAME_QUERY = "query { shop { name } }";
+    // 与 nick_name 列默认长度一致
+    private static final int NICK_NAME_MAX_LENGTH = 255;
 
     static final String WEBHOOK_LIST_QUERY = """
             query {
@@ -91,8 +96,8 @@ public class ShopifyInstallService implements IShopifyInstallService {
     // ==================== 后台发起 ====================
 
     @Override
-    public String createAdminAuthorizeUrl(Long id, String nickName, String handleInput, CurrencyMode currencyMode,
-                                          String returnOrigin, String originTopLevelDomain, Long companyId, Long userId) {
+    public String createAdminInstallUrl(Long id, String nickName, CurrencyMode currencyMode,
+                                        String returnOrigin, String originTopLevelDomain, Long companyId, Long userId) {
         requireConfigured();
         String origin = normalizeOrigin(returnOrigin);
         ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(origin != null, UNKNOWN_ORIGIN_MESSAGE);
@@ -100,59 +105,67 @@ public class ShopifyInstallService implements IShopifyInstallService {
         ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(originCompany != null && companyId != null
                 && Objects.equals(originCompany.getId(), companyId), UNKNOWN_ORIGIN_MESSAGE);
 
-        String handle;
-        Long websiteId = null;
         String name = StrUtil.trimToNull(nickName);
-        CurrencyMode mode = currencyMode;
-        if (id != null) {
-            ThirdPartyWebsite record = websiteService.getById(id);
-            ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(record.getWebsiteType() == WebsiteTypeEnum.SHOPIFY,
-                    "该商城不是Shopify类型");
-            ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(Objects.equals(record.getCompanyId(), companyId)
-                    && ShopifyAccessMode.isPublicApp(record.getAccessMode()), "该商城不支持通过公开应用重新连接");
-            handle = StrUtil.isBlank(handleInput) ? record.getHandle() : ShopifyHost.normalize(handleInput);
-            ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(handle.equals(record.getHandle()), "重新连接不能修改店铺的唯一标识");
-            websiteId = record.getId();
-            name = name != null ? name : record.getNickName();
-            mode = mode != null ? mode : record.getCurrencyMode();
-        } else {
-            handle = ShopifyHost.normalize(handleInput);
-            Optional<ThirdPartyWebsite> existing = websiteStore.findByShopDomain(ShopifyHost.host(handle));
-            if (existing.isPresent()) {
-                ThirdPartyWebsite record = existing.get();
-                ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(isReusableBy(record, companyId), HANDLE_TAKEN_MESSAGE + handle);
-                // 当前租户已有的公开应用记录：按重连处理
-                websiteId = record.getId();
-            }
+        CurrencyMode mode = currencyMode != null ? currencyMode : CurrencyMode.SHOP_MONEY;
+        if (id == null) {
+            // 店铺由商家在 Shopify 中选择，名称为空时绑定后取 Shopify 店铺名
+            ShopifyInstallTicket intent = new ShopifyInstallTicket(null, ShopifyInstallTicket.TicketType.INTENT, null,
+                    companyId, userId, name, mode, null, origin, null, null);
+            String nonce = ticketStore.create(intent, Duration.ofMinutes(appProperties.getConnectIntentTtlMinutes()));
+            log.info("Shopify connect intent created: companyId={}", companyId);
+            return appHost() + CONNECT_PATH + "?intent=" + encode(nonce);
         }
-        name = name != null ? name : handle;
-        mode = mode != null ? mode : CurrencyMode.SHOP_MONEY;
+
+        ThirdPartyWebsite record = websiteService.getById(id);
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(record.getWebsiteType() == WebsiteTypeEnum.SHOPIFY,
+                "该商城不是Shopify类型");
+        ClientResponseEnum.PARAMETER_ILLEGAL.assertTrue(Objects.equals(record.getCompanyId(), companyId)
+                && ShopifyAccessMode.isPublicApp(record.getAccessMode()), "该商城不支持通过公开应用重新连接");
+        String handle = record.getHandle();
+        name = name != null ? name : record.getNickName();
+        mode = currencyMode != null ? currencyMode : record.getCurrencyMode();
 
         ShopifyInstallTicket ticket = new ShopifyInstallTicket(null, ShopifyInstallTicket.TicketType.ADMIN, handle,
-                companyId, userId, name, mode, websiteId, origin, null, null);
+                companyId, userId, name, mode, record.getId(), origin, null, null);
         String nonce = ticketStore.create(ticket, Duration.ofMinutes(appProperties.getInstallTicketTtlMinutes()));
-        log.info("Shopify admin install started: handle={}, companyId={}, websiteId={}", handle, companyId, websiteId);
+        log.info("Shopify admin reconnect started: handle={}, companyId={}, websiteId={}", handle, companyId, record.getId());
         return authorizeUrl(handle, nonce);
     }
 
     // ==================== 公开端点 ====================
 
     @Override
-    public String handleLanding(Map<String, String[]> params) {
+    public Redirect handleConnect(String intent) {
+        if (findIntent(intent).isEmpty()) {
+            log.warn("Shopify connect intent not found or expired");
+            return new Redirect(landingError(ErrorCode.TICKET_EXPIRED), IntentCookie.CLEAR, null);
+        }
+        String installUrl = StrUtil.trimToNull(appProperties.getInstallUrl());
+        // 上架批准前没有 App Store 安装页：提示商家从 Shopify 后台打开应用，cookie 同样生效
+        String location = installUrl != null ? installUrl : landingStatus("install");
+        return new Redirect(location, IntentCookie.SET, intent);
+    }
+
+    @Override
+    public Redirect handleLanding(Map<String, String[]> params, String intent) {
         if (!isConfigured()) {
             log.warn("Shopify landing opened but public app is not configured");
-            return landingError(ErrorCode.APP_NOT_CONFIGURED);
+            return Redirect.of(landingError(ErrorCode.APP_NOT_CONFIGURED));
         }
         if (!ShopifyHmac.verifyQuery(params, appProperties.getClientSecret())) {
             log.warn("Shopify landing HMAC invalid");
-            return landingStatus("invalid");
+            return Redirect.of(landingStatus("invalid"));
         }
         String shop = single(params, "shop");
         String handle = handleOfShop(shop);
         if (handle == null) {
             log.warn("Shopify landing shop invalid");
-            return landingStatus("invalid");
+            return Redirect.of(landingStatus("invalid"));
         }
+        Optional<ShopifyInstallTicket> intentTicket = findIntent(intent);
+        // cookie 里的意向已过期或无效：顺手清掉
+        IntentCookie staleCookie = intent != null && intentTicket.isEmpty() ? IntentCookie.CLEAR : IntentCookie.KEEP;
+
         Optional<ThirdPartyWebsite> existing = websiteStore.findByShopDomain(shop);
         if (existing.isPresent()) {
             ThirdPartyWebsite record = existing.get();
@@ -160,18 +173,37 @@ public class ShopifyInstallService implements IShopifyInstallService {
                 // 凭证模式（含 accessMode=null 存量）或非 Shopify 记录占用 handle：不进入 OAuth，
                 // 避免应用装上后绑定失败、卸载时 webhook 打到凭证模式店铺
                 log.warn("Shopify landing rejected, handle taken by non public-app record: handle={}", handle);
-                return landingError(ErrorCode.HANDLE_TAKEN);
+                return new Redirect(landingError(ErrorCode.HANDLE_TAKEN), staleCookie, null);
             }
             if (record.getAuthStatus() == ThirdPartyAuthStatusEnum.AUTHED) {
-                return landingStatus("connected");
+                return new Redirect(connectedLocation(record), staleCookie, null);
             }
             // 断开/异常的公开应用记录：继续授权（重连）
+            if (intentTicket.isPresent() && !isReusableBy(record, intentTicket.get().companyId())) {
+                // 意向保留：同一链接仍可用于安装其他店铺
+                log.warn("Shopify landing rejected, handle taken by other tenant: handle={}, companyId={}",
+                        handle, intentTicket.get().companyId());
+                return Redirect.of(landingError(ErrorCode.HANDLE_TAKEN));
+            }
         }
+
+        if (intentTicket.isPresent()) {
+            ShopifyInstallTicket source = intentTicket.get();
+            ShopifyInstallTicket ticket = new ShopifyInstallTicket(null, ShopifyInstallTicket.TicketType.INTENT, handle,
+                    source.companyId(), source.userId(), source.nickName(), source.currencyMode(),
+                    existing.map(ThirdPartyWebsite::getId).orElse(null), source.returnOrigin(), null, null);
+            String nonce = ticketStore.create(ticket, Duration.ofMinutes(appProperties.getInstallTicketTtlMinutes()));
+            // 意向一次性：换成带 handle 的票据后删除，并清 cookie
+            ticketStore.delete(source.nonce());
+            log.info("Shopify intent install started: handle={}, companyId={}", handle, source.companyId());
+            return new Redirect(authorizeUrl(handle, nonce), IntentCookie.CLEAR, null);
+        }
+
         ShopifyInstallTicket ticket = new ShopifyInstallTicket(null, ShopifyInstallTicket.TicketType.STORE, handle,
                 null, null, null, null, null, null, null, null);
         String nonce = ticketStore.create(ticket, Duration.ofMinutes(appProperties.getInstallTicketTtlMinutes()));
         log.info("Shopify store install started: handle={}", handle);
-        return authorizeUrl(handle, nonce);
+        return new Redirect(authorizeUrl(handle, nonce), staleCookie, null);
     }
 
     @Override
@@ -209,7 +241,7 @@ public class ShopifyInstallService implements IShopifyInstallService {
             return fail(ticket, ErrorCode.TOKEN_EXCHANGE_FAILED);
         }
 
-        if (ticket.type() == ShopifyInstallTicket.TicketType.ADMIN) {
+        if (ticket.type() != ShopifyInstallTicket.TicketType.STORE) {
             return completeAdminInstall(ticket, token);
         }
         ticketStore.update(ticket.withPendingToken(token), Duration.ofMinutes(appProperties.getPendingTicketTtlMinutes()));
@@ -309,6 +341,9 @@ public class ShopifyInstallService implements IShopifyInstallService {
         }
         log.info("Shopify public app website {}: handle={}, websiteId={}, companyId={}",
                 existing.isPresent() ? "restored" : "created", handle, saved.getId(), companyId);
+        if (existing.isEmpty() && StrUtil.isBlank(nickName)) {
+            saved = fillShopName(saved);
+        }
         registerWebhooksIfEnabled(saved);
         return saved;
     }
@@ -320,6 +355,10 @@ public class ShopifyInstallService implements IShopifyInstallService {
             TenantContext.setCurrentTenant(ticket.companyId(), companyService.companyCached(ticket.companyId()));
             upsert(ticket.handle(), ticket.companyId(), ticket.userId(), ticket.nickName(), ticket.currencyMode(), token);
             ticketStore.delete(ticket.nonce());
+            if (ticket.type() == ShopifyInstallTicket.TicketType.INTENT) {
+                // 授权的浏览器不一定登录了后台（链接可能转给店主），结果显示在落地页
+                return LANDING_PAGE + "?status=linked&handle=" + encode(ticket.handle());
+            }
             return adminResult(ticket, "success", null);
         } catch (InstallException e) {
             return fail(ticket, e.getCode());
@@ -333,7 +372,7 @@ public class ShopifyInstallService implements IShopifyInstallService {
     }
 
     /**
-     * 失败：删除票据，ADMIN 回后台绑定页，STORE 回结果页
+     * 失败：删除票据，ADMIN 回后台绑定页，INTENT / STORE 回结果页
      */
     private String fail(ShopifyInstallTicket ticket, ErrorCode code) {
         log.warn("Shopify OAuth callback rejected: type={}, handle={}, code={}", ticket.type(), ticket.handle(), code);
@@ -342,9 +381,32 @@ public class ShopifyInstallService implements IShopifyInstallService {
             return adminResult(ticket, "error", code);
         }
         return switch (code) {
-            case TOKEN_EXCHANGE_FAILED, APP_NOT_CONFIGURED -> landingError(code);
+            case TOKEN_EXCHANGE_FAILED, APP_NOT_CONFIGURED, HANDLE_TAKEN -> landingError(code);
             default -> landingStatus("invalid");
         };
+    }
+
+    /**
+     * 未消费的连接意向（INTENT 且尚未确定店铺）
+     */
+    private Optional<ShopifyInstallTicket> findIntent(String intent) {
+        if (StrUtil.isBlank(intent)) {
+            return Optional.empty();
+        }
+        return ticketStore.get(intent)
+                .filter(t -> t.type() == ShopifyInstallTicket.TicketType.INTENT && t.handle() == null);
+    }
+
+    /**
+     * 已连接的店铺从 Shopify 打开应用：跳到所属租户的总后台 admin.{domain}；取不到域名时停在结果页
+     */
+    private String connectedLocation(ThirdPartyWebsite record) {
+        Company company = record.getCompanyId() == null ? null : companyService.companyCached(record.getCompanyId());
+        String domain = company == null ? null : StrUtil.trimToNull(company.getDomain());
+        if (domain == null || !HOST_NAME.matcher(domain.toLowerCase(Locale.ROOT)).matches()) {
+            return landingStatus("connected");
+        }
+        return "https://" + ADMIN_HOST_PREFIX + domain.toLowerCase(Locale.ROOT) + "/";
     }
 
     private String adminResult(ShopifyInstallTicket ticket, String status, ErrorCode code) {
@@ -355,6 +417,26 @@ public class ShopifyInstallService implements IShopifyInstallService {
         }
         url.append("&handle=").append(encode(StrUtil.nullToEmpty(ticket.handle())));
         return url.toString();
+    }
+
+    /**
+     * 新建时未填名称：用 Shopify 店铺名代替默认的 handle，查询失败时保留 handle
+     */
+    private ThirdPartyWebsite fillShopName(ThirdPartyWebsite website) {
+        try {
+            ShopifyGraphqlClient.GraphqlResult result = graphqlClient.execute(toDto(website), SHOP_NAME_QUERY);
+            String shopName = result == null || result.data() == null ? null
+                    : StrUtil.trimToNull(result.data().getByPath("shop.name", String.class));
+            if (shopName == null) {
+                return website;
+            }
+            website.setNickName(StrUtil.sub(shopName, 0, NICK_NAME_MAX_LENGTH));
+            return websiteService.save(website);
+        } catch (RuntimeException e) {
+            log.warn("Shopify shop name lookup failed: websiteId={}, handle={}, error={}",
+                    website.getId(), website.getHandle(), e.getClass().getSimpleName());
+            return website;
+        }
     }
 
     private void registerWebhooksIfEnabled(ThirdPartyWebsite website) {
