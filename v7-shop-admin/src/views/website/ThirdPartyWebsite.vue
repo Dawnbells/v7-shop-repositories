@@ -135,7 +135,11 @@
       @current-change="handleCurrentChange"
       @size-change="handleSizeChange"
     />
-    <third-party-website-edit ref="editRef" @fetch-data="fetchData" />
+    <third-party-website-edit
+      ref="editRef"
+      :allow-credentials="allowCredentials"
+      @fetch-data="fetchData"
+    />
     <third-party-order-sync ref="orderSyncRef" />
   </div>
 </template>
@@ -146,6 +150,14 @@ import { doDelete, page, shopifyInstallUrl, switchValidity } from '../../api/Thi
 
 defineOptions({
   name: 'ThirdPartyWebsite',
+})
+
+defineProps({
+  // 凭证接入路由（ThirdPartyWebsiteLegacy）传入：新增 Shopify 可选凭证模式
+  allowCredentials: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const $baseConfirm = inject<any>('$baseConfirm')

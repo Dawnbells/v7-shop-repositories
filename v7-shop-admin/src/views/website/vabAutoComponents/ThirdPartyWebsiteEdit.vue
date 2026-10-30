@@ -13,6 +13,13 @@
           <el-option label="SHOPIFY" value="SHOPIFY" />
         </el-select>
       </el-form-item>
+      <!-- 仅凭证接入路由可选；默认路由新增 Shopify 只走公开应用 -->
+      <el-form-item v-if="allowCredentials && isShopify && !form.id" label="接入方式">
+        <el-radio-group v-model="form.accessMode">
+          <el-radio value="CREDENTIALS">凭证模式</el-radio>
+          <el-radio value="PUBLIC_APP">公开应用</el-radio>
+        </el-radio-group>
+      </el-form-item>
       <el-form-item label="店铺名称" prop="nickName">
         <el-input
           v-model.trim="form.nickName"
@@ -71,6 +78,14 @@ defineOptions({
   name: 'ThirdPartyWebsiteEdit',
 })
 
+const props = defineProps({
+  // 允许新增 Shopify 时选择凭证模式（输入 handle / Client ID / Client Secret）
+  allowCredentials: {
+    type: Boolean,
+    default: false,
+  },
+})
+
 const emit = defineEmits(['fetch-data'])
 const $baseMessage = inject<any>('$baseMessage')
 const formRef = ref<any>(null)
@@ -87,15 +102,15 @@ const defaultForm = () => ({
   clientId: '',
   clientSecret: '',
   websiteType: 'SHOPLINE',
-  // Shopify 新增默认走公开应用
-  accessMode: 'PUBLIC_APP',
+  // Shopify 新增默认走公开应用；凭证接入路由默认凭证模式
+  accessMode: props.allowCredentials ? 'CREDENTIALS' : 'PUBLIC_APP',
   currencyMode: 'SHOP_MONEY',
 })
 const form = reactive<any>(defaultForm())
 // 与后端 shopify.app.connect-intent-ttl-minutes 默认值一致
 const CONNECT_LINK_TTL_MINUTES = 60
 const isShopify = computed<boolean>(() => form.websiteType === 'SHOPIFY')
-// 新增 Shopify 只走公开应用；凭证模式仅保留存量记录的编辑
+// 默认路由新增 Shopify 只走公开应用，凭证模式仅保留存量记录的编辑；allowCredentials 时新增可选凭证模式
 const isPublicApp = computed<boolean>(() => isShopify.value && form.accessMode === 'PUBLIC_APP')
 // 编辑公开应用接入的店铺：只允许改店铺名称与币种模式
 const isEditingPublicApp = computed<boolean>(() => !!form.id && isPublicApp.value)
