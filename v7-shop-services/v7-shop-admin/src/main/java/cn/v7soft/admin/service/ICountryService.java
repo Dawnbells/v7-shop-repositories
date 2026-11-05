@@ -11,5 +11,8 @@ import java.util.Optional;
 public interface ICountryService extends IBaseService<Country> {
     Optional<Country> getByCode(String countryCode);
 
+    /** Shopline 订单同步只匹配启用的国家配置。 */
+    Optional<Country> getValidByCode(String countryCode);
+
     Map<String, AddressOrder> getAddressOrders(Collection<String> countryCodes);
 }

@@ -20,12 +20,15 @@ import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.core.exception.BaseException;
 import cn.v7soft.dao.enums.*;
 import cn.v7soft.dao.repositories.primary.AsyncTaskRepository;
+import cn.v7soft.dao.repositories.primary.CountryRepository;
 import cn.v7soft.dao.repositories.primary.SystemUserRepository;
 import cn.v7soft.dao.repositories.primary.ThirdPartyWebsiteRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -38,6 +41,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -251,6 +255,31 @@ class ThirdPartyWebsiteServiceTest {
     @DisplayName("convertShoplineOrderToTemporary")
     class ConvertOrder {
 
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        void shouldUseValidCountryLookupAndKeepCodeFallback(boolean hasValidCountry) {
+            CountryRepository countries = mock(CountryRepository.class);
+            ReflectionTestUtils.setField(service, "countryService", new CountryService(countries));
+            Country validCountry = Country.builder().id(12L).code("US")
+                    .name("United States").status(StatusEnum.VALID).build();
+            when(countries.findFirstByCodeAndStatusOrderByIdAsc("US", StatusEnum.VALID))
+                    .thenReturn(hasValidCountry ? Optional.of(validCountry) : Optional.empty());
+            JSONArray orders = new JSONArray();
+            orders.add(buildShoplineOrder());
+            ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
+            when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), eq(true)))
+                    .thenReturn(true);
+
+            invokeConvertAndSaveOrders(buildWebsiteDto(), orders);
+
+            verify(temporaryOrderService).synchronizeOrderFromExternalSystem(any(), eq(true));
+            TemporaryOrderContextInfoRequest context = captor.getValue().getContextInfo();
+            assertEquals("US", context.getCountryCode());
+            assertEquals(hasValidCountry ? 12L : null, context.getCountryId());
+            assertEquals(hasValidCountry ? "United States" : "US", context.getCountry());
+            verify(countries, never()).getByCode(anyString());
+        }
+
         @Test
         @DisplayName("完整订单应正确映射所有字段写入临时表")
         void shouldConvertFullOrderToTemporary() {
@@ -267,7 +296,7 @@ class ThirdPartyWebsiteServiceTest {
 
             Country us = Country.builder().code("US").name("United States").build();
             setId(us, 1L);
-            when(countryService.getByCode("US")).thenReturn(Optional.of(us));
+            when(countryService.getValidByCode("US")).thenReturn(Optional.of(us));
 
             ProductSKU sku001 = ProductSKU.builder().skuCode("SKU-001").name("SKU-001").build();
             setId(sku001, 10L);
@@ -388,7 +417,7 @@ class ThirdPartyWebsiteServiceTest {
             orders.add(order);
 
             lenient().when(currencyService.getByCode(anyString())).thenReturn(Optional.empty());
-            lenient().when(countryService.getByCode(anyString())).thenReturn(Optional.empty());
+            lenient().when(countryService.getValidByCode(anyString())).thenReturn(Optional.empty());
 
             ArgumentCaptor<EditTemporaryOrderRequest> captor = ArgumentCaptor.forClass(EditTemporaryOrderRequest.class);
             when(temporaryOrderService.synchronizeOrderFromExternalSystem(captor.capture(), anyBoolean())).thenReturn(true);

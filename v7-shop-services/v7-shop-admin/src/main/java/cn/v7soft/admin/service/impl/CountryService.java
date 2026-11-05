@@ -2,6 +2,7 @@ package cn.v7soft.admin.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import cn.v7soft.core.enums.ClientResponseEnum;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.core.service.impl.BaseService;
 import cn.v7soft.dao.entities.primary.Country;
 import cn.v7soft.dao.entities.meta.CountryMeta;
@@ -14,6 +15,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Optional;
@@ -36,6 +38,15 @@ public class CountryService extends BaseService<Country, CountryRepository> impl
             return Optional.empty();
         }
         return repository.getByCode(countryCode.trim().toUpperCase());
+    }
+
+    @Override
+    public Optional<Country> getValidByCode(String countryCode) {
+        if (StrUtil.isBlank(countryCode)) {
+            return Optional.empty();
+        }
+        return repository.findFirstByCodeAndStatusOrderByIdAsc(
+                countryCode.trim().toUpperCase(Locale.ROOT), StatusEnum.VALID);
     }
 
     @Override

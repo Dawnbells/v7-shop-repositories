@@ -1,6 +1,7 @@
 package cn.v7soft.dao.repositories.primary;
 
 import cn.v7soft.core.repository.BaseRepository;
+import cn.v7soft.core.enums.StatusEnum;
 import cn.v7soft.dao.entities.primary.Country;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,6 +16,9 @@ public interface CountryRepository extends BaseRepository<Country> {
 
     @Query("from Country where code = :code")
     Optional<Country> getByCode(@Param("code") String upperCase);
+
+    /** 订单同步按状态匹配，同码多条时按 ID 稳定选择。 */
+    Optional<Country> findFirstByCodeAndStatusOrderByIdAsc(String code, StatusEnum status);
 
     List<Country> findAllByCodeIn(Collection<String> codes);
 }

@@ -642,7 +642,7 @@ public class ThirdPartyWebsiteService extends BaseDataRangeService<ThirdPartyWeb
             return;
         }
         String code = countryCode.trim().toUpperCase();
-        Optional<Country> countryOpt = countryService.getByCode(code);
+        Optional<Country> countryOpt = countryService.getValidByCode(code);
         if (countryOpt.isPresent()) {
             Country country = countryOpt.get();
             info.setCountryId(country.getId());
