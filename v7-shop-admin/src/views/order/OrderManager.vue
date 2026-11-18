@@ -579,6 +579,7 @@
 
 <script lang="ts" setup>
 import { InfoFilled } from '@element-plus/icons-vue'
+import dayjs from 'dayjs'
 import { useRoute, useRouter } from 'vue-router'
 import { downloadFile, status } from '~/src/api/taskManagement'
 import { getTicket } from '~/src/api/user'
@@ -640,20 +641,19 @@ const updatingOrderDepartment = ref(false)
 // 审单页眼睛按钮：控制产品名称、面单品名、部门/归属、渠道/仓库、域名是否显示，默认显示
 const sensitiveVisible = ref(true)
 
-// Set default date range from yesterday 9:00 to today 9:00
-const today = new Date()
-const tomorrow = new Date(today)
+const getDefaultDateRange = (): [Date, Date] => {
+  const today = dayjs().startOf('day')
+  const start = today.subtract(1, 'month')
+  const end = today.add(1, 'day').endOf('day').millisecond(0)
+  return [start.toDate(), end.toDate()]
+}
 
 const auditToday = new Date()
-const auditYesterday = new Date(today)
+const auditYesterday = new Date(auditToday)
 
-today.setHours(0, 0, 0, 0)
-tomorrow.setHours(0, 0, 0, 0)
-tomorrow.setDate(auditYesterday.getDate() + 1)
 auditToday.setHours(9, 0, 0, 0)
 auditYesterday.setHours(9, 0, 0, 0)
 auditYesterday.setDate(auditYesterday.getDate() - 1)
-// const defaultDataRange = [today, tomorrow]
 const auditDefaultDataRange = [auditYesterday, auditToday]
 const hasOrderTemplateRoutePermission: boolean = routesStore.routes
   .find((item) => item.path === '/system')
@@ -663,7 +663,7 @@ const queryForm = reactive<any>({
   pageSize: 20,
   isAudit: isAudit.value || undefined,
   isContact: isContact.value || undefined,
-  dateRange: isAudit.value ? auditDefaultDataRange : undefined,
+  dateRange: undefined,
   searchType: 'ORDER_ID',
   keywords: '',
 })
@@ -1175,7 +1175,9 @@ const initQueryParams = () => {
       ? query.dateRange.split(',').map((dateStr: string) => new Date(dateStr))
       : isAudit.value
         ? auditDefaultDataRange
-        : undefined
+        : isContact.value
+          ? undefined
+          : getDefaultDateRange()
   queryForm.belongEmployeeIds =
     typeof query.belongEmployeeIds === 'string' ? query.belongEmployeeIds.split(',') : undefined
   queryForm.belongDepartmentIds =
