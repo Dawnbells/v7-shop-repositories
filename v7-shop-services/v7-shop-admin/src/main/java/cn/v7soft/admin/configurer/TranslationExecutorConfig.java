@@ -13,6 +13,7 @@ import com.google.genai.errors.GenAiIOException;
 import com.google.genai.errors.ServerException;
 
 import cn.v7soft.admin.exception.DailyQuotaExhaustedException;
+import cn.v7soft.admin.service.impl.GeminiTranslateService;
 import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import io.github.resilience4j.ratelimiter.RateLimiterConfig;
@@ -120,11 +121,7 @@ public class TranslationExecutorConfig {
             return code == 500 || code == 502 || code == 503 || code == 504;
         }
         if (e instanceof ApiException ae) {
-            if (ae.code() == 429) {
-                String msg = ae.getMessage();
-                return msg == null || !msg.contains("per_day");
-            }
-            return false;
+            return ae.code() == 429 && !GeminiTranslateService.isDailyQuota429(ae);
         }
         if (e instanceof GenAiIOException) {
             return true;

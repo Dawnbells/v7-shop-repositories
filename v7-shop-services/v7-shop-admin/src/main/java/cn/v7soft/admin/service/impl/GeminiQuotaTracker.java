@@ -1,14 +1,18 @@
 package cn.v7soft.admin.service.impl;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 
+import cn.hutool.crypto.digest.DigestUtil;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -16,100 +20,91 @@ import lombok.extern.slf4j.Slf4j;
 public class GeminiQuotaTracker {
 
     private static final ZoneId PT_ZONE = ZoneId.of("America/Los_Angeles");
-    private static final String QUOTA_PREFIX = "gemini:quota:";
+    // 旧计数按 Key 的前 8 位保存，无法可靠地归属到单个 Key。
+    private static final String QUOTA_PREFIX = "gemini:quota:v2:";
+    private static final String EXHAUSTED = "-1";
+    private static final RedisScript<Long> RESERVE = RedisScript.of("""
+            local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if used < 0 then
+                return -1
+            end
+            if used >= tonumber(ARGV[1]) then
+                return 0
+            end
+            redis.call('INCR', KEYS[1])
+            redis.call('EXPIREAT', KEYS[1], ARGV[2])
+            return 1
+            """, Long.class);
+    private static final RedisScript<Long> REFUND = RedisScript.of("""
+            local used = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if used > 0 then
+                return redis.call('DECR', KEYS[1])
+            end
+            return 0
+            """, Long.class);
 
     private final int dailyLimitPerKey;
     private final List<String> apiKeys;
     private final StringRedisTemplate redis;
 
     public GeminiQuotaTracker(
-            @Value("${gemini.daily-limit-per-key:1000}") int dailyLimitPerKey,
+            @Value("${gemini.daily-limit-per-key:${GEMINI_DAILY_LIMIT_PER_KEY:100000}}") int dailyLimitPerKey,
             @Value("${gemini.api-keys}") String apiKeysConfig,
             StringRedisTemplate redis) {
         this.dailyLimitPerKey = dailyLimitPerKey;
-        this.apiKeys = List.of(apiKeysConfig.split(","));
+        this.apiKeys = Arrays.stream(apiKeysConfig.split(","))
+                .map(String::strip)
+                .filter(key -> !key.isEmpty())
+                .distinct()
+                .toList();
         this.redis = redis;
         log.info("[QuotaTracker] 初始化: keys={}, dailyLimitPerKey={}", apiKeys.size(), dailyLimitPerKey);
     }
 
-    public boolean increment(String apiKey) {
-        String key = quotaKey(apiKey);
-        Long count = redis.opsForValue().increment(key);
-        if (count != null && count == 1) {
-            redis.expireAt(key, ptMidnightInstant());
-        }
-        if (count != null && count > dailyLimitPerKey) {
-            redis.opsForValue().decrement(key);
-            return false;
-        }
-        return true;
-    }
-
-    public String tryAcquire() {
-        for (String key : apiKeys) {
-            if (increment(key)) {
-                return key;
-            }
-        }
-        return null;
-    }
-
-    public void decrement(String apiKey) {
-        redis.opsForValue().decrement(quotaKey(apiKey));
-    }
-
-    public void markExhausted(String apiKey) {
-        String key = quotaKey(apiKey);
-        redis.opsForValue().set(key, String.valueOf(dailyLimitPerKey));
-        redis.expireAt(key, ptMidnightInstant());
-        log.warn("[QuotaTracker] Key[{}...] 被 API 标记为每日配额耗尽", maskKey(apiKey));
-    }
-
-    public boolean isExhausted(String apiKey) {
-        return getUsedCount(apiKey) >= dailyLimitPerKey;
-    }
-
-    public boolean isAllExhausted() {
-        for (String key : apiKeys) {
-            if (!isExhausted(key)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public String getFirstAvailableKey() {
-        for (String key : apiKeys) {
-            if (!isExhausted(key)) {
-                return key;
-            }
-        }
-        return null;
-    }
-
-    public List<String> getApiKeys() {
+    List<String> getApiKeys() {
         return apiKeys;
     }
 
-    public String getPrimaryKey() {
-        return apiKeys.get(0);
+    int getDailyLimitPerKey() {
+        return dailyLimitPerKey;
     }
 
-    public int getUsedCount(String apiKey) {
-        String val = redis.opsForValue().get(quotaKey(apiKey));
-        return val != null ? Integer.parseInt(val) : 0;
+    Reservation reserve(String apiKey) {
+        LocalDate quotaDate = LocalDate.now(PT_ZONE);
+        Instant resetAt = quotaDate.plusDays(1).atStartOfDay(PT_ZONE).toInstant();
+        String fingerprint = DigestUtil.sha256Hex(apiKey);
+        String quotaKey = QUOTA_PREFIX + fingerprint + ":" + quotaDate;
+        Long result = redis.execute(RESERVE, List.of(quotaKey), String.valueOf(dailyLimitPerKey),
+                String.valueOf(resetAt.getEpochSecond()));
+        if (result == null) {
+            throw new IllegalStateException("Redis 未返回 Gemini 配额检查结果");
+        }
+        ReservationStatus status = switch (result.intValue()) {
+            case 1 -> ReservationStatus.ACQUIRED;
+            case 0 -> ReservationStatus.LOCAL_LIMIT;
+            case -1 -> ReservationStatus.PROVIDER_LIMIT;
+            default -> throw new IllegalStateException("Redis 返回的 Gemini 配额检查结果无效");
+        };
+        return new Reservation(quotaKey, resetAt, fingerprint, status);
     }
 
-    private String quotaKey(String apiKey) {
-        return QUOTA_PREFIX + maskKey(apiKey) + ":" + LocalDate.now(PT_ZONE);
+    void refund(Reservation reservation) {
+        redis.execute(REFUND, List.of(reservation.quotaKey()));
     }
 
-    private Instant ptMidnightInstant() {
-        return LocalDate.now(PT_ZONE).plusDays(1)
-                .atStartOfDay(PT_ZONE).toInstant();
+    void markExhausted(Reservation reservation) {
+        Duration remaining = Duration.between(Instant.now(), reservation.resetAt());
+        if (remaining.toMillis() > 0) {
+            redis.opsForValue().set(reservation.quotaKey(), EXHAUSTED, remaining);
+            log.warn("[QuotaTracker] Key[{}] 被 API 标记为每日配额耗尽，重置时间={}",
+                    reservation.fingerprint().substring(0, 8), reservation.resetAt());
+        }
     }
 
-    static String maskKey(String apiKey) {
-        return apiKey.length() > 8 ? apiKey.substring(0, 8) : apiKey;
+    enum ReservationStatus {
+        ACQUIRED, LOCAL_LIMIT, PROVIDER_LIMIT
+    }
+
+    record Reservation(String quotaKey, Instant resetAt, String fingerprint, ReservationStatus status) {
     }
 }

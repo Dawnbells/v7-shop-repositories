@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,8 @@ public class GeminiTranslateService {
 
     private static final String MODEL = "gemini-3.1-flash-image-preview";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Pattern DAILY_QUOTA = Pattern.compile(
+            "per[ _-]?day|\\bdaily (?:quota|limit)\\b", Pattern.CASE_INSENSITIVE);
 
     private static final int TIMEOUT_TEXT_MS = 120_000;
     private static final int TIMEOUT_HTML_MS = 180_000;
@@ -64,12 +67,10 @@ public class GeminiTranslateService {
     }
 
     private final Map<String, Client> clientMap;
-    private final Client primaryClient;
     private final GeminiQuotaTracker tracker;
     private final Retry geminiInternalRetry;
 
     public GeminiTranslateService(
-            @Value("${gemini.api-keys}") String apiKeysConfig,
             @Value("${gemini.proxy-host:}") String proxyHost,
             @Value("${gemini.proxy-port:0}") int proxyPort,
             GeminiQuotaTracker tracker,
@@ -83,13 +84,22 @@ public class GeminiTranslateService {
             System.setProperty("https.proxyPort", String.valueOf(proxyPort));
             log.info("Gemini API 代理已配置: {}:{}", proxyHost, proxyPort);
         }
-        String[] keys = apiKeysConfig.split(",");
         this.clientMap = new LinkedHashMap<>();
-        for (String key : keys) {
+        for (String key : tracker.getApiKeys()) {
             clientMap.put(key, buildClient(key));
         }
-        this.primaryClient = clientMap.values().iterator().next();
-        log.info("[GeminiTranslateService] 初始化完成: {} 个 API Key", keys.length);
+        log.info("[GeminiTranslateService] 初始化完成: {} 个 API Key", clientMap.size());
+    }
+
+    private void requireConfiguredApiKeys() {
+        if (clientMap.isEmpty()) {
+            throw new IllegalStateException("未配置 Gemini 翻译 API Key，请检查服务端 GEMINI_API_KEY 配置");
+        }
+    }
+
+    private Client primaryClient() {
+        requireConfiguredApiKeys();
+        return clientMap.values().iterator().next();
     }
 
     private Client buildClient(String apiKey) {
@@ -110,43 +120,52 @@ public class GeminiTranslateService {
 
     // ======================== callGemini: 统一配额管理入口 ========================
 
-    private <T> T callGemini(Function<Client, T> action) {
-        String apiKey = tracker.tryAcquire();
-        if (apiKey == null) {
-            throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽");
-        }
-        try {
-            return action.apply(clientMap.get(apiKey));
-        } catch (ApiException e) {
-            if (isDailyQuota429(e)) {
-                tracker.markExhausted(apiKey);
-                String nextKey = tracker.tryAcquire();
-                if (nextKey == null) {
-                    throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽", e);
-                }
-                try {
-                    return action.apply(clientMap.get(nextKey));
-                } catch (ApiException e2) {
-                    if (isDailyQuota429(e2)) {
-                        tracker.markExhausted(nextKey);
-                        throw new DailyQuotaExhaustedException("所有 API Key 今日配额已耗尽", e2);
-                    }
-                    if (shouldDecrement(e2))
-                        tracker.decrement(nextKey);
-                    throw e2;
-                }
+    <T> T callGemini(Function<Client, T> action) {
+        requireConfiguredApiKeys();
+        ApiException dailyQuotaError = null;
+        int locallyExhaustedKeys = 0;
+        for (String apiKey : clientMap.keySet()) {
+            GeminiQuotaTracker.Reservation reservation = tracker.reserve(apiKey);
+            if (reservation.status() == GeminiQuotaTracker.ReservationStatus.LOCAL_LIMIT) {
+                locallyExhaustedKeys++;
             }
-            if (shouldDecrement(e))
-                tracker.decrement(apiKey);
-            throw e;
+            if (reservation.status() != GeminiQuotaTracker.ReservationStatus.ACQUIRED) {
+                continue;
+            }
+            try {
+                return action.apply(clientMap.get(apiKey));
+            } catch (ApiException e) {
+                if (!isDailyQuota429(e)) {
+                    if (shouldRefund(e)) {
+                        tracker.refund(reservation);
+                    }
+                    throw e;
+                }
+                tracker.markExhausted(reservation);
+                dailyQuotaError = e;
+            }
         }
+        throw new DailyQuotaExhaustedException(quotaExhaustedMessage(locallyExhaustedKeys), dailyQuotaError);
     }
 
-    private static boolean isDailyQuota429(ApiException e) {
-        return e.code() == 429 && e.getMessage() != null && e.getMessage().contains("per_day");
+    private String quotaExhaustedMessage(int locallyExhaustedKeys) {
+        if (locallyExhaustedKeys == 0) {
+            return "Gemini 已返回日配额耗尽，服务端没有可用的 API Key";
+        }
+        String localLimit = "服务端 Gemini Key 池的日上限为每个 Key %d 次（GEMINI_DAILY_LIMIT_PER_KEY）"
+                .formatted(tracker.getDailyLimitPerKey());
+        if (locallyExhaustedKeys == clientMap.size()) {
+            return "所有 Key 均已达到服务端日上限。" + localLimit;
+        }
+        return "部分 Key 达到服务端日上限，其余 Key 收到 Gemini 的日配额耗尽响应。" + localLimit;
     }
 
-    private static boolean shouldDecrement(ApiException e) {
+    public static boolean isDailyQuota429(ApiException e) {
+        String message = e.message();
+        return e.code() == 429 && message != null && DAILY_QUOTA.matcher(message).find();
+    }
+
+    private static boolean shouldRefund(ApiException e) {
         int code = e.code();
         return code == 400 || code == 401 || code == 403 || code == 429;
     }
@@ -895,7 +914,7 @@ public class GeminiTranslateService {
                 writer.write(jsonlContent);
             }
             log.info("[uploadBatchFile] 上传 JSONL 文件: size={}bytes", jsonlContent.length());
-            var uploadedFile = primaryClient.files.upload(
+            var uploadedFile = primaryClient().files.upload(
                     tempFile,
                     UploadFileConfig.builder()
                             .displayName("product-ai-translate-" + System.currentTimeMillis())
@@ -916,18 +935,18 @@ public class GeminiTranslateService {
         CreateBatchJobConfig config = CreateBatchJobConfig.builder()
                 .displayName("product-ai-translate-" + System.currentTimeMillis())
                 .build();
-        BatchJob job = primaryClient.batches.create(MODEL, source, config);
+        BatchJob job = primaryClient().batches.create(MODEL, source, config);
         log.info("[createBatchJob] 批量任务已创建: name={}", job.name().orElse("N/A"));
         return job;
     }
 
     public BatchJob getBatchJob(String jobName) {
-        return primaryClient.batches.get(jobName, null);
+        return primaryClient().batches.get(jobName, null);
     }
 
     public void cancelBatchJob(String jobName) {
         try {
-            primaryClient.batches.cancel(jobName, null);
+            primaryClient().batches.cancel(jobName, null);
             log.info("[cancelBatchJob] 已取消: {}", jobName);
         } catch (Exception e) {
             log.warn("[cancelBatchJob] 取消失败: {}, error={}", jobName, e.getMessage());
@@ -936,7 +955,7 @@ public class GeminiTranslateService {
 
     public void deleteBatchJob(String jobName) {
         try {
-            primaryClient.batches.delete(jobName, null);
+            primaryClient().batches.delete(jobName, null);
             log.info("[deleteBatchJob] 已删除: {}", jobName);
         } catch (Exception e) {
             log.warn("[deleteBatchJob] 删除失败: {}, error={}", jobName, e.getMessage());
@@ -947,7 +966,7 @@ public class GeminiTranslateService {
         log.info("[downloadBatchResult] 下载结果文件: {}", fileName);
         File tempFile = File.createTempFile("batch-result-", ".jsonl");
         try {
-            primaryClient.files.download(fileName, tempFile.getAbsolutePath(), null);
+            primaryClient().files.download(fileName, tempFile.getAbsolutePath(), null);
             String result = Files.readString(tempFile.toPath(), java.nio.charset.StandardCharsets.UTF_8);
             log.info("[downloadBatchResult] 下载完成: size={}bytes", result.length());
             return result;
@@ -958,7 +977,7 @@ public class GeminiTranslateService {
 
     public void deleteFile(String fileName) {
         try {
-            primaryClient.files.delete(fileName, null);
+            primaryClient().files.delete(fileName, null);
             log.info("[deleteFile] 已删除文件: {}", fileName);
         } catch (Exception e) {
             log.warn("[deleteFile] 删除文件失败: {}, error={}", fileName, e.getMessage());
